@@ -11,6 +11,10 @@
 class EvaluatedDevelSourceBuildProof;
 class SourceArtifactInstallTrustedExecutionResult;
 struct ArtifactInstallExecutionOptions;
+class ExactArtifactTransactionReceipt;
+class FreshInstalledArtifactBinding;
+enum class ExactArtifactReceiptIssue;
+enum class InstalledRecordObservationIssue;
 
 // S5-A owns the original Slice 4 proof through the sealed transport attempt.
 // This is an input capability, not a transaction receipt or installed proof.
@@ -36,10 +40,22 @@ public:
     [[nodiscard]] SourceArtifactInstallTrustedExecutionResult execute(
         const ArtifactInstallExecutionOptions& options);
 
+    // S5-B component producer; no normal CLI/source-route caller. Operation
+    // outcome is returned independently of these receipt/observation outputs.
+    // The original Slice 4 proof stays here; S5-C final composition is absent.
+    [[nodiscard]] SourceArtifactInstallTrustedExecutionResult execute_exact(
+        const ArtifactInstallExecutionOptions& options);
+    [[nodiscard]] const ExactArtifactTransactionReceipt* exact_receipt() const noexcept;
+    [[nodiscard]] std::optional<ExactArtifactReceiptIssue> exact_receipt_issue() const noexcept;
+    [[nodiscard]] const FreshInstalledArtifactBinding* fresh_binding() const noexcept;
+    [[nodiscard]] std::optional<InstalledRecordObservationIssue> installed_binding_issue() const noexcept;
+
 #ifdef MOGUET_ENABLE_SOURCE_ARTIFACT_INSTALL_TRUSTED_TRANSPORT_TEST_HOOKS
     [[nodiscard]] SourceArtifactInstallTrustedExecutionResult execute_for_test(
         const ArtifactInstallExecutionOptions& options,
         const std::string& transaction_token);
+    [[nodiscard]] SourceArtifactInstallTrustedExecutionResult execute_exact_for_test(
+        const ArtifactInstallExecutionOptions& options, const std::string& transaction_token);
 #endif
 
 private:
@@ -50,7 +66,7 @@ private:
     explicit EvaluatedDevelSourceArtifactTransport(std::unique_ptr<State> state) noexcept;
     [[nodiscard]] SourceArtifactInstallTrustedExecutionResult execute_impl(
         const ArtifactInstallExecutionOptions& options,
-        const std::string* test_token);
+        const std::string* test_token, bool exact = false);
     std::unique_ptr<State> state_;
 };
 

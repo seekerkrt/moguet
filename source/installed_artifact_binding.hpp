@@ -1,6 +1,7 @@
 #pragma once
 
 #include "devel_build_provenance_decoder_authority.hpp"
+#include "installed_artifact_binding_observer_authority.hpp"
 #include "installed_package.hpp"
 #include "source_package_identity.hpp"
 
@@ -75,6 +76,7 @@ public:
 
 private:
     friend class DevelBuildProvenancePersistentDecoderAccess;
+    friend class InstalledArtifactBindingObserver;
 #ifdef MOGUET_ENABLE_INSTALLED_ARTIFACT_BINDING_TEST_HOOKS
     friend InstalledPackageRecordGeneration
     make_installed_package_record_generation_fixture_for_test(
@@ -117,6 +119,7 @@ public:
 
 private:
     friend class DevelBuildProvenancePersistentDecoderAccess;
+    friend class InstalledArtifactBindingObserver;
 #ifdef MOGUET_ENABLE_INSTALLED_ARTIFACT_BINDING_TEST_HOOKS
     friend InstalledArtifactBinding
     make_installed_artifact_binding_fixture_for_test(

@@ -2,6 +2,8 @@
 
 #include "evaluated_devel_source_build.hpp"
 #include "evaluated_devel_source_artifact_transport.hpp"
+#include "exact_artifact_transaction_receipt.hpp"
+#include "fresh_installed_artifact_binding.hpp"
 #include "logging.hpp"
 #include "package_identifier.hpp"
 #include "process.hpp"
@@ -430,12 +432,23 @@ struct PreparedTransportInput {
     std::vector<std::string> requested_package_names;
 };
 
+// Internal capture shared only by the existing engine and the retained-proof
+// owner in this TU. Raw wire values never leave here as a receipt capability.
+struct ExactArtifactTransportCapture {
+    bool known_success = false;
+    std::optional<SourceArtifactInstallRootPrepareRequest> manifest;
+    std::string stage;
+    std::optional<ExactArtifactRootEvidence> evidence;
+    ExactArtifactOperationRecords records;
+    ExactArtifactReceiptIssue issue = ExactArtifactReceiptIssue::Missing;
+};
+
 std::vector<std::string> prepare_arguments(
     const SourceArtifactInstallRootPrepareRequest& request) {
     std::vector<std::string> arguments{
         "--",
         MOGUET_SOURCE_ARTIFACT_INSTALL_HELPER_PATH,
-        "prepare",
+        request.purpose == SourceArtifactInstallTrustedPurpose::ExactInstalledBinding ? "prepare-exact" : "prepare",
         request.transaction_token,
         request.package_base,
         request.directive == SourceArtifactInstallTrustedDirective::
@@ -456,6 +469,8 @@ std::vector<std::string> prepare_arguments(
         arguments.push_back(std::to_string(artifact.signature_size));
         arguments.push_back(artifact.archive_sha256);
         arguments.push_back(artifact.signature_sha256);
+        if(request.purpose == SourceArtifactInstallTrustedPurpose::ExactInstalledBinding)
+            arguments.push_back(artifact.raw_mtree_sha256);
     }
     return arguments;
 }
@@ -1006,6 +1021,12 @@ public:
             std::move(diagnostic));
     }
 
+    static SourceArtifactInstallTrustedExecutionResult exact_postprocessing_failure(bool has_receipt) noexcept {
+        return SourceArtifactInstallTrustedExecutionResult(
+            has_receipt ? SourceArtifactInstallTrustedExecutionStatus::Complete : SourceArtifactInstallTrustedExecutionStatus::ConsumeFailed,
+            0, std::nullopt, std::nullopt, std::nullopt);
+    }
+
     static SourceArtifactInstallTrustedExecutionResult execute(
         PreparedPackageBaseArtifactInstall& install,
         const SourceArtifactInstallTrustedBinding& binding,
@@ -1030,7 +1051,8 @@ public:
         const std::string& transaction_token,
         const PreparedPackageBaseArtifactInstall* install = nullptr,
         const SourceArtifactInstallTrustedBinding* binding = nullptr,
-        std::optional<SourceArtifactInstallReceiptExpectation> expectation = std::nullopt) {
+        std::optional<SourceArtifactInstallReceiptExpectation> expectation = std::nullopt,
+        ExactArtifactTransportCapture* exact_capture = nullptr) {
         CapturedCommandResult prepare_result;
         try {
             prepare_result = capture_explicit(prepare_invocation(
@@ -1091,6 +1113,8 @@ public:
                                   : "source-artifact preparation authority and exact abort failed",
                 std::nullopt, parse_helper_refusal(prepare_result, transaction_token).value_or(SourceArtifactInstallSealingRefusal{SourceArtifactInstallSealingFailure::TrustedTransportProtocolMismatch}));
         }
+
+        if(exact_capture) exact_capture->stage = prepared->staged_identity_sha256;
 
         int pacman_status = 127;
         try {
@@ -1193,6 +1217,47 @@ public:
                 abort_status == 0
                     ? "source-artifact pacman transaction failed"
                     : "source-artifact pacman transaction and exact abort failed");
+        }
+
+        if(exact_capture) {
+            // Fix success before any receipt/DB allocation. The owner can retain
+            // this fact even if an exception escapes post-transaction processing.
+            exact_capture->known_success = true;
+            try {
+                auto invocation = helper_invocation("consume-exact", transaction_token);
+                invocation.stdout_capture_limit = SOURCE_ARTIFACT_INSTALL_MAXIMUM_PROTOCOL_BYTES;
+                auto consumed = capture_explicit(invocation);
+                if(consumed.exit_code != 0 || consumed.stdout_capture_limit_exceeded) {
+                    exact_capture->issue = ExactArtifactReceiptIssue::Invalid;
+                    return exact_postprocessing_failure(false);
+                }
+                auto parsed = parse_exact_artifact_root_evidence(consumed.output, input.root_request, prepared->staged_identity_sha256);
+                auto* evidence = std::get_if<ExactArtifactRootEvidence>(&parsed);
+                if(!evidence) {
+                    exact_capture->issue = std::get<ExactArtifactReceiptIssue>(parsed);
+                    return SourceArtifactInstallTrustedExecutionResult(SourceArtifactInstallTrustedExecutionStatus::MalformedReceipt,
+                                                                       0, std::nullopt, std::nullopt, std::nullopt);
+                }
+                auto records = join_exact_artifact_operation_fragments(evidence->installs, evidence->upgrades,
+                                                                       input.root_request, prepared->staged_identity_sha256);
+                if(const auto* issue = std::get_if<ExactArtifactReceiptIssue>(&records)) {
+                    exact_capture->issue = *issue;
+                    return SourceArtifactInstallTrustedExecutionResult(
+                        *issue == ExactArtifactReceiptIssue::Missing ? SourceArtifactInstallTrustedExecutionStatus::Missing
+                                                                     : SourceArtifactInstallTrustedExecutionStatus::MalformedReceipt,
+                        0, std::nullopt, std::nullopt, std::nullopt);
+                }
+                exact_capture->records = std::move(std::get<ExactArtifactOperationRecords>(records));
+                exact_capture->evidence.emplace(std::move(*evidence));
+                return SourceArtifactInstallTrustedExecutionResult(SourceArtifactInstallTrustedExecutionStatus::Complete,
+                                                                   0, std::nullopt, std::nullopt, std::nullopt);
+            } catch(const std::bad_alloc&) {
+                exact_capture->issue = ExactArtifactReceiptIssue::ResourceFailure;
+                return exact_postprocessing_failure(false);
+            } catch(...) {
+                exact_capture->issue = ExactArtifactReceiptIssue::Invalid;
+                return exact_postprocessing_failure(false);
+            }
         }
 
         // A known zero outcome plus independently observed execution fixes
@@ -1368,6 +1433,10 @@ struct EvaluatedDevelSourceArtifactTransport::State {
     EvaluatedDevelSourceBuildProof proof;
     bool consumed = false;
     std::optional<std::string> transaction_token;
+    std::optional<ExactArtifactTransactionReceipt> receipt;
+    std::optional<ExactArtifactReceiptIssue> receipt_issue;
+    std::optional<FreshInstalledArtifactBinding> fresh_binding;
+    std::optional<InstalledRecordObservationIssue> binding_issue;
 
     explicit State(EvaluatedDevelSourceBuildProof value) noexcept
         : proof(std::move(value)) {
@@ -1404,14 +1473,33 @@ SourceArtifactInstallTrustedExecutionResult EvaluatedDevelSourceArtifactTranspor
     return execute_impl(options, nullptr);
 }
 
+SourceArtifactInstallTrustedExecutionResult EvaluatedDevelSourceArtifactTransport::execute_exact(
+    const ArtifactInstallExecutionOptions& options) {
+    return execute_impl(options, nullptr, true);
+}
+
+const ExactArtifactTransactionReceipt* EvaluatedDevelSourceArtifactTransport::exact_receipt() const noexcept {
+    return state_ && state_->receipt ? &*state_->receipt : nullptr;
+}
+std::optional<ExactArtifactReceiptIssue> EvaluatedDevelSourceArtifactTransport::exact_receipt_issue() const noexcept {
+    return state_ ? state_->receipt_issue : std::nullopt;
+}
+const FreshInstalledArtifactBinding* EvaluatedDevelSourceArtifactTransport::fresh_binding() const noexcept {
+    return state_ && state_->fresh_binding ? &*state_->fresh_binding : nullptr;
+}
+std::optional<InstalledRecordObservationIssue> EvaluatedDevelSourceArtifactTransport::installed_binding_issue() const noexcept {
+    return state_ ? state_->binding_issue : std::nullopt;
+}
+
 SourceArtifactInstallTrustedExecutionResult EvaluatedDevelSourceArtifactTransport::execute_impl(
-    const ArtifactInstallExecutionOptions& options, const std::string* test_token) {
+    const ArtifactInstallExecutionOptions& options, const std::string* test_token, bool exact) {
     using Status = SourceArtifactInstallTrustedExecutionStatus;
     if(!active()) return SourceArtifactInstallTrustedTransport::invalid_result(
         Status::InvalidRequest, "evaluated artifact transport is inactive");
     // The moved-in build capability cannot be recovered/retried after even a
     // local refusal. Keep its FD/context alive through every returned outcome.
     state_->consumed = true;
+    if(exact) state_->receipt_issue = ExactArtifactReceiptIssue::Missing;
     if(test_token == nullptr && !fixed_executables_are_trusted())
         return SourceArtifactInstallTrustedTransport::invalid_result(
             Status::TrustedExecutableUnavailable, "installed source-artifact trusted executables are unavailable");
@@ -1422,6 +1510,7 @@ SourceArtifactInstallTrustedExecutionResult EvaluatedDevelSourceArtifactTranspor
             Status::TokenGenerationFailed, "evaluated artifact transport token generation failed");
 
     bool privileged_attempted = false;
+    ExactArtifactTransportCapture exact_capture;
     try {
         const auto& artifact = state_->proof.artifact();
         const auto& evidence = artifact.evidence();
@@ -1463,6 +1552,11 @@ SourceArtifactInstallTrustedExecutionResult EvaluatedDevelSourceArtifactTranspor
         // needed=false installs the proved build without introducing skip policy.
         SourceArtifactInstallRootPrepareRequest request{
             *state_->transaction_token, *package_base, SourceArtifactInstallTrustedDirective::PreserveExistingReason, false, options.no_confirm, {{0, identity.package_name, identity.full_version, *package_base, *architecture, static_cast<std::uint64_t>(artifact.size_), 0, digest, "-"}}};
+        if(exact) {
+            request.purpose = SourceArtifactInstallTrustedPurpose::ExactInstalledBinding;
+            request.artifacts.front().raw_mtree_sha256 = evidence.mtree_digest.value();
+            exact_capture.manifest = request;
+        }
         seal_snapshot(snapshot.get(), request);
         // Close hash-to-copy mutation as well: the immutable bytes sent across
         // privilege must carry the very same saved digest, not just a new hash.
@@ -1472,13 +1566,41 @@ SourceArtifactInstallTrustedExecutionResult EvaluatedDevelSourceArtifactTranspor
         PreparedTransportInput input{
             std::move(snapshot), std::move(request), {}, {identity.package_name}};
         privileged_attempted = true;
-        return SourceArtifactInstallTrustedTransport::execute_snapshot(
-            std::move(input), *state_->transaction_token);
+        auto execution = SourceArtifactInstallTrustedTransport::execute_snapshot(
+            std::move(input), *state_->transaction_token, nullptr, nullptr, std::nullopt, exact ? &exact_capture : nullptr);
+        if(exact_capture.known_success) {
+            state_->receipt_issue = exact_capture.issue;
+            if(exact_capture.evidence) {
+                state_->receipt.emplace(ExactArtifactTransactionReceipt(std::move(*exact_capture.manifest), std::move(exact_capture.stage),
+                                                                        std::move(exact_capture.records), std::move(*exact_capture.evidence)));
+                state_->receipt_issue.reset();
+                auto observed = InstalledArtifactBindingObserver::observe(*state_->receipt, state_->proof);
+                if(auto* binding = std::get_if<FreshInstalledArtifactBinding>(&observed))
+                    state_->fresh_binding.emplace(std::move(*binding));
+                else
+                    state_->binding_issue = std::get<FreshInstalledArtifactBindingFailure>(observed).reason;
+            }
+        }
+        return execution;
     } catch(const std::exception& error) {
+        if(exact_capture.known_success) {
+            if(state_->receipt)
+                state_->binding_issue = InstalledRecordObservationIssue::ResourceFailure;
+            else
+                state_->receipt_issue = ExactArtifactReceiptIssue::ResourceFailure;
+            return SourceArtifactInstallTrustedTransport::exact_postprocessing_failure(state_->receipt.has_value());
+        }
         if(privileged_attempted) return SourceArtifactInstallTrustedTransport::unknown_after_consumption(
             nullptr, *state_->transaction_token);
         return SourceArtifactInstallTrustedTransport::invalid_result(Status::ArtifactSnapshotFailed, error.what());
     } catch(...) {
+        if(exact_capture.known_success) {
+            if(state_->receipt)
+                state_->binding_issue = InstalledRecordObservationIssue::ResourceFailure;
+            else
+                state_->receipt_issue = ExactArtifactReceiptIssue::ResourceFailure;
+            return SourceArtifactInstallTrustedTransport::exact_postprocessing_failure(state_->receipt.has_value());
+        }
         if(privileged_attempted) return SourceArtifactInstallTrustedTransport::unknown_after_consumption(
             nullptr, *state_->transaction_token);
         return SourceArtifactInstallTrustedTransport::invalid_result(
@@ -1490,6 +1612,11 @@ SourceArtifactInstallTrustedExecutionResult EvaluatedDevelSourceArtifactTranspor
 SourceArtifactInstallTrustedExecutionResult EvaluatedDevelSourceArtifactTransport::execute_for_test(
     const ArtifactInstallExecutionOptions& options, const std::string& transaction_token) {
     return execute_impl(options, &transaction_token);
+}
+
+SourceArtifactInstallTrustedExecutionResult EvaluatedDevelSourceArtifactTransport::execute_exact_for_test(
+    const ArtifactInstallExecutionOptions& options, const std::string& transaction_token) {
+    return execute_impl(options, &transaction_token, true);
 }
 
 void set_evaluated_devel_source_artifact_transport_test_hooks(

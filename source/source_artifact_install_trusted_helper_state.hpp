@@ -1,6 +1,7 @@
 #pragma once
 
 #include "source_artifact_install_trusted_protocol.hpp"
+#include "exact_artifact_transaction_protocol.hpp"
 
 #include <memory>
 #include <stdexcept>
@@ -62,11 +63,16 @@ public:
     void record(
         const std::string& transaction_token,
         int needs_targets_input_fd);
+    void record_install(const std::string& transaction_token, int needs_targets_input_fd);
+    void record_upgrade(const std::string& transaction_token, int needs_targets_input_fd);
+    [[nodiscard]] std::string consume_exact(const std::string& transaction_token);
     [[nodiscard]] std::string consume(
         const std::string& transaction_token);
     void abort(const std::string& transaction_token);
 
 private:
+    void record_exact_operation(const std::string& transaction_token, int needs_targets_input_fd,
+                                ExactArtifactTransactionOperation fixed_operation);
     struct Implementation;
 
     explicit SourceArtifactInstallTrustedStateStore(

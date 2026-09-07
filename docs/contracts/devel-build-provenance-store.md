@@ -76,7 +76,9 @@ codec専用のprivate accessに閉じる。test fixture mintはcompile definitio
 S5-Aではcycle-freeな`devel_build_provenance_decoder_authority.hpp`をfriend付与元のnarrow headerと
 codec headerで共有する。installed binding headerだけをincludeしたconsumerによる同名decoder定義も
 compileで拒否する。正規persistent decodeは従来どおりhistorical valueを復元し、fresh live authorityを与えない。
-future live installed observation producerはSlice 5の別authorityであり、Slice 2では実装しない。
+S5-Bの[live installed observation producer](exact-installed-artifact-binding.md)は別authorityであり、
+complete private declarationを共有する。persistent decodeからfresh live bindingへ昇格する入口はない。
+このstoreのschema、publicationと通常routeへの未接続は変更しない。
 
 ## Production-disconnected boundary
 

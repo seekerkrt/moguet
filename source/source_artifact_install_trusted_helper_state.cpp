@@ -50,6 +50,10 @@ constexpr std::string_view HOOK_DIRECTORY = "hooks";
 constexpr std::string_view ARTIFACT_DIRECTORY = "artifacts";
 constexpr std::string_view RECEIPT_FILE = "receipt";
 constexpr std::string_view PARTIAL_RECEIPT_FILE = "receipt.partial";
+constexpr std::string_view EXACT_DIRECTORY = "exact";
+constexpr std::string_view DATABASE_WORLD_FILE = "world";
+constexpr std::array<std::string_view, 5> EXACT_RECORD_FILES = {
+    "baseline", "install", "upgrade", "install-anchor", "upgrade-anchor"};
 
 class OwnedDescriptor final {
 public:
@@ -442,8 +446,28 @@ std::string execution_hook_contents(const std::string& token) {
            token + "\n";
 }
 
-std::vector<std::string> expected_hook_entries(const std::string& token) {
+std::string exact_operation_hook_filename(const std::string& token, bool upgrade) {
+    return "moguet-exact-" + std::string(upgrade ? "upgrade-" : "install-") + token + ".hook";
+}
+
+std::string exact_operation_hook_contents(const std::string& token, bool upgrade) {
+    return "[Trigger]\nOperation = " + std::string(upgrade ? "Upgrade" : "Install") +
+           "\nType = Package\nTarget = *\n\n[Action]\nDescription = Record exact Moguet package operation\n"
+           "When = PostTransaction\nExec = " MOGUET_SOURCE_ARTIFACT_INSTALL_HELPER_PATH +
+           std::string(upgrade ? " record-upgrade " : " record-install ") + token + "\nNeedsTargets\n";
+}
+
+std::vector<std::string> expected_hook_entries(const SourceArtifactInstallRootPrepareRequest& request) {
+    const auto& token = request.transaction_token;
+    if(request.purpose == SourceArtifactInstallTrustedPurpose::ExactInstalledBinding)
+        return {exact_operation_hook_filename(token, false), exact_operation_hook_filename(token, true), execution_hook_filename(token)};
     return {source_artifact_install_hook_filename(token), execution_hook_filename(token)};
+}
+
+std::string expected_hook_contents(const SourceArtifactInstallRootPrepareRequest& request, const std::string& name) {
+    if(name == execution_hook_filename(request.transaction_token)) return execution_hook_contents(request.transaction_token);
+    if(request.purpose == SourceArtifactInstallTrustedPurpose::CleanupInstallOnly) return hook_contents(request.transaction_token);
+    return exact_operation_hook_contents(request.transaction_token, name == exact_operation_hook_filename(request.transaction_token, true));
 }
 
 bool unlink_if_present(int parent_fd, const std::string& name, int flags = 0) {
@@ -479,10 +503,8 @@ bool cleanup_preparing_directory(
             O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
         if(hooks_descriptor >= 0) {
             OwnedDescriptor hooks(hooks_descriptor);
-            static_cast<void>(unlink_if_present(
-                hooks.get(), source_artifact_install_hook_filename(
-                                 request.transaction_token)));
-            static_cast<void>(unlink_if_present(hooks.get(), execution_hook_filename(request.transaction_token)));
+            for(const auto& name : expected_hook_entries(request))
+                static_cast<void>(unlink_if_present(hooks.get(), name));
         }
         static_cast<void>(unlink_if_present(
             staging.get(), std::string(HOOK_DIRECTORY), AT_REMOVEDIR));
@@ -503,6 +525,12 @@ bool cleanup_preparing_directory(
             staging.get(), std::string(PREPARED_FILE)));
         static_cast<void>(unlink_if_present(staging.get(), std::string(IDENTITY_FILE)));
         static_cast<void>(unlink_if_present(staging.get(), std::string(LIFETIME_FILE)));
+        if(request.purpose == SourceArtifactInstallTrustedPurpose::ExactInstalledBinding) {
+            OwnedDescriptor exact(openat(staging.get(), std::string(EXACT_DIRECTORY).c_str(),
+                                         O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC));
+            if(exact.get() >= 0) static_cast<void>(unlink_if_present(exact.get(), std::string(DATABASE_WORLD_FILE)));
+            static_cast<void>(unlink_if_present(staging.get(), std::string(EXACT_DIRECTORY), AT_REMOVEDIR));
+        }
         return unlink_if_present(active_fd, staging_name, AT_REMOVEDIR);
     } catch(...) {
         return false;
@@ -668,6 +696,15 @@ void require_transaction_entries(int descriptor, std::vector<std::string> expect
                                  uid_t owner, const std::string& description) {
     static_cast<void>(open_private_file(descriptor, std::string(LIFETIME_FILE), owner, "transaction lifetime lease"));
     expected.emplace_back(LIFETIME_FILE);
+    if(entry_exists(descriptor, std::string(EXACT_DIRECTORY))) {
+        auto prepared = open_private_file(descriptor, std::string(PREPARED_FILE), owner, "exact purpose");
+        const auto parsed = parse_source_artifact_install_root_prepared_state(
+            read_bounded(prepared.get(), SOURCE_ARTIFACT_INSTALL_MAXIMUM_PROTOCOL_BYTES, "exact purpose"));
+        const auto* request = std::get_if<SourceArtifactInstallRootPrepareRequest>(&parsed);
+        if(!request || request->purpose != SourceArtifactInstallTrustedPurpose::ExactInstalledBinding)
+            throw_state_error_message("cleanup state cannot adopt exact evidence");
+        expected.emplace_back(EXACT_DIRECTORY);
+    }
     for(const auto name : {EXECUTION_FILE, AUTHORIZED_FILE, REFUSAL_FILE, OBSERVED_FILE}) {
         if(entry_exists(descriptor, std::string(name))) {
             static_cast<void>(open_private_file(descriptor, std::string(name), owner, description));
@@ -706,17 +743,29 @@ std::string collect_staged_projection(int transaction_fd, uid_t owner,
     projection += "request-sha256\t" + xdg_generation_store_raw_contents_sha256(prepared_bytes) + "\n";
     descriptors.push_back(std::move(prepared));
 
+    if(request.purpose == SourceArtifactInstallTrustedPurpose::ExactInstalledBinding) {
+        auto exact = open_directory_at(transaction_fd, std::string(EXACT_DIRECTORY), owner, PRIVATE_DIRECTORY_MODE, "exact evidence directory");
+        const auto exact_identity = StagedFilesystemIdentity::observe(exact.get());
+        auto world = open_private_file(exact.get(), std::string(DATABASE_WORLD_FILE), owner, "sealed database world");
+        const auto world_identity = StagedFilesystemIdentity::observe(world.get());
+        const auto bytes = read_bounded(world.get(), SOURCE_ARTIFACT_INSTALL_MAXIMUM_PROTOCOL_BYTES, "sealed database world");
+        require_staged_identity(exact.get(), std::string(DATABASE_WORLD_FILE), world.get(), world_identity);
+        require_staged_identity(transaction_fd, std::string(EXACT_DIRECTORY), exact.get(), exact_identity);
+        projection += "PURPOSE\tExactInstalledBinding\n" + exact_identity.serialize("exact") + world_identity.serialize("world") +
+                      "world-sha256\t" + xdg_generation_store_raw_contents_sha256(bytes) + "\n";
+        descriptors.push_back(std::move(world));
+        descriptors.push_back(std::move(exact));
+    }
+
     OwnedDescriptor hooks = open_directory_at(transaction_fd, std::string(HOOK_DIRECTORY), owner,
                                               PRIVATE_DIRECTORY_MODE, "transaction hook directory");
     const auto hooks_identity = StagedFilesystemIdentity::observe(hooks.get());
-    require_exact_entries(hooks.get(), expected_hook_entries(request.transaction_token), "transaction hook directory");
+    require_exact_entries(hooks.get(), expected_hook_entries(request), "transaction hook directory");
     projection += hooks_identity.serialize("hooks");
-    for(const auto& hook_name : expected_hook_entries(request.transaction_token)) {
+    for(const auto& hook_name : expected_hook_entries(request)) {
         OwnedDescriptor hook = open_private_file(hooks.get(), hook_name, owner, "transaction hook");
         const auto hook_identity = StagedFilesystemIdentity::observe(hook.get());
-        const auto expected_contents = hook_name == execution_hook_filename(request.transaction_token)
-                                           ? execution_hook_contents(request.transaction_token)
-                                           : hook_contents(request.transaction_token);
+        const auto expected_contents = expected_hook_contents(request, hook_name);
         if(read_bounded(hook.get(), SOURCE_ARTIFACT_INSTALL_MAXIMUM_PROTOCOL_BYTES, "transaction hook") != expected_contents) {
             throw SourceArtifactInstallTrustedStateError(
                 SourceArtifactInstallSealingFailure::TrustedTransportProtocolMismatch, "transaction hook changed");
@@ -905,6 +954,108 @@ void publish_observed_execution(int transaction_fd, uid_t owner, const std::stri
     synchronize_file(transaction_fd, "observed execution transaction");
 }
 
+std::string staged_identity_digest(int transaction_fd, uid_t owner) {
+    auto identity = open_private_file(transaction_fd, std::string(IDENTITY_FILE), owner, "exact staged identity");
+    const auto before = StagedFilesystemIdentity::observe(identity.get());
+    const auto bytes = read_bounded(identity.get(), MAX_IDENTITY_BYTES, "exact staged identity");
+    require_staged_identity(transaction_fd, std::string(IDENTITY_FILE), identity.get(), before);
+    return xdg_generation_store_raw_contents_sha256(bytes);
+}
+
+std::string exact_private_prefix(int descriptor, const std::string& leaf,
+                                 const SourceArtifactInstallRootPrepareRequest& request, const std::string& stage) {
+    auto identity = StagedFilesystemIdentity::observe(descriptor);
+    identity.size = 0;
+    identity.mtime_seconds = identity.mtime_nanoseconds = identity.ctime_seconds = identity.ctime_nanoseconds = 0;
+    return "MOGUET-EXACT-PRIVATE-RECORD\t1\nTOKEN\t" + request.transaction_token +
+           "\nPURPOSE\tExactInstalledBinding\nMANIFEST\t" +
+           xdg_generation_store_raw_contents_sha256(serialize_source_artifact_install_root_prepared_state(request)) +
+           "\nSTAGE\t" + stage + "\nLEAF\t" + leaf + "\n" + identity.serialize("self") + "PAYLOAD\n";
+}
+
+OwnedDescriptor claim_exact_record(int exact_fd, uid_t owner, const std::string& leaf) {
+    // Creating the partial first leaves durable invalid evidence on duplicate
+    // invocation, including complete+partial coexistence. Never repair either.
+    auto partial = create_private_file(exact_fd, leaf + ".partial", owner, "exact record invocation");
+    require_entry_absent(exact_fd, leaf, "complete exact record");
+    return partial;
+}
+
+void publish_claimed_exact_record(int exact_fd, uid_t owner, const std::string& leaf, OwnedDescriptor partial,
+                                  const SourceArtifactInstallRootPrepareRequest& request, const std::string& stage,
+                                  const std::string& payload) {
+    if(payload.size() > SOURCE_ARTIFACT_INSTALL_MAXIMUM_PROTOCOL_BYTES - 4096)
+        throw_state_error_message("exact record payload exceeds its bound");
+    const auto prefix = exact_private_prefix(partial.get(), leaf, request, stage);
+    write_all(partial.get(), prefix + payload);
+    synchronize_file(partial.get(), "partial exact record");
+    const auto identity = StagedFilesystemIdentity::observe(partial.get());
+    require_staged_identity(exact_fd, leaf + ".partial", partial.get(), identity);
+    static_cast<void>(require_descriptor_metadata(partial.get(), owner, S_IFREG, PRIVATE_FILE_MODE, "partial exact record"));
+    rename_noreplace(exact_fd, leaf + ".partial", exact_fd, leaf, "complete exact record");
+    // rename changes ctime on Linux, so compare the immutable object identity
+    // and then retain the post-publication metadata for named/FD reproof.
+    require_named_identity(exact_fd, leaf, require_descriptor_metadata(partial.get(), owner, S_IFREG, PRIVATE_FILE_MODE, "complete exact record"), "complete exact record");
+    if(exact_private_prefix(partial.get(), leaf, request, stage) != prefix)
+        throw_state_error_message("exact record identity changed during publication");
+    synchronize_file(exact_fd, "exact record directory");
+}
+
+std::optional<std::string> read_exact_record(int exact_fd, uid_t owner, const std::string& leaf,
+                                             const SourceArtifactInstallRootPrepareRequest& request, const std::string& stage) {
+    if(entry_exists(exact_fd, leaf + ".partial")) throw_state_error_message("partial exact record cannot be adopted");
+    if(!entry_exists(exact_fd, leaf)) return std::nullopt;
+    auto record = open_private_file(exact_fd, leaf, owner, "complete exact record");
+    const auto identity = StagedFilesystemIdentity::observe(record.get());
+    const auto bytes = read_bounded(record.get(), SOURCE_ARTIFACT_INSTALL_MAXIMUM_PROTOCOL_BYTES, "complete exact record");
+    require_staged_identity(exact_fd, leaf, record.get(), identity);
+    const auto prefix = exact_private_prefix(record.get(), leaf, request, stage);
+    if(!bytes.starts_with(prefix)) throw_state_error_message("exact record has stale, recreated, or mismatched authority");
+    return bytes.substr(prefix.size());
+}
+
+InstalledDatabaseWorldResult read_database_world(int exact_fd, uid_t owner) {
+    auto world = open_private_file(exact_fd, std::string(DATABASE_WORLD_FILE), owner, "sealed database world");
+    const auto before = StagedFilesystemIdentity::observe(world.get());
+    auto parsed = parse_installed_database_world(read_bounded(world.get(), SOURCE_ARTIFACT_INSTALL_MAXIMUM_PROTOCOL_BYTES, "sealed database world"));
+    require_staged_identity(exact_fd, std::string(DATABASE_WORLD_FILE), world.get(), before);
+    return parsed;
+}
+
+ExactArtifactRecordObservations observe_exact_records(const InstalledDatabaseWorldResult& sealed_world,
+                                                      const SourceArtifactInstallRootPrepareRequest& request,
+                                                      const std::vector<std::string>* targets = nullptr) {
+    using Issue = InstalledRecordObservationIssue;
+    auto current_world = resolve_trusted_installed_database_world();
+    const auto* known = std::get_if<InstalledDatabaseWorld>(&sealed_world);
+    const auto* current = std::get_if<InstalledDatabaseWorld>(&current_world);
+    ExactArtifactRecordObservations result;
+    for(const auto& artifact : request.artifacts) {
+        if(targets && std::find(targets->begin(), targets->end(), artifact.package_name) == targets->end()) continue;
+        InstalledPackageRecordObservation observation = Issue::DatabaseWorldMismatch;
+        if(!known)
+            observation = std::get<Issue>(sealed_world);
+        else if(!current)
+            observation = std::get<Issue>(current_world);
+        else if(*known == *current)
+            observation = observe_installed_package_record(*known, artifact.package_name);
+        result.push_back({artifact.artifact_index, artifact.package_name, std::move(observation)});
+    }
+    return result;
+}
+
+std::vector<std::string> exact_directory_entries(int exact_fd) {
+    auto entries = list_directory_entries(exact_fd);
+    for(const auto& entry : entries) {
+        if(entry == DATABASE_WORLD_FILE) continue;
+        bool known = false;
+        for(const auto leaf : EXACT_RECORD_FILES)
+            if(entry == leaf || entry == std::string(leaf) + ".partial") known = true;
+        if(!known) throw_state_error_message("unknown exact evidence entry");
+    }
+    return entries;
+}
+
 void validate_optional_private_file(
     int transaction_fd, uid_t expected_owner,
     const std::string& name, const std::string& description) {
@@ -953,14 +1104,25 @@ void cleanup_retired_transaction(
         retired.descriptor.get(), expected, expected_owner,
         "retired source-artifact transaction");
 
+    if(request.purpose == SourceArtifactInstallTrustedPurpose::ExactInstalledBinding) {
+        auto exact = open_directory_at(retired.descriptor.get(), std::string(EXACT_DIRECTORY), expected_owner,
+                                       PRIVATE_DIRECTORY_MODE, "retired exact evidence");
+        for(const auto& leaf : exact_directory_entries(exact.get())) {
+            static_cast<void>(open_private_file(exact.get(), leaf, expected_owner, "retired exact evidence record"));
+            if(unlinkat(exact.get(), leaf.c_str(), 0) != 0) throw_state_error("unable to remove retired exact record");
+        }
+        if(unlinkat(retired.descriptor.get(), std::string(EXACT_DIRECTORY).c_str(), AT_REMOVEDIR) != 0)
+            throw_state_error("unable to remove retired exact evidence");
+    }
+
     OwnedDescriptor hooks = open_directory_at(
         retired.descriptor.get(), std::string(HOOK_DIRECTORY),
         expected_owner, PRIVATE_DIRECTORY_MODE,
         "retired source-artifact hook directory");
     require_exact_entries(
-        hooks.get(), expected_hook_entries(request.transaction_token),
+        hooks.get(), expected_hook_entries(request),
         "retired source-artifact hook directory");
-    for(const auto& hook_filename : expected_hook_entries(request.transaction_token)) {
+    for(const auto& hook_filename : expected_hook_entries(request)) {
         static_cast<void>(open_private_file(
             hooks.get(), hook_filename, expected_owner,
             "retired source-artifact hook"));
@@ -1230,18 +1392,11 @@ SourceArtifactInstallTrustedStateStore::prepare(
             staging.get(), std::string(HOOK_DIRECTORY),
             state.expected_owner,
             "source-artifact transaction hook directory");
-        const std::string hook_filename =
-            source_artifact_install_hook_filename(
-                request.transaction_token);
-        OwnedDescriptor hook = create_private_file(
-            hooks.get(), hook_filename, state.expected_owner,
-            "source-artifact transaction hook");
-        write_all(hook.get(), hook_contents(request.transaction_token));
-        synchronize_file(hook.get(), "source-artifact transaction hook");
-        OwnedDescriptor execution_hook = create_private_file(
-            hooks.get(), execution_hook_filename(request.transaction_token), state.expected_owner, "execution observation hook");
-        write_all(execution_hook.get(), execution_hook_contents(request.transaction_token));
-        synchronize_file(execution_hook.get(), "execution observation hook");
+        for(const auto& hook_filename : expected_hook_entries(request)) {
+            auto hook = create_private_file(hooks.get(), hook_filename, state.expected_owner, "transaction hook");
+            write_all(hook.get(), expected_hook_contents(request, hook_filename));
+            synchronize_file(hook.get(), "transaction hook");
+        }
         synchronize_file(
             hooks.get(), "source-artifact transaction hook directory");
 
@@ -1290,6 +1445,13 @@ SourceArtifactInstallTrustedStateStore::prepare(
             require_archive_identity(artifact.get(), expected);
         }
 
+        if(request.purpose == SourceArtifactInstallTrustedPurpose::ExactInstalledBinding) {
+            auto exact = ensure_private_directory(staging.get(), std::string(EXACT_DIRECTORY), state.expected_owner, "exact evidence directory");
+            auto world = create_private_file(exact.get(), std::string(DATABASE_WORLD_FILE), state.expected_owner, "sealed database world");
+            write_all(world.get(), serialize_installed_database_world(resolve_trusted_installed_database_world()));
+            synchronize_file(world.get(), "sealed database world");
+            synchronize_file(exact.get(), "exact evidence directory");
+        }
         {
             const std::string projection = collect_staged_projection(staging.get(),
                                                                      state.expected_owner, request, state.reprove_namespace(), lifetime.get());
@@ -1299,11 +1461,10 @@ SourceArtifactInstallTrustedStateStore::prepare(
             synchronize_file(identity.get(), "staged generation authority");
         }
 
-        require_exact_entries(
-            staging.get(),
-            {std::string(PREPARED_FILE), std::string(HOOK_DIRECTORY),
-             std::string(ARTIFACT_DIRECTORY), std::string(IDENTITY_FILE), std::string(LIFETIME_FILE)},
-            "preparing source-artifact state");
+        std::vector<std::string> preparing_entries{std::string(PREPARED_FILE), std::string(HOOK_DIRECTORY),
+                                                   std::string(ARTIFACT_DIRECTORY), std::string(IDENTITY_FILE), std::string(LIFETIME_FILE)};
+        if(request.purpose == SourceArtifactInstallTrustedPurpose::ExactInstalledBinding) preparing_entries.emplace_back(EXACT_DIRECTORY);
+        require_exact_entries(staging.get(), preparing_entries, "preparing source-artifact state");
         synchronize_file(staging.get(), "preparing source-artifact state");
 
         rename_noreplace(
@@ -1330,6 +1491,8 @@ SourceArtifactInstallTrustedStateStore::prepare(
             source_artifact_install_hook_directory(
                 request.transaction_token),
             {}};
+        if(request.purpose == SourceArtifactInstallTrustedPurpose::ExactInstalledBinding)
+            response.staged_identity_sha256 = staged_identity_digest(transaction.descriptor.get(), state.expected_owner);
         response.artifacts.reserve(request.artifacts.size());
         for(std::size_t index = 0; index < request.artifacts.size(); ++index) {
             response.artifacts.push_back(
@@ -1369,9 +1532,11 @@ void SourceArtifactInstallTrustedStateStore::record(
         state.active.get(), state.expected_owner, transaction_token);
     auto lifetime = acquire_lifetime_lease(transaction.descriptor.get(), state.expected_owner,
                                            transaction_token, LOCK_SH);
-    static_cast<void>(validate_prepared_state(
+    const auto request = validate_prepared_state(
         transaction.descriptor.get(), state.expected_owner,
-        transaction_token, state.reprove_namespace(), lifetime.get()));
+        transaction_token, state.reprove_namespace(), lifetime.get());
+    if(request.purpose != SourceArtifactInstallTrustedPurpose::CleanupInstallOnly)
+        throw_state_error_message("legacy Install recording requires cleanup purpose");
     require_transaction_entries(
         transaction.descriptor.get(),
         {std::string(PREPARED_FILE), std::string(HOOK_DIRECTORY),
@@ -1444,6 +1609,120 @@ void SourceArtifactInstallTrustedStateStore::record(
         "recorded source-artifact transaction");
 }
 
+void SourceArtifactInstallTrustedStateStore::record_install(const std::string& token, int input) {
+    record_exact_operation(token, input, ExactArtifactTransactionOperation::Install);
+}
+
+void SourceArtifactInstallTrustedStateStore::record_upgrade(const std::string& token, int input) {
+    record_exact_operation(token, input, ExactArtifactTransactionOperation::Upgrade);
+}
+
+void SourceArtifactInstallTrustedStateStore::record_exact_operation(
+    const std::string& token, int input, ExactArtifactTransactionOperation operation) {
+    if(!implementation_ || !is_valid_trusted_alpm_receipt_token(token) || input < 0)
+        throw_state_error_message("invalid exact operation recording request");
+    auto& state = *implementation_;
+    auto transaction = open_transaction(state.active.get(), state.expected_owner, token);
+    auto lifetime = acquire_lifetime_lease(transaction.descriptor.get(), state.expected_owner, token, LOCK_SH);
+    const auto request = validate_prepared_state(transaction.descriptor.get(), state.expected_owner, token,
+                                                 state.reprove_namespace(), lifetime.get());
+    if(request.purpose != SourceArtifactInstallTrustedPurpose::ExactInstalledBinding)
+        throw_state_error_message("exact operation hook cannot adopt cleanup state");
+    const auto execution = read_execution_authority(transaction.descriptor.get(), state.expected_owner, token);
+    if(!execution.authorized || execution.refusal) throw_state_error_message("exact receipt requires sealed launch authorization");
+    auto exact = open_directory_at(transaction.descriptor.get(), std::string(EXACT_DIRECTORY), state.expected_owner,
+                                   PRIVATE_DIRECTORY_MODE, "exact operation directory");
+    const auto exact_identity = StagedFilesystemIdentity::observe(exact.get());
+    const auto stage = staged_identity_digest(transaction.descriptor.get(), state.expected_owner);
+    const bool upgrade = operation == ExactArtifactTransactionOperation::Upgrade;
+    const std::string leaf = upgrade ? "upgrade" : "install";
+    auto claim = claim_exact_record(exact.get(), state.expected_owner, leaf);
+    const auto targets_result = parse_trusted_alpm_receipt_needs_targets(
+        read_bounded(input, SOURCE_ARTIFACT_INSTALL_MAXIMUM_PROTOCOL_BYTES, "exact NeedsTargets"));
+    const auto* targets = std::get_if<std::vector<std::string>>(&targets_result);
+    if(!targets) throw_state_error_message("invalid exact NeedsTargets");
+    const auto payload = serialize_exact_artifact_operation_fragment(request, stage, operation, *targets);
+    const auto other = read_exact_record(exact.get(), state.expected_owner, upgrade ? "install" : "upgrade", request, stage);
+    const auto joined = join_exact_artifact_operation_fragments(upgrade ? other : std::optional<std::string>(payload),
+                                                                upgrade ? std::optional<std::string>(payload) : other, request, stage);
+    if(const auto* issue = std::get_if<ExactArtifactReceiptIssue>(&joined);
+       issue && *issue != ExactArtifactReceiptIssue::Missing)
+        throw_state_error_message("conflicting exact operation fragments");
+    require_named_identity(state.active.get(), token, transaction.metadata, "exact recording transaction");
+    require_staged_identity(transaction.descriptor.get(), std::string(EXACT_DIRECTORY), exact.get(), exact_identity);
+    static_cast<void>(state.reprove_namespace());
+    if(read_observed_execution(transaction.descriptor.get(), state.expected_owner, token) == SourceArtifactInstallExecutionEvidence::Unobserved)
+        publish_observed_execution(transaction.descriptor.get(), state.expected_owner, token, SourceArtifactInstallExecutionEvidence::PostTransaction);
+
+    // Actual operation authority is durable before any local DB session,
+    // metadata read, generation lookup, or anchor allocation can fail.
+    publish_claimed_exact_record(exact.get(), state.expected_owner, leaf, std::move(claim), request, stage, payload);
+    try {
+        auto anchor_claim = claim_exact_record(exact.get(), state.expected_owner, leaf + "-anchor");
+        const auto anchors = observe_exact_records(read_database_world(exact.get(), state.expected_owner), request, targets);
+        require_staged_identity(transaction.descriptor.get(), std::string(EXACT_DIRECTORY), exact.get(), exact_identity);
+        publish_claimed_exact_record(exact.get(), state.expected_owner, leaf + "-anchor", std::move(anchor_claim), request, stage,
+                                     serialize_exact_artifact_record_observations(anchors));
+    } catch(...) {
+        // The core receipt remains intact. Missing/partial anchors only prevent
+        // binding proof and must not erase the observed Install/Upgrade.
+    }
+}
+
+std::string SourceArtifactInstallTrustedStateStore::consume_exact(const std::string& token) {
+    if(!implementation_ || !is_valid_trusted_alpm_receipt_token(token)) throw_state_error_message("invalid exact consume request");
+    auto& state = *implementation_;
+    auto transaction = open_transaction(state.active.get(), state.expected_owner, token);
+    auto lifetime = acquire_lifetime_lease(transaction.descriptor.get(), state.expected_owner, token, LOCK_EX);
+    const auto request = validate_prepared_state(transaction.descriptor.get(), state.expected_owner, token,
+                                                 state.reprove_namespace(), lifetime.get());
+    if(request.purpose != SourceArtifactInstallTrustedPurpose::ExactInstalledBinding)
+        throw_state_error_message("exact consumption cannot adopt cleanup state");
+    const auto execution = read_execution_authority(transaction.descriptor.get(), state.expected_owner, token);
+    if(!execution.authorized || execution.refusal ||
+       read_observed_execution(transaction.descriptor.get(), state.expected_owner, token) == SourceArtifactInstallExecutionEvidence::Unobserved)
+        throw_state_error_message("exact consumption lacks package-manager execution evidence");
+    require_transaction_entries(transaction.descriptor.get(), {std::string(PREPARED_FILE), std::string(HOOK_DIRECTORY), std::string(ARTIFACT_DIRECTORY), std::string(IDENTITY_FILE)},
+                                state.expected_owner, "consumable exact transaction");
+    auto exact = open_directory_at(transaction.descriptor.get(), std::string(EXACT_DIRECTORY), state.expected_owner,
+                                   PRIVATE_DIRECTORY_MODE, "exact evidence directory");
+    const auto exact_identity = StagedFilesystemIdentity::observe(exact.get());
+    static_cast<void>(exact_directory_entries(exact.get()));
+    const auto stage = staged_identity_digest(transaction.descriptor.get(), state.expected_owner);
+    ExactArtifactRootEvidence evidence;
+    evidence.world = read_database_world(exact.get(), state.expected_owner);
+    const auto read_core = [&](const std::string& leaf) -> std::optional<std::string> {
+        try {
+            return read_exact_record(exact.get(), state.expected_owner, leaf, request, stage);
+        } catch(const std::exception&) {
+            return "INVALID\n";
+        }
+    };
+    evidence.installs = read_core("install");
+    evidence.upgrades = read_core("upgrade");
+    const auto read_observations = [&](const std::string& leaf, InstalledRecordObservationIssue missing) -> ExactArtifactRecordObservationsResult {
+        try {
+            auto payload = read_exact_record(exact.get(), state.expected_owner, leaf, request, stage);
+            if(!payload) return missing;
+            return parse_exact_artifact_record_observations(*payload, request);
+        } catch(const std::bad_alloc&) {
+            return InstalledRecordObservationIssue::ResourceFailure;
+        } catch(...) {
+            return InstalledRecordObservationIssue::MalformedMetadata;
+        }
+    };
+    evidence.baseline = read_observations("baseline", InstalledRecordObservationIssue::MissingBaseline);
+    evidence.install_anchors = read_observations("install-anchor", InstalledRecordObservationIssue::MissingAnchor);
+    evidence.upgrade_anchors = read_observations("upgrade-anchor", InstalledRecordObservationIssue::MissingAnchor);
+    const auto protocol = serialize_exact_artifact_root_evidence(evidence, request, stage);
+    require_staged_identity(transaction.descriptor.get(), std::string(EXACT_DIRECTORY), exact.get(), exact_identity);
+    require_named_identity(state.active.get(), token, transaction.metadata, "exact consumption transaction");
+    static_cast<void>(state.reprove_namespace());
+    auto retired = retire_transaction(state.active.get(), state.used.get(), state.expected_owner, token, std::move(transaction));
+    cleanup_retired_transaction(retired, state.expected_owner, request, false, false);
+    return protocol;
+}
+
 std::string SourceArtifactInstallTrustedStateStore::consume(
     const std::string& transaction_token) {
     if(implementation_ == nullptr ||
@@ -1459,6 +1738,8 @@ std::string SourceArtifactInstallTrustedStateStore::consume(
         validate_prepared_state(
             transaction.descriptor.get(), state.expected_owner,
             transaction_token, state.reprove_namespace(), cleanup_lease.get());
+    if(request.purpose != SourceArtifactInstallTrustedPurpose::CleanupInstallOnly)
+        throw_state_error_message("legacy receipt consumption requires cleanup purpose");
 
     static_cast<void>(state.reprove_namespace());
     const bool has_receipt = entry_exists(
@@ -1626,8 +1907,8 @@ void SourceArtifactInstallTrustedStateStore::observe_execution(const std::string
     auto& state = *implementation_;
     auto transaction = open_transaction(state.active.get(), state.expected_owner, token);
     auto lifetime = acquire_lifetime_lease(transaction.descriptor.get(), state.expected_owner, token, LOCK_SH);
-    static_cast<void>(validate_prepared_state(transaction.descriptor.get(), state.expected_owner,
-                                              token, state.reprove_namespace(), lifetime.get()));
+    const auto request = validate_prepared_state(transaction.descriptor.get(), state.expected_owner,
+                                                 token, state.reprove_namespace(), lifetime.get());
     require_entry_absent(transaction.descriptor.get(), std::string(OBSERVED_FILE), "package execution observation");
     require_transaction_entries(transaction.descriptor.get(),
                                 {std::string(PREPARED_FILE), std::string(HOOK_DIRECTORY),
@@ -1642,6 +1923,20 @@ void SourceArtifactInstallTrustedStateStore::observe_execution(const std::string
     static_cast<void>(state.reprove_namespace());
     publish_observed_execution(transaction.descriptor.get(), state.expected_owner, token,
                                SourceArtifactInstallExecutionEvidence::PreTransaction);
+    if(request.purpose == SourceArtifactInstallTrustedPurpose::ExactInstalledBinding) {
+        try {
+            auto exact = open_directory_at(transaction.descriptor.get(), std::string(EXACT_DIRECTORY), state.expected_owner,
+                                           PRIVATE_DIRECTORY_MODE, "exact baseline directory");
+            auto claim = claim_exact_record(exact.get(), state.expected_owner, "baseline");
+            const auto baseline = observe_exact_records(read_database_world(exact.get(), state.expected_owner), request);
+            publish_claimed_exact_record(exact.get(), state.expected_owner, "baseline", std::move(claim), request,
+                                         staged_identity_digest(transaction.descriptor.get(), state.expected_owner),
+                                         serialize_exact_artifact_record_observations(baseline));
+        } catch(...) {
+            // Baseline observation is not pacman transaction policy. Preserve
+            // the independent execution witness and leave missing/partial proof.
+        }
+    }
 }
 
 int SourceArtifactInstallTrustedStateStore::execute(const std::string& token) {
@@ -1678,6 +1973,19 @@ int SourceArtifactInstallTrustedStateStore::execute(const std::string& token) {
         const auto seal_identity = StagedFilesystemIdentity::observe(seal.get());
         const std::string initial_seal = read_bounded(seal.get(), MAX_IDENTITY_BYTES, "staged generation authority");
         std::vector<std::string> arguments{"/usr/bin/pacman", "-U"};
+        if(request.purpose == SourceArtifactInstallTrustedPurpose::ExactInstalledBinding) {
+            auto exact = open_directory_at(transaction.descriptor.get(), std::string(EXACT_DIRECTORY), state.expected_owner,
+                                           PRIVATE_DIRECTORY_MODE, "exact database world");
+            const auto world = read_database_world(exact.get(), state.expected_owner);
+            if(const auto* known = std::get_if<InstalledDatabaseWorld>(&world)) {
+                // Pin the already-resolved fixed pacman configuration world in
+                // argv. Observer failures never invent a custom root or alter
+                // transaction policy; unsupported worlds use existing defaults.
+                arguments.insert(arguments.end(), {"--config", "/etc/pacman.conf", "--root", known->root_directory,
+                                                   "--dbpath", known->database_path});
+                write_all(STDERR_FILENO, "moguet: exact transaction RootDir=" + known->root_directory + " DBPath=" + known->database_path + "\n");
+            }
+        }
         if(request.needed) arguments.emplace_back("--needed");
         if(request.directive == SourceArtifactInstallTrustedDirective::AsDependency) arguments.emplace_back("--asdeps");
         if(request.no_confirm) arguments.emplace_back("--noconfirm");
@@ -1719,11 +2027,16 @@ int SourceArtifactInstallTrustedStateStore::execute(const std::string& token) {
         require_named_identity(state.active.get(), token, transaction.metadata, "final transaction");
         static_cast<void>(state.reprove_namespace());
         try {
-            require_exact_entries(transaction.descriptor.get(),
-                                  {std::string(PREPARED_FILE), std::string(HOOK_DIRECTORY),
-                                   std::string(ARTIFACT_DIRECTORY), std::string(IDENTITY_FILE), std::string(EXECUTION_FILE),
-                                   std::string(LIFETIME_FILE)},
-                                  "final transaction namespace");
+            std::vector<std::string> entries{std::string(PREPARED_FILE), std::string(HOOK_DIRECTORY),
+                                             std::string(ARTIFACT_DIRECTORY), std::string(IDENTITY_FILE), std::string(EXECUTION_FILE),
+                                             std::string(LIFETIME_FILE)};
+            if(request.purpose == SourceArtifactInstallTrustedPurpose::ExactInstalledBinding) {
+                entries.emplace_back(EXACT_DIRECTORY);
+                auto exact = open_directory_at(transaction.descriptor.get(), std::string(EXACT_DIRECTORY), state.expected_owner,
+                                               PRIVATE_DIRECTORY_MODE, "unexecuted exact evidence");
+                require_exact_entries(exact.get(), {std::string(DATABASE_WORLD_FILE)}, "unexecuted exact evidence");
+            }
+            require_exact_entries(transaction.descriptor.get(), entries, "final transaction namespace");
         } catch(const SourceArtifactInstallTrustedStateError& error) {
             throw SourceArtifactInstallTrustedStateError(
                 SourceArtifactInstallSealingFailure::TrustedTransportProtocolMismatch,

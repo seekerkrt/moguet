@@ -25,12 +25,23 @@ inline constexpr std::size_t
 
 enum class SourceArtifactInstallTrustedHelperCommand {
     Prepare,
+    PrepareExact,
     Execute,
     ExecutionStatus,
     ObserveExecution,
     Record,
+    RecordInstall,
+    RecordUpgrade,
+    ConsumeExact,
     Consume,
     Abort,
+};
+
+// The legacy route remains Install-only cleanup evidence. A distinct prepared
+// protocol and fixed helper entry select the installed-binding purpose.
+enum class SourceArtifactInstallTrustedPurpose {
+    CleanupInstallOnly,
+    ExactInstalledBinding,
 };
 
 enum class SourceArtifactInstallTrustedDirective {
@@ -117,6 +128,7 @@ struct SourceArtifactInstallRootArtifactExpectation {
     // sealed input and privileged stage. Signature identity is independent.
     std::string archive_sha256;
     std::string signature_sha256;
+    std::string raw_mtree_sha256 = "-";
 
     bool operator==(
         const SourceArtifactInstallRootArtifactExpectation&) const =
@@ -130,6 +142,7 @@ struct SourceArtifactInstallRootPrepareRequest {
     bool needed;
     bool no_confirm;
     std::vector<SourceArtifactInstallRootArtifactExpectation> artifacts;
+    SourceArtifactInstallTrustedPurpose purpose = SourceArtifactInstallTrustedPurpose::CleanupInstallOnly;
 
     bool operator==(
         const SourceArtifactInstallRootPrepareRequest&) const = default;
@@ -166,6 +179,7 @@ struct SourceArtifactInstallRootPrepareResponse {
     std::string transaction_token;
     std::string hook_directory;
     std::vector<SourceArtifactInstallStagedArtifact> artifacts;
+    std::string staged_identity_sha256 = {};
 };
 
 using SourceArtifactInstallRootPrepareResponseResult = std::variant<

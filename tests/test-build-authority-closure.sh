@@ -142,8 +142,8 @@ assert_not_contains \
 
 # Slice 4 proves only the exact actually built inside the sealed Slice 3
 # context. Its API remains self-owned and has no normal production caller,
-# provenance publication or #475 remote observation. The S5-A bridge is the
-# only additional input consumer, with no normal CLI/source-build caller.
+# provenance publication or #475 remote observation. Only the S5-A bridge and
+# S5-B live observer consume it; neither is a normal CLI/source-build caller.
 evaluated_build_includes=$test_root/evaluated-build-includes.txt
 if grep -l -F -- \
     '#include "evaluated_devel_source_build.hpp"' \
@@ -157,6 +157,7 @@ else
 fi
 printf '%s\n' \
     "$repo_root/source/evaluated_devel_source_build.cpp" \
+    "$repo_root/source/installed_artifact_binding_observer.cpp" \
     "$repo_root/source/source_artifact_install_trusted_transport.cpp" \
     > "$test_root/expected-evaluated-build-includes.txt"
 cmp -s \
@@ -199,6 +200,26 @@ cmp -s "$bridge_consumers" "$test_root/expected-evaluated-transport-consumers.tx
     fail 'S5-A transport gained a normal production caller'
 assert_not_matches "$repo_root/source/source_artifact_install_trusted_transport.cpp" \
     '(publish_devel_build_provenance|make_devel_build_provenance|devel_build_provenance_store|InstalledArtifactBinding::make|name_to_handle_at|InstalledDevelSourceBuildProof)'
+live_observer_consumers=$test_root/live-installed-observer-consumers.txt
+if grep -l -F -- 'InstalledArtifactBindingObserver::observe' "$repo_root"/source/*.cpp > "$live_observer_consumers"
+then
+    :
+else
+    scan_status=$?
+    [ "$scan_status" -eq 1 ] || fail "S5-B observer scan failed: $scan_status"
+fi
+printf '%s\n' \
+    "$repo_root/source/installed_artifact_binding_observer.cpp" \
+    "$repo_root/source/source_artifact_install_trusted_transport.cpp" \
+    > "$test_root/expected-live-installed-observer-consumers.txt"
+cmp -s "$live_observer_consumers" "$test_root/expected-live-installed-observer-consumers.txt" ||
+    fail 'S5-B live observer gained an unexpected caller'
+assert_not_matches "$repo_root/source/installed_artifact_binding_observer.cpp" \
+    '(publish_devel_build_provenance|make_devel_build_provenance|devel_build_provenance_store|build_evaluated_devel_source\(|observe_git_remote_revision\()'
+assert_contains "$repo_root/source/installed_artifact_binding.hpp" \
+    '#include "installed_artifact_binding_observer_authority.hpp"'
+assert_contains "$repo_root/source/installed_package_record_observation.cpp" \
+    'name_to_handle_at(descriptor, "", handle, mount_id, AT_EMPTY_PATH)'
 assert_not_contains "$makefile" 'legacy-cpp-focused-authority'
 assert_not_contains "$makefile" '-std=c++20'
 assert_not_contains "$makefile" '-Wall'
@@ -297,8 +318,8 @@ assert_contains "$repo_root/.gitignore" '/compile_commands.json'
 
 # Compare the historical Make aliases with the actual CMake focused targets.
 # This checks the frontend mapping without duplicating either inventory here.
-[ "$#" -eq 111 ] ||
-    fail "Make focused alias inventory is $#, expected 111"
+[ "$#" -eq 115 ] ||
+    fail "Make focused alias inventory is $#, expected 115"
 make_aliases=$test_root/make-focused-aliases.txt
 cmake_aliases=$test_root/cmake-focused-aliases.txt
 cmake_help=$test_root/cmake-target-help.txt
@@ -306,15 +327,15 @@ missing_aliases=$test_root/missing-focused-aliases.txt
 unexpected_aliases=$test_root/unexpected-focused-aliases.txt
 
 printf '%s\n' "$@" | LC_ALL=C sort > "$make_aliases"
-[ "$(LC_ALL=C sort -u "$make_aliases" | wc -l)" -eq 111 ] ||
+[ "$(LC_ALL=C sort -u "$make_aliases" | wc -l)" -eq 115 ] ||
     fail 'Make focused alias inventory contains duplicates'
 
 "$cmake_command" --build "$cmake_build_dir" --target help > "$cmake_help"
 sed -n \
     's/.*moguet-focus-\(test-[a-z0-9-][a-z0-9-]*\).*/\1/p' \
     "$cmake_help" | LC_ALL=C sort -u > "$cmake_aliases"
-[ "$(wc -l < "$cmake_aliases")" -eq 111 ] ||
-    fail "CMake focused target inventory is $(wc -l < "$cmake_aliases"), expected 111"
+[ "$(wc -l < "$cmake_aliases")" -eq 115 ] ||
+    fail "CMake focused target inventory is $(wc -l < "$cmake_aliases"), expected 115"
 
 LC_ALL=C comm -23 "$make_aliases" "$cmake_aliases" > "$missing_aliases"
 LC_ALL=C comm -13 "$make_aliases" "$cmake_aliases" > "$unexpected_aliases"
@@ -346,5 +367,5 @@ assert_contains "$phony_marker" 'test-cmake'
 assert_contains "$phony_marker" 'test-repository'
 
 printf '%s\n' \
-    'build-authority-closure-test: Make aliases=111, CMake targets=111, missing=0, unexpected=0'
+    'build-authority-closure-test: Make aliases=115, CMake targets=115, missing=0, unexpected=0'
 printf '%s\n' 'build-authority-closure-test: all checks passed'

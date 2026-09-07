@@ -180,17 +180,17 @@ inventoryを所有する。
 
 | Inventory | Expected |
 | --- | ---: |
-| C++ test executables | 107 |
+| C++ test executables | 109 |
 | installed transport fixture harnesses (`EXCLUDE_FROM_ALL`) | 1 |
 | support / stub translation units | 30 |
 | link firewalls | 50 |
 | firewall descriptors | 50 |
-| CTest registrations | 132 |
+| CTest registrations | 136 |
 
 stub / real implementation exclusion、replacement ABI、ALPM stub、exact source closureをtarget-localに
 維持する。単一production libraryを全testへ無条件linkしない。negative compileはCTest registrationから
 effective CMake compiler / launcher / compile optionを取得し、GNU Make recursive compileへ戻さない。
-Make focused aliasとCMake focused targetは各111件で一致し、missing / unexpectedを0に保つ。
+Make focused aliasとCMake focused targetは各115件で一致し、missing / unexpectedを0に保つ。
 
 completion生成が使う`moguet-cli-authority-exporter`もCMake targetであり、Python generatorはcompilerを
 直接起動しない。このtargetは`EXCLUDE_FROM_ALL`なので通常のproduction/package buildへ混ざらず、
@@ -319,9 +319,24 @@ Issue #476 Slice 4のproduction-disconnected actual-build proofは、host focuse
 pre/post-build complete Git OID、dynamic version、fresh one-artifact inventory、retained-FD libalpm metadata、
 archive / ALPM-MTREE SHA-256を一つのmove-only capabilityへ束縛する。pre-build stale packagelist、source shape drift、
 ambiguous workspace、PKGDEST contamination、artifact replacement/mismatch、cross-context compositionはfail closedする。
-このproofはcontextとartifactをSlice 5向けに保持するが、current source-build / install / CLI、pacman、provenance
-publication、#475 observationへは接続しない。詳細は
+このproofはcontextとartifactをSlice 5向けに保持するが、current source-build / install / CLI、provenance
+publication、#475 observationへは接続しない。専用S5-A/B producerだけがretained artifactをtrusted transactionへ渡す。詳細は
 [`evaluated-devel-source-build-proof.md`](contracts/evaluated-devel-source-build-proof.md)を正とする。
+
+Issue #476 S5-Bのpurpose/operation protocol、root helper publication、fresh local DB/generation、live mintの結合は
+`test-exact-artifact-transaction-protocol`、`test-exact-artifact-transaction-receipt`、
+`test-installed-package-record-observation`、`test-exact-installed-binding`で確認する。
+最後のtargetは既存Slice 4/transport fixture executableの専用modeを使用し、通常host DBのtransactionは行わない。
+canonical negative compileにはsame-name observer spoof、raw generation/binding/path/fd/tuple、historical decodeからの
+fresh mint、private entry/receipt constructorの拒否を登録する。
+
+    make test-container-exact-installed-binding
+
+このinstalled acceptanceはnetworkless Dockerとanonymous volumeのDBを使用し、actual Slice 4 proofから
+first Install、Upgrade、same-version reinstall、downgradeを通す。fixed pacman-confで解決した同じDB world、
+PostTransaction anchor、通常userのnew ALPM handle、raw MTREE、opaque record generation、live bindingを確認する。
+host package DBをmount/変更せず、S5-C final proof/compositionとSlice 6 publicationは実装しない。
+詳細は[`exact-installed-artifact-binding.md`](contracts/exact-installed-artifact-binding.md)を正とする。
 
 Issue #485 Slice 5のclosed lifecycle / authoritative candidate gateは、同じnetworkless installed imageを
 使う専用targetで確認する。

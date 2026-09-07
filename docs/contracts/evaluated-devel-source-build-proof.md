@@ -110,6 +110,8 @@ ctimeをmetadata/hash/MTREE読取の後にも再証明する。libalpm metadata�
 artifact pathはdiagnostic/presentation valueでありauthorityではない。proof破棄または明示cleanupまでcontextと
 artifactを保持する。S5-Aの`EvaluatedDevelSourceArtifactTransport`はproof全体をmoveでconsumeし、
 保存archive digestとの再照合を経てoriginal retained FDを既存sealed transportへ渡す。
+同ownerのS5-B `execute_exact`は[exact receiptとfresh installed binding](exact-installed-artifact-binding.md)までを
+内部producerとして実装する。元proofとこれらをまとめるS5-C final proof、通常routeとSlice 6 publicationは未接続である。
 接続の契約は[trusted transport](trusted-source-artifact-transport.md)を正とする。
 Slice 4 producer自身にはinstall呼出を追加せず、normal routeは未接続のままである。
 

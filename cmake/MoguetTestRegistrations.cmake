@@ -10,6 +10,14 @@ macro(_moguet_add_direct_ctest test_name target_name)
     )
 endmacro()
 
+_moguet_add_direct_ctest(cpp.exact_artifact_transaction_protocol exact-artifact-transaction-protocol-test)
+_moguet_add_direct_ctest(cpp.installed_package_record_observation installed-package-record-observation-test)
+moguet_add_ctest(
+    NAME cpp.exact_artifact_transaction_receipt
+    TARGETS source-artifact-install-trusted-transport-test
+    COMMAND "$<TARGET_FILE:source-artifact-install-trusted-transport-test>" --exact-receipt
+)
+
 # Focused executables with no runtime arguments or environment overrides.
 _moguet_add_direct_ctest(cpp.interactive_confirmation interactive-confirmation-test)
 _moguet_add_direct_ctest(cpp.xdg_paths xdg-paths-test)
@@ -117,6 +125,12 @@ _moguet_add_direct_ctest(
     evaluated-devel-source-artifact-transport-test
 )
 set_tests_properties(cpp.evaluated_devel_source_artifact_transport PROPERTIES TIMEOUT 240)
+moguet_add_ctest(
+    NAME cpp.exact_installed_binding
+    TARGETS evaluated-devel-source-artifact-transport-test
+    COMMAND "$<TARGET_FILE:evaluated-devel-source-artifact-transport-test>" --exact-installed-binding
+)
+set_tests_properties(cpp.exact_installed_binding PROPERTIES TIMEOUT 480)
 _moguet_add_direct_ctest(
     cpp.evaluated_devel_source_build
     evaluated-devel-source-build-test

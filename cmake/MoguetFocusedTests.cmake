@@ -1,5 +1,10 @@
 # Supported `make test-<area>` frontends.  CMake owns the exact build targets
 # and CTest selections; Make only requests the corresponding custom target.
+moguet_add_focused_ctest_alias(
+    test-exact-artifact-transaction-receipt
+    TESTS cpp.exact_artifact_transaction_receipt
+    TARGETS source-artifact-install-trusted-transport-test
+)
 
 foreach(_moguet_direct_focus IN ITEMS
     application-identity
@@ -29,7 +34,9 @@ foreach(_moguet_direct_focus IN ITEMS
     local-source-build
     package-identifier
     source-package-identity
+    exact-artifact-transaction-protocol
     installed-artifact-binding
+    installed-package-record-observation
     devel-build-provenance
     devel-build-provenance-store
     source-package-identity-projection
@@ -38,6 +45,7 @@ foreach(_moguet_direct_focus IN ITEMS
     invocation-owned-source-build-context
     evaluated-devel-source-build
     evaluated-devel-source-artifact-transport
+    exact-installed-binding
     source-artifact-install-trusted-transport
     reviewed-source-state
     reviewed-source-state-store

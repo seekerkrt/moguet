@@ -47,9 +47,12 @@ set(MOGUET_PRODUCTION_SOURCES
     source/diagnostic_projection.cpp
     source/dry_run.cpp
     source/evaluated_devel_source_build.cpp
+    source/exact_artifact_transaction_protocol.cpp
     source/filtered_aur_update_operation.cpp
     source/git_remote_revision_observer.cpp
     source/installed_artifact_binding.cpp
+    source/installed_artifact_binding_observer.cpp
+    source/installed_package_record_observation.cpp
     source/installed_package_relation_inventory.cpp
     source/interactive_confirmation.cpp
     source/invocation_owned_cleanup_adapter.cpp
@@ -158,6 +161,8 @@ set(MOGUET_ALPM_RECEIPT_HELPER_SOURCES
 set(MOGUET_SOURCE_ARTIFACT_INSTALL_HELPER_SOURCES
     source/source_artifact_install_trusted_helper_main.cpp
     source/source_artifact_install_trusted_helper_state.cpp
+    source/exact_artifact_transaction_protocol.cpp
+    source/installed_package_record_observation.cpp
     source/xdg_generation_store_sha256.cpp
     source/source_artifact_install_trusted_protocol.cpp
     source/trusted_alpm_receipt_protocol.cpp

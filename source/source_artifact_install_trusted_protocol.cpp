@@ -21,6 +21,10 @@ constexpr std::string_view PREPARE_RESPONSE_HEADER =
     "MOGUET-SOURCE-ARTIFACT-PREPARE-RESPONSE\t2";
 constexpr std::string_view RECEIPT_HEADER =
     "MOGUET-SOURCE-ARTIFACT-RECEIPT\t2";
+constexpr std::string_view EXACT_PREPARED_PREFIX =
+    "MOGUET-EXACT-ARTIFACT-PREPARED\t1\nPURPOSE\tExactInstalledBinding\n";
+constexpr std::string_view EXACT_RESPONSE_PREFIX =
+    "MOGUET-EXACT-ARTIFACT-PREPARE-RESPONSE\t1\nPURPOSE\tExactInstalledBinding\n";
 constexpr std::string_view TOKEN_PREFIX = "TOKEN\t";
 constexpr std::string_view OWNER_PREFIX = "OWNER\t";
 constexpr std::string_view PACKAGE_BASE_PREFIX = "PACKAGEBASE\t";
@@ -239,7 +243,9 @@ std::string_view source_artifact_install_trusted_owner() noexcept {
 
 bool is_valid_source_artifact_install_root_request(
     const SourceArtifactInstallRootPrepareRequest& request) noexcept {
-    if(!is_valid_trusted_alpm_receipt_token(request.transaction_token) ||
+    if((request.purpose != SourceArtifactInstallTrustedPurpose::CleanupInstallOnly &&
+        request.purpose != SourceArtifactInstallTrustedPurpose::ExactInstalledBinding) ||
+       !is_valid_trusted_alpm_receipt_token(request.transaction_token) ||
        !is_valid_package_name(request.package_base) ||
        request.artifacts.empty() ||
        request.artifacts.size() >
@@ -259,7 +265,10 @@ bool is_valid_source_artifact_install_root_request(
     std::size_t protocol_size = 256;
     for(std::size_t index = 0; index < request.artifacts.size(); ++index) {
         const auto& artifact = request.artifacts[index];
-        if(!artifact_is_valid(artifact, request.package_base) ||
+        if((request.purpose == SourceArtifactInstallTrustedPurpose::ExactInstalledBinding
+                ? !is_valid_source_artifact_install_sha256(artifact.raw_mtree_sha256)
+                : artifact.raw_mtree_sha256 != "-") ||
+           !artifact_is_valid(artifact, request.package_base) ||
            !checked_add(artifact.artifact_size, aggregate_size) ||
            !checked_add(artifact.signature_size, aggregate_size)) {
             return false;
@@ -300,6 +309,8 @@ parse_source_artifact_install_trusted_helper_arguments(
     SourceArtifactInstallTrustedHelperCommand command;
     if(arguments[0] == "prepare") {
         command = SourceArtifactInstallTrustedHelperCommand::Prepare;
+    } else if(arguments[0] == "prepare-exact") {
+        command = SourceArtifactInstallTrustedHelperCommand::PrepareExact;
     } else if(arguments[0] == "execute") {
         command = SourceArtifactInstallTrustedHelperCommand::Execute;
     } else if(arguments[0] == "execution-status") {
@@ -308,6 +319,12 @@ parse_source_artifact_install_trusted_helper_arguments(
         command = SourceArtifactInstallTrustedHelperCommand::ObserveExecution;
     } else if(arguments[0] == "record") {
         command = SourceArtifactInstallTrustedHelperCommand::Record;
+    } else if(arguments[0] == "record-install") {
+        command = SourceArtifactInstallTrustedHelperCommand::RecordInstall;
+    } else if(arguments[0] == "record-upgrade") {
+        command = SourceArtifactInstallTrustedHelperCommand::RecordUpgrade;
+    } else if(arguments[0] == "consume-exact") {
+        command = SourceArtifactInstallTrustedHelperCommand::ConsumeExact;
     } else if(arguments[0] == "consume") {
         command = SourceArtifactInstallTrustedHelperCommand::Consume;
     } else if(arguments[0] == "abort") {
@@ -326,7 +343,8 @@ parse_source_artifact_install_trusted_helper_arguments(
                 : SourceArtifactInstallTrustedProtocolIssueKind::
                       InvalidTransactionToken);
     }
-    if(command != SourceArtifactInstallTrustedHelperCommand::Prepare) {
+    const bool exact = command == SourceArtifactInstallTrustedHelperCommand::PrepareExact;
+    if(command != SourceArtifactInstallTrustedHelperCommand::Prepare && !exact) {
         if(arguments.size() != 2) {
             return fail<SourceArtifactInstallTrustedHelperInvocation>(
                 SourceArtifactInstallTrustedProtocolIssueKind::
@@ -361,12 +379,13 @@ parse_source_artifact_install_trusted_helper_arguments(
             SourceArtifactInstallTrustedProtocolIssueKind::
                 MissingArgumentSeparator);
     }
-    if((arguments.size() - 7) % 9 != 0) {
+    const std::size_t stride = exact ? 10 : 9;
+    if((arguments.size() - 7) % stride != 0) {
         return fail<SourceArtifactInstallTrustedHelperInvocation>(
             SourceArtifactInstallTrustedProtocolIssueKind::
                 InvalidArgumentCount);
     }
-    const std::size_t artifact_count = (arguments.size() - 7) / 9;
+    const std::size_t artifact_count = (arguments.size() - 7) / stride;
     if(artifact_count == 0) {
         return fail<SourceArtifactInstallTrustedHelperInvocation>(
             SourceArtifactInstallTrustedProtocolIssueKind::EmptyArtifactSet);
@@ -384,19 +403,20 @@ parse_source_artifact_install_trusted_helper_arguments(
     std::vector<SourceArtifactInstallRootArtifactExpectation> artifacts;
     artifacts.reserve(artifact_count);
     for(std::size_t index = 0; index < artifact_count; ++index) {
-        if(!is_valid_source_artifact_install_sha256(fields[index * 9 + 7]) ||
-           (fields[index * 9 + 8] != "-" &&
-            !is_valid_source_artifact_install_sha256(fields[index * 9 + 8]))) {
+        if(!is_valid_source_artifact_install_sha256(fields[index * stride + 7]) ||
+           (fields[index * stride + 8] != "-" &&
+            !is_valid_source_artifact_install_sha256(fields[index * stride + 8]))) {
             return fail<SourceArtifactInstallTrustedHelperInvocation>(
                 SourceArtifactInstallTrustedProtocolIssueKind::InvalidDigest);
         }
-        const auto artifact = parse_artifact_fields(
-            fields, index * 9, arguments[2]);
+        auto artifact = parse_artifact_fields(
+            fields, index * stride, arguments[2]);
         if(!artifact.has_value()) {
             return fail<SourceArtifactInstallTrustedHelperInvocation>(
                 SourceArtifactInstallTrustedProtocolIssueKind::
                     UnexpectedRecord);
         }
+        if(exact) artifact->raw_mtree_sha256 = std::string(fields[index * stride + 9]);
         for(const auto& prior : artifacts) {
             if(prior.artifact_index == artifact->artifact_index)
                 return fail<SourceArtifactInstallTrustedHelperInvocation>(
@@ -410,6 +430,7 @@ parse_source_artifact_install_trusted_helper_arguments(
     SourceArtifactInstallRootPrepareRequest request{
         arguments[1], arguments[2], *directive, *needed, *no_confirm,
         artifacts};
+    if(exact) request.purpose = SourceArtifactInstallTrustedPurpose::ExactInstalledBinding;
     if(!is_valid_source_artifact_install_root_request(request)) {
         return fail<SourceArtifactInstallTrustedHelperInvocation>(
             SourceArtifactInstallTrustedProtocolIssueKind::
@@ -426,6 +447,22 @@ std::string serialize_source_artifact_install_root_prepared_state(
     if(!is_valid_source_artifact_install_root_request(request)) {
         throw std::invalid_argument(
             "invalid source-artifact prepared request");
+    }
+    if(request.purpose == SourceArtifactInstallTrustedPurpose::ExactInstalledBinding) {
+        // The enclosed v2 projection is explicitly legacy-only. Exact state
+        // requires its own purpose and every raw MTREE hash; decoding never
+        // supplies missing authority or upgrades a legacy document.
+        auto cleanup_projection = request;
+        cleanup_projection.purpose = SourceArtifactInstallTrustedPurpose::CleanupInstallOnly;
+        for(auto& artifact : cleanup_projection.artifacts)
+            artifact.raw_mtree_sha256 = "-";
+        std::string protocol(EXACT_PREPARED_PREFIX);
+        for(const auto& artifact : request.artifacts)
+            protocol += "MTREE\t" + std::to_string(artifact.artifact_index) + "\t" + artifact.raw_mtree_sha256 + "\n";
+        protocol += serialize_source_artifact_install_root_prepared_state(cleanup_projection);
+        if(protocol.size() > SOURCE_ARTIFACT_INSTALL_MAXIMUM_PROTOCOL_BYTES)
+            throw std::invalid_argument("oversized exact prepared protocol");
+        return protocol;
     }
     std::string protocol;
     protocol.reserve(256 + request.artifacts.size() * 128);
@@ -457,6 +494,34 @@ std::string serialize_source_artifact_install_root_prepared_state(
 SourceArtifactInstallRootPreparedStateResult
 parse_source_artifact_install_root_prepared_state(
     std::string_view protocol) {
+    if(protocol.starts_with(EXACT_PREPARED_PREFIX)) {
+        if(protocol.size() > SOURCE_ARTIFACT_INSTALL_MAXIMUM_PROTOCOL_BYTES)
+            return fail<SourceArtifactInstallRootPrepareRequest>(SourceArtifactInstallTrustedProtocolIssueKind::InputTooLarge);
+        const auto legacy_offset = protocol.find(PREPARED_HEADER, EXACT_PREPARED_PREFIX.size());
+        if(legacy_offset == std::string_view::npos)
+            return fail<SourceArtifactInstallRootPrepareRequest>(SourceArtifactInstallTrustedProtocolIssueKind::TruncatedProtocol);
+        auto parsed = parse_source_artifact_install_root_prepared_state(protocol.substr(legacy_offset));
+        auto* request = std::get_if<SourceArtifactInstallRootPrepareRequest>(&parsed);
+        if(!request) return parsed;
+        std::size_t offset = EXACT_PREPARED_PREFIX.size();
+        for(auto& artifact : request->artifacts) {
+            const auto end = protocol.find('\n', offset);
+            if(end == std::string_view::npos || end >= legacy_offset)
+                return fail<SourceArtifactInstallRootPrepareRequest>(SourceArtifactInstallTrustedProtocolIssueKind::TruncatedProtocol);
+            const auto prefix = "MTREE\t" + std::to_string(artifact.artifact_index) + "\t";
+            const auto value = record_value(protocol.substr(offset, end - offset), prefix);
+            if(!value || !is_valid_source_artifact_install_sha256(*value))
+                return fail<SourceArtifactInstallRootPrepareRequest>(SourceArtifactInstallTrustedProtocolIssueKind::InvalidDigest);
+            artifact.raw_mtree_sha256 = std::string(*value);
+            offset = end + 1;
+        }
+        if(offset != legacy_offset)
+            return fail<SourceArtifactInstallRootPrepareRequest>(SourceArtifactInstallTrustedProtocolIssueKind::UnexpectedRecord);
+        request->purpose = SourceArtifactInstallTrustedPurpose::ExactInstalledBinding;
+        if(serialize_source_artifact_install_root_prepared_state(*request) != protocol)
+            return fail<SourceArtifactInstallRootPrepareRequest>(SourceArtifactInstallTrustedProtocolIssueKind::UnexpectedRecord);
+        return parsed;
+    }
     const auto split = split_protocol_lines(protocol);
     if(const auto* failure =
            std::get_if<SourceArtifactInstallTrustedProtocolFailure>(&split);
@@ -589,6 +654,13 @@ std::string serialize_source_artifact_install_root_prepare_response(
             "invalid source-artifact prepare response");
     }
     std::string protocol;
+    if(request.purpose == SourceArtifactInstallTrustedPurpose::ExactInstalledBinding) {
+        if(!is_valid_source_artifact_install_sha256(response.staged_identity_sha256))
+            throw std::invalid_argument("exact prepare response lacks its staged identity");
+        protocol.append(EXACT_RESPONSE_PREFIX).append("STAGE\t").append(response.staged_identity_sha256).push_back('\n');
+    } else if(!response.staged_identity_sha256.empty()) {
+        throw std::invalid_argument("cleanup response contains exact authority");
+    }
     protocol.append(PREPARE_RESPONSE_HEADER).push_back('\n');
     protocol.append(TOKEN_PREFIX).append(response.transaction_token).push_back('\n');
     protocol.append(OWNER_PREFIX).append(OWNER).push_back('\n');
@@ -620,6 +692,22 @@ parse_source_artifact_install_root_prepare_response(
         return fail<SourceArtifactInstallRootPrepareResponse>(
             SourceArtifactInstallTrustedProtocolIssueKind::
                 InvalidTransactionToken);
+    }
+    if(expected_request.purpose == SourceArtifactInstallTrustedPurpose::ExactInstalledBinding) {
+        const auto prefix = std::string(EXACT_RESPONSE_PREFIX) + "STAGE\t";
+        if(protocol.size() > SOURCE_ARTIFACT_INSTALL_MAXIMUM_PROTOCOL_BYTES ||
+           !protocol.starts_with(prefix) || protocol.size() <= prefix.size() + 64 ||
+           protocol[prefix.size() + 64] != '\n' ||
+           !is_valid_source_artifact_install_sha256(protocol.substr(prefix.size(), 64)))
+            return fail<SourceArtifactInstallRootPrepareResponse>(SourceArtifactInstallTrustedProtocolIssueKind::UnexpectedRecord);
+        auto cleanup_projection = expected_request;
+        cleanup_projection.purpose = SourceArtifactInstallTrustedPurpose::CleanupInstallOnly;
+        for(auto& artifact : cleanup_projection.artifacts)
+            artifact.raw_mtree_sha256 = "-";
+        auto parsed = parse_source_artifact_install_root_prepare_response(protocol.substr(prefix.size() + 65), cleanup_projection);
+        if(auto* response = std::get_if<SourceArtifactInstallRootPrepareResponse>(&parsed))
+            response->staged_identity_sha256 = std::string(protocol.substr(prefix.size(), 64));
+        return parsed;
     }
     const auto split = split_protocol_lines(protocol);
     if(const auto* failure =

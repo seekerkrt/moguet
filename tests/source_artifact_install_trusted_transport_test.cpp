@@ -576,18 +576,25 @@ public:
     SourceArtifactInstallRootPrepareRequest request;
     fs::path transaction;
     fs::path stage;
+    std::string staged_identity;
 
-    explicit SealedStageFixture(bool signature = false)
+    explicit SealedStageFixture(bool signature = false, bool exact = false)
         : archive(archives.create_archive("moguet-source-transport-test", "1-1",
                                           "moguet-source-transport-base", "any", true)),
           runtime("moguet-sealing-regression"), store(open_source_store(runtime)),
           request(root_request(token, archive)) {
         if(signature) write_fixture_bytes(archive.string() + ".sig", "deliberately invalid signature\n");
         request = root_request(token, archive);
+        if(exact) {
+            request.purpose = SourceArtifactInstallTrustedPurpose::ExactInstalledBinding;
+            request.artifacts[0].artifact_index = 4;
+            request.artifacts[0].raw_mtree_sha256 = std::string(64, 'd');
+        }
         std::vector<fs::path> inputs{archive};
         if(signature) inputs.emplace_back(archive.string() + ".sig");
         auto sealed = sealed_input_from_files(inputs);
         const auto response = store.prepare(request, sealed.get());
+        staged_identity = response.staged_identity_sha256;
         transaction = runtime.path() / "moguet/source-artifact-installs/active" / token;
         stage = transaction / "artifacts" / fs::path(response.artifacts[0].path).filename();
         expect(read_fixture_bytes(stage) == read_fixture_bytes(archive), "initial sealed copy was not exact");
@@ -2188,6 +2195,120 @@ void test_fr01_evidence_failures(const fs::path& archive) {
     std::cout << "F-R01 observer authorization/path/lifetime/replay guards PASS\n";
 }
 
+void test_exact_receipt_helper_matrix() {
+    InstalledRecordObservationTestHooks observation_hooks;
+    TemporaryDirectory absent_world("moguet-exact-no-database");
+    observation_hooks.database_path = (absent_world.path() / "missing-db").string();
+    observation_hooks.expected_owner = geteuid();
+    set_installed_record_observation_test_hooks(observation_hooks);
+    for(const auto& scenario : {"install", "upgrade", "missing", "duplicate", "conflict", "partial",
+                                "recreated", "wrong-token", "wrong-stage", "old-protocol", "anchor-partial", "anchor-recreated"}) {
+        SealedStageFixture fixture(false, true);
+        expect(fixture.store.execute(fixture.token) == 0, "exact execute failed");
+        fixture.store.observe_execution(fixture.token);
+        const std::string selected = "moguet-source-transport-test\n";
+        const auto record = [&](bool upgrade) {
+            auto targets = input_text(selected);
+            if(upgrade)
+                fixture.store.record_upgrade(fixture.token, targets.get());
+            else
+                fixture.store.record_install(fixture.token, targets.get());
+        };
+        const std::string mode(scenario);
+        if(mode != "missing" && mode != "partial") record(mode == "upgrade");
+        const auto exact = fixture.transaction / "exact";
+        if(mode == "duplicate" || mode == "conflict")
+            expect_failure([&] { record(mode == "conflict"); }, "duplicate/conflicting hook was accepted");
+        if(mode == "partial") write_fixture_bytes(exact / "install.partial", "partial\n");
+        if(mode == "anchor-partial") write_fixture_bytes(exact / "install-anchor.partial", "partial\n");
+        if(mode == "recreated" || mode == "anchor-recreated") {
+            const auto target = exact / (mode == "recreated" ? "install" : "install-anchor");
+            const auto replacement = fixture.runtime.path() / "replacement";
+            write_fixture_bytes(replacement, read_fixture_bytes(target));
+            fs::rename(replacement, target);
+        }
+        if(mode == "wrong-token" || mode == "wrong-stage" || mode == "old-protocol") {
+            auto bytes = read_fixture_bytes(exact / "install");
+            const auto old = mode == "wrong-token" ? fixture.token : mode == "wrong-stage" ? fixture.staged_identity
+                                                                                           : "PRIVATE-RECORD\t1";
+            const auto replacement = mode == "old-protocol" ? "PRIVATE-RECORD\t0" : std::string(64, 'b');
+            bytes.replace(bytes.find(old), old.size(), replacement);
+            write_fixture_bytes(exact / "install", bytes);
+        }
+        expect(fixture.store.execution_status(fixture.token).execution_evidence == SourceArtifactInstallExecutionEvidence::PreTransaction,
+               "receipt/anchor failure erased the independent execution witness");
+        const auto root = parse_exact_artifact_root_evidence(fixture.store.consume_exact(fixture.token), fixture.request, fixture.staged_identity);
+        expect(std::holds_alternative<ExactArtifactRootEvidence>(root), "exact helper returned invalid framing");
+        const auto& evidence = std::get<ExactArtifactRootEvidence>(root);
+        const auto joined = join_exact_artifact_operation_fragments(evidence.installs, evidence.upgrades, fixture.request, fixture.staged_identity);
+        if(mode == "install" || mode == "upgrade" || mode.starts_with("anchor-")) {
+            const auto* records = std::get_if<ExactArtifactOperationRecords>(&joined);
+            expect(records && records->size() == 1 && records->front().artifact.artifact_index == 4, "actual operation receipt was lost");
+            expect(records->front().operation == (mode == "upgrade" ? ExactArtifactTransactionOperation::Upgrade : ExactArtifactTransactionOperation::Install),
+                   "fixed operation kind was changed");
+            expect(std::holds_alternative<InstalledRecordObservationIssue>(evidence.world), "unavailable fixture world became proof authority");
+        } else {
+            expect(std::holds_alternative<ExactArtifactReceiptIssue>(joined), "invalid/missing operation receipt was completed");
+            expect(std::get<ExactArtifactReceiptIssue>(joined) == (mode == "missing" ? ExactArtifactReceiptIssue::Missing : ExactArtifactReceiptIssue::Invalid),
+                   "exact fragment failure classification changed");
+        }
+        expect_failure([&] { static_cast<void>(fixture.store.consume_exact(fixture.token)); }, "exact receipt was consumed twice");
+    }
+    {
+        SealedStageFixture legacy;
+        expect(legacy.store.execute(legacy.token) == 0, "legacy execute failed");
+        legacy.store.observe_execution(legacy.token);
+        auto targets = input_text("moguet-source-transport-test\n");
+        expect_failure([&] { legacy.store.record_upgrade(legacy.token, targets.get()); }, "exact Upgrade hook adopted legacy cleanup purpose");
+        expect_failure([&] { static_cast<void>(legacy.store.consume_exact(legacy.token)); }, "exact consumption adopted legacy purpose");
+        expect(std::get<SourceArtifactInstallRootReceipt>(parse_source_artifact_install_root_receipt(legacy.store.consume(legacy.token))).state ==
+                   SourceArtifactInstallRootReceiptState::Missing,
+               "Upgrade entered legacy cleanup receipt");
+    }
+    {
+        SealedStageFixture exact(false, true);
+        expect(exact.store.execute(exact.token) == 0, "exact execute failed");
+        exact.store.observe_execution(exact.token);
+        auto targets = input_text("moguet-source-transport-test\n");
+        expect_failure([&] { exact.store.record(exact.token, targets.get()); }, "legacy Install hook adopted exact purpose");
+        expect_failure([&] { static_cast<void>(exact.store.consume(exact.token)); }, "legacy consumption adopted exact purpose");
+        exact.store.abort(exact.token);
+    }
+    {
+        ActualArchiveFixture archives;
+        const auto first = archives.create_archive("moguet-source-transport-test", "1-1", "moguet-source-transport-base", "any");
+        const auto second = archives.create_archive("moguet-source-transport-other", "1-1", "moguet-source-transport-base", "any");
+        TemporaryDirectory runtime("moguet-exact-mixed");
+        auto store = open_source_store(runtime);
+        auto request = root_request(transaction_token('a'), first);
+        auto other = request.artifacts.front();
+        request.artifacts.front().artifact_index = 1;
+        other.artifact_index = 4;
+        other.package_name = "moguet-source-transport-other";
+        other.artifact_size = fixture_file_size(second);
+        other.archive_sha256 = fixture_sha256(second);
+        request.artifacts.push_back(other);
+        for(auto& artifact : request.artifacts)
+            artifact.raw_mtree_sha256 = std::string(64, 'd');
+        request.purpose = SourceArtifactInstallTrustedPurpose::ExactInstalledBinding;
+        auto input = sealed_input_from_files({first, second});
+        const auto prepared = store.prepare(request, input.get());
+        expect(store.execute(request.transaction_token) == 0, "mixed exact execute failed");
+        store.observe_execution(request.transaction_token);
+        auto install = input_text("moguet-source-transport-test\n");
+        auto upgrade = input_text("moguet-source-transport-other\n");
+        store.record_upgrade(request.transaction_token, upgrade.get());
+        store.record_install(request.transaction_token, install.get());
+        const auto root = std::get<ExactArtifactRootEvidence>(parse_exact_artifact_root_evidence(store.consume_exact(request.transaction_token), request, prepared.staged_identity_sha256));
+        const auto records = std::get<ExactArtifactOperationRecords>(join_exact_artifact_operation_fragments(root.installs, root.upgrades, request, prepared.staged_identity_sha256));
+        expect(records.size() == 2 && records[0].artifact.artifact_index == 1 && records[1].artifact.artifact_index == 4 &&
+                   records[0].operation == ExactArtifactTransactionOperation::Install && records[1].operation == ExactArtifactTransactionOperation::Upgrade,
+               "mixed helper receipt lost canonical index/operation mapping");
+    }
+    set_installed_record_observation_test_hooks({});
+    std::cout << "S5-B exact operation helper protocol/publication/purpose matrix PASS\n";
+}
+
 int main(int argc, char* argv[]) {
     try {
         if(argc > 1 && std::string(argv[1]) == "--lease-exec-child") return lease_exec_child(argc, argv);
@@ -2196,6 +2317,10 @@ int main(int argc, char* argv[]) {
         set_source_artifact_install_trusted_exec_test_hook([](const auto&) { return 0; });
         if(argc == 2) {
             const std::string mode = argv[1];
+            if(mode == "--exact-receipt") {
+                test_exact_receipt_helper_matrix();
+                return 0;
+            }
             if(mode == "--cleanup-first-abort" || mode == "--cleanup-first-consume") {
                 test_cleanup_first_ordering(mode == "--cleanup-first-consume");
                 return 0;
@@ -2220,6 +2345,7 @@ int main(int argc, char* argv[]) {
             throw std::runtime_error("unknown regression selection");
         }
         test_protocol_is_fixed_owner_and_closed();
+        test_exact_receipt_helper_matrix();
         test_lifetime_races();
         test_state_staging_receipt_replay_and_owner_isolation();
         test_sealing_state_regressions();

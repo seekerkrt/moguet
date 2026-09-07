@@ -3,7 +3,8 @@
 ## Authority and threat model
 
 この文書はIssue #476 F-S5-01 prerequisiteで強化した既存#485 SourceArtifactInstall transportの
-契約を定める。Slice 5のInstall/Upgrade receipt、fresh local DB、installed bindingを実装する文書ではない。
+契約を定める。S5-BのInstall/Upgrade receipt、fresh local DB、installed bindingは
+[別contract](exact-installed-artifact-binding.md)を正とし、このsealing/lease/Unknown contractを維持する。
 
 Threat Model Aは次をtrusted authorityとする。
 
@@ -42,7 +43,8 @@ snapshot copy / sealとprivileged prepare→execute→execution-status→consume
 生成し、新routeはそれらを空のまま返す。新routeの`Complete`は既存transport protocolの
 完了区分であり、exact Install/Upgrade receiptやinstalled bindingを意味しない。
 known outcomeは既存positive execution witnessを必須とし、exit 0後のconsume failureでも
-`pacman_exit_status=0`を保持する。S5-Bのreceipt / fresh DBとS5-Cのfinal aggregateは未実装である。
+`pacman_exit_status=0`を保持する。S5-Bは同ownerの別entry `execute_exact`からexact purposeを選び、
+actual receiptとfresh bindingを別component outputへ保持する。S5-Cのfinal aggregate/compositionは未実装である。
 
 新ownerはlocal rejectionを含めexecuteを一度だけ許し、move元と再実行を拒否する。
 元FD / contextはowner破棄まで保持し、OutcomeUnknownでもtokenを診断用に保持する。
@@ -192,7 +194,8 @@ signature-check-disabled policyでの受理、隣接signature bytes保持をread
 cryptographically valid署名を持つactual Installのlive evidenceへ読み替えない。
 hostのpacman transactionはこのfocused targetでは実行しない。
 
-normal #476 route、Upgrade receipt、fresh local DB observer、InstalledArtifactBinding mint、
-final Slice 5 proof、provenance publication、#475 comparisonは未接続・未実装のままである。
+normal #476 route、final Slice 5 proof、provenance publication、#475 comparisonは未接続・未実装のままである。
+S5-Bのexact purposeだけにInstall/Upgrade receipt、fresh local DB observer、live InstalledArtifactBinding mintを追加し、
+既存cleanup Install-only routeを拡張しない。
 
 Refs #476

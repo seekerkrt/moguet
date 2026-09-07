@@ -7,6 +7,12 @@
 #include <cerrno>
 #endif
 
+#ifdef MOGUET_TEST_EXACT_INSTALLED_BINDING
+#include "exact_artifact_transaction_receipt.hpp"
+#include "fresh_installed_artifact_binding.hpp"
+#include "installed_package_record_observation.hpp"
+#endif
+
 #include "process.hpp"
 #include "reviewed_source_acceptance.hpp"
 #include "reviewed_source_presentation.hpp"
@@ -339,7 +345,8 @@ public:
         RecipeShape shape = RecipeShape::Valid,
         bool prepare_mutation = false,
         bool exact_branch = false,
-        bool tracked_local_source = false)
+        bool tracked_local_source = false,
+        bool disable_debug = false)
         : tree_(label), upstream_(upstream),
           package_base_("example-base"),
           package_name_("moguet-slice4-" + label),
@@ -379,7 +386,8 @@ public:
             "PKGBUILD",
             pkgbuild(
                 shape, prepare_mutation, exact_branch,
-                tracked_local_source));
+                tracked_local_source) +
+                (disable_debug ? "\noptions=('!debug')\n" : ""));
         write_file(
             ".SRCINFO",
             srcinfo(shape, exact_branch, tracked_local_source));
@@ -1836,6 +1844,318 @@ void test_evaluated_artifact_transport() {
 }
 #endif
 
+#ifdef MOGUET_TEST_EXACT_INSTALLED_BINDING
+void test_installed_exact_binding() {
+    const char* authorized = std::getenv("MOGUET_EXACT_INSTALLED_ACCEPTANCE");
+    require(authorized && std::string(authorized) == "isolated-container" && fs::exists("/.dockerenv") && geteuid() != 0,
+            "actual transaction acceptance requires its isolated unprivileged container lane");
+    set_installed_record_observation_test_hooks({});
+    set_evaluated_devel_source_artifact_transport_test_hooks({});
+    const auto world = resolve_trusted_installed_database_world();
+    require(std::holds_alternative<InstalledDatabaseWorld>(world) &&
+                std::get<InstalledDatabaseWorld>(world).root_directory == "/" &&
+                std::get<InstalledDatabaseWorld>(world).database_path == "/var/lib/moguet-exact-installed-binding/db",
+            "actual transaction fixture did not resolve its isolated fixed pacman world");
+    UpstreamGitFixture upstream("s5b-installed");
+    // Current Arch enables debug globally and --packagelist predicts a debug
+    // sibling even for this data-only package. The reviewed fixture explicitly
+    // selects one artifact; the production cardinality guard is unchanged.
+    ReviewedBuildFixture fixture("s5b-installed", upstream, RecipeShape::Valid, false, false, false, true);
+    auto first_install = build_success(fixture);
+    auto later_downgrade = build_success(fixture);
+    const auto lower_version = first_install.artifact().evidence().identity.full_version;
+    std::string previous_generation;
+    const auto install = [&](const std::string& label, EvaluatedDevelSourceBuildProof proof,
+                             ExactArtifactTransactionOperation operation) {
+        const auto artifact = proof.artifact().evidence();
+        auto transport = prepare_evaluated_devel_source_artifact_transport(std::move(proof));
+        const auto result = transport.execute_exact({true});
+        std::ostringstream failure;
+        failure << label << ": status=" << static_cast<int>(result.status());
+        if(result.diagnostic()) failure << " diagnostic=" << *result.diagnostic();
+        if(transport.exact_receipt_issue()) failure << " receipt=" << static_cast<int>(*transport.exact_receipt_issue());
+        if(transport.installed_binding_issue()) failure << " binding=" << static_cast<int>(*transport.installed_binding_issue());
+        require(result.pacman_exit_status() == 0 && transport.exact_receipt() && transport.fresh_binding(), failure.str());
+        require(transport.exact_receipt()->operations().size() == 1 && transport.exact_receipt()->operations().front().operation == operation,
+                "actual root hook recorded the wrong operation");
+        const auto& binding = transport.fresh_binding()->binding();
+        require(binding.mtree_digest().value() == artifact.mtree_digest.value() && *binding.version().full_version() == artifact.identity.full_version &&
+                    binding.package().package_name() == fixture.package_name() && *binding.architecture().value() == "any",
+                "actual transaction lost raw MTREE or semantic identity");
+        const auto generation = binding.record_generation().opaque_identity();
+        require(generation.starts_with("linux-name-to-handle-at-v1|") && generation != previous_generation,
+                "actual reinstall/upgrade retained an old record generation");
+        previous_generation = generation;
+        std::cout << "S5B-INSTALLED\t" << label << "\t" << (operation == ExactArtifactTransactionOperation::Install ? "Install" : "Upgrade")
+                  << "\t" << artifact.identity.full_version << "\t" << artifact.mtree_digest.value() << "\t" << generation << '\n';
+    };
+    install("first-install", std::move(first_install), ExactArtifactTransactionOperation::Install);
+    upstream.commit("revision-two\n");
+    auto upgrade = build_success(fixture);
+    auto reinstall = build_success(fixture);
+    require(upgrade.artifact().evidence().identity.full_version != lower_version &&
+                upgrade.artifact().evidence().identity.full_version == reinstall.artifact().evidence().identity.full_version,
+            "actual Upgrade/reinstall fixture versions are not distinct/equal as required");
+    install("upgrade", std::move(upgrade), ExactArtifactTransactionOperation::Upgrade);
+    install("same-version-reinstall", std::move(reinstall), ExactArtifactTransactionOperation::Upgrade);
+    install("downgrade", std::move(later_downgrade), ExactArtifactTransactionOperation::Upgrade);
+}
+
+void test_exact_installed_binding() {
+    using Status = SourceArtifactInstallTrustedExecutionStatus;
+    using Issue = InstalledRecordObservationIssue;
+    UpstreamGitFixture upstream("slice5-exact-binding");
+    int case_index = 0;
+    for(const std::string mode : {"install", "upgrade", "reinstall", "downgrade", "wrong-operation", "no-post", "nonzero", "partial-nonzero",
+                                  "authorized-only", "unknown-wait", "malformed-status", "needed-skip", "consume-failure",
+                                  "wrong-name", "wrong-base", "wrong-version", "wrong-architecture", "missing-base",
+                                  "anchor-mtree", "outer-mtree", "outer-desc", "outer-files", "identical-reinstall",
+                                  "no-mtree", "empty-mtree", "truncated-mtree", "generation-unsupported", "outer-alpm-failure",
+                                  "outer-resource", "anchor-resource", "anchor-eio", "outer-world", "missing-package", "missing-baseline", "missing-anchor",
+                                  "anchor-xdata", "outer-xdata", "outer-desc-oversize", "outer-lazy-failure", "outer-empty-files", "outer-empty-core-conflict"}) {
+        const auto label = "s5b-" + std::to_string(case_index++);
+        ReviewedBuildFixture fixture(label, upstream);
+        auto proof = build_success(fixture);
+        const auto expected = proof.artifact().evidence();
+        const auto raw_mtree = capture_process("/usr/bin/bsdtar", {"-xOf", proof.artifact().path().string(), ".MTREE"}, {"PATH=/usr/bin:/bin", "LC_ALL=C"});
+        require(raw_mtree.exit_code == 0 && !raw_mtree.stdout_capture_limit_exceeded &&
+                    xdg_generation_store_raw_contents_sha256(raw_mtree.output) == expected.mtree_digest.value(),
+                "fixture lost built raw MTREE");
+        TemporaryTree runtime(label);
+        const auto db = runtime.path() / "db";
+        fs::create_directories(db / "local");
+        write_file(db / "local/ALPM_DB_VERSION", "9\n");
+        const int runtime_fd = open(runtime.path().c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+        require(runtime_fd >= 0, "missing exact fixture runtime");
+        auto store = SourceArtifactInstallTrustedStateStore::open_below_runtime_parent(runtime_fd, geteuid());
+        static_cast<void>(close(runtime_fd));
+        const std::string token(64, 'a');
+        unsigned generation = 1;
+        bool outer = false;
+        unsigned outer_sessions = 0;
+        unsigned outer_semantic_loads = 0;
+        bool late_partial_values = false;
+        unsigned consumes = 0, aborts = 0;
+        fs::path installed_record;
+        const auto write_package = [&](const std::string& version) {
+            if(!installed_record.empty() && fs::exists(installed_record)) fs::remove_all(installed_record);
+            installed_record = db / "local" / (fixture.package_name() + "-" + version);
+            fs::create_directory(installed_record);
+            write_file(installed_record / "desc", "%NAME%\n" + fixture.package_name() + "\n\n%BASE%\n" + fixture.package_base() +
+                                                      "\n\n%VERSION%\n" + version + "\n\n%ARCH%\nany\n\n%REASON%\n0\n\n");
+            write_file(installed_record / "files", "%FILES%\nusr/share/moguet-test\n\n");
+            write_file(installed_record / "mtree", raw_mtree.output);
+        };
+        const bool upgrade = mode == "upgrade" || mode == "reinstall" || mode == "downgrade";
+        if(upgrade) write_package(mode == "upgrade" ? "0-1" : mode == "downgrade" ? "9999-1"
+                                                                                  : expected.identity.full_version);
+        InstalledRecordObservationTestHooks observation_hooks;
+        observation_hooks.database_path = db.string();
+        observation_hooks.expected_owner = geteuid();
+        observation_hooks.name_to_handle = [&](int fd, const char* path, struct file_handle* handle, int* mount, int flags) {
+            require(fd >= 0 && path[0] == '\0' && flags == AT_EMPTY_PATH, "live observer used pathname generation");
+            if(mode == "generation-unsupported" && generation > 1) {
+                errno = EOPNOTSUPP;
+                return -1;
+            }
+            if(mode == "outer-resource" && outer) throw std::bad_alloc();
+            if(mode == "anchor-resource" && generation > 1 && !outer) throw std::bad_alloc();
+            *mount = outer ? 99 : 17;
+            if(handle->handle_bytes == 0) {
+                handle->handle_bytes = 4;
+                errno = EOVERFLOW;
+                return -1;
+            }
+            handle->handle_type = 1;
+            for(unsigned index = 0; index < 4; ++index)
+                handle->f_handle[index] = static_cast<unsigned char>(generation + index);
+            return 0;
+        };
+        observation_hooks.event = [&](InstalledRecordObservationTestEvent event) {
+            if(outer && event == InstalledRecordObservationTestEvent::BeforeSessionOpen) ++outer_sessions;
+            if(outer && event == InstalledRecordObservationTestEvent::BeforeSemanticLoad) {
+                ++outer_semantic_loads;
+                if(mode == "outer-lazy-failure") {
+                    std::ofstream file(installed_record / "desc", std::ios::app);
+                    file << "%XDATA%\nnot-key-value\n\n";
+                }
+            }
+            if(outer && mode == "outer-lazy-failure" && event == InstalledRecordObservationTestEvent::AfterSemanticLoad)
+                late_partial_values = true;
+        };
+        observation_hooks.pread = [&](int fd, void* buffer, std::size_t count, off_t offset) -> ssize_t {
+            if(mode == "anchor-eio" && generation > 1 && !outer) {
+                errno = EIO;
+                return -1;
+            }
+            return pread(fd, buffer, count, offset);
+        };
+        set_installed_record_observation_test_hooks(observation_hooks);
+        std::optional<SourceArtifactInstallRootPrepareRequest> request;
+        set_evaluated_devel_source_artifact_transport_test_hooks({[&](const ExplicitProcessInvocation& invocation) -> CapturedCommandResult {
+                                                                      require(invocation.executable == "/usr/bin/sudo" && invocation.arguments[1] == MOGUET_SOURCE_ARTIFACT_INSTALL_HELPER_PATH,
+                                                                              "exact transport bypassed fixed helper");
+                                                                      const auto& verb = invocation.arguments[2];
+                                                                      if(verb == "prepare-exact") {
+                                                                          const auto parsed = parse_source_artifact_install_trusted_helper_arguments({invocation.arguments.begin() + 2, invocation.arguments.end()});
+                                                                          const auto& helper = require_arm<SourceArtifactInstallTrustedHelperInvocation>(parsed, "invalid exact prepare arguments");
+                                                                          request.emplace(SourceArtifactInstallRootPrepareRequest{helper.transaction_token, helper.package_base, helper.directive,
+                                                                                                                                  helper.needed, helper.no_confirm, helper.artifacts,
+                                                                                                                                  SourceArtifactInstallTrustedPurpose::ExactInstalledBinding});
+                                                                          require(request->artifacts.front().archive_sha256 == expected.archive_digest.value() &&
+                                                                                      request->artifacts.front().raw_mtree_sha256 == expected.mtree_digest.value(),
+                                                                                  "exact transport changed built identity");
+                                                                          const auto prepared = store.prepare(*request, *invocation.standard_input_fd);
+                                                                          return {serialize_source_artifact_install_root_prepare_response(prepared, *request), 0, false};
+                                                                      }
+                                                                      if(verb == "execution-status") {
+                                                                          if(mode == "malformed-status") return {"unknown protocol\n", 0, false};
+                                                                          return {serialize_source_artifact_install_execution_observation(store.execution_status(token)), 0, false};
+                                                                      }
+                                                                      require(verb == "consume-exact", "exact route called legacy consume");
+                                                                      ++consumes;
+                                                                      if(mode == "consume-failure") return {"", 1, false};
+                                                                      return {store.consume_exact(token), 0, false};
+                                                                  },
+                                                                  [&](const ExplicitProcessInvocation& invocation) -> ExplicitProcessExecutionResult {
+                                                                      if(invocation.arguments[2] == "abort") {
+                                                                          ++aborts;
+                                                                          store.abort(token);
+                                                                          return {ExplicitProcessExecutionStatus::StartedKnownOutcome, 0};
+                                                                      }
+                                                                      require(invocation.arguments[2] == "execute", "unexpected exact execution verb");
+                                                                      const int status = store.execute(token);
+                                                                      outer = true;
+                                                                      if(mode == "outer-alpm-failure") {
+                                                                          observation_hooks.fail_database_load = true;
+                                                                          set_installed_record_observation_test_hooks(observation_hooks);
+                                                                      }
+                                                                      if(mode == "outer-world") {
+                                                                          observation_hooks.database_path = (runtime.path() / "different-db").string();
+                                                                          fs::create_directories(*observation_hooks.database_path + "/local");
+                                                                          set_installed_record_observation_test_hooks(observation_hooks);
+                                                                      }
+                                                                      if(mode == "unknown-wait") return {ExplicitProcessExecutionStatus::StartedOutcomeUnknown, std::nullopt};
+                                                                      return {ExplicitProcessExecutionStatus::StartedKnownOutcome, status};
+                                                                  },
+                                                                  {}});
+        set_source_artifact_install_trusted_exec_test_hook([&](const auto&) {
+            if(mode == "authorized-only" || mode == "needed-skip") return 0;
+            store.observe_execution(token);
+            if(mode == "nonzero") return 42;
+            ++generation;
+            write_package(expected.identity.full_version);
+            if(mode == "partial-nonzero") return 42;
+            if(mode == "no-post") return 0;
+            if(mode == "wrong-name" || mode == "wrong-base" || mode == "wrong-version" || mode == "wrong-architecture" || mode == "missing-base") {
+                std::ifstream file(installed_record / "desc");
+                std::string bytes{std::istreambuf_iterator<char>(file), {}};
+                const auto from = mode == "wrong-name" ? fixture.package_name() : mode == "wrong-base"  ? fixture.package_base()
+                                                                              : mode == "wrong-version" ? expected.identity.full_version
+                                                                              : mode == "missing-base"  ? "%BASE%\n" + fixture.package_base() + "\n\n"
+                                                                                                        : "any";
+                const auto to = mode == "missing-base" ? "" : mode == "wrong-version" ? "0-1"
+                                                                                      : "incorrect";
+                bytes.replace(bytes.find(from), from.size(), to);
+                write_file(installed_record / "desc", bytes);
+            }
+            if(mode == "anchor-mtree") {
+                auto bytes = raw_mtree.output;
+                bytes[4] ^= 1;
+                write_file(installed_record / "mtree", bytes);
+            }
+            if(mode == "no-mtree") fs::remove(installed_record / "mtree");
+            if(mode == "empty-mtree") write_file(installed_record / "mtree", "");
+            if(mode == "truncated-mtree") write_file(installed_record / "mtree", raw_mtree.output.substr(0, 12));
+            if(mode == "anchor-xdata") {
+                std::ofstream file(installed_record / "desc", std::ios::app);
+                file << "%XDATA%\nnot-key-value\n\n";
+            }
+            int descriptors[2];
+            require(pipe(descriptors) == 0, "exact NeedsTargets pipe failed");
+            const auto targets = fixture.package_name() + "\n";
+            require(write(descriptors[1], targets.data(), targets.size()) == static_cast<ssize_t>(targets.size()), "exact target write failed");
+            static_cast<void>(close(descriptors[1]));
+            if(upgrade || mode == "wrong-operation")
+                store.record_upgrade(token, descriptors[0]);
+            else
+                store.record_install(token, descriptors[0]);
+            static_cast<void>(close(descriptors[0]));
+            if(mode == "outer-mtree") {
+                auto bytes = raw_mtree.output;
+                bytes[4] ^= 1;
+                write_file(installed_record / "mtree", bytes);
+            }
+            if(mode == "outer-desc" || mode == "outer-files") {
+                std::ofstream file(installed_record / (mode == "outer-desc" ? "desc" : "files"), std::ios::app);
+                file << '\n';
+            }
+            if(mode == "outer-xdata" || mode == "outer-empty-core-conflict") {
+                std::ofstream file(installed_record / "desc", std::ios::app);
+                file << (mode == "outer-xdata" ? "%XDATA%\nnot-key-value\n\n" : "%DESC%\n\n%NAME%\nconflicting-name\n\n");
+            }
+            if(mode == "outer-desc-oversize") fs::resize_file(installed_record / "desc", INSTALLED_RECORD_MAXIMUM_METADATA_BYTES + 1);
+            if(mode == "outer-empty-files") write_file(installed_record / "files", "%FILES%\n\n");
+            if(mode == "identical-reinstall") {
+                ++generation;
+                write_package(expected.identity.full_version);
+            }
+            if(mode == "missing-package") fs::remove_all(installed_record);
+            const auto exact_directory = runtime.path() / "moguet/source-artifact-installs/active" / token / "exact";
+            if(mode == "missing-baseline") fs::remove(exact_directory / "baseline");
+            if(mode == "missing-anchor") fs::remove(exact_directory / "install-anchor");
+            return 0;
+        });
+        {
+            auto transport = prepare_evaluated_devel_source_artifact_transport(std::move(proof));
+            const auto result = transport.execute_exact_for_test({true}, token);
+            const bool unknown = mode == "authorized-only" || mode == "needed-skip" || mode == "unknown-wait" || mode == "malformed-status";
+            const bool no_receipt = unknown || mode == "no-post" || mode == "nonzero" || mode == "partial-nonzero" || mode == "consume-failure";
+            if(unknown)
+                require(result.status() == Status::OutcomeUnknown && !result.pacman_exit_status() && consumes == 0 && aborts == 0 && outer_sessions == 0,
+                        "Unknown exact transaction was consumed/aborted/observed: " + mode);
+            else if(mode == "nonzero" || mode == "partial-nonzero")
+                require(result.status() == Status::PacmanFailed && result.pacman_exit_status() == 42 && outer_sessions == 0, "nonzero transaction minted proof");
+            else
+                require(result.pacman_exit_status() == 0, "binding failure erased known transaction success: " + mode);
+            require((transport.exact_receipt() == nullptr) == no_receipt, "exact receipt completion changed: " + mode);
+            const bool positive = mode == "install" || upgrade;
+            require((transport.fresh_binding() != nullptr) == positive, "fresh binding decision changed: " + mode);
+            if(mode == "partial-nonzero") require(fs::exists(installed_record), "failed transaction was assumed to roll back its package changes");
+            if(positive) {
+                const auto& binding = transport.fresh_binding()->binding();
+                require(binding.mtree_digest().value() == expected.mtree_digest.value() && binding.package().package_name() == fixture.package_name() &&
+                            *binding.version().full_version() == expected.identity.full_version && *binding.architecture().value() == "any" && outer_sessions == 1,
+                        "live binding did not preserve exact observed identity");
+                require(!transport.installed_binding_issue() && !transport.exact_receipt_issue(), "positive binding retained an issue");
+            } else if(!no_receipt) {
+                require(transport.installed_binding_issue().has_value(), "binding failure was lost: " + mode);
+                const auto issue = *transport.installed_binding_issue();
+                if(mode == "identical-reinstall") require(issue == Issue::GenerationMismatch, "identical reinstall did not invalidate the anchor generation");
+                if(mode == "generation-unsupported") require(issue == Issue::UnsupportedGeneration, "generation failure used fallback");
+                if(mode == "outer-resource") require(issue == Issue::ResourceFailure, "resource failure was reclassified");
+                if(mode == "anchor-resource") require(issue == Issue::ResourceFailure, "Post anchor resource failure erased operation receipt");
+                if(mode == "anchor-eio") require(issue == Issue::ReadFailure, "Post anchor read failure erased operation receipt");
+                if(mode == "anchor-xdata" || mode == "outer-xdata" || mode == "outer-empty-core-conflict")
+                    require(issue == Issue::MalformedMetadata && outer_semantic_loads == 0, "malformed raw desc reached outer ALPM semantics");
+                if(mode == "outer-desc-oversize")
+                    require(issue == Issue::MetadataTooLarge && outer_semantic_loads == 0, "oversized desc reached ALPM lazy read");
+                if(mode == "outer-lazy-failure")
+                    require(issue == Issue::DatabaseLoadFailure && late_partial_values && outer_semantic_loads == 1,
+                            "partial lazy getter values became a fresh binding");
+                if(mode == "outer-empty-files") require(issue == Issue::DatabaseLoadFailure, "ambiguous empty file cache became proof");
+            }
+            require(!result.operation_result() && !result.expectation() && !result.observation(), "exact path gained cleanup authority");
+            require(transport.execute_exact_for_test({true}, token).status() == Status::InvalidRequest, "exact capability retried");
+        }
+        set_evaluated_devel_source_artifact_transport_test_hooks({});
+        set_source_artifact_install_trusted_exec_test_hook({});
+        set_installed_record_observation_test_hooks({});
+        std::cout << "S5-B integrated " << mode << " PASS\n";
+    }
+}
+#endif
+
 std::vector<fs::path> context_root_inventory() {
     std::vector<fs::path> roots;
     for(const auto& root : g_fixture_context_roots) {
@@ -1850,9 +2170,21 @@ std::vector<fs::path> context_root_inventory() {
 
 } // namespace
 
-int main() {
+int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
     const std::vector<fs::path> before = context_root_inventory();
     try {
+#ifdef MOGUET_TEST_EXACT_INSTALLED_BINDING
+        if(argc == 2 && std::string(argv[1]) == "--installed-exact-binding") {
+            test_installed_exact_binding();
+            require(context_root_inventory() == before, "installed S5-B fixture retained a build context");
+            return 0;
+        }
+        if(argc == 2 && std::string(argv[1]) == "--exact-installed-binding") {
+            test_exact_installed_binding();
+            require(context_root_inventory() == before, "S5-B fixture retained a build context");
+            return 0;
+        }
+#endif
         test_valid_dynamic_build_and_prepare_mutation();
         test_reviewed_local_source_remains_supported_input();
         test_sha256_upstream_revision();

@@ -62,7 +62,11 @@ CMAKE_FOCUSED_ALIASES := \
 	test-user-config \
 	test-package-identifier \
 	test-source-package-identity \
+	test-exact-artifact-transaction-protocol \
+	test-exact-artifact-transaction-receipt \
+	test-exact-installed-binding \
 	test-installed-artifact-binding \
+	test-installed-package-record-observation \
 	test-devel-build-provenance \
 	test-devel-build-provenance-store \
 	test-git-remote-revision-observer \
@@ -303,6 +307,7 @@ export MOGUET_FRONTEND_USE_DEFAULT_COMPILE_OPTIONS
 	test-container-receipt \
 	test-container-cleanup-authority \
 	test-container-source-artifact-receipt \
+	test-container-exact-installed-binding \
 	test-container-installed-binding-characterization
 .PHONY: check-reviewed-source-pinned-build-authority $(CMAKE_FOCUSED_ALIASES)
 
@@ -677,6 +682,18 @@ test-container-source-artifact-receipt:
 			"$(ARCH_RECEIPT_VALIDATION_IMAGE)" \
 			/usr/bin/python3 \
 			containers/arch-receipt-validation/run-installed-source-artifact-receipt.py
+
+test-container-exact-installed-binding:
+	@set -eu; \
+		$(DOCKER) build --network=none \
+			--tag "$(ARCH_RECEIPT_VALIDATION_IMAGE)" \
+			--file containers/arch-receipt-validation/Dockerfile \
+			.; \
+		$(DOCKER) run --rm --network=none \
+			--mount type=volume,destination=/var/lib/moguet-exact-installed-binding,volume-nocopy \
+			"$(ARCH_RECEIPT_VALIDATION_IMAGE)" \
+			/usr/bin/python3 \
+			containers/arch-receipt-validation/run-exact-installed-binding.py
 
 test-container-installed-binding-characterization:
 	@set -eu; \
