@@ -1,13 +1,12 @@
 #pragma once
 
+#include "devel_build_provenance_decoder_authority.hpp"
 #include "installed_package.hpp"
 #include "source_package_identity.hpp"
 
 #include <string>
 #include <utility>
 #include <variant>
-
-class DevelBuildProvenancePersistentDecoderAccess;
 
 class AlpmMtreeSha256Digest final {
 public:

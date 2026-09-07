@@ -108,7 +108,10 @@ ctimeをmetadata/hash/MTREE読取の後にも再証明する。libalpm metadata�
 - retained artifact descriptor、`PackageChildIdentity`、`BuiltPackageArtifactEvidence`
 
 artifact pathはdiagnostic/presentation valueでありauthorityではない。proof破棄または明示cleanupまでcontextと
-artifactを保持するため、Slice 5は将来このcapability自体をconsumeできる。
+artifactを保持する。S5-Aの`EvaluatedDevelSourceArtifactTransport`はproof全体をmoveでconsumeし、
+保存archive digestとの再照合を経てoriginal retained FDを既存sealed transportへ渡す。
+接続の契約は[trusted transport](trusted-source-artifact-transport.md)を正とする。
+Slice 4 producer自身にはinstall呼出を追加せず、normal routeは未接続のままである。
 
 ## Failureとcleanup
 

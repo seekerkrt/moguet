@@ -1,5 +1,7 @@
 #include "source_artifact_install_trusted_transport.hpp"
 
+#include "evaluated_devel_source_build.hpp"
+#include "evaluated_devel_source_artifact_transport.hpp"
 #include "logging.hpp"
 #include "package_identifier.hpp"
 #include "process.hpp"
@@ -32,6 +34,10 @@
 #endif
 
 namespace {
+
+#ifdef MOGUET_ENABLE_SOURCE_ARTIFACT_INSTALL_TRUSTED_TRANSPORT_TEST_HOOKS
+EvaluatedDevelSourceArtifactTransportTestHooks g_evaluated_transport_test_hooks;
+#endif
 
 constexpr std::string_view SUDO_PATH = "/usr/bin/sudo";
 constexpr std::string_view PACMAN_PATH = "/usr/bin/pacman";
@@ -178,12 +184,24 @@ void log_explicit_invocation(const ExplicitProcessInvocation& invocation) {
 CapturedCommandResult capture_explicit(
     const ExplicitProcessInvocation& invocation) {
     log_explicit_invocation(invocation);
+#ifdef MOGUET_ENABLE_SOURCE_ARTIFACT_INSTALL_TRUSTED_TRANSPORT_TEST_HOOKS
+    if(g_evaluated_transport_test_hooks.capture)
+        return g_evaluated_transport_test_hooks.capture(invocation);
+#endif
     return capture_explicit_process_output_raw(invocation);
+}
+
+int run_explicit_unlogged(const ExplicitProcessInvocation& invocation) {
+#ifdef MOGUET_ENABLE_SOURCE_ARTIFACT_INSTALL_TRUSTED_TRANSPORT_TEST_HOOKS
+    if(g_evaluated_transport_test_hooks.execute)
+        return g_evaluated_transport_test_hooks.execute(invocation).exit_code.value_or(127);
+#endif
+    return run_explicit_process(invocation);
 }
 
 int run_explicit(const ExplicitProcessInvocation& invocation) {
     log_explicit_invocation(invocation);
-    return run_explicit_process(invocation);
+    return run_explicit_unlogged(invocation);
 }
 
 bool roots_are_valid_and_unique(
@@ -393,6 +411,17 @@ OwnedDescriptor create_sealable_memfd() {
 #endif
 }
 
+// Shared by both retained-input routes. No path is reopened by snapshotting.
+void seal_snapshot(int descriptor, const SourceArtifactInstallRootPrepareRequest& request) {
+    if(!is_valid_source_artifact_install_root_request(request) || fsync(descriptor) == -1)
+        throw std::runtime_error("source-artifact snapshot is invalid");
+    constexpr int SEALS = F_SEAL_SEAL | F_SEAL_SHRINK | F_SEAL_GROW | F_SEAL_WRITE;
+    if(fcntl(descriptor, F_ADD_SEALS, SEALS) == -1 ||
+       (fcntl(descriptor, F_GET_SEALS) & SEALS) != SEALS ||
+       lseek(descriptor, 0, SEEK_SET) == -1)
+        throw std::runtime_error("source-artifact snapshot could not be sealed");
+}
+
 struct PreparedTransportInput {
     OwnedDescriptor sealed_input;
     SourceArtifactInstallRootPrepareRequest root_request;
@@ -486,7 +515,7 @@ int abort_prepared_state_noexcept(
         try {
             return run_explicit(abort);
         } catch(...) {
-            return run_explicit_process(abort);
+            return run_explicit_unlogged(abort);
         }
     } catch(...) {
         return 127;
@@ -917,33 +946,22 @@ private:
         }
 
         install.require_execution_coherence();
-        if(!is_valid_source_artifact_install_root_request(root_request) ||
-           fsync(snapshot.get()) == -1) {
-            throw std::runtime_error(
-                "source-artifact snapshot is invalid");
-        }
-        constexpr int SEALS =
-            F_SEAL_SEAL | F_SEAL_SHRINK | F_SEAL_GROW | F_SEAL_WRITE;
-        if(fcntl(snapshot.get(), F_ADD_SEALS, SEALS) == -1 ||
-           (fcntl(snapshot.get(), F_GET_SEALS) & SEALS) != SEALS ||
-           lseek(snapshot.get(), 0, SEEK_SET) == -1) {
-            throw std::runtime_error(
-                "source-artifact snapshot could not be sealed");
-        }
+        seal_snapshot(snapshot.get(), root_request);
         return PreparedTransportInput{
             std::move(snapshot), std::move(root_request),
             std::move(observed_artifacts), std::move(requested_names)};
     }
 
-    static SourceArtifactInstallReceiptObservation make_observation(
-        const SourceArtifactInstallTrustedBinding& binding,
+    static std::optional<SourceArtifactInstallReceiptObservation> make_observation(
+        const SourceArtifactInstallTrustedBinding* binding,
         std::vector<SourceArtifactInstallObservedSelectedArtifact>
             observed_artifacts,
         InvocationDependencyTransaction transaction) {
+        if(binding == nullptr) return std::nullopt;
         InvocationDependencyTransactionLedger ledger;
         ledger.transactions.push_back(std::move(transaction));
         return SourceArtifactInstallReceiptObservation(
-            binding.work_item, std::move(observed_artifacts),
+            binding->work_item, std::move(observed_artifacts),
             std::move(ledger));
     }
 
@@ -956,17 +974,15 @@ public:
 
     static SourceArtifactInstallTrustedExecutionResult
     unknown_after_consumption(
-        const SourceArtifactInstallTrustedBinding& binding,
+        const SourceArtifactInstallTrustedBinding* binding,
         const std::string& transaction_token) {
-        // A failed/ambiguous wait may leave the privileged transaction alive.
-        // Retain its stage instead of attempting cleanup or authorizing retry.
+        // No abort/consume/retry: the privileged transaction may still be alive.
+        std::optional<SourceArtifactInstallReceiptExpectation> expectation;
+        if(binding != nullptr) expectation.emplace(SourceArtifactInstallReceiptExpectation{
+            binding->work_item, binding->selected_artifacts, transaction_token});
         return SourceArtifactInstallTrustedExecutionResult(
             SourceArtifactInstallTrustedExecutionStatus::OutcomeUnknown,
-            std::nullopt,
-            SourceArtifactInstallReceiptExpectation{
-                binding.work_item, binding.selected_artifacts,
-                transaction_token},
-            std::nullopt,
+            std::nullopt, std::move(expectation), std::nullopt,
             "source-artifact execution outcome is unknown after the one-shot capability was consumed");
     }
 
@@ -995,18 +1011,26 @@ public:
         const SourceArtifactInstallTrustedBinding& binding,
         const ArtifactInstallExecutionOptions& options,
         const std::string& transaction_token) {
+        // Allocate the legacy correlation before snapshot/consumption, as in
+        // the original route: allocation failure must leave that input active.
         SourceArtifactInstallReceiptExpectation expectation{
-            binding.work_item, binding.selected_artifacts,
-            transaction_token};
-
+            binding.work_item, binding.selected_artifacts, transaction_token};
         PreparedTransportInput input = snapshot_selected_artifacts(
             install, binding, transaction_token, options);
-
-        // The immutable stream is complete and all local identities have
-        // been revalidated. Any root helper attempt consumes this one-shot
-        // PackageBase install capability, even if execution later fails.
+        // Preserve the old route's consumption point: snapshot failure leaves
+        // it active, any privileged preparation attempt consumes it.
         install.state_ = PreparedPackageBaseArtifactInstall::State::Consumed;
+        return execute_snapshot(std::move(input), transaction_token, &install, &binding, std::move(expectation));
+    }
 
+    // One privileged engine. Optional legacy projection never fabricates a
+    // cleanup work item, reason prediction, or session for the Slice 4 input.
+    static SourceArtifactInstallTrustedExecutionResult execute_snapshot(
+        PreparedTransportInput input,
+        const std::string& transaction_token,
+        const PreparedPackageBaseArtifactInstall* install = nullptr,
+        const SourceArtifactInstallTrustedBinding* binding = nullptr,
+        std::optional<SourceArtifactInstallReceiptExpectation> expectation = std::nullopt) {
         CapturedCommandResult prepare_result;
         try {
             prepare_result = capture_explicit(prepare_invocation(
@@ -1075,7 +1099,11 @@ public:
             log_explicit_invocation(pacman_invocation(input.root_request, *prepared));
             auto invocation = helper_invocation("execute", transaction_token);
             log_explicit_invocation(invocation);
-            const auto execution = run_explicit_process_with_outcome(invocation);
+            const auto execution =
+#ifdef MOGUET_ENABLE_SOURCE_ARTIFACT_INSTALL_TRUSTED_TRANSPORT_TEST_HOOKS
+                g_evaluated_transport_test_hooks.execute ? g_evaluated_transport_test_hooks.execute(invocation) :
+#endif
+                                                         run_explicit_process_with_outcome(invocation);
             if(execution.status == ExplicitProcessExecutionStatus::StartedOutcomeUnknown ||
                (execution.status == ExplicitProcessExecutionStatus::StartedKnownOutcome && !execution.exit_code)) {
                 return unknown_after_consumption(binding, transaction_token);
@@ -1171,8 +1199,8 @@ public:
         // operation success. The
         // later receipt/consume path may fail closed for cleanup authority,
         // but it must not rewrite this completed installation as failure.
-        PackageBaseArtifactInstallExecutionResult operation_result =
-            make_operation_result(install);
+        std::optional<PackageBaseArtifactInstallExecutionResult> operation_result;
+        if(install != nullptr) operation_result.emplace(make_operation_result(*install));
 
         ExplicitProcessInvocation consume =
             helper_invocation("consume", transaction_token);
@@ -1294,8 +1322,8 @@ public:
                         SourceArtifactInstall,
                     std::move(operations)}));
         const bool session_completion_recorded =
-            !binding.work_item.invocation_authority.has_value() ||
-            binding.work_item.invocation_authority
+            binding == nullptr || !binding->work_item.invocation_authority.has_value() ||
+            binding->work_item.invocation_authority
                 ->mark_trusted_transaction_completed(
                     InvocationDependencyTransactionOwner::
                         SourceArtifactInstall,
@@ -1335,6 +1363,140 @@ SourceArtifactInstallTrustedExecutionStatus
 SourceArtifactInstallTrustedExecutionResult::status() const noexcept {
     return status_;
 }
+
+struct EvaluatedDevelSourceArtifactTransport::State {
+    EvaluatedDevelSourceBuildProof proof;
+    bool consumed = false;
+    std::optional<std::string> transaction_token;
+
+    explicit State(EvaluatedDevelSourceBuildProof value) noexcept
+        : proof(std::move(value)) {
+    }
+};
+
+EvaluatedDevelSourceArtifactTransport::EvaluatedDevelSourceArtifactTransport(
+    std::unique_ptr<State> state) noexcept : state_(std::move(state)) {
+}
+
+EvaluatedDevelSourceArtifactTransport::EvaluatedDevelSourceArtifactTransport(
+    EvaluatedDevelSourceArtifactTransport&&) noexcept = default;
+EvaluatedDevelSourceArtifactTransport::~EvaluatedDevelSourceArtifactTransport() noexcept = default;
+
+bool EvaluatedDevelSourceArtifactTransport::active() const noexcept {
+    return state_ && !state_->consumed && state_->proof.valid();
+}
+
+const std::optional<std::string>&
+EvaluatedDevelSourceArtifactTransport::transaction_token() const {
+    if(!state_) throw std::logic_error("evaluated artifact transport is moved from");
+    return state_->transaction_token;
+}
+
+EvaluatedDevelSourceArtifactTransport prepare_evaluated_devel_source_artifact_transport(
+    EvaluatedDevelSourceBuildProof proof) {
+    if(!proof.valid()) throw std::logic_error("evaluated build proof is inactive");
+    return EvaluatedDevelSourceArtifactTransport(
+        std::make_unique<EvaluatedDevelSourceArtifactTransport::State>(std::move(proof)));
+}
+
+SourceArtifactInstallTrustedExecutionResult EvaluatedDevelSourceArtifactTransport::execute(
+    const ArtifactInstallExecutionOptions& options) {
+    return execute_impl(options, nullptr);
+}
+
+SourceArtifactInstallTrustedExecutionResult EvaluatedDevelSourceArtifactTransport::execute_impl(
+    const ArtifactInstallExecutionOptions& options, const std::string* test_token) {
+    using Status = SourceArtifactInstallTrustedExecutionStatus;
+    if(!active()) return SourceArtifactInstallTrustedTransport::invalid_result(
+        Status::InvalidRequest, "evaluated artifact transport is inactive");
+    // The moved-in build capability cannot be recovered/retried after even a
+    // local refusal. Keep its FD/context alive through every returned outcome.
+    state_->consumed = true;
+    if(test_token == nullptr && !fixed_executables_are_trusted())
+        return SourceArtifactInstallTrustedTransport::invalid_result(
+            Status::TrustedExecutableUnavailable, "installed source-artifact trusted executables are unavailable");
+    state_->transaction_token = test_token ? std::optional<std::string>(*test_token)
+                                           : generate_trusted_alpm_receipt_transaction_token();
+    if(!state_->transaction_token || !is_valid_trusted_alpm_receipt_token(*state_->transaction_token))
+        return SourceArtifactInstallTrustedTransport::invalid_result(
+            Status::TokenGenerationFailed, "evaluated artifact transport token generation failed");
+
+    bool privileged_attempted = false;
+    try {
+        const auto& artifact = state_->proof.artifact();
+        const auto& evidence = artifact.evidence();
+        const struct stat metadata = require_snapshot_source(
+            artifact.descriptor_, artifact.device_, artifact.inode_, artifact.owner_,
+            SOURCE_ARTIFACT_INSTALL_MAXIMUM_ARTIFACT_BYTES);
+        const auto require_original_entry = [&] {
+            struct stat named{};
+            // A named-entry check only rejects replacement. It never opens or
+            // adopts a new object, even when that object's bytes are identical.
+            if(metadata.st_nlink != 1 || static_cast<std::uintmax_t>(metadata.st_size) != artifact.size_ ||
+               lstat(artifact.path_.c_str(), &named) == -1 || !same_snapshot_metadata(metadata, named))
+                throw std::runtime_error("evaluated artifact retained object was replaced");
+        };
+        require_original_entry();
+        // This comparison MUST precede copying. Hashing whatever is readable
+        // now cannot replace the digest saved by the original build proof.
+        const std::string digest = xdg_generation_store_file_descriptor_sha256(
+            artifact.descriptor_, artifact.size_, SOURCE_ARTIFACT_INSTALL_MAXIMUM_ARTIFACT_BYTES);
+        if(digest != evidence.archive_digest.value())
+            throw std::runtime_error("evaluated artifact differs from the Slice 4 saved archive digest");
+
+        OwnedDescriptor snapshot = create_sealable_memfd();
+#ifdef MOGUET_ENABLE_SOURCE_ARTIFACT_INSTALL_TRUSTED_TRANSPORT_TEST_HOOKS
+        if(g_evaluated_transport_test_hooks.before_snapshot_copy)
+            g_evaluated_transport_test_hooks.before_snapshot_copy(artifact.descriptor_);
+#endif
+        append_descriptor_bytes(artifact.descriptor_, metadata, snapshot.get());
+        require_original_entry();
+        const auto& identity = evidence.identity;
+        const auto* package_base = identity.package_base.value();
+        const auto* architecture = identity.architecture.value();
+        if(identity.package_base.state() != ArtifactMetadataValueState::Known ||
+           identity.architecture.state() != ArtifactMetadataValueState::Known ||
+           !package_base || !architecture)
+            throw std::runtime_error("evaluated artifact identity is incomplete");
+        // Slice 4 accepts exactly one archive and no detached signature.
+        // PreserveExistingReason adds no cleanup-specific --asdeps authority;
+        // needed=false installs the proved build without introducing skip policy.
+        SourceArtifactInstallRootPrepareRequest request{
+            *state_->transaction_token, *package_base, SourceArtifactInstallTrustedDirective::PreserveExistingReason, false, options.no_confirm, {{0, identity.package_name, identity.full_version, *package_base, *architecture, static_cast<std::uint64_t>(artifact.size_), 0, digest, "-"}}};
+        seal_snapshot(snapshot.get(), request);
+        // Close hash-to-copy mutation as well: the immutable bytes sent across
+        // privilege must carry the very same saved digest, not just a new hash.
+        if(xdg_generation_store_file_descriptor_sha256(
+               snapshot.get(), artifact.size_, SOURCE_ARTIFACT_INSTALL_MAXIMUM_ARTIFACT_BYTES) != digest)
+            throw std::runtime_error("evaluated artifact snapshot differs from the Slice 4 saved archive digest");
+        PreparedTransportInput input{
+            std::move(snapshot), std::move(request), {}, {identity.package_name}};
+        privileged_attempted = true;
+        return SourceArtifactInstallTrustedTransport::execute_snapshot(
+            std::move(input), *state_->transaction_token);
+    } catch(const std::exception& error) {
+        if(privileged_attempted) return SourceArtifactInstallTrustedTransport::unknown_after_consumption(
+            nullptr, *state_->transaction_token);
+        return SourceArtifactInstallTrustedTransport::invalid_result(Status::ArtifactSnapshotFailed, error.what());
+    } catch(...) {
+        if(privileged_attempted) return SourceArtifactInstallTrustedTransport::unknown_after_consumption(
+            nullptr, *state_->transaction_token);
+        return SourceArtifactInstallTrustedTransport::invalid_result(
+            Status::ArtifactSnapshotFailed, "evaluated artifact immutable snapshot failed");
+    }
+}
+
+#ifdef MOGUET_ENABLE_SOURCE_ARTIFACT_INSTALL_TRUSTED_TRANSPORT_TEST_HOOKS
+SourceArtifactInstallTrustedExecutionResult EvaluatedDevelSourceArtifactTransport::execute_for_test(
+    const ArtifactInstallExecutionOptions& options, const std::string& transaction_token) {
+    return execute_impl(options, &transaction_token);
+}
+
+void set_evaluated_devel_source_artifact_transport_test_hooks(
+    EvaluatedDevelSourceArtifactTransportTestHooks hooks) {
+    g_evaluated_transport_test_hooks = std::move(hooks);
+}
+#endif
 
 const std::optional<int>&
 SourceArtifactInstallTrustedExecutionResult::pacman_exit_status()
@@ -1407,7 +1569,7 @@ execute_source_artifact_install_trusted_transaction(
                install)) {
             return SourceArtifactInstallTrustedTransport::
                 unknown_after_consumption(
-                    binding, *transaction_token);
+                    &binding, *transaction_token);
         }
         return SourceArtifactInstallTrustedTransport::invalid_result(
             SourceArtifactInstallTrustedExecutionStatus::
@@ -1466,7 +1628,7 @@ execute_source_artifact_install_trusted_transaction_for_test(
         if(!SourceArtifactInstallTrustedTransport::capability_is_active(
                install)) {
             return SourceArtifactInstallTrustedTransport::
-                unknown_after_consumption(binding, transaction_token);
+                unknown_after_consumption(&binding, transaction_token);
         }
         return SourceArtifactInstallTrustedTransport::invalid_result(
             SourceArtifactInstallTrustedExecutionStatus::

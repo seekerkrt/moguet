@@ -1286,6 +1286,35 @@ moguet_add_cpp_test(
         ${_moguet_evaluated_devel_source_build_forbidden_sources}
 )
 
+# S5-A reuses the actual Slice 4 build fixture and the existing transport
+# implementation. Only privileged transport processes are intercepted; the
+# original Slice 4 target keeps its independent no-transport link firewall.
+set(_moguet_evaluated_transport_test_sources
+    ${_moguet_evaluated_devel_source_build_test_sources}
+    ${_moguet_source_artifact_install_trusted_transport_test_sources})
+list(REMOVE_ITEM _moguet_evaluated_transport_test_sources
+    tests/source_artifact_install_trusted_transport_test.cpp)
+list(REMOVE_DUPLICATES _moguet_evaluated_transport_test_sources)
+moguet_add_cpp_test(
+    evaluated-devel-source-artifact-transport-test
+    ALPM_COMPILE REAL_ALPM CURL
+    SOURCES ${_moguet_evaluated_transport_test_sources}
+    DEFINITIONS
+        MOGUET_ENABLE_TEST_OVERRIDES
+        MOGUET_ENABLE_REVIEWED_SOURCE_PRESENTATION_TEST_HOOKS
+        MOGUET_ENABLE_REVIEWED_SOURCE_ACCEPTANCE_TEST_HOOKS
+        MOGUET_ENABLE_REVIEWED_SOURCE_STATE_STORE_TEST_HOOKS
+        MOGUET_ENABLE_INVOCATION_OWNED_SOURCE_BUILD_CONTEXT_TEST_HOOKS
+        MOGUET_ENABLE_EVALUATED_DEVEL_SOURCE_BUILD_TEST_HOOKS
+        MOGUET_ENABLE_SOURCE_ARTIFACT_INSTALL_TRUSTED_TRANSPORT_TEST_HOOKS
+        MOGUET_TEST_EVALUATED_DEVEL_ARTIFACT_TRANSPORT
+    INCLUDE_DIRECTORIES
+        "${_moguet_test_source_include_dir}"
+        "${_moguet_test_support_include_dir}"
+    COMPILE_OPTIONS -ffunction-sections -fdata-sections
+    LINK_OPTIONS LINKER:--gc-sections
+)
+
 moguet_add_cpp_test(
     reviewed-source-production-connection-test
     SOURCES
@@ -2829,6 +2858,7 @@ set(
     reviewed-source-acceptance-test
     reviewed-source-pinned-build-test
     invocation-owned-source-build-context-test
+    evaluated-devel-source-artifact-transport-test
     evaluated-devel-source-build-test
     reviewed-source-production-connection-test
     reviewed-source-projection-test

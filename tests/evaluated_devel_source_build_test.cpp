@@ -1,5 +1,12 @@
 #include "evaluated_devel_source_build.hpp"
 
+#ifdef MOGUET_TEST_EVALUATED_DEVEL_ARTIFACT_TRANSPORT
+#include "evaluated_devel_source_artifact_transport.hpp"
+#include "source_artifact_install_trusted_transport.hpp"
+#include "source_artifact_install_trusted_helper_state.hpp"
+#include <cerrno>
+#endif
+
 #include "process.hpp"
 #include "reviewed_source_acceptance.hpp"
 #include "reviewed_source_presentation.hpp"
@@ -34,6 +41,10 @@
 namespace {
 
 namespace fs = std::filesystem;
+
+// The Slice 4 and bridge executables may run concurrently. Only this
+// process's successful context creations belong to its cleanup inventory.
+std::vector<fs::path> g_fixture_context_roots;
 
 static_assert(!std::is_default_constructible_v<
               EvaluatedDevelSourceBuildProof>);
@@ -418,8 +429,10 @@ public:
             }
             throw std::runtime_error(message.str());
         }
-        return take_arm<InvocationOwnedSourceBuildContext>(
+        auto context = take_arm<InvocationOwnedSourceBuildContext>(
             result, "Context creation returned no context");
+        g_fixture_context_roots.push_back(context.owned_root());
+        return context;
     }
 
     [[nodiscard]] InvocationOwnedMakepkgEnvironment make_environment(
@@ -1583,15 +1596,252 @@ void test_cleanup_budgets() {
     cleanup_retained_fixture(root, created_root);
 }
 
+#ifdef MOGUET_TEST_EVALUATED_DEVEL_ARTIFACT_TRANSPORT
+static_assert(!std::is_default_constructible_v<EvaluatedDevelSourceArtifactTransport>);
+static_assert(!std::is_copy_constructible_v<EvaluatedDevelSourceArtifactTransport>);
+static_assert(!std::is_copy_assignable_v<EvaluatedDevelSourceArtifactTransport>);
+static_assert(std::is_nothrow_move_constructible_v<EvaluatedDevelSourceArtifactTransport>);
+static_assert(!std::is_constructible_v<EvaluatedDevelSourceArtifactTransport, fs::path>);
+static_assert(!std::is_constructible_v<EvaluatedDevelSourceArtifactTransport, InstalledArtifactBinding>);
+static_assert(!std::is_invocable_v<decltype(prepare_evaluated_devel_source_artifact_transport),
+                                   const EvaluatedDevelSourceBuildProof&>);
+
+// Real Slice 4 producer and real sealed helper state; only the privileged
+// process/pacman exec boundary is replaced. No host transaction is executed.
+void test_evaluated_artifact_transport() {
+    enum class Scenario { Positive,
+                          DigestDrift,
+                          SameSizeReplacement,
+                          SameBytesReplacement,
+                          CopyRace,
+                          Unobserved,
+                          UnknownWait,
+                          ConsumeFailure,
+                          SealingRefusal };
+    UpstreamGitFixture upstream("slice5-bridge");
+    int case_index = 0;
+    for(const auto scenario : {Scenario::Positive, Scenario::DigestDrift, Scenario::SameSizeReplacement,
+                               Scenario::SameBytesReplacement, Scenario::CopyRace, Scenario::Unobserved,
+                               Scenario::UnknownWait, Scenario::ConsumeFailure, Scenario::SealingRefusal}) {
+        const std::string label = "slice5-bridge-" + std::to_string(case_index++);
+        ReviewedBuildFixture fixture(label, upstream);
+        auto proof = build_success(fixture);
+        const auto artifact_path = proof.artifact().path();
+        const auto saved_digest = proof.artifact().evidence().archive_digest.value();
+        const auto saved_size = proof.artifact().size();
+        struct stat original{};
+        require(lstat(artifact_path.c_str(), &original) == 0, "Missing original Slice 4 artifact");
+        TemporaryTree runtime(label);
+        const int runtime_fd = open(runtime.path().c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+        require(runtime_fd >= 0, "Cannot open isolated transport runtime");
+        auto store = SourceArtifactInstallTrustedStateStore::open_below_runtime_parent(runtime_fd, geteuid());
+        static_cast<void>(close(runtime_fd));
+        const std::string token(64, 'a');
+        std::optional<SourceArtifactInstallRootPrepareRequest> request;
+        int borrowed_fd = -1;
+        int prepare_count = 0;
+        int execute_count = 0;
+        int consume_count = 0;
+        int abort_count = 0;
+        bool reached_copy = false;
+        const auto mutate_bytes = [&](const fs::path& path) {
+            std::fstream file(path, std::ios::in | std::ios::out | std::ios::binary);
+            char byte = 0;
+            file.read(&byte, 1);
+            require(file.good(), "Cannot read mutation byte");
+            byte ^= 1;
+            file.seekp(0);
+            file.write(&byte, 1);
+            file.close();
+            require(!file.fail(), "Cannot mutate retained artifact bytes");
+            // Same size and restored mtime are deliberately insufficient.
+            timespec times[]{original.st_atim, original.st_mtim};
+            require(utimensat(AT_FDCWD, path.c_str(), times, 0) == 0, "Cannot restore fixture mtime");
+        };
+        const auto require_original_fd = [&] {
+            struct stat retained{};
+            require(borrowed_fd >= 0 && fstat(borrowed_fd, &retained) == 0 &&
+                        retained.st_dev == original.st_dev && retained.st_ino == original.st_ino,
+                    "Bridge lost/reopened the original retained artifact FD");
+        };
+        set_evaluated_devel_source_artifact_transport_test_hooks({[&](const ExplicitProcessInvocation& invocation) -> CapturedCommandResult {
+                                                                      require(invocation.executable == "/usr/bin/sudo" && invocation.arguments.size() >= 4 &&
+                                                                                  invocation.arguments[0] == "--" &&
+                                                                                  invocation.arguments[1] == MOGUET_SOURCE_ARTIFACT_INSTALL_HELPER_PATH,
+                                                                              "Bridge bypassed the fixed privileged helper");
+                                                                      const auto& verb = invocation.arguments[2];
+                                                                      if(verb == "prepare") {
+                                                                          ++prepare_count;
+                                                                          require_original_fd();
+                                                                          const std::vector<std::string> arguments(invocation.arguments.begin() + 2, invocation.arguments.end());
+                                                                          const auto parsed = parse_source_artifact_install_trusted_helper_arguments(arguments);
+                                                                          const auto& helper = require_arm<SourceArtifactInstallTrustedHelperInvocation>(parsed, "Invalid bridge request");
+                                                                          request.emplace(SourceArtifactInstallRootPrepareRequest{
+                                                                              helper.transaction_token, helper.package_base, helper.directive,
+                                                                              helper.needed, helper.no_confirm, helper.artifacts});
+                                                                          require(request->artifacts.size() == 1 && request->artifacts[0].artifact_index == 0 &&
+                                                                                      request->artifacts[0].archive_sha256 == saved_digest &&
+                                                                                      request->artifacts[0].artifact_size == saved_size &&
+                                                                                      request->artifacts[0].signature_size == 0 && request->artifacts[0].signature_sha256 == "-" &&
+                                                                                      !request->needed && request->no_confirm &&
+                                                                                      request->directive == SourceArtifactInstallTrustedDirective::PreserveExistingReason,
+                                                                                  "Bridge changed its Slice 4 input, signature absence or install policy");
+                                                                          require(invocation.standard_input_fd.has_value(), "Missing sealed bridge stream");
+                                                                          const int snapshot_fd = *invocation.standard_input_fd;
+                                                                          constexpr int seals = F_SEAL_SEAL | F_SEAL_SHRINK | F_SEAL_GROW | F_SEAL_WRITE;
+                                                                          require((fcntl(snapshot_fd, F_GET_SEALS) & seals) == seals &&
+                                                                                      xdg_generation_store_file_descriptor_sha256(snapshot_fd, saved_size,
+                                                                                                                                  SOURCE_ARTIFACT_INSTALL_MAXIMUM_ARTIFACT_BYTES) == saved_digest,
+                                                                                  "Bridge did not seal the original build bytes");
+                                                                          const auto response = store.prepare(*request, snapshot_fd);
+                                                                          return {serialize_source_artifact_install_root_prepare_response(response, *request), 0, false};
+                                                                      }
+                                                                      if(verb == "execution-status")
+                                                                          return {serialize_source_artifact_install_execution_observation(store.execution_status(token)), 0, false};
+                                                                      require(verb == "consume", "Unexpected bridge capture verb");
+                                                                      ++consume_count;
+                                                                      require_original_fd();
+                                                                      if(scenario == Scenario::ConsumeFailure) return {"", 1, false};
+                                                                      return {store.consume(token), 0, false};
+                                                                  },
+                                                                  [&](const ExplicitProcessInvocation& invocation) -> ExplicitProcessExecutionResult {
+                                                                      require(invocation.executable == "/usr/bin/sudo" && invocation.arguments.size() == 4 &&
+                                                                                  invocation.arguments[1] == MOGUET_SOURCE_ARTIFACT_INSTALL_HELPER_PATH,
+                                                                              "Bridge ran a process outside the fixed helper");
+                                                                      if(invocation.arguments[2] == "abort") {
+                                                                          ++abort_count;
+                                                                          store.abort(token);
+                                                                          return {ExplicitProcessExecutionStatus::StartedKnownOutcome, 0};
+                                                                      }
+                                                                      require(invocation.arguments[2] == "execute", "Unexpected bridge execution verb");
+                                                                      ++execute_count;
+                                                                      require_original_fd();
+                                                                      int status = 42;
+                                                                      try {
+                                                                          status = store.execute(token);
+                                                                      } catch(const SourceArtifactInstallTrustedStateError&) {
+                                                                          require(scenario == Scenario::SealingRefusal, "Unexpected helper sealing failure");
+                                                                      }
+                                                                      if(scenario == Scenario::UnknownWait)
+                                                                          return {ExplicitProcessExecutionStatus::StartedOutcomeUnknown, std::nullopt};
+                                                                      return {ExplicitProcessExecutionStatus::StartedKnownOutcome, status};
+                                                                  },
+                                                                  [&](int descriptor) {
+                                                                      reached_copy = true;
+                                                                      borrowed_fd = descriptor;
+                                                                      require_original_fd();
+                                                                      if(scenario == Scenario::CopyRace) mutate_bytes(artifact_path);
+                                                                  }});
+        set_source_artifact_install_trusted_exec_test_hook([&](const auto&) {
+            require_original_fd();
+            if(scenario != Scenario::Unobserved) {
+                store.observe_execution(token);
+                int pipe_fds[2];
+                require(pipe(pipe_fds) == 0, "Cannot create test hook input");
+                const auto names = request->artifacts[0].package_name + "\n";
+                require(write(pipe_fds[1], names.data(), names.size()) == static_cast<ssize_t>(names.size()),
+                        "Cannot write test hook input");
+                static_cast<void>(close(pipe_fds[1]));
+                store.record(token, pipe_fds[0]);
+                static_cast<void>(close(pipe_fds[0]));
+            }
+            return 0;
+        });
+        if(scenario == Scenario::SealingRefusal) {
+            set_source_artifact_install_trusted_state_test_hook([&](auto event, int, const auto&) {
+                if(event == SourceArtifactInstallTrustedStateTestEvent::BeforeFinalReproof)
+                    throw SourceArtifactInstallTrustedStateError(SourceArtifactInstallSealingFailure::StagedArtifactDigestMismatch,
+                                                                 "injected final reproof refusal");
+            });
+        }
+        if(scenario == Scenario::DigestDrift) mutate_bytes(artifact_path);
+        if(scenario == Scenario::SameSizeReplacement || scenario == Scenario::SameBytesReplacement) {
+            const auto replacement = runtime.path() / "replacement";
+            fs::copy_file(artifact_path, replacement);
+            if(scenario == Scenario::SameSizeReplacement) mutate_bytes(replacement);
+            require(fs::file_size(replacement) == saved_size, "Replacement did not preserve size");
+            if(scenario == Scenario::SameBytesReplacement)
+                require(sha256_path(replacement) == saved_digest, "Same-byte replacement differs");
+            fs::rename(replacement, artifact_path);
+        }
+        // Even a later path-based sidecar must not be adopted by this route.
+        std::ofstream(artifact_path.string() + ".sig") << "not Slice 4 authority\n";
+        {
+            auto transport = prepare_evaluated_devel_source_artifact_transport(std::move(proof));
+            require(!proof.valid() && transport.active(), "Bridge did not consume the Slice 4 proof");
+            bool rejected = false;
+            try {
+                auto duplicate = prepare_evaluated_devel_source_artifact_transport(std::move(proof));
+            } catch(const std::logic_error&) {
+                rejected = true;
+            }
+            require(rejected, "Bridge accepted a twice-consumed build proof");
+            auto moved_transport = std::move(transport);
+            require(!transport.active() && moved_transport.active(), "Moved transport retained execution authority");
+            require(transport.execute_for_test({true}, token).status() == SourceArtifactInstallTrustedExecutionStatus::InvalidRequest,
+                    "Moved-from transport was executable");
+            const auto result = moved_transport.execute_for_test({true}, token);
+            const bool local_failure = scenario == Scenario::DigestDrift || scenario == Scenario::SameSizeReplacement ||
+                                       scenario == Scenario::SameBytesReplacement || scenario == Scenario::CopyRace;
+            using Status = SourceArtifactInstallTrustedExecutionStatus;
+            const auto expected = local_failure                                                           ? Status::ArtifactSnapshotFailed
+                                  : scenario == Scenario::Unobserved || scenario == Scenario::UnknownWait ? Status::OutcomeUnknown
+                                  : scenario == Scenario::ConsumeFailure                                  ? Status::ConsumeFailed
+                                  : scenario == Scenario::SealingRefusal                                  ? Status::ArtifactSealingFailed
+                                                                                                          : Status::Complete;
+            require(result.status() == expected, "Unexpected evaluated transport result");
+            require(!result.expectation() && !result.observation() && !result.operation_result(),
+                    "Slice 4 transport fabricated legacy cleanup authority");
+            require(!moved_transport.active() && moved_transport.transaction_token() == token,
+                    "Bridge lost its consumed state/token");
+            require(moved_transport.execute_for_test({true}, token).status() == Status::InvalidRequest,
+                    "Bridge authorized double execution");
+            require(prepare_count == (local_failure ? 0 : 1) && execute_count == (local_failure ? 0 : 1),
+                    "Bridge attempted a rejected input or repeated privileged execution");
+            if(scenario == Scenario::DigestDrift)
+                require(!reached_copy && result.diagnostic() && result.diagnostic()->find("saved archive digest") != std::string::npos,
+                        "Saved digest mismatch was not rejected before copying");
+            if(!local_failure) require_original_fd();
+            if(scenario == Scenario::Unobserved || scenario == Scenario::UnknownWait) {
+                require(!result.pacman_exit_status() && consume_count == 0 && abort_count == 0,
+                        "Unknown bridge outcome authorized consume/abort or package success");
+                // An exact duplicate execute must still fail against the retained
+                // real private stage, even after the in-process lease is released.
+                bool replay_rejected = false;
+                try {
+                    static_cast<void>(store.execute(token));
+                } catch(const SourceArtifactInstallTrustedStateError&) {
+                    replay_rejected = true;
+                }
+                require(replay_rejected && store.execution_status(token).authorized,
+                        "Unknown outcome lost private execution evidence or allowed replay");
+            }
+            if(scenario == Scenario::Positive || scenario == Scenario::ConsumeFailure)
+                require(result.pacman_exit_status() == 0 && consume_count == 1,
+                        "Known successful operation was lost at the receipt boundary");
+            if(scenario == Scenario::SealingRefusal)
+                require(result.sealing_failure() && !result.pacman_exit_status() && consume_count == 0 && abort_count == 1,
+                        "Bridge bypassed shared final-reproof refusal handling");
+        }
+        if(borrowed_fd >= 0) {
+            errno = 0;
+            require(fcntl(borrowed_fd, F_GETFD) == -1 && errno == EBADF,
+                    "Transport destruction did not release the original artifact FD");
+        }
+        set_evaluated_devel_source_artifact_transport_test_hooks({});
+        set_source_artifact_install_trusted_exec_test_hook({});
+        set_source_artifact_install_trusted_state_test_hook({});
+    }
+    std::cout << "Slice 5 retained bridge: 9 cases passed\n";
+}
+#endif
+
 std::vector<fs::path> context_root_inventory() {
     std::vector<fs::path> roots;
-    for(const fs::directory_entry& entry : fs::directory_iterator("/tmp")) {
-        const std::string leaf = entry.path().filename().string();
-        if(!leaf.starts_with("moguet-source-build-context-")) continue;
+    for(const auto& root : g_fixture_context_roots) {
         struct stat status{};
-        if(::lstat(entry.path().c_str(), &status) == 0 &&
-           S_ISDIR(status.st_mode) && status.st_uid == ::geteuid()) {
-            roots.push_back(entry.path());
+        if(::lstat(root.c_str(), &status) == 0) {
+            roots.push_back(root);
         }
     }
     std::sort(roots.begin(), roots.end());
@@ -1618,6 +1868,9 @@ int main() {
         test_cross_context_environment_rejected();
         test_cleanup_failure_preserves_primary();
         test_cleanup_budgets();
+#ifdef MOGUET_TEST_EVALUATED_DEVEL_ARTIFACT_TRANSPORT
+        test_evaluated_artifact_transport();
+#endif
         set_evaluated_devel_source_build_test_hook({});
         set_invocation_owned_source_build_context_test_hook({});
         require(

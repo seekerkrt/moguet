@@ -23,6 +23,33 @@ root ownershipだけをartifact identityとして扱わない。Moguetが証明�
 
 ## Transport identity
 
+S5-Aでは`prepare_evaluated_devel_source_artifact_transport`がSlice 4の
+`EvaluatedDevelSourceBuildProof`全体をmoveで受け取り、move-onlyの
+`EvaluatedDevelSourceArtifactTransport`が元context / artifact FDを所有する。
+default / copy / raw inputからのconstructionは不可で、completeなowner宣言を
+friend付与元headerから参照する。normal CLI / source-build routeへは接続しない。
+
+新ownerはexecute時にoriginal retained FDのidentity / size / named entryを再確認し、
+同FDから再計算したarchive SHA-256をSlice 4保存digestと照合してからcopyする。
+named entryは置換拒否のためだけに確認し、raw pathの再open、same bytesの新object採用、
+旧workspace / prepared installの再構築は行わない。copy後にidentityを再確認し、seal済み
+snapshot自身のSHA-256も保存digestと一致させる。signatureは明示的にsize 0 / `-`である。
+exactly one childをindex 0として渡し、`PreserveExistingReason`、`needed=false`を固定する。
+これはS5-Aの限定internal transport policyであり、通常routeのreason / skip policyは変更しない。
+
+snapshot copy / sealとprivileged prepare→execute→execution-status→consume / abortは
+既存coreを共有する。旧routeだけがcleanup expectation / observation / operation summaryを
+生成し、新routeはそれらを空のまま返す。新routeの`Complete`は既存transport protocolの
+完了区分であり、exact Install/Upgrade receiptやinstalled bindingを意味しない。
+known outcomeは既存positive execution witnessを必須とし、exit 0後のconsume failureでも
+`pacman_exit_status=0`を保持する。S5-Bのreceipt / fresh DBとS5-Cのfinal aggregateは未実装である。
+
+新ownerはlocal rejectionを含めexecuteを一度だけ許し、move元と再実行を拒否する。
+元FD / contextはowner破棄まで保持し、OutcomeUnknownでもtokenを診断用に保持する。
+共有coreはUnknown時にabort / consume / retryせず、privileged stage / lifetime / evidenceを残す。
+旧PreparedPackageBaseArtifactInstall routeのsnapshot失敗時のactive状態と、root prepare試行時の
+consumption pointは維持する。
+
 既存のPreparedPackageBaseArtifactInstallが保持するdescriptorからarchive SHA-256を取得する。
 copy前のfile identityをcopy完了まで再確認し、write-sealed memfdからroot helperへ転送する。
 hash implementationはSlice 4も使う既存XDG generation-store SHA-256であり、
@@ -149,6 +176,10 @@ receipt authorityを拒否する。これはfresh installed bindingを証明す�
 ## Validation and scope
 
 focused targetはtest-source-artifact-install-trusted-transportである。
+S5-Aの`test-evaluated-devel-source-artifact-transport`はactual Slice 4 fixtureからreal helper stateへ
+接続し、privileged process / pacman execだけをtest seamで置き換える。保存digest mismatch、
+same-size / same-bytes replacement、hash→copy race、move / double consumption / execution、
+FD lifetime、signature absence、Unknown保持、consume failure、final reproof refusalを確認する。
 sealed input→helper stage→reproof→test-only execution replacementを通し、
 same-metadata/different-digest、same-bytes/new-inode、metadata後/最終reproof前/record前/consume前の置換、
 symlink、hardlink、mode、private parent、schema/digest欠落、signature drift、in-flight cleanupを確認する。

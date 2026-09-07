@@ -242,6 +242,55 @@ foreach(_moguet_header IN ITEMS
         math(EXPR _moguet_narrow_case_count "${_moguet_narrow_case_count} + 1")
     endforeach()
 endforeach()
+# S5-A: the decoder authority is complete even without the codec header.
+set(_moguet_s5_case_count 0)
+foreach(_moguet_header IN ITEMS installed_artifact_binding devel_build_provenance evaluated_devel_source_build evaluated_devel_source_artifact_transport)
+    set(_moguet_probe "${_moguet_negative_state_dir}/slice5-${_moguet_header}.cpp")
+    set(_moguet_include "#include \"${_moguet_header}.hpp\"\n")
+    file(WRITE "${_moguet_probe}" "${_moguet_include}int baseline() { return 0; }\n")
+    execute_process(COMMAND ${_moguet_compile_command} ${_moguet_common_arguments}
+        -fsyntax-only "${_moguet_probe}"
+        RESULT_VARIABLE _moguet_status OUTPUT_VARIABLE _moguet_stdout ERROR_VARIABLE _moguet_stderr)
+    if(NOT "${_moguet_status}" STREQUAL "0")
+        message(FATAL_ERROR "Slice 5 narrow baseline ${_moguet_header} failed: ${_moguet_stdout}${_moguet_stderr}")
+    endif()
+    if(_moguet_header MATCHES "^(installed_artifact_binding|devel_build_provenance)$")
+        set(_moguet_cases spoof generation binding decoder)
+    else()
+        set(_moguet_cases spoof transport)
+    endif()
+    foreach(_moguet_case IN LISTS _moguet_cases)
+        set(_moguet_expected "is private within this context|private member|private constructor")
+        if(_moguet_case STREQUAL "spoof")
+            if(_moguet_header MATCHES "^(installed_artifact_binding|devel_build_provenance)$")
+                set(_moguet_body "class DevelBuildProvenancePersistentDecoderAccess { public: static InstalledPackageRecordGeneration forge() { return InstalledPackageRecordGeneration(InstalledPackageRecordGenerationScheme::LinuxNameToHandleAt, \"raw\"); } static InstalledArtifactBinding forge(PackageChildIdentity p, PackageVersionIdentity v, InstalledPackageArchitectureIdentity a, AlpmMtreeSha256Digest m, InstalledDatabaseRecordSha256Digest d, InstalledPackageRecordGeneration g) { return InstalledArtifactBinding::make(p, v, a, m, d, g); } };\n")
+            else()
+                set(_moguet_body "class EvaluatedDevelSourceArtifactTransport {};\n")
+            endif()
+            set(_moguet_expected "redefinition")
+        elseif(_moguet_case STREQUAL "generation")
+            set(_moguet_body "auto forge() { return InstalledPackageRecordGeneration(InstalledPackageRecordGenerationScheme::LinuxNameToHandleAt, \"raw\"); }\n")
+        elseif(_moguet_case STREQUAL "binding")
+            set(_moguet_body "auto forge(PackageChildIdentity p, PackageVersionIdentity v, InstalledPackageArchitectureIdentity a, AlpmMtreeSha256Digest m, InstalledDatabaseRecordSha256Digest d, InstalledPackageRecordGeneration g) { return InstalledArtifactBinding::make(p, v, a, m, d, g); }\n")
+        elseif(_moguet_case STREQUAL "decoder")
+            set(_moguet_body "auto forge() { return &DevelBuildProvenancePersistentDecoderAccess::decode_document; }\n")
+        else()
+            set(_moguet_body "void forge() { EvaluatedDevelSourceArtifactTransport value(nullptr); }\n")
+        endif()
+        file(WRITE "${_moguet_probe}" "${_moguet_include}${_moguet_body}")
+        execute_process(COMMAND ${_moguet_compile_command} ${_moguet_common_arguments}
+            -fsyntax-only "${_moguet_probe}"
+            RESULT_VARIABLE _moguet_status OUTPUT_VARIABLE _moguet_stdout ERROR_VARIABLE _moguet_stderr)
+        if("${_moguet_status}" STREQUAL "0" OR
+            NOT "${_moguet_stdout}${_moguet_stderr}" MATCHES "${_moguet_expected}")
+            message(FATAL_ERROR "Slice 5 narrow ${_moguet_header}/${_moguet_case} failed expected rejection: status=${_moguet_status}\n${_moguet_stdout}${_moguet_stderr}")
+        endif()
+        file(WRITE "${_moguet_negative_state_dir}/slice5-${_moguet_header}-${_moguet_case}.diagnostic.txt"
+            "${_moguet_stdout}${_moguet_stderr}")
+        math(EXPR _moguet_s5_case_count "${_moguet_s5_case_count} + 1")
+    endforeach()
+endforeach()
+message(STATUS "Slice 5 narrow baselines=4, expected diagnostics=${_moguet_s5_case_count}")
 message(
     STATUS
     "Reviewed source authority negative compile: baseline=1, "

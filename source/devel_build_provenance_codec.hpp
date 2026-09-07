@@ -1,6 +1,7 @@
 #pragma once
 
 #include "devel_build_provenance.hpp"
+#include "devel_build_provenance_decoder_authority.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -67,27 +68,8 @@ struct DevelBuildProvenanceDecoded {
     bool operator==(const DevelBuildProvenanceDecoded&) const = default;
 };
 
-using DevelBuildProvenanceDocument = std::variant<
-    DevelBuildProvenanceDecoded,
-    DevelBuildProvenanceInvalidDocument,
-    DevelBuildProvenanceCorruptDocument,
-    DevelBuildProvenanceFutureSchema>;
-
 [[nodiscard]] DevelBuildProvenanceDocument decode_devel_build_provenance(
     std::string_view document);
-
-// Complete and private: callers cannot add a raw mint method by defining an
-// access class that happens to share the friend name. Only the codec entry
-// point above may invoke this decoder-owned construction path.
-class DevelBuildProvenancePersistentDecoderAccess final {
-    DevelBuildProvenancePersistentDecoderAccess() = delete;
-
-    friend DevelBuildProvenanceDocument decode_devel_build_provenance(
-        std::string_view document);
-
-    [[nodiscard]] static DevelBuildProvenanceDocument decode_document(
-        std::string_view document);
-};
 
 enum class DevelBuildProvenanceSourceMismatchReason {
     SourceIdentityMismatch,

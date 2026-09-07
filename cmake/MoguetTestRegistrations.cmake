@@ -113,6 +113,11 @@ _moguet_add_direct_ctest(
     invocation-owned-source-build-context-test
 )
 _moguet_add_direct_ctest(
+    cpp.evaluated_devel_source_artifact_transport
+    evaluated-devel-source-artifact-transport-test
+)
+set_tests_properties(cpp.evaluated_devel_source_artifact_transport PROPERTIES TIMEOUT 240)
+_moguet_add_direct_ctest(
     cpp.evaluated_devel_source_build
     evaluated-devel-source-build-test
 )

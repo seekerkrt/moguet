@@ -1,6 +1,7 @@
 #pragma once
 
 #include "evaluated_devel_source_build_authority.hpp"
+#include "evaluated_devel_source_artifact_transport.hpp"
 #include "devel_build_provenance.hpp"
 #include "invocation_owned_source_build_context.hpp"
 #include "local_package_metadata.hpp"
@@ -162,6 +163,7 @@ public:
 private:
     friend class EvaluatedDevelSourceBuildAuthority;
     friend class EvaluatedDevelSourceBuildProof;
+    friend class EvaluatedDevelSourceArtifactTransport;
 
     FreshDevelPackageArtifact(
         PackageChildIdentity package,
