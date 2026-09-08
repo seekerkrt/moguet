@@ -4,7 +4,7 @@
 
 Issue #476 Slice 6-Bは、[S5 installation result](installed-devel-source-build-proof.md)をconsumeし、
 historical semantic provenanceを[既存store](devel-build-provenance-store.md)へpublicationする内部producerである。
-normal CLI/source/upgrade/#476 routeは未接続。6-C actual/container publication acceptance、
+normal CLI/source/upgrade/#476 routeは未接続。6-Cは既存publisherのactual/container acceptanceだけを追加する。
 Slice 7のcurrent binding re-observation/#475 comparison/devel assessment、Slice 8は未実装である。
 
 ```text
@@ -107,6 +107,7 @@ destructor結果を事前にCompleteとしない。destructorにprivileged trans
 
 - `test-devel-build-provenance-publication`: real S4/S5 fixture outputからのprojection、historical drift、existing generation、move/one-shot。
 - `test-devel-build-provenance-publication-result`: no-publication gates、store/refusal/resource/uncertainty mapping、cleanup failure。
+- `test-container-devel-publication`: isolated actual Install/Upgrade/reinstall/downgradeからpublication Complete、raw document/readback/historyとstore世代1→2→3→4。installed世代とversion orderingはstore世代へ混ぜない。S5-only laneのpublication-noneは維持する。
 - canonical negative compile: raw/decoded values、store DTO、private entry、same-name/reverse friend/late include、copy/default、contradictory aggregateを拒否。
 - `test-build-authority-closure`: normal routeと#475からのdisconnection。
 

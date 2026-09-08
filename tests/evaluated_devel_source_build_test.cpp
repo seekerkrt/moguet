@@ -1862,7 +1862,7 @@ void test_evaluated_artifact_transport() {
 #endif
 
 #ifdef MOGUET_TEST_EXACT_INSTALLED_BINDING
-void test_installed_exact_binding() {
+void test_installed_exact_binding(bool publication = false) {
     const char* authorized = std::getenv("MOGUET_EXACT_INSTALLED_ACCEPTANCE");
     require(authorized && std::string(authorized) == "isolated-container" && fs::exists("/.dockerenv") && geteuid() != 0,
             "actual transaction acceptance requires its isolated unprivileged container lane");
@@ -1882,6 +1882,7 @@ void test_installed_exact_binding() {
     auto later_downgrade = build_success(fixture);
     const auto lower_version = first_install.artifact().evidence().identity.full_version;
     std::string previous_generation;
+    std::vector<DevelBuildProvenanceStoreLoaded> publication_history;
     const auto install = [&](const std::string& label, EvaluatedDevelSourceBuildProof proof,
                              ExactArtifactTransactionOperation operation) {
         const auto artifact = proof.artifact().evidence();
@@ -1917,8 +1918,12 @@ void test_installed_exact_binding() {
                     final_proof->installed_binding().record_generation().opaque_identity() == generation,
                 "actual final proof lost built/receipt/binding identity");
         require(!transport.finalize(), "actual final proof was minted twice");
-        fixture.require_no_provenance_publication();
-        std::cout << "S5C-INSTALLED\t" << label << "\tComplete\tcleanup-Complete\tpublication-none\n";
+        if(publication) {
+            check_installed_devel_publication(label, std::move(*aggregate), publication_history);
+        } else {
+            fixture.require_no_provenance_publication();
+            std::cout << "S5C-INSTALLED\t" << label << "\tComplete\tcleanup-Complete\tpublication-none\n";
+        }
     };
     install("first-install", std::move(first_install), ExactArtifactTransactionOperation::Install);
     upstream.commit("revision-two\n");
@@ -2407,6 +2412,11 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
     const std::vector<fs::path> before = context_root_inventory();
     try {
 #ifdef MOGUET_ENABLE_DEVEL_BUILD_PROVENANCE_PUBLICATION_TEST_HOOKS
+        if(argc == 2 && std::string(argv[1]) == "--installed-devel-publication") {
+            test_installed_exact_binding(true);
+            require(context_root_inventory() == before, "installed S6 fixture retained a build context");
+            return 0;
+        }
         if(argc == 2 && (std::string(argv[1]) == "--devel-build-provenance-publication" ||
                          std::string(argv[1]) == "--devel-build-provenance-publication-result")) {
             test_exact_installed_binding(std::string(argv[1]) == "--devel-build-provenance-publication" ? "publication-projection" : "publication-aggregate");

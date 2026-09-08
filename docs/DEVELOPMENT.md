@@ -339,7 +339,17 @@ PostTransaction anchor、通常userのnew ALPM handle、raw MTREE、opaque recor
 S5-Cの`InstalledDevelSourceBuildProof`完成までを確認し、XDG provenanceが作られないことを要求する。
 host package DBはmount/変更しない。S5 laneはpublicationなしを維持する。
 Slice 6-Bの内部publisherは`test-devel-build-provenance-publication`と`test-devel-build-provenance-publication-result`で
-deterministic S4/S5 fixtureから検証する。6-C actual/container publication acceptanceと通常routeは未接続である。
+deterministic S4/S5 fixtureから検証する。6-Cのactual publicationは同じinstalled laneの別modeで確認する。
+
+    make test-container-devel-publication
+
+1つのfresh anonymous DB volumeで4 transactionsを順次実行し、各S5 receipt/fresh binding/final proofを
+先に確認してからproduction publisherを呼ぶ。store世代1→2→3→4とopaque installed generationを
+別々に記録する。same-version reinstallでも新世代へ進み、downgradeでもpublication順は逆行しない。
+raw persistent bytesのSHA-256、schema v1/27 keys、final proofとの全field一致、旧世代の保存と
+contiguous historyを確認する。runnerはcopied source hashesとraw documentsをstdoutへ出し、
+検証者はcurrent candidateとの照合とrepository外へのevidence保存を行う。
+S5-only targetはpublication-noneを引き続き要求する。normal #476 route、#475 comparison、Slice 7/8は未接続である。
 詳細は[`exact-installed-artifact-binding.md`](contracts/exact-installed-artifact-binding.md)を正とする。
 
 S5-Cのfinal construction/lineage/N=1は`test-installed-devel-source-build-proof`、lossless aggregateとcleanup consequenceは

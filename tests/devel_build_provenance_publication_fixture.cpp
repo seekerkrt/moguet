@@ -294,3 +294,70 @@ void check_devel_publication_fixture(std::string_view scenario, DevelSourceArtif
     require(rejected, "moved-from aggregate remained usable");
     std::cout << "S6-B publication " << scenario << " read=" << reads << " write=" << writes << " PASS\n";
 }
+
+void check_installed_devel_publication(std::string_view label, DevelSourceArtifactInstallResult installation,
+                                       std::vector<DevelBuildProvenanceStoreLoaded>& history) {
+    require(installation.operation() == DevelSourceArtifactInstallOperation::Succeeded &&
+                installation.receipt_state() == DevelSourceArtifactInstallReceipt::Complete &&
+                installation.proof_state() == DevelSourceArtifactInstallProof::Complete &&
+                installation.privileged_cleanup().state == DevelSourceArtifactInstallCleanupState::Complete &&
+                installation.proof() && installation.proof()->valid(),
+            "actual S6 input did not independently complete S5");
+    const auto& proof = *installation.proof();
+    const auto package_base = proof.built_proof().package_base();
+    const auto reviewed = proof.built_proof().reviewed_binding();
+    const auto evaluated = proof.built_proof().evaluated_source().git_source();
+    const auto revision = proof.built_proof().actual_built_revision();
+    const auto artifact = proof.built_proof().artifact().evidence();
+    const auto installed = proof.installed_binding();
+    const auto unit = devel_build_provenance_store_entry_path(package_base);
+    if(history.empty()) require(!fs::exists(unit), "actual S6 lane did not start with an empty store");
+
+    // No raw provenance or StorePublished fixture constructs this result.
+    auto published = publish_installed_devel_source_build(std::move(installation));
+    require(published && published->valid() && published->state() == State::Complete && published->identity(),
+            "actual production publication did not complete");
+    const auto readback = read_devel_build_provenance(package_base);
+    const auto& loaded = arm<DevelBuildProvenanceStoreLoaded>(readback, "actual persistent readback was not Loaded");
+    const auto& model = loaded.provenance;
+    require(model.package_base() == package_base && model.reviewed_source_binding() == reviewed &&
+                model.evaluated_source() == evaluated && model.actual_built_revision() == revision &&
+                model.artifact() == artifact && model.installed_binding() == installed,
+            "persistent model differs from original final proof fields");
+    const auto& identity = *published->identity();
+    require(identity.package_base == package_base && identity.generation == history.size() + 1 &&
+                identity.generation == loaded.observed.generation,
+            "store generation was coupled to package version or installed generation");
+    const auto expected_leaf = history.empty() ? xdg_generation_store_origin_leaf()
+                                               : xdg_generation_store_successor_leaf(identity.generation, history.back().observed.identity,
+                                                                                     history.back().observed.raw_contents);
+    require(loaded.observed.leaf_name == expected_leaf, "publication did not append to exact predecessor");
+    history.push_back(loaded);
+    require(static_cast<std::size_t>(std::distance(fs::directory_iterator(unit), fs::directory_iterator{})) == history.size(),
+            "history contains fork, orphan, gap, or unexpected residue");
+    for(const auto& prior : history) {
+        std::ifstream input(unit / prior.observed.leaf_name, std::ios::binary);
+        require(static_cast<bool>(input), "historical raw document disappeared");
+        const std::string raw{std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+        require(!input.bad() && raw == prior.observed.raw_contents, "persisted historical bytes changed");
+        const auto decoded = interpret_devel_build_provenance(raw, package_base);
+        require(arm<DevelBuildProvenanceDecoded>(decoded, "historical document no longer decodes").provenance == prior.provenance,
+                "historical persistent model changed");
+        if(prior.observed.generation != identity.generation) continue;
+        require(xdg_generation_store_raw_contents_sha256(raw) == identity.document_sha256,
+                "Complete digest differs from actual persisted raw bytes");
+        // Hex transports exact file bytes through stdout before the isolated
+        // fixture's RAII teardown. The Python runner independently hashes/parses them.
+        constexpr char HEX[] = "0123456789abcdef";
+        std::string hex;
+        for(unsigned char byte : raw) {
+            hex += HEX[byte >> 4];
+            hex += HEX[byte & 15];
+        }
+        std::cout << "S6C-DOCUMENT\t" << identity.generation << '\t' << prior.observed.leaf_name << '\t' << hex << '\n';
+    }
+    std::cout << "S6C-INSTALLED\t" << label << '\t' << artifact.identity.full_version
+              << "\tSucceeded\tComplete\tComplete\tComplete\tComplete\t" << identity.generation << '\t'
+              << installed.record_generation().opaque_identity() << '\t' << identity.document_sha256 << '\t'
+              << package_base.package_base() << '\n';
+}

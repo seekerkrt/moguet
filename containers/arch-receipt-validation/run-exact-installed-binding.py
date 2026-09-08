@@ -17,7 +17,7 @@ def require(condition: bool, message: str) -> None:
         raise SystemExit(1)
 
 
-def main() -> None:
+def main(publication_check=None) -> None:
     # Guard before config/database writes. The Make lane supplies an anonymous
     # volume; it never bind-mounts a host checkout or host package database.
     require(os.geteuid() == 0 and Path("/.dockerenv").is_file(), "disposable Docker root runner required")
@@ -37,7 +37,7 @@ def main() -> None:
     environment = dict(os.environ)
     environment["MOGUET_EXACT_INSTALLED_ACCEPTANCE"] = "isolated-container"
     result = subprocess.run(
-        ["/usr/bin/runuser", "-u", "moguet-validation", "--", str(FIXTURE), "--installed-exact-binding"],
+        ["/usr/bin/runuser", "-u", "moguet-validation", "--", str(FIXTURE), "--installed-devel-publication" if publication_check else "--installed-exact-binding"],
         env=environment,
         text=True,
         stdout=subprocess.PIPE,
@@ -53,11 +53,14 @@ def main() -> None:
     require(records[0][3] == records[3][3] and records[1][3] == records[2][3] and records[0][3] != records[1][3], "version fixture did not exercise Upgrade/reinstall/downgrade")
     require(len({row[5] for row in records}) == 4, "real record generation did not change for every transaction")
     require(all(len(row[4]) == 64 for row in records), "raw built/installed MTREE equality evidence missing")
-    final_records = [line.split("\t") for line in result.stdout.splitlines() if line.startswith("S5C-INSTALLED\t")]
-    require(len(final_records) == 4 and [row[1] for row in final_records] == [row[1] for row in records], "missing final proof records")
-    require(all(row[2:] == ["Complete", "cleanup-Complete", "publication-none"] for row in final_records), "final proof/cleanup/publication contract failed")
-    print("exact-installed-binding-container: Install/Upgrade/reinstall/downgrade, raw MTREE, fresh live mint, final proof PASS")
-    print("exact-installed-binding-container: publication=none; XDG provenance write=none")
+    if publication_check:
+        publication_check(result.stdout, records)
+    else:
+        final_records = [line.split("\t") for line in result.stdout.splitlines() if line.startswith("S5C-INSTALLED\t")]
+        require(len(final_records) == 4 and [row[1] for row in final_records] == [row[1] for row in records], "missing final proof records")
+        require(all(row[2:] == ["Complete", "cleanup-Complete", "publication-none"] for row in final_records), "final proof/cleanup/publication contract failed")
+        print("exact-installed-binding-container: Install/Upgrade/reinstall/downgrade, raw MTREE, fresh live mint, final proof PASS")
+        print("exact-installed-binding-container: publication=none; XDG provenance write=none")
     print("exact-installed-binding-container: network=none; database=anonymous volume; host package DB unavailable")
 
 
