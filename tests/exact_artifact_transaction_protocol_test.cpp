@@ -115,10 +115,36 @@ void prepared_purpose_matrix() {
     }
 }
 
+void cleanup_envelope_matrix() {
+    const auto request = manifest();
+    ExactArtifactRootEvidence evidence;
+    evidence.installs = serialize_exact_artifact_operation_fragment(request, STAGE, Operation::Install, {"one", "four"});
+    for(const auto cleanup : {ExactArtifactRootCleanup::Complete, ExactArtifactRootCleanup::RetirementFailed,
+                              ExactArtifactRootCleanup::PrivateStageCleanupFailed}) {
+        evidence.cleanup = cleanup;
+        const auto bytes = serialize_exact_artifact_root_evidence(evidence, request, STAGE);
+        const auto parsed = parse_exact_artifact_root_evidence(bytes, request, STAGE);
+        const auto& observed = std::get<ExactArtifactRootEvidence>(parsed);
+        assert(observed.cleanup == cleanup && observed.installs == evidence.installs);
+        assert(std::holds_alternative<ExactArtifactOperationRecords>(
+            join_exact_artifact_operation_fragments(observed.installs, observed.upgrades, request, STAGE)));
+    }
+    evidence.cleanup = ExactArtifactRootCleanup::Complete;
+    const auto bytes = serialize_exact_artifact_root_evidence(evidence, request, STAGE);
+    for(const auto& invalid : {replace(bytes, "EVIDENCE\t2", "EVIDENCE\t1"), replace(bytes, "EVIDENCE\t2", "EVIDENCE\t3"),
+                               replace(bytes, "CLEANUP\t0\n", ""), replace(bytes, "CLEANUP\t0", "CLEANUP\t9"),
+                               replace(bytes, "CLEANUP\t0", "CLEANUP\t0\nCLEANUP\t0"),
+                               bytes + "END\n", bytes.substr(0, bytes.size() - 4)})
+        assert(std::get<Issue>(parse_exact_artifact_root_evidence(invalid, request, STAGE)) == Issue::Invalid);
+    evidence.cleanup = static_cast<ExactArtifactRootCleanup>(9);
+    rejects([&] { static_cast<void>(serialize_exact_artifact_root_evidence(evidence, request, STAGE)); });
+}
+
 } // namespace
 
 int main() {
     protocol_matrix();
     prepared_purpose_matrix();
+    cleanup_envelope_matrix();
     std::cout << "exact-artifact-transaction-protocol: all checks passed\n";
 }

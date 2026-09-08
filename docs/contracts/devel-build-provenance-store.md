@@ -78,6 +78,8 @@ codec headerで共有する。installed binding headerだけをincludeしたcons
 compileで拒否する。正規persistent decodeは従来どおりhistorical valueを復元し、fresh live authorityを与えない。
 S5-Bの[live installed observation producer](exact-installed-artifact-binding.md)は別authorityであり、
 complete private declarationを共有する。persistent decodeからfresh live bindingへ昇格する入口はない。
+[S5-C final proof](installed-devel-source-build-proof.md)もin-memory capabilityであり、token、receipt lifetime、
+fresh binding capabilityをpersistent schemaへ入れない。将来のSlice 6がsemantic valueをprojectionする。
 このstoreのschema、publicationと通常routeへの未接続は変更しない。
 
 ## Production-disconnected boundary

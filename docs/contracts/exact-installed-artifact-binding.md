@@ -4,7 +4,8 @@
 
 Issue #476 Slice 5 S5-Bは、[S5-Aのretained artifact transport](trusted-source-artifact-transport.md)から、
 actual Install/Upgrade receiptとfresh installed DB bindingを作る内部producerを定める。
-normal CLI/source route、S5-Cのfinal proof/composition、Slice 6のpublication、#475 comparisonには接続しない。
+[S5-C final producer](installed-devel-source-build-proof.md)がこれらのowned componentを消費する。
+normal CLI/source route、Slice 6のpublication、#475 comparisonには接続しない。
 
 ```text
 execution witness != exact transaction receipt != fresh installed binding
@@ -27,8 +28,8 @@ package transactionはpacmanが所有し、observerはtransaction/lockを開始�
 `ExactInstalledBinding` purposeを選ぶ。通常の`execute`と同じsnapshot/sealing/privileged execution engineを共有し、
 同じownerの二度目の実行やmove元からの実行を拒否する。
 
-exact prepared/prepare-response、operation fragment、private record、DB world/record、outer evidenceにはそれぞれ
-独立したversion 1のgrammarを持たせる。execution-status v3とは別contractである。
+exact prepared/prepare-response、operation fragment、private record、DB world/recordはそれぞれ
+独立したversion 1のgrammarを持つ。outer evidenceはS5-Cでcleanup consequenceを加えたversion 2である。execution-status v3とは別contractである。
 exact prepared documentはpurposeと全selected artifactのraw MTREE hashを必須とし、内部のlegacy artifact projectionを
 含む全bytesをmanifest identityへ束縛する。legacy v2単独をexact purposeへ補完/adoptしない。
 
@@ -146,7 +147,8 @@ Unknownはprivate evidenceを保持し、abort/consume/retry/Completeへの推�
 全installed payload bytes、scriptlet後の全filesystem state、NoExtract/NoUpgradeの完全payload一致、未来の不変性、
 malicious root/adminに対する耐性を保証しない。
 
-S5-Cの`InstalledDevelSourceBuildProof`、元build proof/receipt/bindingのfinal sealed composition、lossless top-level aggregateは未実装。
+S5-Cの`InstalledDevelSourceBuildProof`とlossless resultは[専用contract](installed-devel-source-build-proof.md)に従い、
+元build/transactionのopaque identityとexact metadata/raw generationを再照合する。
 Slice 6 publication、XDG provenance write、normal #476 route、#475 comparisonは未接続である。
 
 ## Validation入口
@@ -157,5 +159,5 @@ construction firewallは既存canonical CMake negative compileへ登録する。
 
 `test-container-exact-installed-binding`はnetworkless Dockerのanonymous volume DBに対し、
 実際のSlice 4 proof、installed helper、Install/Upgrade/same-version reinstall/downgrade、raw MTREE一致、
-通常userのfresh live mintを検証する。host package DBをmount/変更しない。
+通常userのfresh live mintとS5-C final proofまでを検証する。host package DBをmount/変更しない。
 既存source-artifact receipt/installed-binding characterization laneも独立したregression evidenceとして維持する。

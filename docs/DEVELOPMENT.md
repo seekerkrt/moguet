@@ -335,8 +335,15 @@ fresh mint、private entry/receipt constructorの拒否を登録する。
 このinstalled acceptanceはnetworkless Dockerとanonymous volumeのDBを使用し、actual Slice 4 proofから
 first Install、Upgrade、same-version reinstall、downgradeを通す。fixed pacman-confで解決した同じDB world、
 PostTransaction anchor、通常userのnew ALPM handle、raw MTREE、opaque record generation、live bindingを確認する。
-host package DBをmount/変更せず、S5-C final proof/compositionとSlice 6 publicationは実装しない。
+S5-Cの`InstalledDevelSourceBuildProof`完成までを確認し、XDG provenanceが作られないことを要求する。
+host package DBはmount/変更しない。Slice 6 publicationと通常routeは未接続である。
 詳細は[`exact-installed-artifact-binding.md`](contracts/exact-installed-artifact-binding.md)を正とする。
+
+S5-Cのfinal construction/lineage/N=1は`test-installed-devel-source-build-proof`、lossless aggregateとcleanup consequenceは
+`test-devel-source-artifact-install-result`で確認する。同じS5-B fixtureの出力を消費し、41-case matrixは複製しない。
+同一fixture executableをbuildするfocused targetは別invocationで実行し、同じbuild outputへの重複buildを避ける。
+finalizerのcomplete private authority、raw tuple/decoded binding/contradictory resultのconstruction firewallも
+canonical negative compileへ含める。contractは[`installed-devel-source-build-proof.md`](contracts/installed-devel-source-build-proof.md)を正とする。
 
 Issue #485 Slice 5のclosed lifecycle / authoritative candidate gateは、同じnetworkless installed imageを
 使う専用targetで確認する。

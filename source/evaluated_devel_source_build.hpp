@@ -220,13 +220,22 @@ public:
 private:
     friend class EvaluatedDevelSourceBuildAuthority;
 
+    friend class EvaluatedDevelSourceArtifactTransport;
+    friend class InstalledArtifactBindingObserver;
+    friend class DevelSourceArtifactInstallAuthority;
+#ifdef MOGUET_ENABLE_DEVEL_SOURCE_ARTIFACT_INSTALL_TEST_HOOKS
+    friend class DevelSourceArtifactInstallFixture;
+#endif
     struct State;
     explicit EvaluatedDevelSourceBuildProof(
-        std::unique_ptr<State> state) noexcept;
+        std::unique_ptr<State> state);
     [[nodiscard]] const State& require_state() const;
     [[nodiscard]] State& require_state();
 
     std::unique_ptr<State> state_;
+    // Per-build identity, unrelated to package/version/path/content equality.
+    // Allocated while minting Slice 4, before any install side effect.
+    std::shared_ptr<const unsigned char> lineage_ = std::make_shared<const unsigned char>(0);
 };
 
 // The only production mint consumes one context and an environment sealed by

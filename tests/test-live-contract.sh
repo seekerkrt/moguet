@@ -1290,6 +1290,11 @@ assert_contains "$exact_binding_runner" 'Path("/.dockerenv").is_file()'
 assert_contains "$exact_binding_runner" 'same-version-reinstall'
 assert_contains "$exact_binding_runner" 'downgrade'
 assert_contains "$exact_binding_runner" 'host package DB unavailable'
+assert_contains "$exact_binding_runner" 'S5C-INSTALLED'
+assert_contains "$exact_binding_runner" 'cleanup-Complete'
+assert_contains "$exact_binding_runner" 'publication-none'
+assert_contains "$test_targets_file" 'MOGUET_ENABLE_DEVEL_SOURCE_ARTIFACT_INSTALL_TEST_HOOKS'
+assert_not_contains "$production_cmake_file" 'MOGUET_ENABLE_DEVEL_SOURCE_ARTIFACT_INSTALL_TEST_HOOKS'
 assert_contains "$receipt_dockerfile" 'evaluated-devel-source-artifact-transport-test'
 exact_binding_target_body=$(make_target_body test-container-exact-installed-binding)
 printf '%s\n' "$exact_binding_target_body" | grep -F -- '--network=none' >/dev/null ||

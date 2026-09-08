@@ -44,7 +44,8 @@ snapshot copy / sealとprivileged prepare→execute→execution-status→consume
 完了区分であり、exact Install/Upgrade receiptやinstalled bindingを意味しない。
 known outcomeは既存positive execution witnessを必須とし、exit 0後のconsume failureでも
 `pacman_exit_status=0`を保持する。S5-Bは同ownerの別entry `execute_exact`からexact purposeを選び、
-actual receiptとfresh bindingを別component outputへ保持する。S5-Cのfinal aggregate/compositionは未実装である。
+actual receiptとfresh bindingを別component outputへ保持する。S5-Cのclosed `finalize()`は
+[final proofとlossless result](installed-devel-source-build-proof.md)へ同じowned stateを引き継ぐ。
 
 新ownerはlocal rejectionを含めexecuteを一度だけ許し、move元と再実行を拒否する。
 元FD / contextはowner破棄まで保持し、OutcomeUnknownでもtokenを診断用に保持する。
@@ -194,7 +195,7 @@ signature-check-disabled policyでの受理、隣接signature bytes保持をread
 cryptographically valid署名を持つactual Installのlive evidenceへ読み替えない。
 hostのpacman transactionはこのfocused targetでは実行しない。
 
-normal #476 route、final Slice 5 proof、provenance publication、#475 comparisonは未接続・未実装のままである。
+S5-C final proof/resultは内部producerとして実装する。normal #476 route、provenance publication、#475 comparisonは未接続である。
 S5-Bのexact purposeだけにInstall/Upgrade receipt、fresh local DB observer、live InstalledArtifactBinding mintを追加し、
 既存cleanup Install-only routeを拡張しない。
 

@@ -72,7 +72,7 @@ std::string_view take_frame(std::string_view& protocol, std::string_view key) {
 
 std::string evidence_prefix(const SourceArtifactInstallRootPrepareRequest& manifest, std::string_view stage) {
     static_cast<void>(fragment_prefix(manifest, stage, ExactArtifactTransactionOperation::Install));
-    return "MOGUET-EXACT-ARTIFACT-EVIDENCE\t1\nOWNER\tsource-artifact-install\nPURPOSE\tExactInstalledBinding\nTOKEN\t" +
+    return "MOGUET-EXACT-ARTIFACT-EVIDENCE\t2\nOWNER\tsource-artifact-install\nPURPOSE\tExactInstalledBinding\nTOKEN\t" +
            manifest.transaction_token + "\nMANIFEST\t" +
            xdg_generation_store_raw_contents_sha256(serialize_source_artifact_install_root_prepared_state(manifest)) +
            "\nSTAGE\t" + std::string(stage) + "\n";
@@ -132,6 +132,12 @@ std::string serialize_exact_artifact_root_evidence(
     append_frame(protocol, "UPGRADE", evidence.upgrades.value_or(""));
     append_frame(protocol, "INSTALL-ANCHORS", serialize_record_result(evidence.install_anchors));
     append_frame(protocol, "UPGRADE-ANCHORS", serialize_record_result(evidence.upgrade_anchors));
+    switch(evidence.cleanup) {
+        case ExactArtifactRootCleanup::Complete: protocol += "CLEANUP\t0\n"; break;
+        case ExactArtifactRootCleanup::RetirementFailed: protocol += "CLEANUP\t1\n"; break;
+        case ExactArtifactRootCleanup::PrivateStageCleanupFailed: protocol += "CLEANUP\t2\n"; break;
+        default: throw std::invalid_argument("invalid exact cleanup consequence");
+    }
     return protocol + "END\n";
 }
 
@@ -151,6 +157,15 @@ std::variant<ExactArtifactRootEvidence, ExactArtifactReceiptIssue> parse_exact_a
         if(!upgrades.empty()) evidence.upgrades.emplace(upgrades);
         evidence.install_anchors = parse_exact_artifact_record_observations(take_frame(protocol, "INSTALL-ANCHORS"), manifest);
         evidence.upgrade_anchors = parse_exact_artifact_record_observations(take_frame(protocol, "UPGRADE-ANCHORS"), manifest);
+        const auto cleanup = take_line(protocol);
+        if(cleanup == "CLEANUP\t0")
+            evidence.cleanup = ExactArtifactRootCleanup::Complete;
+        else if(cleanup == "CLEANUP\t1")
+            evidence.cleanup = ExactArtifactRootCleanup::RetirementFailed;
+        else if(cleanup == "CLEANUP\t2")
+            evidence.cleanup = ExactArtifactRootCleanup::PrivateStageCleanupFailed;
+        else
+            return ExactArtifactReceiptIssue::Invalid;
         if(protocol != "END\n") return ExactArtifactReceiptIssue::Invalid;
         return evidence;
     } catch(const std::bad_alloc&) {

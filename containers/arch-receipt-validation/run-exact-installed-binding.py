@@ -23,7 +23,7 @@ def main() -> None:
     require(os.geteuid() == 0 and Path("/.dockerenv").is_file(), "disposable Docker root runner required")
     require(STATE_ROOT.is_mount() and not STATE_ROOT.is_symlink(), "isolated anonymous volume is missing")
     require(not any(STATE_ROOT.iterdir()), "acceptance requires a fresh empty volume")
-    require(FIXTURE.is_file(), "canonical S5-B fixture target is missing")
+    require(FIXTURE.is_file(), "canonical Slice 5 fixture target is missing")
     for path in (DATABASE_ROOT / "local", STATE_ROOT / "cache"):
         path.mkdir(parents=True, mode=0o755)
     (DATABASE_ROOT / "local/ALPM_DB_VERSION").write_text("9\n")
@@ -45,7 +45,7 @@ def main() -> None:
         check=False,
     )
     print(result.stdout, end="")
-    require(result.returncode == 0, f"actual S5-B fixture failed: {result.returncode}")
+    require(result.returncode == 0, f"actual Slice 5 fixture failed: {result.returncode}")
     records = [line.split("\t") for line in result.stdout.splitlines() if line.startswith("S5B-INSTALLED\t")]
     require(len(records) == 4, "missing actual transaction acceptance records")
     require([row[1] for row in records] == ["first-install", "upgrade", "same-version-reinstall", "downgrade"], "wrong acceptance order")
@@ -53,7 +53,11 @@ def main() -> None:
     require(records[0][3] == records[3][3] and records[1][3] == records[2][3] and records[0][3] != records[1][3], "version fixture did not exercise Upgrade/reinstall/downgrade")
     require(len({row[5] for row in records}) == 4, "real record generation did not change for every transaction")
     require(all(len(row[4]) == 64 for row in records), "raw built/installed MTREE equality evidence missing")
-    print("exact-installed-binding-container: Install/Upgrade/reinstall/downgrade, raw MTREE, fresh live mint PASS")
+    final_records = [line.split("\t") for line in result.stdout.splitlines() if line.startswith("S5C-INSTALLED\t")]
+    require(len(final_records) == 4 and [row[1] for row in final_records] == [row[1] for row in records], "missing final proof records")
+    require(all(row[2:] == ["Complete", "cleanup-Complete", "publication-none"] for row in final_records), "final proof/cleanup/publication contract failed")
+    print("exact-installed-binding-container: Install/Upgrade/reinstall/downgrade, raw MTREE, fresh live mint, final proof PASS")
+    print("exact-installed-binding-container: publication=none; XDG provenance write=none")
     print("exact-installed-binding-container: network=none; database=anonymous volume; host package DB unavailable")
 
 

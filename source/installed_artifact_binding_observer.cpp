@@ -34,9 +34,23 @@ void require_semantic_identity(const InstalledPackageRecordSnapshot& observed,
 
 ExactArtifactTransactionReceipt::ExactArtifactTransactionReceipt(
     SourceArtifactInstallRootPrepareRequest manifest, std::string stage,
-    ExactArtifactOperationRecords operations, ExactArtifactRootEvidence evidence) noexcept
+    ExactArtifactOperationRecords operations, ExactArtifactRootEvidence evidence,
+    std::shared_ptr<const unsigned char> built_lineage,
+    std::shared_ptr<const unsigned char> transaction_lineage) noexcept
     : manifest_(std::move(manifest)), staged_identity_sha256_(std::move(stage)),
-      operations_(std::move(operations)), evidence_(std::move(evidence)) {
+      operations_(std::move(operations)), evidence_(std::move(evidence)),
+      built_lineage_(std::move(built_lineage)), transaction_lineage_(std::move(transaction_lineage)) {
+}
+
+ExactArtifactTransactionReceipt::ExactArtifactTransactionReceipt(ExactArtifactTransactionReceipt&& other) noexcept
+    : manifest_(std::move(other.manifest_)), staged_identity_sha256_(std::move(other.staged_identity_sha256_)),
+      operations_(std::move(other.operations_)), evidence_(std::move(other.evidence_)),
+      built_lineage_(std::move(other.built_lineage_)), transaction_lineage_(std::move(other.transaction_lineage_)),
+      active_(std::exchange(other.active_, false)) {
+}
+
+bool ExactArtifactTransactionReceipt::active() const noexcept {
+    return active_;
 }
 
 const SourceArtifactInstallRootPrepareRequest& ExactArtifactTransactionReceipt::manifest() const noexcept {
@@ -52,9 +66,23 @@ const ExactArtifactRootEvidence& ExactArtifactTransactionReceipt::database_evide
     return evidence_;
 }
 
-FreshInstalledArtifactBinding::FreshInstalledArtifactBinding(InstalledArtifactBinding binding, std::string token, std::size_t index) noexcept
-    : binding_(std::move(binding)), transaction_token_(std::move(token)), artifact_index_(index) {
+FreshInstalledArtifactBinding::FreshInstalledArtifactBinding(InstalledArtifactBinding binding, std::string token, std::size_t index,
+                                                             std::shared_ptr<const unsigned char> transaction_lineage, std::string staged_identity,
+                                                             InstalledPackageRecordSnapshot snapshot) noexcept
+    : binding_(std::move(binding)), transaction_token_(std::move(token)), artifact_index_(index),
+      transaction_lineage_(std::move(transaction_lineage)), staged_identity_(std::move(staged_identity)),
+      snapshot_(std::move(snapshot)) {
 }
+FreshInstalledArtifactBinding::FreshInstalledArtifactBinding(FreshInstalledArtifactBinding&& other) noexcept
+    : binding_(std::move(other.binding_)), transaction_token_(std::move(other.transaction_token_)),
+      artifact_index_(other.artifact_index_), transaction_lineage_(std::move(other.transaction_lineage_)),
+      staged_identity_(std::move(other.staged_identity_)), snapshot_(std::move(other.snapshot_)),
+      active_(std::exchange(other.active_, false)) {
+}
+bool FreshInstalledArtifactBinding::active() const noexcept {
+    return active_;
+}
+
 const InstalledArtifactBinding& FreshInstalledArtifactBinding::binding() const noexcept {
     return binding_;
 }
@@ -70,7 +98,7 @@ FreshInstalledArtifactBindingObservation InstalledArtifactBindingObserver::obser
     try {
         // The generic transport/receipt retains N records. This live source
         // binding consumes the already-fixed one-artifact Slice 4 subset only.
-        if(!built.valid() || receipt.operations().size() != 1 || receipt.manifest().artifacts.size() != 1)
+        if(!built.valid() || !receipt.active() || !receipt.built_lineage_ || receipt.built_lineage_ != built.lineage_ || !receipt.transaction_lineage_ || receipt.operations().size() != 1 || receipt.manifest().artifacts.size() != 1)
             throw Issue::MetadataMismatch;
         const auto& operation = receipt.operations().front();
         const auto& selected = operation.artifact;
@@ -135,7 +163,8 @@ FreshInstalledArtifactBindingObservation InstalledArtifactBindingObserver::obser
             AlpmMtreeSha256Digest::make(fresh->raw_mtree_sha256),
             InstalledDatabaseRecordSha256Digest::make(fresh->raw_database_sha256),
             InstalledPackageRecordGeneration(InstalledPackageRecordGenerationScheme::LinuxNameToHandleAt, fresh->record_generation));
-        return FreshInstalledArtifactBinding(std::move(binding), receipt.manifest().transaction_token, selected.artifact_index);
+        return FreshInstalledArtifactBinding(std::move(binding), receipt.manifest().transaction_token, selected.artifact_index,
+                                             receipt.transaction_lineage_, receipt.staged_identity_sha256(), *fresh);
     } catch(Issue issue) {
         return FreshInstalledArtifactBindingFailure{issue};
     } catch(const std::bad_alloc&) {

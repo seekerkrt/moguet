@@ -220,6 +220,29 @@ assert_contains "$repo_root/source/installed_artifact_binding.hpp" \
     '#include "installed_artifact_binding_observer_authority.hpp"'
 assert_contains "$repo_root/source/installed_package_record_observation.cpp" \
     'name_to_handle_at(descriptor, "", handle, mount_id, AT_EMPTY_PATH)'
+# S5-C joins only the transport-owned state, never normal CLI/source routes.
+final_consumers=$test_root/installed-final-proof-consumers.txt
+if grep -l -E -- \
+    'devel_source_artifact_install|InstalledDevelSourceBuildProof|DevelSourceArtifactInstallAuthority' \
+    "$repo_root"/source/*.cpp > "$final_consumers"
+then
+    :
+else
+    scan_status=$?
+    [ "$scan_status" -eq 1 ] || fail "S5-C producer scan failed: $scan_status"
+fi
+printf '%s\n' \
+    "$repo_root/source/devel_source_artifact_install.cpp" \
+    "$repo_root/source/source_artifact_install_trusted_transport.cpp" \
+    > "$test_root/expected-installed-final-proof-consumers.txt"
+cmp -s "$final_consumers" "$test_root/expected-installed-final-proof-consumers.txt" ||
+    fail 'S5-C final proof gained a normal production caller'
+assert_not_matches "$repo_root/source/devel_source_artifact_install.cpp" \
+    '(publish_devel_build_provenance|make_devel_build_provenance|devel_build_provenance_store|observe_git_remote_revision\(|observe_installed_package_record\()'
+assert_contains "$repo_root/source/devel_source_artifact_install.hpp" \
+    '#include "devel_source_artifact_install_authority.hpp"'
+assert_not_contains "$repo_root/cmake/MoguetSources.cmake" \
+    'tests/devel_source_artifact_install_fixture.cpp'
 assert_not_contains "$makefile" 'legacy-cpp-focused-authority'
 assert_not_contains "$makefile" '-std=c++20'
 assert_not_contains "$makefile" '-Wall'
@@ -318,8 +341,8 @@ assert_contains "$repo_root/.gitignore" '/compile_commands.json'
 
 # Compare the historical Make aliases with the actual CMake focused targets.
 # This checks the frontend mapping without duplicating either inventory here.
-[ "$#" -eq 115 ] ||
-    fail "Make focused alias inventory is $#, expected 115"
+[ "$#" -eq 117 ] ||
+    fail "Make focused alias inventory is $#, expected 117"
 make_aliases=$test_root/make-focused-aliases.txt
 cmake_aliases=$test_root/cmake-focused-aliases.txt
 cmake_help=$test_root/cmake-target-help.txt
@@ -327,15 +350,15 @@ missing_aliases=$test_root/missing-focused-aliases.txt
 unexpected_aliases=$test_root/unexpected-focused-aliases.txt
 
 printf '%s\n' "$@" | LC_ALL=C sort > "$make_aliases"
-[ "$(LC_ALL=C sort -u "$make_aliases" | wc -l)" -eq 115 ] ||
+[ "$(LC_ALL=C sort -u "$make_aliases" | wc -l)" -eq 117 ] ||
     fail 'Make focused alias inventory contains duplicates'
 
 "$cmake_command" --build "$cmake_build_dir" --target help > "$cmake_help"
 sed -n \
     's/.*moguet-focus-\(test-[a-z0-9-][a-z0-9-]*\).*/\1/p' \
     "$cmake_help" | LC_ALL=C sort -u > "$cmake_aliases"
-[ "$(wc -l < "$cmake_aliases")" -eq 115 ] ||
-    fail "CMake focused target inventory is $(wc -l < "$cmake_aliases"), expected 115"
+[ "$(wc -l < "$cmake_aliases")" -eq 117 ] ||
+    fail "CMake focused target inventory is $(wc -l < "$cmake_aliases"), expected 117"
 
 LC_ALL=C comm -23 "$make_aliases" "$cmake_aliases" > "$missing_aliases"
 LC_ALL=C comm -13 "$make_aliases" "$cmake_aliases" > "$unexpected_aliases"
@@ -367,5 +390,5 @@ assert_contains "$phony_marker" 'test-cmake'
 assert_contains "$phony_marker" 'test-repository'
 
 printf '%s\n' \
-    'build-authority-closure-test: Make aliases=115, CMake targets=115, missing=0, unexpected=0'
+    'build-authority-closure-test: Make aliases=117, CMake targets=117, missing=0, unexpected=0'
 printf '%s\n' 'build-authority-closure-test: all checks passed'

@@ -1714,12 +1714,29 @@ std::string SourceArtifactInstallTrustedStateStore::consume_exact(const std::str
     evidence.baseline = read_observations("baseline", InstalledRecordObservationIssue::MissingBaseline);
     evidence.install_anchors = read_observations("install-anchor", InstalledRecordObservationIssue::MissingAnchor);
     evidence.upgrade_anchors = read_observations("upgrade-anchor", InstalledRecordObservationIssue::MissingAnchor);
-    const auto protocol = serialize_exact_artifact_root_evidence(evidence, request, stage);
+    auto protocol = serialize_exact_artifact_root_evidence(evidence, request, stage);
+    // The full bounded response is owned before retirement can remove source
+    // evidence. Its final fixed-width field records cleanup without allocating.
+    const auto cleanup_offset = protocol.size() - std::string_view("0\nEND\n").size();
     require_staged_identity(transaction.descriptor.get(), std::string(EXACT_DIRECTORY), exact.get(), exact_identity);
     require_named_identity(state.active.get(), token, transaction.metadata, "exact consumption transaction");
     static_cast<void>(state.reprove_namespace());
-    auto retired = retire_transaction(state.active.get(), state.used.get(), state.expected_owner, token, std::move(transaction));
-    cleanup_retired_transaction(retired, state.expected_owner, request, false, false);
+    bool retired_state = false;
+    try {
+#ifdef MOGUET_ENABLE_SOURCE_ARTIFACT_INSTALL_TRUSTED_TRANSPORT_TEST_HOOKS
+        if(g_state_test_hook) g_state_test_hook(SourceArtifactInstallTrustedStateTestEvent::BeforeExactRetirement,
+                                                transaction.descriptor.get(), token);
+#endif
+        auto retired = retire_transaction(state.active.get(), state.used.get(), state.expected_owner, token, std::move(transaction));
+        retired_state = true;
+#ifdef MOGUET_ENABLE_SOURCE_ARTIFACT_INSTALL_TRUSTED_TRANSPORT_TEST_HOOKS
+        if(g_state_test_hook) g_state_test_hook(SourceArtifactInstallTrustedStateTestEvent::BeforeExactCleanup,
+                                                retired.descriptor.get(), token);
+#endif
+        cleanup_retired_transaction(retired, state.expected_owner, request, false, false);
+    } catch(...) {
+        protocol[cleanup_offset] = retired_state ? '2' : '1';
+    }
     return protocol;
 }
 

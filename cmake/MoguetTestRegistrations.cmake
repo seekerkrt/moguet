@@ -131,6 +131,17 @@ moguet_add_ctest(
     COMMAND "$<TARGET_FILE:evaluated-devel-source-artifact-transport-test>" --exact-installed-binding
 )
 set_tests_properties(cpp.exact_installed_binding PROPERTIES TIMEOUT 480)
+# S5-C consumes the existing S5-B fixture output, without duplicating its matrix.
+foreach(_moguet_s5c IN ITEMS installed-devel-source-build-proof devel-source-artifact-install-result)
+    string(REPLACE "-" "_" _moguet_s5c_name "${_moguet_s5c}")
+    moguet_add_ctest(
+        NAME cpp.${_moguet_s5c_name}
+        TARGETS evaluated-devel-source-artifact-transport-test
+        COMMAND "$<TARGET_FILE:evaluated-devel-source-artifact-transport-test>" --${_moguet_s5c}
+    )
+    set_tests_properties(cpp.${_moguet_s5c_name} PROPERTIES TIMEOUT 480)
+endforeach()
+
 _moguet_add_direct_ctest(
     cpp.evaluated_devel_source_build
     evaluated-devel-source-build-test

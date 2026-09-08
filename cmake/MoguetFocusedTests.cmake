@@ -46,6 +46,8 @@ foreach(_moguet_direct_focus IN ITEMS
     evaluated-devel-source-build
     evaluated-devel-source-artifact-transport
     exact-installed-binding
+    installed-devel-source-build-proof
+    devel-source-artifact-install-result
     source-artifact-install-trusted-transport
     reviewed-source-state
     reviewed-source-state-store

@@ -1,6 +1,7 @@
 #include "source_artifact_install_trusted_transport.hpp"
 
 #include "evaluated_devel_source_build.hpp"
+#include "devel_source_artifact_install_state.hpp"
 #include "evaluated_devel_source_artifact_transport.hpp"
 #include "exact_artifact_transaction_receipt.hpp"
 #include "fresh_installed_artifact_binding.hpp"
@@ -435,7 +436,10 @@ struct PreparedTransportInput {
 // Internal capture shared only by the existing engine and the retained-proof
 // owner in this TU. Raw wire values never leave here as a receipt capability.
 struct ExactArtifactTransportCapture {
-    bool known_success = false;
+    DevelSourceArtifactInstallState& terminal;
+    bool known_success() const noexcept {
+        return terminal.operation == DevelSourceArtifactInstallOperation::Succeeded && terminal.pacman_exit_status == 0;
+    }
     std::optional<SourceArtifactInstallRootPrepareRequest> manifest;
     std::string stage;
     std::optional<ExactArtifactRootEvidence> evidence;
@@ -1027,6 +1031,20 @@ public:
             0, std::nullopt, std::nullopt, std::nullopt);
     }
 
+    static SourceArtifactInstallTrustedExecutionResult terminal_result(
+        const DevelSourceArtifactInstallState& state) noexcept {
+        using Operation = DevelSourceArtifactInstallOperation;
+        using Status = SourceArtifactInstallTrustedExecutionStatus;
+        const auto status = state.execution                                ? state.execution->status()
+                            : state.operation == Operation::Succeeded      ? (state.receipt ? Status::Complete : Status::ConsumeFailed)
+                            : state.operation == Operation::Failed         ? Status::PacmanFailed
+                            : state.operation == Operation::OutcomeUnknown ? Status::OutcomeUnknown
+                                                                           : Status::InvalidRequest;
+        return SourceArtifactInstallTrustedExecutionResult(status, state.pacman_exit_status,
+                                                           std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+                                                           state.execution ? state.execution->sealing_failure() : std::nullopt);
+    }
+
     static SourceArtifactInstallTrustedExecutionResult execute(
         PreparedPackageBaseArtifactInstall& install,
         const SourceArtifactInstallTrustedBinding& binding,
@@ -1054,12 +1072,17 @@ public:
         std::optional<SourceArtifactInstallReceiptExpectation> expectation = std::nullopt,
         ExactArtifactTransportCapture* exact_capture = nullptr) {
         CapturedCommandResult prepare_result;
+        if(exact_capture) exact_capture->terminal.cleanup = {
+                              DevelSourceArtifactInstallCleanupState::OutcomeUnknown, DevelSourceArtifactInstallCleanupIssue::PrepareUnconfirmed, {}};
         try {
             prepare_result = capture_explicit(prepare_invocation(
                 input.root_request, input.sealed_input.get()));
         } catch(...) {
             const int abort_status =
                 abort_prepared_state_noexcept(transaction_token);
+            if(exact_capture) exact_capture->terminal.cleanup = {
+                                  abort_status == 0 ? DevelSourceArtifactInstallCleanupState::Complete : DevelSourceArtifactInstallCleanupState::Failed,
+                                  abort_status == 0 ? std::nullopt : std::optional{DevelSourceArtifactInstallCleanupIssue::AbortFailed}, abort_status};
             auto observation = make_observation(
                 binding, std::move(input.observed_artifacts),
                 make_transaction(
@@ -1098,6 +1121,14 @@ public:
                 abort_status =
                     abort_prepared_state_noexcept(transaction_token);
             }
+            if(exact_capture) {
+                if(prepare_result.exit_code == 0)
+                    exact_capture->terminal.cleanup = {
+                        abort_status == 0 ? DevelSourceArtifactInstallCleanupState::Complete : DevelSourceArtifactInstallCleanupState::Failed,
+                        abort_status == 0 ? std::nullopt : std::optional{DevelSourceArtifactInstallCleanupIssue::AbortFailed}, abort_status};
+                else
+                    exact_capture->terminal.cleanup.helper_exit_status = prepare_result.exit_code;
+            }
             auto observation = make_observation(
                 binding, std::move(input.observed_artifacts),
                 make_transaction(
@@ -1114,7 +1145,10 @@ public:
                 std::nullopt, parse_helper_refusal(prepare_result, transaction_token).value_or(SourceArtifactInstallSealingRefusal{SourceArtifactInstallSealingFailure::TrustedTransportProtocolMismatch}));
         }
 
-        if(exact_capture) exact_capture->stage = prepared->staged_identity_sha256;
+        if(exact_capture) {
+            exact_capture->terminal.cleanup = {DevelSourceArtifactInstallCleanupState::Retained, {}, {}};
+            exact_capture->stage = prepared->staged_identity_sha256;
+        }
 
         int pacman_status = 127;
         try {
@@ -1123,6 +1157,10 @@ public:
             log_explicit_invocation(pacman_invocation(input.root_request, *prepared));
             auto invocation = helper_invocation("execute", transaction_token);
             log_explicit_invocation(invocation);
+            if(exact_capture) {
+                exact_capture->terminal.operation = DevelSourceArtifactInstallOperation::OutcomeUnknown;
+                exact_capture->terminal.cleanup = {DevelSourceArtifactInstallCleanupState::Retained, {}, {}};
+            }
             const auto execution =
 #ifdef MOGUET_ENABLE_SOURCE_ARTIFACT_INSTALL_TRUSTED_TRANSPORT_TEST_HOOKS
                 g_evaluated_transport_test_hooks.execute ? g_evaluated_transport_test_hooks.execute(invocation) :
@@ -1132,12 +1170,19 @@ public:
                (execution.status == ExplicitProcessExecutionStatus::StartedKnownOutcome && !execution.exit_code)) {
                 return unknown_after_consumption(binding, transaction_token);
             }
-            if(execution.status == ExplicitProcessExecutionStatus::NotStarted)
+            if(execution.status == ExplicitProcessExecutionStatus::NotStarted) {
+                if(exact_capture) exact_capture->terminal.operation = DevelSourceArtifactInstallOperation::NotAttempted;
                 throw std::runtime_error("privileged execution helper was not started");
+            }
             pacman_status = *execution.exit_code;
         } catch(...) {
+            if(exact_capture && exact_capture->terminal.operation == DevelSourceArtifactInstallOperation::OutcomeUnknown)
+                return terminal_result(exact_capture->terminal);
             const int abort_status =
                 abort_prepared_state_noexcept(transaction_token);
+            if(exact_capture) exact_capture->terminal.cleanup = {
+                                  abort_status == 0 ? DevelSourceArtifactInstallCleanupState::Complete : DevelSourceArtifactInstallCleanupState::Failed,
+                                  abort_status == 0 ? std::nullopt : std::optional{DevelSourceArtifactInstallCleanupIssue::AbortFailed}, abort_status};
             auto observation = make_observation(
                 binding, std::move(input.observed_artifacts),
                 make_transaction(
@@ -1180,7 +1225,11 @@ public:
                 // Missing/unparseable status proves neither refusal nor the
                 // package-manager outcome. Keep the exact private evidence for
                 // diagnosis; the consumed capability must not restart or retry.
+                if(exact_capture && refused) exact_capture->terminal.operation = DevelSourceArtifactInstallOperation::NotAttempted;
                 const int abort_status = refused ? abort_prepared_state_noexcept(transaction_token) : 0;
+                if(exact_capture && refused) exact_capture->terminal.cleanup = {
+                                                 abort_status == 0 ? DevelSourceArtifactInstallCleanupState::Complete : DevelSourceArtifactInstallCleanupState::Failed,
+                                                 abort_status == 0 ? std::nullopt : std::optional{DevelSourceArtifactInstallCleanupIssue::AbortFailed}, abort_status};
                 auto observation = make_observation(binding, std::move(input.observed_artifacts),
                                                     make_transaction(transaction_token, std::move(input.requested_package_names),
                                                                      refused ? InvocationDependencyTransactionCommandOutcome::NotAttempted
@@ -1196,9 +1245,16 @@ public:
                     std::nullopt, refused ? execution->refusal : std::nullopt);
             }
         }
+        if(exact_capture) {
+            exact_capture->terminal.operation = pacman_status == 0 ? DevelSourceArtifactInstallOperation::Succeeded : DevelSourceArtifactInstallOperation::Failed;
+            exact_capture->terminal.pacman_exit_status = pacman_status;
+        }
         if(pacman_status != 0) {
             const int abort_status =
                 abort_prepared_state_noexcept(transaction_token);
+            if(exact_capture) exact_capture->terminal.cleanup = {
+                                  abort_status == 0 ? DevelSourceArtifactInstallCleanupState::Complete : DevelSourceArtifactInstallCleanupState::Failed,
+                                  abort_status == 0 ? std::nullopt : std::optional{DevelSourceArtifactInstallCleanupIssue::AbortFailed}, abort_status};
             auto observation = make_observation(
                 binding, std::move(input.observed_artifacts),
                 make_transaction(
@@ -1222,13 +1278,17 @@ public:
         if(exact_capture) {
             // Fix success before any receipt/DB allocation. The owner can retain
             // this fact even if an exception escapes post-transaction processing.
-            exact_capture->known_success = true;
             try {
                 auto invocation = helper_invocation("consume-exact", transaction_token);
                 invocation.stdout_capture_limit = SOURCE_ARTIFACT_INSTALL_MAXIMUM_PROTOCOL_BYTES;
+                exact_capture->terminal.cleanup = {DevelSourceArtifactInstallCleanupState::OutcomeUnknown,
+                                                   DevelSourceArtifactInstallCleanupIssue::ConsumeUnconfirmed,
+                                                   {}};
                 auto consumed = capture_explicit(invocation);
                 if(consumed.exit_code != 0 || consumed.stdout_capture_limit_exceeded) {
                     exact_capture->issue = ExactArtifactReceiptIssue::Invalid;
+                    if(consumed.exit_code != 0) exact_capture->terminal.cleanup = {
+                                                    DevelSourceArtifactInstallCleanupState::Failed, DevelSourceArtifactInstallCleanupIssue::ConsumeFailed, consumed.exit_code};
                     return exact_postprocessing_failure(false);
                 }
                 auto parsed = parse_exact_artifact_root_evidence(consumed.output, input.root_request, prepared->staged_identity_sha256);
@@ -1238,6 +1298,10 @@ public:
                     return SourceArtifactInstallTrustedExecutionResult(SourceArtifactInstallTrustedExecutionStatus::MalformedReceipt,
                                                                        0, std::nullopt, std::nullopt, std::nullopt);
                 }
+                exact_capture->terminal.cleanup = {
+                    evidence->cleanup == ExactArtifactRootCleanup::Complete ? DevelSourceArtifactInstallCleanupState::Complete : DevelSourceArtifactInstallCleanupState::Failed,
+                    evidence->cleanup == ExactArtifactRootCleanup::Complete ? std::nullopt : std::optional{evidence->cleanup == ExactArtifactRootCleanup::RetirementFailed ? DevelSourceArtifactInstallCleanupIssue::RetirementFailed : DevelSourceArtifactInstallCleanupIssue::PrivateStageCleanupFailed},
+                    consumed.exit_code};
                 auto records = join_exact_artifact_operation_fragments(evidence->installs, evidence->upgrades,
                                                                        input.root_request, prepared->staged_identity_sha256);
                 if(const auto* issue = std::get_if<ExactArtifactReceiptIssue>(&records)) {
@@ -1429,22 +1493,8 @@ SourceArtifactInstallTrustedExecutionResult::status() const noexcept {
     return status_;
 }
 
-struct EvaluatedDevelSourceArtifactTransport::State {
-    EvaluatedDevelSourceBuildProof proof;
-    bool consumed = false;
-    std::optional<std::string> transaction_token;
-    std::optional<ExactArtifactTransactionReceipt> receipt;
-    std::optional<ExactArtifactReceiptIssue> receipt_issue;
-    std::optional<FreshInstalledArtifactBinding> fresh_binding;
-    std::optional<InstalledRecordObservationIssue> binding_issue;
-
-    explicit State(EvaluatedDevelSourceBuildProof value) noexcept
-        : proof(std::move(value)) {
-    }
-};
-
 EvaluatedDevelSourceArtifactTransport::EvaluatedDevelSourceArtifactTransport(
-    std::unique_ptr<State> state) noexcept : state_(std::move(state)) {
+    std::unique_ptr<DevelSourceArtifactInstallState> state) noexcept : state_(std::move(state)) {
 }
 
 EvaluatedDevelSourceArtifactTransport::EvaluatedDevelSourceArtifactTransport(
@@ -1465,7 +1515,7 @@ EvaluatedDevelSourceArtifactTransport prepare_evaluated_devel_source_artifact_tr
     EvaluatedDevelSourceBuildProof proof) {
     if(!proof.valid()) throw std::logic_error("evaluated build proof is inactive");
     return EvaluatedDevelSourceArtifactTransport(
-        std::make_unique<EvaluatedDevelSourceArtifactTransport::State>(std::move(proof)));
+        std::make_unique<DevelSourceArtifactInstallState>(std::move(proof)));
 }
 
 SourceArtifactInstallTrustedExecutionResult EvaluatedDevelSourceArtifactTransport::execute(
@@ -1475,7 +1525,29 @@ SourceArtifactInstallTrustedExecutionResult EvaluatedDevelSourceArtifactTranspor
 
 SourceArtifactInstallTrustedExecutionResult EvaluatedDevelSourceArtifactTransport::execute_exact(
     const ArtifactInstallExecutionOptions& options) {
-    return execute_impl(options, nullptr, true);
+    return execute_exact_impl(options, nullptr);
+}
+
+SourceArtifactInstallTrustedExecutionResult EvaluatedDevelSourceArtifactTransport::execute_exact_impl(
+    const ArtifactInstallExecutionOptions& options, const std::string* test_token) {
+    if(!active()) return SourceArtifactInstallTrustedTransport::invalid_result(
+        SourceArtifactInstallTrustedExecutionStatus::InvalidRequest, "evaluated artifact transport is inactive");
+    state_->exact_attempted = true;
+    try {
+        auto execution = execute_impl(options, test_token, true);
+        state_->execution.emplace(std::move(execution));
+        // Preserve a copy for S5-B callers. If its diagnostic allocation fails,
+        // the original result and all fixed operation facts still belong here.
+        return *state_->execution;
+    } catch(...) {
+        if(!state_->execution) state_->execution.emplace(SourceArtifactInstallTrustedTransport::terminal_result(*state_));
+        return SourceArtifactInstallTrustedTransport::terminal_result(*state_);
+    }
+}
+
+std::optional<DevelSourceArtifactInstallResult> EvaluatedDevelSourceArtifactTransport::finalize() noexcept {
+    if(!state_ || (state_->consumed && !state_->exact_attempted)) return std::nullopt;
+    return DevelSourceArtifactInstallAuthority::finalize(std::move(state_));
 }
 
 const ExactArtifactTransactionReceipt* EvaluatedDevelSourceArtifactTransport::exact_receipt() const noexcept {
@@ -1510,7 +1582,7 @@ SourceArtifactInstallTrustedExecutionResult EvaluatedDevelSourceArtifactTranspor
             Status::TokenGenerationFailed, "evaluated artifact transport token generation failed");
 
     bool privileged_attempted = false;
-    ExactArtifactTransportCapture exact_capture;
+    ExactArtifactTransportCapture exact_capture{*state_, {}, {}, {}, {}, ExactArtifactReceiptIssue::Missing};
     try {
         const auto& artifact = state_->proof.artifact();
         const auto& evidence = artifact.evidence();
@@ -1568,39 +1640,45 @@ SourceArtifactInstallTrustedExecutionResult EvaluatedDevelSourceArtifactTranspor
         privileged_attempted = true;
         auto execution = SourceArtifactInstallTrustedTransport::execute_snapshot(
             std::move(input), *state_->transaction_token, nullptr, nullptr, std::nullopt, exact ? &exact_capture : nullptr);
-        if(exact_capture.known_success) {
+        if(exact_capture.known_success()) {
             state_->receipt_issue = exact_capture.issue;
             if(exact_capture.evidence) {
                 state_->receipt.emplace(ExactArtifactTransactionReceipt(std::move(*exact_capture.manifest), std::move(exact_capture.stage),
-                                                                        std::move(exact_capture.records), std::move(*exact_capture.evidence)));
+                                                                        std::move(exact_capture.records), std::move(*exact_capture.evidence),
+                                                                        state_->proof.lineage_, state_->transaction_lineage));
                 state_->receipt_issue.reset();
                 auto observed = InstalledArtifactBindingObserver::observe(*state_->receipt, state_->proof);
-                if(auto* binding = std::get_if<FreshInstalledArtifactBinding>(&observed))
+                if(auto* binding = std::get_if<FreshInstalledArtifactBinding>(&observed)) {
                     state_->fresh_binding.emplace(std::move(*binding));
-                else
+                    state_->fresh_binding_count = 1;
+                } else
                     state_->binding_issue = std::get<FreshInstalledArtifactBindingFailure>(observed).reason;
             }
         }
         return execution;
     } catch(const std::exception& error) {
-        if(exact_capture.known_success) {
+        if(exact_capture.known_success()) {
             if(state_->receipt)
                 state_->binding_issue = InstalledRecordObservationIssue::ResourceFailure;
             else
                 state_->receipt_issue = ExactArtifactReceiptIssue::ResourceFailure;
             return SourceArtifactInstallTrustedTransport::exact_postprocessing_failure(state_->receipt.has_value());
         }
+        if(exact && privileged_attempted)
+            return SourceArtifactInstallTrustedTransport::terminal_result(*state_);
         if(privileged_attempted) return SourceArtifactInstallTrustedTransport::unknown_after_consumption(
             nullptr, *state_->transaction_token);
         return SourceArtifactInstallTrustedTransport::invalid_result(Status::ArtifactSnapshotFailed, error.what());
     } catch(...) {
-        if(exact_capture.known_success) {
+        if(exact_capture.known_success()) {
             if(state_->receipt)
                 state_->binding_issue = InstalledRecordObservationIssue::ResourceFailure;
             else
                 state_->receipt_issue = ExactArtifactReceiptIssue::ResourceFailure;
             return SourceArtifactInstallTrustedTransport::exact_postprocessing_failure(state_->receipt.has_value());
         }
+        if(exact && privileged_attempted)
+            return SourceArtifactInstallTrustedTransport::terminal_result(*state_);
         if(privileged_attempted) return SourceArtifactInstallTrustedTransport::unknown_after_consumption(
             nullptr, *state_->transaction_token);
         return SourceArtifactInstallTrustedTransport::invalid_result(
@@ -1616,7 +1694,7 @@ SourceArtifactInstallTrustedExecutionResult EvaluatedDevelSourceArtifactTranspor
 
 SourceArtifactInstallTrustedExecutionResult EvaluatedDevelSourceArtifactTransport::execute_exact_for_test(
     const ArtifactInstallExecutionOptions& options, const std::string& transaction_token) {
-    return execute_impl(options, &transaction_token, true);
+    return execute_exact_impl(options, &transaction_token);
 }
 
 void set_evaluated_devel_source_artifact_transport_test_hooks(

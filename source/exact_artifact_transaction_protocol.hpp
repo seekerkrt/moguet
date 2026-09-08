@@ -59,9 +59,16 @@ using ExactArtifactRecordObservationsResult = std::variant<ExactArtifactRecordOb
 [[nodiscard]] ExactArtifactRecordObservationsResult parse_exact_artifact_record_observations(
     std::string_view protocol, const SourceArtifactInstallRootPrepareRequest& manifest) noexcept;
 
+// Cleanup is a consequence after the evidence has been captured. Numeric
+// encoding is fixed-width so a helper can record failure without allocating.
+enum class ExactArtifactRootCleanup { Complete = 0,
+                                      RetirementFailed = 1,
+                                      PrivateStageCleanupFailed = 2 };
+
 // Core fragments and database observations retain independent failure states.
 // This wire bundle is not the successful exact receipt capability.
 struct ExactArtifactRootEvidence {
+    ExactArtifactRootCleanup cleanup = ExactArtifactRootCleanup::Complete;
     InstalledDatabaseWorldResult world = InstalledRecordObservationIssue::UnsupportedDatabaseWorld;
     ExactArtifactRecordObservationsResult baseline = InstalledRecordObservationIssue::MissingBaseline;
     std::optional<std::string> installs;

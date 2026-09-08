@@ -86,6 +86,8 @@ enum class SourceArtifactInstallTrustedStateTestEvent {
     AfterArtifactMetadataValidation,
     BeforeFinalReproof,
     BeforeRefusalPublication,
+    BeforeExactRetirement,
+    BeforeExactCleanup,
 };
 using SourceArtifactInstallTrustedStateTestHook = std::function<void(
     SourceArtifactInstallTrustedStateTestEvent, int, const std::string&)>;

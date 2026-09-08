@@ -10,6 +10,7 @@
 #ifdef MOGUET_TEST_EXACT_INSTALLED_BINDING
 #include "exact_artifact_transaction_receipt.hpp"
 #include "fresh_installed_artifact_binding.hpp"
+#include "devel_source_artifact_install.hpp"
 #include "installed_package_record_observation.hpp"
 #endif
 
@@ -39,6 +40,7 @@
 #include <string_view>
 #include <sys/stat.h>
 #include <type_traits>
+#include <tuple>
 #include <unistd.h>
 #include <utility>
 #include <variant>
@@ -52,6 +54,13 @@ namespace fs = std::filesystem;
 // process's successful context creations belong to its cleanup inventory.
 std::vector<fs::path> g_fixture_context_roots;
 
+#ifdef MOGUET_TEST_EXACT_INSTALLED_BINDING
+static_assert(!std::is_default_constructible_v<InstalledDevelSourceBuildProof>);
+static_assert(!std::is_copy_constructible_v<InstalledDevelSourceBuildProof>);
+static_assert(std::is_nothrow_move_constructible_v<InstalledDevelSourceBuildProof>);
+static_assert(std::is_nothrow_move_constructible_v<DevelSourceArtifactInstallResult>);
+static_assert(!std::is_constructible_v<DevelSourceArtifactInstallResult, InstalledArtifactBinding>);
+#endif
 static_assert(!std::is_default_constructible_v<
               EvaluatedDevelSourceBuildProof>);
 static_assert(!std::is_copy_constructible_v<
@@ -412,6 +421,10 @@ public:
 
     [[nodiscard]] const fs::path& home() const noexcept {
         return home_;
+    }
+
+    void require_no_provenance_publication() const {
+        require(!fs::exists(state_home_ / "moguet/devel-build-provenance"), "Slice 5 wrote XDG provenance state");
     }
 
     [[nodiscard]] const UpstreamGitFixture& upstream() const noexcept {
@@ -1888,6 +1901,20 @@ void test_installed_exact_binding() {
         previous_generation = generation;
         std::cout << "S5B-INSTALLED\t" << label << "\t" << (operation == ExactArtifactTransactionOperation::Install ? "Install" : "Upgrade")
                   << "\t" << artifact.identity.full_version << "\t" << artifact.mtree_digest.value() << "\t" << generation << '\n';
+        auto aggregate = transport.finalize();
+        require(aggregate && aggregate->operation() == DevelSourceArtifactInstallOperation::Succeeded &&
+                    aggregate->receipt_state() == DevelSourceArtifactInstallReceipt::Complete &&
+                    aggregate->proof_state() == DevelSourceArtifactInstallProof::Complete &&
+                    aggregate->privileged_cleanup().state == DevelSourceArtifactInstallCleanupState::Complete,
+                "actual S5-B complete path did not produce the final Slice 5 proof");
+        const auto* final_proof = aggregate->proof();
+        require(final_proof && final_proof->valid() && final_proof->operation() == operation &&
+                    final_proof->built_proof().artifact().evidence() == artifact &&
+                    final_proof->installed_binding().record_generation().opaque_identity() == generation,
+                "actual final proof lost built/receipt/binding identity");
+        require(!transport.finalize(), "actual final proof was minted twice");
+        fixture.require_no_provenance_publication();
+        std::cout << "S5C-INSTALLED\t" << label << "\tComplete\tcleanup-Complete\tpublication-none\n";
     };
     install("first-install", std::move(first_install), ExactArtifactTransactionOperation::Install);
     upstream.commit("revision-two\n");
@@ -1901,22 +1928,81 @@ void test_installed_exact_binding() {
     install("downgrade", std::move(later_downgrade), ExactArtifactTransactionOperation::Upgrade);
 }
 
-void test_exact_installed_binding() {
+void test_exact_installed_binding(std::string_view finalization = {}) {
     using Status = SourceArtifactInstallTrustedExecutionStatus;
     using Issue = InstalledRecordObservationIssue;
     UpstreamGitFixture upstream("slice5-exact-binding");
     int case_index = 0;
-    for(const std::string mode : {"install", "upgrade", "reinstall", "downgrade", "wrong-operation", "no-post", "nonzero", "partial-nonzero",
-                                  "authorized-only", "unknown-wait", "malformed-status", "needed-skip", "consume-failure",
-                                  "wrong-name", "wrong-base", "wrong-version", "wrong-architecture", "missing-base",
-                                  "anchor-mtree", "outer-mtree", "outer-desc", "outer-files", "identical-reinstall",
-                                  "no-mtree", "empty-mtree", "truncated-mtree", "generation-unsupported", "outer-alpm-failure",
-                                  "outer-resource", "anchor-resource", "anchor-eio", "outer-world", "missing-package", "missing-baseline", "missing-anchor",
-                                  "anchor-xdata", "outer-xdata", "outer-desc-oversize", "outer-lazy-failure", "outer-empty-files", "outer-empty-core-conflict"}) {
-        const auto label = "s5b-" + std::to_string(case_index++);
+    std::vector<std::string> modes = {"install", "upgrade", "reinstall", "downgrade", "wrong-operation", "no-post", "nonzero", "partial-nonzero",
+                                      "authorized-only", "unknown-wait", "malformed-status", "needed-skip", "consume-failure",
+                                      "wrong-name", "wrong-base", "wrong-version", "wrong-architecture", "missing-base",
+                                      "anchor-mtree", "outer-mtree", "outer-desc", "outer-files", "identical-reinstall",
+                                      "no-mtree", "empty-mtree", "truncated-mtree", "generation-unsupported", "outer-alpm-failure",
+                                      "outer-resource", "anchor-resource", "anchor-eio", "outer-world", "missing-package", "missing-baseline", "missing-anchor",
+                                      "anchor-xdata", "outer-xdata", "outer-desc-oversize", "outer-lazy-failure", "outer-empty-files", "outer-empty-core-conflict"};
+#ifdef MOGUET_ENABLE_DEVEL_SOURCE_ARTIFACT_INSTALL_TEST_HOOKS
+    using M = DevelSourceArtifactInstallTestMismatch;
+    using F = InstalledDevelSourceBuildIssue;
+    using O = DevelSourceArtifactInstallOperation;
+    using R = DevelSourceArtifactInstallReceipt;
+    using P = DevelSourceArtifactInstallProof;
+    using C = DevelSourceArtifactInstallCleanupState;
+    const std::vector<std::pair<std::string, std::pair<M, F>>> mismatches{
+        {"built-lineage", {M::BuiltLineage, F::BuiltLineageMismatch}},
+        {"receipt-lineage", {M::ReceiptLineage, F::TransactionLineageMismatch}},
+        {"binding-lineage", {M::BindingLineage, F::TransactionLineageMismatch}},
+        {"package-name", {M::PackageName, F::PackageIdentityMismatch}},
+        {"package-base", {M::PackageBase, F::PackageIdentityMismatch}},
+        {"version", {M::Version, F::PackageIdentityMismatch}},
+        {"architecture", {M::Architecture, F::PackageIdentityMismatch}},
+        {"artifact-index", {M::ArtifactIndex, F::ArtifactIndexMismatch}},
+        {"archive-digest", {M::ArchiveDigest, F::ArchiveDigestMismatch}},
+        {"mtree-digest", {M::MtreeDigest, F::MtreeMismatch}},
+        {"transaction-token", {M::TransactionToken, F::TransactionLineageMismatch}},
+        {"purpose", {M::Purpose, F::TransactionLineageMismatch}},
+        {"staged-identity", {M::StagedIdentity, F::TransactionLineageMismatch}},
+        {"generation", {M::Generation, F::InstalledGenerationMismatch}},
+        {"database-digest", {M::DatabaseDigest, F::DatabaseRecordMismatch}},
+        {"descriptor-identity", {M::DescriptorIdentity, F::DatabaseRecordMismatch}},
+        {"receipt-cardinality", {M::ReceiptCardinality, F::UnsupportedCardinality}},
+        {"binding-cardinality", {M::BindingCardinality, F::UnsupportedCardinality}},
+        {"built-cardinality", {M::BuiltCardinality, F::UnsupportedCardinality}},
+        {"final-resource", {M::ResourceFailure, F::ResourceFailure}},
+    };
+    if(finalization == "proof") {
+        modes = {"install", "upgrade", "reinstall", "downgrade", "wrong-built", "donor", "swap-all", "donor", "swap-receipt", "donor", "swap-binding"};
+        for(const auto& entry : mismatches)
+            modes.push_back(entry.first);
+    } else if(finalization == "aggregate") {
+        modes = {"not-attempted", "prepare-failure", "execute-exception", "unknown-wait", "nonzero", "partial-nonzero", "no-post", "malformed-receipt", "consume-failure",
+                 "outer-mtree", "outer-empty-files", "generation-unsupported", "outer-alpm-failure", "outer-world",
+                 "outer-xdata", "outer-desc-oversize", "outer-resource", "install", "cleanup-failure", "retirement-failure", "abort-resource", "receipt-resource"};
+    }
+    std::optional<EvaluatedDevelSourceArtifactTransport> donor;
+#endif
+    for(const std::string& mode : modes) {
+        const auto label = finalization.empty() ? "s5b-" + std::to_string(case_index++) : "s5c-common";
         ReviewedBuildFixture fixture(label, upstream);
         auto proof = build_success(fixture);
         const auto expected = proof.artifact().evidence();
+        std::optional<EvaluatedDevelSourceBuildProof> different_build;
+        if(mode == "wrong-built") {
+            different_build.emplace(build_success(fixture));
+            require(different_build->artifact().evidence().identity == expected.identity,
+                    "wrong-build control must have the same package/version identity");
+        }
+        if(mode == "not-attempted") {
+            auto transport = prepare_evaluated_devel_source_artifact_transport(std::move(proof));
+            auto aggregate = transport.finalize();
+            require(aggregate && aggregate->operation() == DevelSourceArtifactInstallOperation::NotAttempted &&
+                        aggregate->receipt_state() == DevelSourceArtifactInstallReceipt::NotAttempted &&
+                        aggregate->proof_state() == DevelSourceArtifactInstallProof::NotAttempted &&
+                        aggregate->privileged_cleanup().state == DevelSourceArtifactInstallCleanupState::Complete &&
+                        !aggregate->transport_result() && !transport.finalize(),
+                    "NotAttempted finalization is inconsistent");
+            std::cout << "S5-C aggregate not-attempted PASS\n";
+            continue;
+        }
         const auto raw_mtree = capture_process("/usr/bin/bsdtar", {"-xOf", proof.artifact().path().string(), ".MTREE"}, {"PATH=/usr/bin:/bin", "LC_ALL=C"});
         require(raw_mtree.exit_code == 0 && !raw_mtree.stdout_capture_limit_exceeded &&
                     xdg_generation_store_raw_contents_sha256(raw_mtree.output) == expected.mtree_digest.value(),
@@ -1997,6 +2083,7 @@ void test_exact_installed_binding() {
                                                                               "exact transport bypassed fixed helper");
                                                                       const auto& verb = invocation.arguments[2];
                                                                       if(verb == "prepare-exact") {
+                                                                          if(mode == "prepare-failure") return {"", 77, false};
                                                                           const auto parsed = parse_source_artifact_install_trusted_helper_arguments({invocation.arguments.begin() + 2, invocation.arguments.end()});
                                                                           const auto& helper = require_arm<SourceArtifactInstallTrustedHelperInvocation>(parsed, "invalid exact prepare arguments");
                                                                           request.emplace(SourceArtifactInstallRootPrepareRequest{helper.transaction_token, helper.package_base, helper.directive,
@@ -2015,11 +2102,15 @@ void test_exact_installed_binding() {
                                                                       require(verb == "consume-exact", "exact route called legacy consume");
                                                                       ++consumes;
                                                                       if(mode == "consume-failure") return {"", 1, false};
-                                                                      return {store.consume_exact(token), 0, false};
+                                                                      if(mode == "receipt-resource") throw std::bad_alloc();
+                                                                      auto protocol = store.consume_exact(token);
+                                                                      if(mode == "malformed-receipt") protocol += "TRAILING\n";
+                                                                      return {std::move(protocol), 0, false};
                                                                   },
                                                                   [&](const ExplicitProcessInvocation& invocation) -> ExplicitProcessExecutionResult {
                                                                       if(invocation.arguments[2] == "abort") {
                                                                           ++aborts;
+                                                                          if(mode == "abort-resource") throw std::bad_alloc();
                                                                           store.abort(token);
                                                                           return {ExplicitProcessExecutionStatus::StartedKnownOutcome, 0};
                                                                       }
@@ -2035,6 +2126,7 @@ void test_exact_installed_binding() {
                                                                           fs::create_directories(*observation_hooks.database_path + "/local");
                                                                           set_installed_record_observation_test_hooks(observation_hooks);
                                                                       }
+                                                                      if(mode == "execute-exception") throw std::bad_alloc();
                                                                       if(mode == "unknown-wait") return {ExplicitProcessExecutionStatus::StartedOutcomeUnknown, std::nullopt};
                                                                       return {ExplicitProcessExecutionStatus::StartedKnownOutcome, status};
                                                                   },
@@ -2042,7 +2134,7 @@ void test_exact_installed_binding() {
         set_source_artifact_install_trusted_exec_test_hook([&](const auto&) {
             if(mode == "authorized-only" || mode == "needed-skip") return 0;
             store.observe_execution(token);
-            if(mode == "nonzero") return 42;
+            if(mode == "nonzero" || mode == "abort-resource") return 42;
             ++generation;
             write_package(expected.identity.full_version);
             if(mode == "partial-nonzero") return 42;
@@ -2106,20 +2198,30 @@ void test_exact_installed_binding() {
             if(mode == "missing-anchor") fs::remove(exact_directory / "install-anchor");
             return 0;
         });
+        set_source_artifact_install_trusted_state_test_hook([&](auto event, int, const auto&) {
+            if((mode == "cleanup-failure" && event == SourceArtifactInstallTrustedStateTestEvent::BeforeExactCleanup) ||
+               (mode == "retirement-failure" && event == SourceArtifactInstallTrustedStateTestEvent::BeforeExactRetirement))
+                throw std::bad_alloc();
+        });
         {
             auto transport = prepare_evaluated_devel_source_artifact_transport(std::move(proof));
             const auto result = transport.execute_exact_for_test({true}, token);
-            const bool unknown = mode == "authorized-only" || mode == "needed-skip" || mode == "unknown-wait" || mode == "malformed-status";
-            const bool no_receipt = unknown || mode == "no-post" || mode == "nonzero" || mode == "partial-nonzero" || mode == "consume-failure";
-            if(unknown)
+            const bool unknown = mode == "authorized-only" || mode == "needed-skip" || mode == "unknown-wait" || mode == "malformed-status" || mode == "execute-exception";
+            const bool not_attempted = mode == "prepare-failure";
+            const bool no_receipt = unknown || not_attempted || mode == "no-post" || mode == "nonzero" || mode == "partial-nonzero" || mode == "consume-failure" || mode == "malformed-receipt" || mode == "abort-resource" || mode == "receipt-resource";
+            if(not_attempted)
+                require(!result.pacman_exit_status() && consumes == 0 && aborts == 0 && outer_sessions == 0, "failed preparation attempted transaction");
+            else if(unknown)
                 require(result.status() == Status::OutcomeUnknown && !result.pacman_exit_status() && consumes == 0 && aborts == 0 && outer_sessions == 0,
                         "Unknown exact transaction was consumed/aborted/observed: " + mode);
+            else if(mode == "abort-resource")
+                require(result.pacman_exit_status() == 42 && outer_sessions == 0, "abort allocation failure erased known nonzero");
             else if(mode == "nonzero" || mode == "partial-nonzero")
                 require(result.status() == Status::PacmanFailed && result.pacman_exit_status() == 42 && outer_sessions == 0, "nonzero transaction minted proof");
             else
                 require(result.pacman_exit_status() == 0, "binding failure erased known transaction success: " + mode);
             require((transport.exact_receipt() == nullptr) == no_receipt, "exact receipt completion changed: " + mode);
-            const bool positive = mode == "install" || upgrade;
+            const bool positive = mode == "install" || upgrade || (!finalization.empty() && (finalization == "proof" || mode == "cleanup-failure" || mode == "retirement-failure"));
             require((transport.fresh_binding() != nullptr) == positive, "fresh binding decision changed: " + mode);
             if(mode == "partial-nonzero") require(fs::exists(installed_record), "failed transaction was assumed to roll back its package changes");
             if(positive) {
@@ -2147,10 +2249,106 @@ void test_exact_installed_binding() {
             }
             require(!result.operation_result() && !result.expectation() && !result.observation(), "exact path gained cleanup authority");
             require(transport.execute_exact_for_test({true}, token).status() == Status::InvalidRequest, "exact capability retried");
+#ifdef MOGUET_ENABLE_DEVEL_SOURCE_ARTIFACT_INSTALL_TEST_HOOKS
+            if(!finalization.empty()) {
+                if(mode == "donor") {
+                    donor.reset();
+                    donor.emplace(std::move(transport));
+                    require(!transport.finalize(), "moved-from donor finalized");
+                } else {
+                    std::optional<F> expected_final_issue;
+                    if(positive) require(DevelSourceArtifactInstallFixture::check_component_moves(transport), "component move did not revoke source capability");
+                    if(mode == "wrong-built") {
+                        DevelSourceArtifactInstallFixture::replace_built(transport, std::move(*different_build));
+                        require(!different_build->valid(), "different build was copied");
+                        expected_final_issue = F::BuiltLineageMismatch;
+                    }
+                    if(mode == "swap-all" || mode == "swap-receipt" || mode == "swap-binding") {
+                        require(donor && donor->exact_receipt() && donor->fresh_binding(), "missing independently valid transaction donor");
+                        require(donor->exact_receipt()->manifest().artifacts.front().package_name == expected.identity.package_name &&
+                                    donor->exact_receipt()->manifest().artifacts.front().full_version == expected.identity.full_version,
+                                "cross-transaction control lost same package/version identity");
+                        if(mode == "swap-binding")
+                            DevelSourceArtifactInstallFixture::exchange_bindings(transport, *donor);
+                        else
+                            DevelSourceArtifactInstallFixture::exchange_receipts(transport, *donor, mode == "swap-all");
+                        expected_final_issue = mode == "swap-binding" ? F::TransactionLineageMismatch : F::BuiltLineageMismatch;
+                    }
+                    for(const auto& entry : mismatches)
+                        if(mode == entry.first) {
+                            DevelSourceArtifactInstallFixture::mismatch(transport, entry.second.first);
+                            expected_final_issue = entry.second.second;
+                        }
+                    const auto binding_issue = transport.installed_binding_issue();
+                    auto moved_transport = std::move(transport);
+                    require(!transport.finalize(), "moved-from transport finalized");
+                    const auto effects_before_finalize = std::tuple{consumes, aborts, outer_sessions};
+                    auto aggregate = moved_transport.finalize();
+                    require(effects_before_finalize == std::tuple{consumes, aborts, outer_sessions}, "finalization repeated transaction/observer/cleanup");
+                    require(aggregate && !moved_transport.finalize() && !moved_transport.active() &&
+                                !moved_transport.exact_receipt() && !moved_transport.fresh_binding(),
+                            "finalization did not consume its owner once");
+                    const bool failed = mode == "nonzero" || mode == "partial-nonzero" || mode == "abort-resource";
+                    require(aggregate->operation() == (unknown ? O::OutcomeUnknown : not_attempted ? O::NotAttempted
+                                                                                 : failed          ? O::Failed
+                                                                                                   : O::Succeeded) &&
+                                aggregate->pacman_exit_status() == result.pacman_exit_status(),
+                            "finalization lost operation outcome");
+                    require(aggregate->transport_result() && aggregate->transport_result()->status() == result.status() &&
+                                aggregate->binding_issue() == binding_issue,
+                            "finalization flattened the S5-B result");
+                    require(aggregate->receipt_state() == (unknown || failed || not_attempted ? R::NotAttempted : mode == "no-post"        ? R::Missing
+                                                                                                              : mode == "receipt-resource" ? R::Incomplete
+                                                                                                              : no_receipt                 ? R::Invalid
+                                                                                                                                           : R::Complete),
+                            "finalization lost receipt completion");
+                    require(aggregate->proof_state() == (no_receipt ? P::NotAttempted : positive && !expected_final_issue ? P::Complete
+                                                                                                                          : P::Incomplete),
+                            "finalization minted or lost proof");
+                    if(expected_final_issue) require(aggregate->proof_issue() == expected_final_issue, "final correlation mismatch taxonomy changed");
+                    const auto expected_cleanup = unknown ? C::Retained : not_attempted || mode == "malformed-receipt" || mode == "receipt-resource"                                       ? C::OutcomeUnknown
+                                                                      : mode == "consume-failure" || mode == "cleanup-failure" || mode == "retirement-failure" || mode == "abort-resource" ? C::Failed
+                                                                                                                                                                                           : C::Complete;
+                    require(aggregate->privileged_cleanup().state == expected_cleanup && aggregate->source_context_cleanup() == C::Retained,
+                            "cleanup consequence was conflated with proof/operation");
+                    if(mode == "cleanup-failure") require(aggregate->privileged_cleanup().issue == DevelSourceArtifactInstallCleanupIssue::PrivateStageCleanupFailed,
+                                                          "private cleanup cause missing");
+                    if(mode == "retirement-failure") require(aggregate->privileged_cleanup().issue == DevelSourceArtifactInstallCleanupIssue::RetirementFailed,
+                                                             "retirement cause missing");
+                    const auto* final_proof = aggregate->proof();
+                    if(final_proof) require(final_proof->valid() && final_proof->built_proof().valid() && final_proof->artifact_index() == 0 &&
+                                                final_proof->installed_binding().mtree_digest() == expected.mtree_digest,
+                                            "final proof lost owned build/binding evidence");
+                    auto moved_result = std::move(*aggregate);
+                    require(!aggregate->valid() && !aggregate->proof() && (!final_proof || !final_proof->valid()) && moved_result.valid(),
+                            "final proof/result move source remained usable");
+                    bool rejected = false;
+                    try {
+                        static_cast<void>(aggregate->operation());
+                    } catch(const std::logic_error&) {
+                        rejected = true;
+                    }
+                    require(rejected, "moved-from result allowed use");
+                    if(final_proof) {
+                        rejected = false;
+                        try {
+                            static_cast<void>(final_proof->built_proof());
+                        } catch(const std::logic_error&) {
+                            rejected = true;
+                        }
+                        require(rejected, "moved-from final proof allowed use");
+                    }
+                    require(moved_transport.execute_exact_for_test({true}, token).status() == Status::InvalidRequest, "finalized transport reexecuted");
+                    fixture.require_no_provenance_publication();
+                    std::cout << "S5-C " << finalization << ' ' << mode << " PASS\n";
+                }
+            }
+#endif
         }
         set_evaluated_devel_source_artifact_transport_test_hooks({});
         set_source_artifact_install_trusted_exec_test_hook({});
         set_installed_record_observation_test_hooks({});
+        set_source_artifact_install_trusted_state_test_hook({});
         std::cout << "S5-B integrated " << mode << " PASS\n";
     }
 }
@@ -2177,6 +2375,12 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
         if(argc == 2 && std::string(argv[1]) == "--installed-exact-binding") {
             test_installed_exact_binding();
             require(context_root_inventory() == before, "installed S5-B fixture retained a build context");
+            return 0;
+        }
+        if(argc == 2 && (std::string(argv[1]) == "--installed-devel-source-build-proof" ||
+                         std::string(argv[1]) == "--devel-source-artifact-install-result")) {
+            test_exact_installed_binding(std::string(argv[1]) == "--installed-devel-source-build-proof" ? "proof" : "aggregate");
+            require(context_root_inventory() == before, "S5-C fixture retained a build context");
             return 0;
         }
         if(argc == 2 && std::string(argv[1]) == "--exact-installed-binding") {

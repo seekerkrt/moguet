@@ -1,74 +1,10 @@
 #pragma once
 
-#include <memory>
-#include <optional>
-#include <string>
+#include "devel_source_artifact_install_authority.hpp"
 
 #ifdef MOGUET_ENABLE_SOURCE_ARTIFACT_INSTALL_TRUSTED_TRANSPORT_TEST_HOOKS
 #include <functional>
 #endif
-
-class EvaluatedDevelSourceBuildProof;
-class SourceArtifactInstallTrustedExecutionResult;
-struct ArtifactInstallExecutionOptions;
-class ExactArtifactTransactionReceipt;
-class FreshInstalledArtifactBinding;
-enum class ExactArtifactReceiptIssue;
-enum class InstalledRecordObservationIssue;
-
-// S5-A owns the original Slice 4 proof through the sealed transport attempt.
-// This is an input capability, not a transaction receipt or installed proof.
-// Its complete declaration seals friendship even from the narrow artifact
-// header. No raw path, descriptor, metadata tuple, or decoded binding is input.
-class EvaluatedDevelSourceArtifactTransport final {
-public:
-    EvaluatedDevelSourceArtifactTransport() = delete;
-    EvaluatedDevelSourceArtifactTransport(const EvaluatedDevelSourceArtifactTransport&) = delete;
-    EvaluatedDevelSourceArtifactTransport& operator=(const EvaluatedDevelSourceArtifactTransport&) = delete;
-    EvaluatedDevelSourceArtifactTransport(EvaluatedDevelSourceArtifactTransport&&) noexcept;
-    EvaluatedDevelSourceArtifactTransport& operator=(EvaluatedDevelSourceArtifactTransport&&) = delete;
-    ~EvaluatedDevelSourceArtifactTransport() noexcept;
-
-    [[nodiscard]] bool active() const noexcept;
-    // Retained for diagnosis on OutcomeUnknown; never authorizes retry.
-    [[nodiscard]] const std::optional<std::string>& transaction_token() const;
-
-    // At most one attempt, including local rejection. Legacy cleanup
-    // expectation/observation/operation_result remain absent on this route.
-    // Numeric package-manager outcome still requires the shared execution
-    // witness. Complete describes the existing transport protocol only.
-    [[nodiscard]] SourceArtifactInstallTrustedExecutionResult execute(
-        const ArtifactInstallExecutionOptions& options);
-
-    // S5-B component producer; no normal CLI/source-route caller. Operation
-    // outcome is returned independently of these receipt/observation outputs.
-    // The original Slice 4 proof stays here; S5-C final composition is absent.
-    [[nodiscard]] SourceArtifactInstallTrustedExecutionResult execute_exact(
-        const ArtifactInstallExecutionOptions& options);
-    [[nodiscard]] const ExactArtifactTransactionReceipt* exact_receipt() const noexcept;
-    [[nodiscard]] std::optional<ExactArtifactReceiptIssue> exact_receipt_issue() const noexcept;
-    [[nodiscard]] const FreshInstalledArtifactBinding* fresh_binding() const noexcept;
-    [[nodiscard]] std::optional<InstalledRecordObservationIssue> installed_binding_issue() const noexcept;
-
-#ifdef MOGUET_ENABLE_SOURCE_ARTIFACT_INSTALL_TRUSTED_TRANSPORT_TEST_HOOKS
-    [[nodiscard]] SourceArtifactInstallTrustedExecutionResult execute_for_test(
-        const ArtifactInstallExecutionOptions& options,
-        const std::string& transaction_token);
-    [[nodiscard]] SourceArtifactInstallTrustedExecutionResult execute_exact_for_test(
-        const ArtifactInstallExecutionOptions& options, const std::string& transaction_token);
-#endif
-
-private:
-    friend EvaluatedDevelSourceArtifactTransport
-    prepare_evaluated_devel_source_artifact_transport(EvaluatedDevelSourceBuildProof proof);
-
-    struct State;
-    explicit EvaluatedDevelSourceArtifactTransport(std::unique_ptr<State> state) noexcept;
-    [[nodiscard]] SourceArtifactInstallTrustedExecutionResult execute_impl(
-        const ArtifactInstallExecutionOptions& options,
-        const std::string* test_token, bool exact = false);
-    std::unique_ptr<State> state_;
-};
 
 // Consumes the entire proof; throws on an inactive/moved-from input. Snapshot
 // and its saved-digest recheck occur at execute, before any privileged call.
