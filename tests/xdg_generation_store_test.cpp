@@ -1,10 +1,15 @@
 #include "xdg_generation_store.hpp"
+#include "xdg_directory_safety.hpp"
 
 #include <cstdlib>
+#include <algorithm>
+#include <array>
+#include <vector>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <optional>
+#include <new>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -12,6 +17,27 @@
 #include <unistd.h>
 #include <utility>
 #include <variant>
+
+namespace allocation_fault {
+bool blocked = false;
+std::size_t failures = 0;
+} // namespace allocation_fault
+
+// Preserve the replacement boundary under optimized fixture compilation.
+[[gnu::noinline]] void* operator new(std::size_t size) {
+    if(allocation_fault::blocked) {
+        ++allocation_fault::failures;
+        throw std::bad_alloc();
+    }
+    if(void* memory = std::malloc(size == 0 ? 1 : size)) return memory;
+    throw std::bad_alloc();
+}
+[[gnu::noinline]] void operator delete(void* memory) noexcept {
+    std::free(memory);
+}
+[[gnu::noinline]] void operator delete(void* memory, std::size_t) noexcept {
+    std::free(memory);
+}
 
 namespace fs = std::filesystem;
 
@@ -76,6 +102,7 @@ struct StoreFixture {
         fs::create_directory(state_home);
         fs::create_directory(temporary.path() / "home");
         reset_xdg_generation_store_test_hooks();
+        xdg_directory_safety::set_managed_parent_sync_hook_for_test(nullptr);
     }
 
     fs::path unit_path() const {
@@ -360,10 +387,216 @@ void test_record_owner_mismatch_is_typed() {
             "record owner mismatch kind drifted");
 }
 
+
+std::vector<fs::path> g_synced_parents;
+std::vector<fs::path> g_expected_parents;
+std::size_t g_link_boundary_count = 0;
+bool g_fail_parent_sync = false;
+std::optional<fs::path> g_replace_parent;
+
+std::vector<fs::path> expected_parent_chain(const XdgGenerationStoreConfiguration& configuration) {
+    std::vector<fs::path> result;
+    fs::path parent = configuration.paths.creation_boundary.existing_anchor;
+    for(const auto& child : configuration.paths.creation_boundary.creatable_components) {
+        result.push_back(parent);
+        parent /= child;
+    }
+    std::reverse(result.begin(), result.end());
+    return result;
+}
+
+std::optional<std::error_code> observe_parent_sync(int descriptor) {
+    std::array<char, 4096> target{};
+    const auto link = "/proc/self/fd/" + std::to_string(descriptor);
+    const auto length = ::readlink(link.c_str(), target.data(), target.size() - 1);
+    require(length > 0, "cannot inspect retained sync descriptor");
+    g_synced_parents.emplace_back(std::string(target.data(), static_cast<std::size_t>(length)));
+    if(g_replace_parent) {
+        const auto parent = *g_replace_parent;
+        g_replace_parent.reset();
+        fs::rename(parent, parent.string() + ".retained");
+        fs::create_directory(parent);
+        write_bytes(parent / "KEEP", "foreign replacement", 0600);
+    }
+    if(g_fail_parent_sync) return std::make_error_code(std::errc::io_error);
+    return std::nullopt;
+}
+
+void verify_sync_before_link(const XdgGenerationStoreTestRaceContext&) {
+    ++g_link_boundary_count;
+    require(g_synced_parents == g_expected_parents, "managed parent sync did not precede record commit");
+}
+
+void observe_publication_sync(const StoreFixture& fixture) {
+    g_synced_parents.clear();
+    g_expected_parents = expected_parent_chain(fixture.configuration);
+    g_link_boundary_count = 0;
+    g_fail_parent_sync = false;
+    g_replace_parent.reset();
+    xdg_directory_safety::set_managed_parent_sync_hook_for_test(&observe_parent_sync);
+    run_xdg_generation_store_race_once_for_test(XdgGenerationStoreTestRacePoint::AfterAuthorityProof,
+                                                &verify_sync_before_link);
+}
+
+void test_managed_namespace_durability() {
+    for(bool fallback : {false, true}) {
+        for(bool preexisting : {false, true}) {
+            StoreFixture fixture;
+            if(fallback) {
+                fixture.configuration.paths = xdg_paths::resolve_devel_build_provenance(
+                    xdg_paths::EnvironmentSnapshot{.xdg_config_home = std::nullopt, .xdg_state_home = std::nullopt, .xdg_cache_home = std::nullopt, .home = (fixture.temporary.path() / "home").string()});
+            }
+            if(preexisting) {
+                auto prepared = xdg_directory_safety::prepare_directory(fixture.configuration.paths);
+                fs::create_directory(fixture.unit_path());
+                require(::chmod(fixture.unit_path().c_str(), 0700) == 0, "preexisting unit mode");
+            }
+            observe_publication_sync(fixture);
+            const auto published = require_arm<XdgGenerationStorePublished>(
+                publish_xdg_generation_store(fixture.configuration, "schema=1", std::nullopt), "managed namespace publication failed");
+            require(g_link_boundary_count == 1 && g_synced_parents == g_expected_parents,
+                    "first/preexisting managed chain was not synchronized");
+            g_synced_parents.clear();
+            require_arm<XdgGenerationStoreLoaded>(read_xdg_generation_store(fixture.configuration), "loaded lookup failed");
+            require(g_synced_parents.empty(), "read synchronized namespace");
+            static_cast<void>(published);
+        }
+    }
+    {
+        StoreFixture fixture;
+        observe_publication_sync(fixture);
+        require_arm<XdgGenerationStoreMissing>(read_xdg_generation_store(fixture.configuration), "missing lookup changed");
+        require(g_synced_parents.empty() && !fs::exists(fixture.configuration.paths.directory), "read created/synchronized namespace");
+        g_fail_parent_sync = true;
+        const auto failure = require_arm<XdgGenerationStoreFailure>(
+            publish_xdg_generation_store(fixture.configuration, "schema=1", std::nullopt), "parent sync failure was not definite");
+        require(failure.kind == XdgGenerationStoreFailureKind::SyncFailed &&
+                    failure.system_error == std::make_error_code(std::errc::io_error) && g_link_boundary_count == 0,
+                "parent sync failure reached commit or lost errno");
+        require(fs::exists(fixture.unit_path()) && fs::is_empty(fixture.unit_path()), "failed namespace created a generation");
+        require_arm<XdgGenerationStoreMissing>(read_xdg_generation_store(fixture.configuration), "residue became a generation");
+        observe_publication_sync(fixture);
+        require_arm<XdgGenerationStorePublished>(
+            publish_xdg_generation_store(fixture.configuration, "schema=1", std::nullopt), "residue adoption failed");
+        require(g_link_boundary_count == 1 && g_synced_parents == g_expected_parents, "residue skipped required sync");
+    }
+    {
+        StoreFixture fixture;
+        observe_publication_sync(fixture);
+        const auto parent = fixture.configuration.paths.directory.parent_path();
+        g_replace_parent = parent;
+        const auto failure = require_arm<XdgGenerationStoreFailure>(
+            publish_xdg_generation_store(fixture.configuration, "schema=1", std::nullopt), "replaced parent was adopted");
+        require(failure.kind == XdgGenerationStoreFailureKind::ConcurrentReplacement && g_link_boundary_count == 0,
+                "retained/named parent mismatch reached commit");
+        require(fs::exists(parent / "KEEP"), "foreign parent replacement was cleaned");
+        require(!fs::exists(fixture.unit_path() / "1.toml") &&
+                    !fs::exists(fs::path(parent.string() + ".retained") / "aur/unit-a/1.toml"),
+                "parent replacement published in either namespace");
+    }
+    {
+        StoreFixture fixture;
+        auto original = xdg_directory_safety::prepare_directory(fixture.configuration.paths);
+        auto moved = std::move(original);
+        observe_publication_sync(fixture);
+        require(!moved.synchronize_managed_parent_entries() && g_synced_parents == g_expected_parents,
+                "directory move lost bounded managed lineage");
+        bool rejected = false;
+        try {
+            static_cast<void>(original.synchronize_managed_parent_entries());
+        } catch(const xdg_directory_safety::PreparationError&) {
+            rejected = true;
+        }
+        require(rejected, "moved-from directory synchronized parents");
+    }
+    xdg_directory_safety::set_managed_parent_sync_hook_for_test(nullptr);
+    std::cout << "managed namespace durability matrix PASS\n";
+}
+
+void block_allocations(const XdgGenerationStoreTestRaceContext&) {
+    allocation_fault::blocked = true;
+}
+
+void fail_allocation_at_boundary(const XdgGenerationStoreTestRaceContext& context) {
+    block_allocations(context);
+    // Force an actual allocator failure at this exact protocol boundary;
+    // keep allocation blocked while the emergency result is returned.
+    static_cast<void>(::operator new(1));
+}
+
+void test_resource_failures_preserve_commit_phase() {
+    const std::string bytes(128, 'x');
+    const auto attempt = [&](StoreFixture& fixture, bool block_at_entry) {
+        allocation_fault::failures = 0;
+        allocation_fault::blocked = block_at_entry;
+        try {
+            auto result = publish_xdg_generation_store(fixture.configuration, bytes, std::nullopt);
+            allocation_fault::blocked = false;
+            return result;
+        } catch(...) {
+            allocation_fault::blocked = false;
+            throw;
+        }
+    };
+    {
+        StoreFixture fixture;
+        const auto result = attempt(fixture, true);
+        require(require_arm<XdgGenerationStoreFailure>(result, "entry allocation escaped/committed").kind ==
+                    XdgGenerationStoreFailureKind::ResourceFailure,
+                "entry resource cause lost");
+        require(allocation_fault::failures == 1 && !fs::exists(fixture.configuration.paths.directory),
+                "entry failure allocated its terminal result or mutated namespace");
+    }
+    for(auto boundary : {XdgGenerationStoreTestRacePoint::BeforePublication,
+                         XdgGenerationStoreTestRacePoint::AfterAuthorityProof,
+                         XdgGenerationStoreTestRacePoint::AfterPublication,
+                         XdgGenerationStoreTestRacePoint::BeforePostCommitReproof}) {
+        StoreFixture fixture;
+        run_xdg_generation_store_race_once_for_test(boundary,
+                                                    boundary == XdgGenerationStoreTestRacePoint::BeforePostCommitReproof
+                                                        ? &block_allocations
+                                                        : &fail_allocation_at_boundary);
+        const auto result = attempt(fixture, false);
+        require(allocation_fault::failures == 1, "emergency result needed another allocation");
+        const auto read = read_xdg_generation_store(fixture.configuration);
+        const bool committed = boundary == XdgGenerationStoreTestRacePoint::AfterPublication ||
+                               boundary == XdgGenerationStoreTestRacePoint::BeforePostCommitReproof;
+        if(committed) {
+            const auto& uncertain = require_arm<XdgGenerationStorePublishedUncertain>(result, "post-link failure was definite");
+            require(uncertain.failure_kind == XdgGenerationStoreFailureKind::ResourceFailure &&
+                        uncertain.issue == XdgGenerationPostPublicationIssue::ResourceFailure,
+                    "post-link resource taxonomy lost");
+            require(require_arm<XdgGenerationStoreLoaded>(read, "committed resource failure unlinked the record").observed.raw_contents == bytes,
+                    "committed contents changed");
+            if(boundary == XdgGenerationStoreTestRacePoint::BeforePostCommitReproof) {
+                require(uncertain.observed && uncertain.observed->raw_contents == bytes && uncertain.observed->generation == 1,
+                        "identified committed evidence was lost");
+            } else {
+                require(!uncertain.observed, "unobserved committed identity was inferred");
+            }
+        } else {
+            require(require_arm<XdgGenerationStoreFailure>(result, "pre-link failure became uncertain").kind ==
+                        XdgGenerationStoreFailureKind::ResourceFailure,
+                    "pre-link resource cause lost");
+            require_arm<XdgGenerationStoreMissing>(read, "pre-link resource failure published a record");
+        }
+    }
+    {
+        StoreFixture fixture;
+        run_xdg_generation_store_race_once_for_test(XdgGenerationStoreTestRacePoint::AfterVerifiedPublication, &block_allocations);
+        const auto result = attempt(fixture, false);
+        require_arm<XdgGenerationStorePublished>(result, "verified success needed allocation");
+        require(allocation_fault::failures == 0, "verified terminal move allocated");
+    }
+    std::cout << "publication resource phase matrix PASS\n";
+}
+
 } // namespace
 
 int main() {
     try {
+        test_resource_failures_preserve_commit_phase();
+        test_managed_namespace_durability();
         test_read_missing_does_not_create();
         test_publish_replace_and_stale_cas();
         test_bounds_and_precommit_cleanup();

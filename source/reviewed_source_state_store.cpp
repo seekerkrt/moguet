@@ -1,6 +1,8 @@
 #include "reviewed_source_state_store.hpp"
 
+#include <new>
 #include <stdexcept>
+#include <type_traits>
 #include <string>
 #include <utility>
 
@@ -108,7 +110,9 @@ ReviewedSourceStateStoreReadResult read_reviewed_source_state(
     return std::move(std::get<XdgGenerationStoreFailure>(result));
 }
 
-ReviewedSourceStateStorePublishResult publish_reviewed_source_state(
+namespace {
+
+ReviewedSourceStateStorePublishResult publish_state(
     const ReviewedSourceState& next_state,
     const std::optional<ReviewedSourceStateObservedRecord>&
         expected_observed) {
@@ -125,18 +129,21 @@ ReviewedSourceStateStorePublishResult publish_reviewed_source_state(
         return resolution_failure(next_state.package_base().package_base());
     }
 
+    // The shared store may already have committed when it returns. Own both
+    // semantic success arms before entering it, just like provenance storage.
+    ReviewedSourceState success_state = next_state;
     XdgGenerationStorePublishResult result = publish_xdg_generation_store(
         configuration, encode_reviewed_source_state(next_state),
         expected_observed);
     if(auto* published =
            std::get_if<XdgGenerationStorePublished>(&result)) {
         return ReviewedSourceStateStorePublished{
-            next_state, std::move(published->observed)};
+            std::move(success_state), std::move(published->observed)};
     }
     if(auto* uncertain =
            std::get_if<XdgGenerationStorePublishedUncertain>(&result)) {
         return ReviewedSourceStateStorePublishedUncertain{
-            next_state, std::move(uncertain->observed), uncertain->issue,
+            std::move(success_state), std::move(uncertain->observed), uncertain->issue,
             uncertain->failure_kind, std::move(uncertain->entry_path),
             std::move(uncertain->leftover_artifact),
             std::move(uncertain->system_error)};
@@ -146,6 +153,23 @@ ReviewedSourceStateStorePublishResult publish_reviewed_source_state(
         return std::move(*unsafe);
     }
     return std::move(std::get<XdgGenerationStoreFailure>(result));
+}
+
+} // namespace
+
+ReviewedSourceStateStorePublishResult publish_reviewed_source_state(
+    const ReviewedSourceState& next_state,
+    const std::optional<ReviewedSourceStateObservedRecord>& expected_observed) {
+    static_assert(std::is_nothrow_move_constructible_v<ReviewedSourceStateStorePublishResult>);
+    try {
+        return publish_state(next_state, expected_observed);
+    } catch(const std::bad_alloc&) {
+        return ReviewedSourceStateStoreFailure{
+            ReviewedSourceStateStoreFailureKind::ResourceFailure, {}, std::nullopt, std::nullopt, std::nullopt};
+    } catch(const std::length_error&) {
+        return ReviewedSourceStateStoreFailure{
+            ReviewedSourceStateStoreFailureKind::ResourceFailure, {}, std::nullopt, std::nullopt, std::nullopt};
+    }
 }
 
 #ifdef MOGUET_ENABLE_REVIEWED_SOURCE_STATE_STORE_TEST_HOOKS

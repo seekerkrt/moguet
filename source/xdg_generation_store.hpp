@@ -88,6 +88,8 @@ enum class XdgGenerationStoreFailureKind {
     ConcurrentReplacement,
     FutureSchemaOverwriteRefused,
     RecordTooLarge,
+    ResourceFailure,
+    InternalFailure,
 };
 
 struct XdgGenerationStoreFailure {
@@ -108,6 +110,8 @@ enum class XdgGenerationPostPublicationIssue {
     PredecessorObservationUncertain,
     UnitDirectoryIdentityUncertain,
     AuthoritativeHistoryUncertain,
+    ResourceFailure,
+    InternalFailure,
 };
 
 struct XdgGenerationStorePublished {
@@ -190,6 +194,9 @@ using XdgGenerationStorePublishResult = std::variant<
 // token from a prior read; nullopt means the caller observed Missing. Failed
 // CAS is not retried. Every result after the no-replace link commit point is
 // PublishedUncertain rather than an ordinary definite failure.
+// Handled resource failures preserve that phase even when diagnostics cannot
+// be allocated. Such an emergency result may have an empty entry_path and no
+// observed record; it never authorizes rollback, retry, or adoption.
 [[nodiscard]] XdgGenerationStorePublishResult publish_xdg_generation_store(
     const XdgGenerationStoreConfiguration& configuration,
     std::string_view publication,
@@ -218,6 +225,8 @@ enum class XdgGenerationStoreTestRacePoint {
     AtPublicationBoundary,
     AfterAuthorityProof,
     AfterPublication,
+    BeforePostCommitReproof,
+    AfterVerifiedPublication,
     BeforeCleanup,
     AfterReadAuthorityProof,
     AfterRecordContentsRead,

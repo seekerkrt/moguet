@@ -1,7 +1,9 @@
 #include "devel_build_provenance_store.hpp"
 
+#include <new>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <utility>
 
 namespace {
@@ -151,7 +153,9 @@ DevelBuildProvenanceStoreReadResult read_devel_build_provenance(
         expected_package_base, read_xdg_generation_store(configuration));
 }
 
-DevelBuildProvenanceStorePublishResult publish_devel_build_provenance(
+namespace {
+
+DevelBuildProvenanceStorePublishResult publish_provenance(
     const DevelBuildProvenance& provenance,
     const std::optional<DevelBuildProvenanceStoreObservedRecord>&
         expected_observed) {
@@ -221,18 +225,21 @@ DevelBuildProvenanceStorePublishResult publish_devel_build_provenance(
             std::get<DevelBuildProvenanceStoreFailure>(current));
     }
 
+    // Both successful arms own this value. Copy it before any record write;
+    // after the low-level terminal result, projection must be move-only.
+    DevelBuildProvenance success_value = provenance;
     XdgGenerationStorePublishResult result = publish_xdg_generation_store(
         configuration, encode_devel_build_provenance(provenance),
         expected_observed);
     if(auto* published =
            std::get_if<XdgGenerationStorePublished>(&result)) {
         return DevelBuildProvenanceStorePublished{
-            provenance, std::move(published->observed)};
+            std::move(success_value), std::move(published->observed)};
     }
     if(auto* uncertain =
            std::get_if<XdgGenerationStorePublishedUncertain>(&result)) {
         return DevelBuildProvenanceStorePublishedUncertain{
-            provenance, std::move(*uncertain)};
+            std::move(success_value), std::move(*uncertain)};
     }
     if(auto* unsafe =
            std::get_if<XdgGenerationStoreUnsafeHistory>(&result)) {
@@ -249,4 +256,24 @@ DevelBuildProvenanceStorePublishResult publish_devel_build_provenance(
         return DevelBuildProvenanceStoreFailure{std::move(failure)};
     }
     return map_publish_failure(std::move(failure));
+}
+
+} // namespace
+
+DevelBuildProvenanceStorePublishResult publish_devel_build_provenance(
+    const DevelBuildProvenance& provenance,
+    const std::optional<DevelBuildProvenanceStoreObservedRecord>& expected_observed) {
+    static_assert(std::is_nothrow_move_constructible_v<DevelBuildProvenanceStorePublishResult>);
+    try {
+        return publish_provenance(provenance, expected_observed);
+    } catch(const std::bad_alloc&) {
+        // The low-level call handles its own post-commit exceptions. All
+        // allocation in this wrapper precedes that call; returned evidence
+        // is projected using only nothrow moves.
+        return DevelBuildProvenanceStoreFailure{XdgGenerationStoreFailure{
+            XdgGenerationStoreFailureKind::ResourceFailure, {}, std::nullopt, std::nullopt, std::nullopt}};
+    } catch(const std::length_error&) {
+        return DevelBuildProvenanceStoreFailure{XdgGenerationStoreFailure{
+            XdgGenerationStoreFailureKind::ResourceFailure, {}, std::nullopt, std::nullopt, std::nullopt}};
+    }
 }

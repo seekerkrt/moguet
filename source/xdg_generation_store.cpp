@@ -11,11 +11,13 @@
 #include <exception>
 #include <limits>
 #include <memory>
+#include <new>
 #include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <type_traits>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -1790,11 +1792,47 @@ XdgGenerationStoreReadResult read_xdg_generation_store(
         std::move(raw));
 }
 
-XdgGenerationStorePublishResult publish_xdg_generation_store(
+namespace {
+
+enum class PublicationPhase { PreCommit,
+                              Committed,
+                              VerifiedPublished };
+
+// Owned before linkat. Emergency results only move these buffers, so an
+// allocator failure cannot turn a named record into a definite failure.
+struct PublicationProgress {
+    PublicationPhase phase = PublicationPhase::PreCommit;
+    fs::path entry_path;
+    std::optional<XdgGenerationObservedRecord> record;
+    bool record_identified = false;
+};
+
+static_assert(std::is_nothrow_move_constructible_v<XdgGenerationObservedRecord>);
+static_assert(std::is_nothrow_move_constructible_v<XdgGenerationStorePublishResult>);
+
+XdgGenerationStorePublishResult publication_exception(
+    PublicationProgress& progress, XdgGenerationStoreFailureKind kind) noexcept {
+    if(progress.phase == PublicationPhase::PreCommit) {
+        return XdgGenerationStoreFailure{
+            kind, std::move(progress.entry_path), std::nullopt, std::nullopt, std::nullopt};
+    }
+    if(progress.phase == PublicationPhase::VerifiedPublished) {
+        return XdgGenerationStorePublished{std::move(*progress.record)};
+    }
+    auto observed = progress.record_identified ? std::move(progress.record) : std::nullopt;
+    return XdgGenerationStorePublishedUncertain{
+        std::move(observed),
+        kind == XdgGenerationStoreFailureKind::ResourceFailure
+            ? XdgGenerationPostPublicationIssue::ResourceFailure
+            : XdgGenerationPostPublicationIssue::InternalFailure,
+        kind, std::move(progress.entry_path), std::nullopt, std::nullopt};
+}
+
+XdgGenerationStorePublishResult publish_generation_store(
     const XdgGenerationStoreConfiguration& configuration,
     std::string_view publication,
-    const std::optional<XdgGenerationObservedRecord>& expected_observed) {
-    validate_configuration(configuration);
+    const std::optional<XdgGenerationObservedRecord>& expected_observed,
+    PublicationProgress& progress) {
     if(publication.size() > configuration.max_record_bytes) {
         return store_failure(
             XdgGenerationStoreFailureKind::RecordTooLarge,
@@ -1804,6 +1842,7 @@ XdgGenerationStorePublishResult publish_xdg_generation_store(
     const std::string& unit_leaf = configuration.unit_leaf;
     const xdg_paths::StateStorePaths& paths = configuration.paths;
     const fs::path unit_path = paths.directory / unit_leaf;
+    progress.entry_path = unit_path;
 
     std::unique_ptr<xdg_directory_safety::PreparedDirectory> directory;
     try {
@@ -1832,11 +1871,17 @@ XdgGenerationStorePublishResult publish_xdg_generation_store(
     }
     OwnedDescriptor unit_directory =
         std::get<OwnedDescriptor>(std::move(opened_unit));
-    if(created_unit_directory) {
-        if(auto sync_failure =
-               fsync_descriptor(store_sync.get(), directory->path())) {
-            return *sync_failure;
+    // The unit may be residue from a failed earlier publication, so its
+    // containing store directory is synchronized even when already present.
+    if(auto sync_failure = fsync_descriptor(store_sync.get(), directory->path())) {
+        return *sync_failure;
+    }
+    try {
+        if(auto sync_error = directory->synchronize_managed_parent_entries()) {
+            return store_failure(XdgGenerationStoreFailureKind::SyncFailed, directory->path(), *sync_error);
         }
+    } catch(const xdg_directory_safety::PreparationError& error) {
+        return map_preparation_error(error, unit_path);
     }
 
     auto scanned = scan_unit_directory(
@@ -1924,6 +1969,9 @@ XdgGenerationStorePublishResult publish_xdg_generation_store(
                   expected_observed->raw_contents)
             : xdg_generation_store_origin_leaf();
     const fs::path publication_path = unit_path / publication_leaf;
+    progress.entry_path = publication_path;
+    progress.record.emplace(XdgGenerationObservedRecord{
+        next_generation, publication_leaf, {}, publication_contents});
     const std::optional<fs::path> current_path =
         current.has_value()
             ? std::optional<fs::path>(unit_path / current->leaf.leaf)
@@ -1946,9 +1994,8 @@ XdgGenerationStorePublishResult publish_xdg_generation_store(
     OwnedDescriptor temporary =
         std::get<OwnedDescriptor>(std::move(created_anonymous));
 
-    bool was_published = false;
     auto abandon_unpublished = [&]() {
-        if(was_published) return;
+        if(progress.phase != PublicationPhase::PreCommit) return;
 #ifdef MOGUET_ENABLE_XDG_GENERATION_STORE_EFFECTIVE_TEST_HOOKS
         invoke_race(
             XdgGenerationStoreTestRacePoint::BeforeCleanup,
@@ -2128,7 +2175,7 @@ XdgGenerationStorePublishResult publish_xdg_generation_store(
             publication_path,
             std::error_code(link_error, std::generic_category()));
     }
-    was_published = true;
+    progress.phase = PublicationPhase::Committed;
 
 #ifdef MOGUET_ENABLE_XDG_GENERATION_STORE_EFFECTIVE_TEST_HOOKS
     invoke_race(
@@ -2154,10 +2201,9 @@ XdgGenerationStorePublishResult publish_xdg_generation_store(
     // predecessor is restored, and no filesystem timestamp granularity makes
     // that observable. Every post-commit divergence is PublishedUncertain,
     // which says "the record exists and its authority is unproven".
-    const XdgGenerationObservedRecord committed_observed{
-        next_generation, publication_leaf,
-        record_identity_from_status(published_descriptor_status),
-        publication_contents};
+    progress.record->identity = record_identity_from_status(published_descriptor_status);
+    progress.record_identified = true;
+    const XdgGenerationObservedRecord& committed_observed = *progress.record;
     const auto history_uncertain =
         [&](XdgGenerationStoreFailureKind failure_kind,
             std::optional<std::error_code> system_error)
@@ -2289,6 +2335,10 @@ XdgGenerationStorePublishResult publish_xdg_generation_store(
             failure->kind, publication_path);
     }
 
+#ifdef MOGUET_ENABLE_XDG_GENERATION_STORE_EFFECTIVE_TEST_HOOKS
+    invoke_race(XdgGenerationStoreTestRacePoint::BeforePostCommitReproof, race_context);
+#endif
+
     // The named successor matches the retained inode, so the proof the caller
     // is about to be handed is "the chain proved before the commit, plus
     // exactly this record". Anything else on disk now - a mutated ancestor, a
@@ -2317,7 +2367,7 @@ XdgGenerationStorePublishResult publish_xdg_generation_store(
         }
     }
 
-    XdgGenerationObservedRecord published_observed = committed_observed;
+    const XdgGenerationObservedRecord& published_observed = committed_observed;
 
     if(auto close_failure =
            close_descriptor_checked(temporary, publication_path)) {
@@ -2385,5 +2435,33 @@ XdgGenerationStorePublishResult publish_xdg_generation_store(
             mapped.kind, unit_path, std::nullopt, mapped.system_error);
     }
 
-    return XdgGenerationStorePublished{std::move(published_observed)};
+    progress.phase = PublicationPhase::VerifiedPublished;
+#ifdef MOGUET_ENABLE_XDG_GENERATION_STORE_EFFECTIVE_TEST_HOOKS
+    invoke_race(XdgGenerationStoreTestRacePoint::AfterVerifiedPublication, race_context);
+#endif
+    return XdgGenerationStorePublished{std::move(*progress.record)};
+}
+
+} // namespace
+
+XdgGenerationStorePublishResult publish_xdg_generation_store(
+    const XdgGenerationStoreConfiguration& configuration,
+    std::string_view publication,
+    const std::optional<XdgGenerationObservedRecord>& expected_observed) {
+    PublicationProgress progress;
+    bool configuration_valid = false;
+    try {
+        validate_configuration(configuration);
+        configuration_valid = true;
+        return publish_generation_store(configuration, publication, expected_observed, progress);
+    } catch(const std::bad_alloc&) {
+        return publication_exception(progress, XdgGenerationStoreFailureKind::ResourceFailure);
+    } catch(const std::length_error&) {
+        return publication_exception(progress, XdgGenerationStoreFailureKind::ResourceFailure);
+    } catch(...) {
+        // Invalid caller configuration keeps its existing programmer-error
+        // contract. Once filesystem work starts every exception retains phase.
+        if(!configuration_valid) throw;
+        return publication_exception(progress, XdgGenerationStoreFailureKind::InternalFailure);
+    }
 }

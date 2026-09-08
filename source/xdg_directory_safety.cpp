@@ -22,6 +22,10 @@ namespace {
 
 namespace fs = std::filesystem;
 
+#if defined(MOGUET_TEST_XDG_DIRECTORY_SAFETY_HOOKS) || defined(MOGUET_ENABLE_XDG_GENERATION_STORE_TEST_HOOKS)
+ManagedParentSyncTestHook g_managed_parent_sync_hook = nullptr;
+#endif
+
 constexpr mode_t NEW_DIRECTORY_MODE = 0700;
 constexpr mode_t REQUIRED_OWNER_PERMISSIONS = S_IRUSR | S_IWUSR | S_IXUSR;
 constexpr mode_t FORBIDDEN_WRITE_PERMISSIONS = S_IWGRP | S_IWOTH;
@@ -1214,6 +1218,7 @@ PreparedDirectory::PreparedDirectory(
     std::uintmax_t inode, std::uintmax_t owner,
     std::uintmax_t filesystem_owner, std::uintmax_t permissions,
     std::size_t created_component_count,
+    std::size_t managed_component_count,
     std::vector<RetainedDirectoryIdentity> retained_lineage) noexcept
     : directory_kind_(directory_kind), path_(std::move(path)),
       parent_descriptor_(parent_descriptor),
@@ -1222,6 +1227,7 @@ PreparedDirectory::PreparedDirectory(
       owner_(owner), filesystem_owner_(filesystem_owner),
       permissions_(permissions),
       created_component_count_(created_component_count),
+      managed_component_count_(managed_component_count),
       retained_lineage_(std::move(retained_lineage)) {
 }
 
@@ -1234,6 +1240,7 @@ PreparedDirectory::PreparedDirectory(PreparedDirectory&& other) noexcept
       filesystem_owner_(other.filesystem_owner_),
       permissions_(other.permissions_),
       created_component_count_(other.created_component_count_),
+      managed_component_count_(std::exchange(other.managed_component_count_, 0)),
       retained_lineage_(std::move(other.retained_lineage_)) {
     for(RetainedDirectoryIdentity& identity : other.retained_lineage_)
         identity.descriptor = -1;
@@ -1283,6 +1290,7 @@ struct DirectorySafetyAccess {
             static_cast<std::uintmax_t>(state.status.st_uid),
             status_permissions(state.status),
             state.created_component_count,
+            request.creation_boundary.creatable_components.size(),
             std::move(retained_lineage));
         static_cast<void>(state.parent_descriptor.release());
         static_cast<void>(state.directory_descriptor.release());
@@ -1320,6 +1328,59 @@ struct DirectorySafetyAccess {
             adopt(request, std::move(state).value())};
     }
 };
+
+#if defined(MOGUET_TEST_XDG_DIRECTORY_SAFETY_HOOKS) || defined(MOGUET_ENABLE_XDG_GENERATION_STORE_TEST_HOOKS)
+void set_managed_parent_sync_hook_for_test(ManagedParentSyncTestHook hook) {
+    g_managed_parent_sync_hook = hook;
+}
+#endif
+
+std::optional<std::error_code> PreparedDirectory::synchronize_managed_parent_entries() const {
+    require_unchanged_identity();
+    if(managed_component_count_ == 0 || managed_component_count_ >= retained_lineage_.size()) {
+        throw_preparation_error(directory_kind_, PreparationStage::DirectoryRevalidation,
+                                PreparationErrorCode::InvalidCreationBoundary);
+    }
+    const std::size_t anchor_index = retained_lineage_.size() - 1 - managed_component_count_;
+    // Every managed edge needs its containing parent persisted, including
+    // edges adopted from a failed earlier attempt. The final store directory
+    // itself (parent of the package unit) is synced by the generation store.
+    for(std::size_t index = retained_lineage_.size() - 1; index > anchor_index;) {
+        --index;
+        require_unchanged_identity();
+        const auto& identity = retained_lineage_[index];
+        int descriptor;
+        do {
+            descriptor = ::openat(identity.descriptor, ".", O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+        } while(descriptor < 0 && errno == EINTR);
+        if(descriptor < 0) return std::error_code(errno, std::generic_category());
+        OwnedFileDescriptor sync_descriptor(descriptor);
+        struct stat status{};
+        if(::fstat(descriptor, &status) != 0) return std::error_code(errno, std::generic_category());
+        if(!S_ISDIR(status.st_mode) || status_device(status) != identity.device || status_inode(status) != identity.inode) {
+            throw_preparation_error(directory_kind_, PreparationStage::DirectoryRevalidation,
+                                    PreparationErrorCode::ConcurrentReplacement);
+        }
+        require_unchanged_identity();
+#if defined(MOGUET_TEST_XDG_DIRECTORY_SAFETY_HOOKS) || defined(MOGUET_ENABLE_XDG_GENERATION_STORE_TEST_HOOKS)
+        if(g_managed_parent_sync_hook) {
+            const auto failure = g_managed_parent_sync_hook(descriptor);
+            require_unchanged_identity();
+            if(failure) return failure;
+        }
+#endif
+        int result;
+        do {
+            result = ::fsync(descriptor);
+        } while(result < 0 && errno == EINTR);
+        if(result != 0) return std::error_code(errno, std::generic_category());
+        require_unchanged_identity();
+        // close must not be retried: the descriptor may already be released.
+        if(::close(sync_descriptor.release()) != 0) return std::error_code(errno, std::generic_category());
+    }
+    require_unchanged_identity();
+    return std::nullopt;
+}
 
 void PreparedDirectory::require_unchanged_identity() const {
     if(parent_descriptor_ < 0 || directory_descriptor_ < 0 ||
