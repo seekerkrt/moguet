@@ -48,6 +48,8 @@ foreach(_moguet_direct_focus IN ITEMS
     exact-installed-binding
     installed-devel-source-build-proof
     devel-source-artifact-install-result
+    devel-build-provenance-publication
+    devel-build-provenance-publication-result
     source-artifact-install-trusted-transport
     reviewed-source-state
     reviewed-source-state-store

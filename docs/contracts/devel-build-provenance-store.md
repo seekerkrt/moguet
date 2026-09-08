@@ -121,18 +121,18 @@ compileで拒否する。正規persistent decodeは従来どおりhistorical val
 S5-Bの[live installed observation producer](exact-installed-artifact-binding.md)は別authorityであり、
 complete private declarationを共有する。persistent decodeからfresh live bindingへ昇格する入口はない。
 [S5-C final proof](installed-devel-source-build-proof.md)もin-memory capabilityであり、token、receipt lifetime、
-fresh binding capabilityをpersistent schemaへ入れない。将来のSlice 6がsemantic valueをprojectionする。
-このstoreのschema、publicationと通常routeへの未接続は変更しない。
+fresh binding capabilityをpersistent schemaへ入れない。[Slice 6-B publisher](devel-build-provenance-publication.md)が、そのsealed resultをconsumeしてsemantic valueをprojectionする。
+store schemaは不変で、通常routeへの未接続は維持する。
 
 ## Production-disconnected boundary
 
-Slice 2で追加するstore/modelはproduction binaryへcompileできるが、normal invocationからlookup、directory
-creation、publicationを呼ぶconsumerは存在しない。source-build phase、makepkg、Git workspace observation、
-install receipt、AUR comparison、CLI output/exit statusは変更しない。
+store/modelとSlice 6-B publisherはproduction binaryへcompileされるが、normal CLI/source/upgrade routeから
+lookup、directory creation、publicationを呼ぶconsumerは存在しない。publisherはsealed S5 resultを受け取る内部入口と
+deterministic fixtureだけで検証する。AUR comparison、CLI output/exit statusは変更しない。
 
 ## Non-scope
 
 - private build workspace、actual makepkg phase変更、actual Git workspace observation
-- installed binding query、Install/Upgrade receipt、post-install publication
+- installed binding query、Install/Upgrade receipt、trusted post-install publisher自体（S5/6-Bの別owner）
 - Issue #475 observer connection、AUR update comparison、CLI integration
 - migration/rebind command、build history database、split PackageBase provenance

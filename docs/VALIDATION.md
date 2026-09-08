@@ -46,6 +46,7 @@ release操作は[`DEVELOPMENT.md`](DEVELOPMENT.md)を正とする。この文書
 | installed binding feasibility | `test-container-installed-binding-characterization` | networkless anonymous volume上のephemeral pacman rootでInstall / Upgrade / skip / same-version reinstallとopaque local DB record generationをcharacterizeする。production publicationへは接続しない |
 | exact receipt / fresh installed binding | `test-container-exact-installed-binding` | actual Slice 4 proofとinstalled root helper、別purposeのInstall/Upgrade receipt、Post anchor、new ALPM session、raw MTREE、AT_EMPTY_PATH generation、通常userのlive mintとS5-C final proof、publicationなしをanonymous volume DBで確認。Install/Upgrade/reinstall/downgradeを実行し、host DBは共有しない |
 | devel provenance store foundation | `test-xdg-generation-store` / `test-devel-build-provenance-store` | production-disconnectedなimmutable-generation/CAS機械層と、別XDG namespaceのstrict provenance codec/storeを確認する |
+| trusted devel provenance publication | `test-devel-build-provenance-publication` / `test-devel-build-provenance-publication-result` | deterministic S4/S5 fixtureからschema v1 projection、historical binding、one-shot ownership、no-publication negatives、store fault mappingとlossless resultを確認する。6-C actual/container publication acceptanceとnormal routeを代替しない |
 | closed cleanup candidate authority | `test-container-cleanup-authority` | production collector、mutation前baseline、actual trusted dependency Install、post-success current / policy、aggregate / classifierとinstalled positive `Eligible` |
 
 PR / mergeのcanonical host gateは`test-host-release`である。`test`と

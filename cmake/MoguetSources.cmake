@@ -37,6 +37,7 @@ set(MOGUET_PRODUCTION_SOURCES
     source/devel_build_provenance_codec.cpp
     source/devel_build_provenance_reviewed_binding.cpp
     source/devel_build_provenance_store.cpp
+    source/devel_build_provenance_publication.cpp
     source/devel_source_artifact_install.cpp
     source/devel_package_classification.cpp
     source/devel_update_model.cpp

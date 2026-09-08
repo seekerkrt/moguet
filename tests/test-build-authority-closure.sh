@@ -89,10 +89,8 @@ actual_default_options=$(
 # it must not retain any production/test C++ graph or compiler recipe.
 assert_not_contains "$makefile" 'legacy-cpp-build-authority'
 
-# Issue #476 Slice 2 is compiled as an internal foundation but has no
-# production consumer. Keep the only production include at the store's own
-# implementation so a later route connection cannot enter this Slice
-# accidentally without changing the authority ledger.
+# Issue #476 store remains behind its semantic API. S6-B consumes it through
+# the publication header; normal route consumers remain disallowed below.
 provenance_store_includes=$test_root/provenance-store-includes.txt
 if grep -l -F -- \
     '#include "devel_build_provenance_store.hpp"' \
@@ -141,9 +139,9 @@ assert_not_contains \
     'devel_build_provenance_store.hpp'
 
 # Slice 4 proves only the exact actually built inside the sealed Slice 3
-# context. Its API remains self-owned and has no normal production caller,
-# provenance publication or #475 remote observation. Only the S5-A bridge and
-# S5-B live observer consume it; neither is a normal CLI/source-build caller.
+# context. Its API remains self-owned and has no normal route caller or #475
+# remote observation. The S5-A bridge, S5-B live observer and S6-B semantic
+# projector are the only downstream production consumers.
 evaluated_build_includes=$test_root/evaluated-build-includes.txt
 if grep -l -F -- \
     '#include "evaluated_devel_source_build.hpp"' \
@@ -156,6 +154,7 @@ else
         fail "evaluated build production include scan failed with status $include_status"
 fi
 printf '%s\n' \
+    "$repo_root/source/devel_build_provenance_publication.cpp" \
     "$repo_root/source/evaluated_devel_source_build.cpp" \
     "$repo_root/source/installed_artifact_binding_observer.cpp" \
     "$repo_root/source/source_artifact_install_trusted_transport.cpp" \
@@ -223,7 +222,7 @@ assert_contains "$repo_root/source/installed_package_record_observation.cpp" \
 # S5-C joins only the transport-owned state, never normal CLI/source routes.
 final_consumers=$test_root/installed-final-proof-consumers.txt
 if grep -l -E -- \
-    'devel_source_artifact_install|InstalledDevelSourceBuildProof|DevelSourceArtifactInstallAuthority' \
+    'devel_source_artifact_install|InstalledDevelSourceBuildProof|DevelSourceArtifactInstallAuthority|DevelSourceArtifactInstallResult' \
     "$repo_root"/source/*.cpp > "$final_consumers"
 then
     :
@@ -232,6 +231,7 @@ else
     [ "$scan_status" -eq 1 ] || fail "S5-C producer scan failed: $scan_status"
 fi
 printf '%s\n' \
+    "$repo_root/source/devel_build_provenance_publication.cpp" \
     "$repo_root/source/devel_source_artifact_install.cpp" \
     "$repo_root/source/source_artifact_install_trusted_transport.cpp" \
     > "$test_root/expected-installed-final-proof-consumers.txt"
@@ -243,6 +243,19 @@ assert_contains "$repo_root/source/devel_source_artifact_install.hpp" \
     '#include "devel_source_artifact_install_authority.hpp"'
 assert_not_contains "$repo_root/cmake/MoguetSources.cmake" \
     'tests/devel_source_artifact_install_fixture.cpp'
+# S6-B consumes only sealed S5 output; normal route/observer callers stay absent.
+publication_consumers=$test_root/provenance-publication-consumers.txt
+if grep -l -E -- 'publish_installed_devel_source_build|devel_build_provenance_publication' "$repo_root"/source/*.cpp > "$publication_consumers"
+then :
+else
+    scan_status=$?
+    [ "$scan_status" -eq 1 ] || fail "S6-B publisher scan failed: $scan_status"
+fi
+printf '%s\n' "$repo_root/source/devel_build_provenance_publication.cpp" > "$test_root/expected-publication-consumers.txt"
+cmp -s "$publication_consumers" "$test_root/expected-publication-consumers.txt" || fail 'S6-B gained a normal route caller'
+assert_not_matches "$repo_root/source/devel_build_provenance_publication.cpp" \
+    '(observe_installed|observe_git_remote_revision|InstalledArtifactBindingObserver|execute_exact|capture_process|read_xdg_generation_store|openat\(|fopen\(|\.path\()'
+assert_not_contains "$repo_root/cmake/MoguetSources.cmake" 'tests/devel_build_provenance_publication_fixture.cpp'
 assert_not_contains "$makefile" 'legacy-cpp-focused-authority'
 assert_not_contains "$makefile" '-std=c++20'
 assert_not_contains "$makefile" '-Wall'
@@ -341,8 +354,8 @@ assert_contains "$repo_root/.gitignore" '/compile_commands.json'
 
 # Compare the historical Make aliases with the actual CMake focused targets.
 # This checks the frontend mapping without duplicating either inventory here.
-[ "$#" -eq 117 ] ||
-    fail "Make focused alias inventory is $#, expected 117"
+[ "$#" -eq 119 ] ||
+    fail "Make focused alias inventory is $#, expected 119"
 make_aliases=$test_root/make-focused-aliases.txt
 cmake_aliases=$test_root/cmake-focused-aliases.txt
 cmake_help=$test_root/cmake-target-help.txt
@@ -350,15 +363,15 @@ missing_aliases=$test_root/missing-focused-aliases.txt
 unexpected_aliases=$test_root/unexpected-focused-aliases.txt
 
 printf '%s\n' "$@" | LC_ALL=C sort > "$make_aliases"
-[ "$(LC_ALL=C sort -u "$make_aliases" | wc -l)" -eq 117 ] ||
+[ "$(LC_ALL=C sort -u "$make_aliases" | wc -l)" -eq 119 ] ||
     fail 'Make focused alias inventory contains duplicates'
 
 "$cmake_command" --build "$cmake_build_dir" --target help > "$cmake_help"
 sed -n \
     's/.*moguet-focus-\(test-[a-z0-9-][a-z0-9-]*\).*/\1/p' \
     "$cmake_help" | LC_ALL=C sort -u > "$cmake_aliases"
-[ "$(wc -l < "$cmake_aliases")" -eq 117 ] ||
-    fail "CMake focused target inventory is $(wc -l < "$cmake_aliases"), expected 117"
+[ "$(wc -l < "$cmake_aliases")" -eq 119 ] ||
+    fail "CMake focused target inventory is $(wc -l < "$cmake_aliases"), expected 119"
 
 LC_ALL=C comm -23 "$make_aliases" "$cmake_aliases" > "$missing_aliases"
 LC_ALL=C comm -13 "$make_aliases" "$cmake_aliases" > "$unexpected_aliases"
@@ -390,5 +403,5 @@ assert_contains "$phony_marker" 'test-cmake'
 assert_contains "$phony_marker" 'test-repository'
 
 printf '%s\n' \
-    'build-authority-closure-test: Make aliases=117, CMake targets=117, missing=0, unexpected=0'
+    'build-authority-closure-test: Make aliases=119, CMake targets=119, missing=0, unexpected=0'
 printf '%s\n' 'build-authority-closure-test: all checks passed'

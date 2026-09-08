@@ -320,7 +320,8 @@ pre/post-build complete Git OID、dynamic version、fresh one-artifact inventory
 archive / ALPM-MTREE SHA-256を一つのmove-only capabilityへ束縛する。pre-build stale packagelist、source shape drift、
 ambiguous workspace、PKGDEST contamination、artifact replacement/mismatch、cross-context compositionはfail closedする。
 このproofはcontextとartifactをSlice 5向けに保持するが、current source-build / install / CLI、provenance
-publication、#475 observationへは接続しない。専用S5-A/B producerだけがretained artifactをtrusted transactionへ渡す。詳細は
+publication、#475 observationを直接呼ばない。S5-A/B producerがretained artifactをtrusted transactionへ渡し、
+S6-Bは完成したS5 result内のsemantic valuesだけを読む。詳細は
 [`evaluated-devel-source-build-proof.md`](contracts/evaluated-devel-source-build-proof.md)を正とする。
 
 Issue #476 S5-Bのpurpose/operation protocol、root helper publication、fresh local DB/generation、live mintの結合は
@@ -336,7 +337,9 @@ fresh mint、private entry/receipt constructorの拒否を登録する。
 first Install、Upgrade、same-version reinstall、downgradeを通す。fixed pacman-confで解決した同じDB world、
 PostTransaction anchor、通常userのnew ALPM handle、raw MTREE、opaque record generation、live bindingを確認する。
 S5-Cの`InstalledDevelSourceBuildProof`完成までを確認し、XDG provenanceが作られないことを要求する。
-host package DBはmount/変更しない。Slice 6 publicationと通常routeは未接続である。
+host package DBはmount/変更しない。S5 laneはpublicationなしを維持する。
+Slice 6-Bの内部publisherは`test-devel-build-provenance-publication`と`test-devel-build-provenance-publication-result`で
+deterministic S4/S5 fixtureから検証する。6-C actual/container publication acceptanceと通常routeは未接続である。
 詳細は[`exact-installed-artifact-binding.md`](contracts/exact-installed-artifact-binding.md)を正とする。
 
 S5-Cのfinal construction/lineage/N=1は`test-installed-devel-source-build-proof`、lossless aggregateとcleanup consequenceは

@@ -1,5 +1,9 @@
 #include "evaluated_devel_source_build.hpp"
 
+#ifdef MOGUET_ENABLE_DEVEL_BUILD_PROVENANCE_PUBLICATION_TEST_HOOKS
+#include "devel_build_provenance_publication_fixture.hpp"
+#endif
+
 #ifdef MOGUET_TEST_EVALUATED_DEVEL_ARTIFACT_TRANSPORT
 #include "evaluated_devel_source_artifact_transport.hpp"
 #include "source_artifact_install_trusted_transport.hpp"
@@ -1980,7 +1984,16 @@ void test_exact_installed_binding(std::string_view finalization = {}) {
     }
     std::optional<EvaluatedDevelSourceArtifactTransport> donor;
 #endif
-    for(const std::string& mode : modes) {
+#ifdef MOGUET_ENABLE_DEVEL_BUILD_PROVENANCE_PUBLICATION_TEST_HOOKS
+    const bool publication = finalization == "publication-projection" || finalization == "publication-aggregate";
+    if(publication) modes = devel_publication_fixture_cases(finalization == "publication-projection");
+#endif
+    for(const std::string& scenario : modes) {
+#ifdef MOGUET_ENABLE_DEVEL_BUILD_PROVENANCE_PUBLICATION_TEST_HOOKS
+        const std::string mode = publication ? devel_publication_fixture_install_mode(scenario) : scenario;
+#else
+        const std::string& mode = scenario;
+#endif
         const auto label = finalization.empty() ? "s5b-" + std::to_string(case_index++) : "s5c-common";
         ReviewedBuildFixture fixture(label, upstream);
         auto proof = build_success(fixture);
@@ -2000,6 +2013,9 @@ void test_exact_installed_binding(std::string_view finalization = {}) {
                         aggregate->privileged_cleanup().state == DevelSourceArtifactInstallCleanupState::Complete &&
                         !aggregate->transport_result() && !transport.finalize(),
                     "NotAttempted finalization is inconsistent");
+#ifdef MOGUET_ENABLE_DEVEL_BUILD_PROVENANCE_PUBLICATION_TEST_HOOKS
+            if(publication) check_devel_publication_fixture(scenario, std::move(*aggregate));
+#endif
             std::cout << "S5-C aggregate not-attempted PASS\n";
             continue;
         }
@@ -2279,6 +2295,12 @@ void test_exact_installed_binding(std::string_view finalization = {}) {
                             DevelSourceArtifactInstallFixture::mismatch(transport, entry.second.first);
                             expected_final_issue = entry.second.second;
                         }
+#ifdef MOGUET_ENABLE_DEVEL_BUILD_PROVENANCE_PUBLICATION_TEST_HOOKS
+                    if(publication && (scenario == "final-mismatch" || scenario == "unsupported-cardinality")) {
+                        DevelSourceArtifactInstallFixture::mismatch(transport, scenario == "final-mismatch" ? M::BuiltLineage : M::ReceiptCardinality);
+                        expected_final_issue = scenario == "final-mismatch" ? F::BuiltLineageMismatch : F::UnsupportedCardinality;
+                    }
+#endif
                     const auto binding_issue = transport.installed_binding_issue();
                     auto moved_transport = std::move(transport);
                     require(!transport.finalize(), "moved-from transport finalized");
@@ -2339,8 +2361,21 @@ void test_exact_installed_binding(std::string_view finalization = {}) {
                         require(rejected, "moved-from final proof allowed use");
                     }
                     require(moved_transport.execute_exact_for_test({true}, token).status() == Status::InvalidRequest, "finalized transport reexecuted");
-                    fixture.require_no_provenance_publication();
-                    std::cout << "S5-C " << finalization << ' ' << mode << " PASS\n";
+#ifdef MOGUET_ENABLE_DEVEL_BUILD_PROVENANCE_PUBLICATION_TEST_HOOKS
+                    if(publication) {
+                        const auto observation_effects = std::tuple{consumes, aborts, outer_sessions, outer_semantic_loads};
+                        check_devel_publication_fixture(scenario, std::move(moved_result), [&] {
+                            ++generation;
+                            write_package("9999-2");
+                        });
+                        require(observation_effects == std::tuple{consumes, aborts, outer_sessions, outer_semantic_loads},
+                                "publisher repeated transaction/observer/cleanup");
+                    } else
+#endif
+                    {
+                        fixture.require_no_provenance_publication();
+                        std::cout << "S5-C " << finalization << ' ' << mode << " PASS\n";
+                    }
                 }
             }
 #endif
@@ -2371,6 +2406,14 @@ std::vector<fs::path> context_root_inventory() {
 int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
     const std::vector<fs::path> before = context_root_inventory();
     try {
+#ifdef MOGUET_ENABLE_DEVEL_BUILD_PROVENANCE_PUBLICATION_TEST_HOOKS
+        if(argc == 2 && (std::string(argv[1]) == "--devel-build-provenance-publication" ||
+                         std::string(argv[1]) == "--devel-build-provenance-publication-result")) {
+            test_exact_installed_binding(std::string(argv[1]) == "--devel-build-provenance-publication" ? "publication-projection" : "publication-aggregate");
+            require(context_root_inventory() == before, "S6-B fixture retained a build context");
+            return 0;
+        }
+#endif
 #ifdef MOGUET_TEST_EXACT_INSTALLED_BINDING
         if(argc == 2 && std::string(argv[1]) == "--installed-exact-binding") {
             test_installed_exact_binding();

@@ -142,6 +142,17 @@ foreach(_moguet_s5c IN ITEMS installed-devel-source-build-proof devel-source-art
     set_tests_properties(cpp.${_moguet_s5c_name} PROPERTIES TIMEOUT 480)
 endforeach()
 
+# S6-B composes real S4/S5 fixture output with the production publisher.
+foreach(_moguet_s6b IN ITEMS devel-build-provenance-publication devel-build-provenance-publication-result)
+    string(REPLACE "-" "_" _moguet_s6b_name "${_moguet_s6b}")
+    moguet_add_ctest(
+        NAME cpp.${_moguet_s6b_name}
+        TARGETS evaluated-devel-source-artifact-transport-test
+        COMMAND "$<TARGET_FILE:evaluated-devel-source-artifact-transport-test>" --${_moguet_s6b}
+    )
+    set_tests_properties(cpp.${_moguet_s6b_name} PROPERTIES TIMEOUT 480)
+endforeach()
+
 _moguet_add_direct_ctest(
     cpp.evaluated_devel_source_build
     evaluated-devel-source-build-test

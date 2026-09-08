@@ -6,7 +6,8 @@ Issue #476 S5-Cは、[Slice 4 built proof](evaluated-devel-source-build-proof.md
 [S5-B exact receipt / fresh binding](exact-installed-artifact-binding.md)を同一lineageで照合し、
 `InstalledDevelSourceBuildProof`と`DevelSourceArtifactInstallResult`を作る内部producerである。
 production TUへcompileするが、normal CLI/source build/upgrade routeから呼ばない。
-Slice 6、provenance publication、XDG store write/CAS、#475 comparison、devel assessmentは未接続。
+S5自体はpublicationを行わない。[Slice 6-B](devel-build-provenance-publication.md)はこのresultをconsumeする別ownerである。
+normal route、#475 comparison、devel assessmentは未接続。
 
 ```text
 ReviewedSourceState != built provenance
@@ -105,4 +106,4 @@ final proofのdestructorはprivileged token/state、installed DB、provenance st
 - `test-devel-source-artifact-install-result`: 既存S5-B fixtureを再利用するfocused aggregate matrix、fileless/unsupported/no-proof、known nonzeroとcleanup failure。
 - canonical negative compile: granting narrow headers、same-name authority spoof、raw component/tuple/decoded binding、copy/default、contradictory aggregateを拒否。
 - `test-container-exact-installed-binding`: isolated anonymous volume上の実Install/Upgrade/reinstall/downgradeからfinal proofまで。host package DB非共有、publicationなし。
-- `test-build-authority-closure`: source/link境界とnormal route/publication disconnection。
+- `test-build-authority-closure`: source/link境界、S5 producerからstoreへの未接続、normal routeの未接続。
