@@ -1,3 +1,210 @@
+# Moguet v2.7.0
+
+This tracked file is the source of truth for release bodies. The English and
+Japanese sections for each release describe the same scope.
+
+## English
+
+Moguet v2.7.0 adds authoritative Git revision tracking for a limited set of
+installed devel packages. It ties update assessment to the source that Moguet
+actually built and installed, and makes unavailable package metadata explicit
+instead of treating it as confirmed absence.
+
+### Authoritative devel Git tracking
+
+- Supported devel packages can be assessed for upstream Git changes even when
+  their package version has not increased. Normal AUR updates, registered AUR
+  updates, `-Qua`, and the corresponding dry-run routes share this assessment.
+- A newer AUR RPC package Version retains precedence without a Git query.
+  For the same or an older RPC Version, Git assessment can refine the result
+  only after validating the provenance tip, fresh installed binding, and
+  current reviewed recipe/source identity. Local state is checked again after
+  a successful remote observation.
+- Matching remote and actually built Git OIDs mean `UpToDate`; a differing OID
+  produces `UpdateAvailable` with a Git-revision basis. Git OID equality does
+  not imply semantic-version ordering, ancestry, or a package-version increase.
+  `-Qua` and plan output distinguish Git changes from version changes.
+- Missing or invalid local proof remains `RequiresCheck`; a remote observation
+  failure remains `Unknown`. Neither authorizes an automatic build. Registered
+  AUR `OnlyIfUpdated` evaluates this state before a version-only shortcut;
+  its `RequiresCheck` rebuild confirmation defaults to No and does not replace
+  source review.
+
+### Supported scope and migration
+
+- The initial authoritative route requires an explicitly reviewed and pinned
+  AUR recipe, no observed editor overlay, and exactly one floating,
+  architecture-independent HTTPS Git source using default HEAD or an exact
+  branch. Additional sources must be reviewed, tracked regular local files.
+- It supports a non-split package with exactly one package name, selected
+  child, produced artifact, and actually installed child. Extra debug-package
+  output is outside this subset; Moguet does not silently override makepkg's
+  debug policy. Other VCS implementations/transports, full split provenance,
+  arbitrary PKGBUILD shell proofs, and external build-history adoption are
+  outside this release's authoritative tracking scope.
+- Provenance uses schema v1 in a separate XDG state namespace from reviewed
+  source state. Existing valid records still require current-state
+  revalidation. Future schemas and corrupt or unsafe history fail closed;
+  the updater does not repair records, adopt history, or create a missing
+  baseline from cache, installed metadata, or another helper's records.
+- A first baseline requires an explicitly reviewed supported build, an actual
+  installation, and successful provenance publication. `--noconfirm` and
+  non-interactive use do not supply review authority. An external reinstall
+  can invalidate historical provenance even at the same package version.
+
+### Installation and provenance safety
+
+- Reviewed recipe identity, actual upstream source revision, built artifact,
+  installed binding, and persistent provenance remain distinct. The build
+  uses invocation-owned recipe and build directories, evaluates source
+  metadata in that context, and proves the actual source and artifact instead
+  of treating a planning-time remote OID as the built revision.
+- Publication requires an actual selected-artifact Install/Upgrade receipt
+  and a fresh installed binding after the transaction; `pacman -U` exit 0
+  alone is insufficient. A `--needed` skip does not manufacture a new proof
+  or publish a new baseline. Once authoritative execution starts, it does not
+  fall back to a legacy build route.
+- Installation, proof, publication, and cleanup outcomes remain separate.
+  Installation success followed by failed or uncertain publication, or a
+  cleanup failure, is retained as a non-zero partial outcome. It does not
+  erase the successful installation or claim a rollback; later work remains
+  unattempted.
+- Dry-run uses the same read-only assessment without checkout, PKGBUILD
+  evaluation, build, installation, or publication. Repository-only `-Syu`,
+  standalone `plan`, and `deps` do not acquire a new devel Git query or
+  execution side effect.
+
+### Metadata failure handling
+
+- Auto `-Si` falls back to AUR only on confirmed repository `NotFound`.
+  Unavailable metadata is reported as failure; the affected target is not
+  sent to AUR or included in later pacman operands. Independent targets can
+  continue through their existing routes.
+- `revert` checks each target's repository metadata before deleting its saved
+  source-build preference. Failed targets retain their preferences and are
+  excluded from the grouped binary reinstall. Independent successful targets
+  continue, with failures reflected in the final non-zero result.
+
+### Diagnostics and presentation
+
+- Terminal-facing opaque text in plans, runtime diagnostics, and reviewed
+  source output follows a shared UTF-8 policy. Valid ordinary Unicode is
+  preserved; invalid bytes, control characters, backslashes, line/paragraph
+  separators, bidirectional controls, and U+FEFF are rendered as visible
+  uppercase `\xHH` bytes. Display escaping does not change package identity,
+  path operations, dependency decisions, subprocess arguments, or exit status.
+- AUR info displays an unavailable installed state with a warning instead of
+  asserting `no`. Auto search adds `[installed]` only from a successfully read
+  foreign inventory; unavailable inventory produces a warning and omits the
+  annotation. These optional-display failures do not change the underlying
+  search/info success policy. AUR-only search avoids installed/repository
+  metadata queries.
+- Reviewed-source generation status uses clearer user-facing wording.
+
+### Developer, build, and validation changes
+
+- CMake policy choices are explicit while the minimum remains 3.18:
+  CMP0200 uses NEW where available, and CMP0156/CMP0181 retain OLD semantics.
+  This preserves the existing external linker-flag and library-ordering
+  contracts without a blanket policy-version increase.
+- The installed acceptance fixture now has a host compile/link gate included
+  in repository validation. It catches declaration drift before container
+  acceptance while retaining `EXCLUDE_FROM_ALL`; fixture runtime and actual
+  transaction/publication acceptance remain owned by the container lanes.
+- `.editorconfig` and `.gitattributes` establish editor and line-ending
+  conventions without changing production behavior.
+
+## 日本語
+
+Moguet v2.7.0は、限定したinstalled devel packageにauthoritativeなGit revision
+trackingを追加します。Moguetが実際にbuild/installしたsourceへupdate assessmentを
+束縛し、package metadataの取得不能を確認済みの不在として扱わず、明示します。
+
+### Authoritative devel Git tracking
+
+- 対応devel packageでは、package versionが増加していなくてもupstream Gitの変更を
+  評価できます。normal AUR update、registered AUR update、`-Qua`、対応するdry-runは
+  このassessmentを共有します。
+- AUR RPC package Versionがnewerなら、Git queryを行わず通常のVersion authorityを
+  優先します。same/olderの場合だけ、provenance tip、fresh installed binding、current
+  reviewed recipe/source identityの一致を確認してGit assessmentで補完します。
+  remote observation成功後にはlocal stateを再確認します。
+- remote OIDと実際にbuildしたGit OIDが一致すれば`UpToDate`、異なればGit revisionを
+  根拠とする`UpdateAvailable`です。Git OIDの一致・差分をsemantic versionの大小、
+  ancestry、package version増加へ読み替えません。`-Qua`とplan出力もGit差分と
+  version変更を区別します。
+- local proof不足・不正は`RequiresCheck`、remote observation failureは`Unknown`として
+  保持し、どちらもautomatic buildを許可しません。registered AUR `OnlyIfUpdated`は
+  version-only shortcutより先にこの状態を評価します。`RequiresCheck`のrebuild確認は
+  default-Noであり、source reviewを代替しません。
+
+### 対応範囲とmigration
+
+- 初期authoritative routeは、明示的にreview/pinしたAUR recipe、observed editor overlayなし、
+  architecture-independentなfloating HTTPS Git source 1件を要求します。selectorはdefault
+  HEADまたはexact branchだけです。追加sourceはreviewed・trackedのregular local fileに限ります。
+- non-splitで、pkgname、selected child、produced artifact、actually installed childが
+  それぞれ1件のpackageに対応します。追加debug package outputは対象外であり、Moguetは
+  makepkgのdebug policyを暗黙に上書きしません。他VCS/transport、full split provenance、
+  arbitrary PKGBUILD shell proof、external build history adoptionは今回のauthoritative
+  tracking scopeに含みません。
+- provenanceはreviewed-source stateと別のXDG state namespaceにschema v1で保存します。
+  既存のvalid recordにもcurrent stateの再検証が必要です。future schema、corrupt/unsafe
+  historyはfail closedとし、updaterはrecord修復、history adoption、cache・installed metadata・
+  他helperのrecordからのmissing baseline自動生成を行いません。
+- 初回baselineには、明示的にreviewした対応build、実install、provenance publication成功が
+  必要です。`--noconfirm`やnon-interactive実行からreview authorityは作りません。
+  external reinstallは同じpackage versionでもhistorical provenanceを失効させることがあります。
+
+### Installとprovenanceの安全境界
+
+- reviewed recipe identity、actual upstream source revision、built artifact、installed binding、
+  persistent provenanceを別々に保持します。buildはinvocation-ownedなrecipe/build directoryを
+  使い、同じcontextでsource metadataを評価してactual source/artifactを証明します。
+  planning時のremote OIDをbuilt revisionへ流用しません。
+- publicationには、selected artifactのactual Install/Upgrade receiptとtransaction後のfresh
+  installed bindingが必要です。`pacman -U`のexit 0だけでは不十分です。`--needed` skipから
+  新proofやbaseline publicationを捏造しません。authoritative execution開始後はlegacy build
+  routeへfallbackしません。
+- install、proof、publication、cleanupの結果を別に保持します。install成功後のpublication
+  failure・outcome unknownやcleanup failureは、non-zeroのpartial outcomeです。成功したinstallを
+  消したりrollbackを主張したりせず、後続workは未実行として保持します。
+- dry-runは同じread-only assessmentを使い、checkout、PKGBUILD評価、build、install、publicationを
+  行いません。repository-only `-Syu`、standalone `plan`、`deps`へ新しいdevel Git queryやexecutionの
+  副作用を追加しません。
+
+### Metadata failureの扱い
+
+- Auto `-Si`はrepositoryでconfirmed `NotFound`の場合だけAURへfallbackします。
+  metadata取得不能はfailureとして報告し、対象をAURへ送らず、後段pacman operandにも含めません。
+  独立targetは既存routeで続行できます。
+- `revert`は各targetのrepository metadataを確認してからsaved source-build preferenceを
+  削除します。失敗targetのpreferenceを保持し、grouped binary reinstallから除外します。
+  独立した成功targetは続行し、失敗は最終non-zero resultへ反映します。
+
+### 診断と表示
+
+- plan、runtime diagnostic、reviewed-source出力のterminal-facingなopaque textで、共通の
+  UTF-8 policyを使います。通常のvalid Unicodeを維持し、invalid byte、control character、
+  backslash、line/paragraph separator、bidi control、U+FEFFをuppercase `\xHH` byteとして
+  可視化します。表示escapeをpackage identity、path操作、dependency判断、subprocess引数、
+  exit statusのauthorityへ戻しません。
+- AUR infoはinstalled stateの取得不能を`no`と断定せず、取得不能表示とwarningを出します。
+  Auto searchの`[installed]`は成功したforeign inventoryだけを根拠とし、取得不能時はwarningと
+  ともにannotationを省略します。これらoptional表示の失敗はsearch/info本体の成功規則を
+  変更しません。AUR-only searchはinstalled/repository metadataをqueryしません。
+- reviewed-source generation statusの利用者向けwordingを明確にします。
+
+### 開発・build・validationの変更
+
+- CMake minimum 3.18を維持し、利用可能な場合にCMP0200=NEW、CMP0156/CMP0181=OLDを
+  明示します。policy versionの一括引き上げを行わず、external linker flagsとlibrary orderingの
+  既存契約を保持します。
+- installed acceptance fixtureのhost compile/link gateをrepository validationへ追加します。
+  container acceptanceより前にdeclaration driftを検出し、`EXCLUDE_FROM_ALL`を維持します。
+  fixture runtimeとactual transaction/publication acceptanceのownerはcontainer laneのままです。
+- `.editorconfig`と`.gitattributes`でeditor・改行規約を整備し、production behaviorは変更しません。
+
 # Moguet v2.6.0
 
 This tracked file is the source of truth for release bodies. The English and

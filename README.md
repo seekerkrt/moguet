@@ -49,14 +49,12 @@ a new storage direction: source-build preferences now use only the executing
 user's XDG config context, while the published v2.0.0 tag, Release, and release
 notes remain historical records.
 
-Moguet v2.6.0 is the latest release. Exact target-less `moguet -Syu` now
-performs the official repository system update followed by the normal
-installed-AUR update after repository success, while saved source-build
-preferences remain limited to the explicit source-aware `upgrade*` workflows.
-Independent devel `RequiresCheck` targets in ordinary `-Syu` are skipped
-locally instead of blocking unrelated AUR updates, while required
-`RequiresCheck` relations and explicit upgrade workflows remain strict. See
-the [v2.6.0 release](https://github.com/seekerkrt/moguet/releases/tag/v2.6.0)
+Moguet v2.7.0 is the latest release. It adds authoritative Git revision tracking
+for supported devel packages with verified build/install provenance, including
+same-version updates, and distinguishes unavailable package metadata from
+confirmed absence. The initial Git/HTTPS subset and explicit source-review
+requirements remain narrow; this is not full VCS tracking. See the
+[v2.7.0 release](https://github.com/seekerkrt/moguet/releases/tag/v2.7.0)
 for the complete user-visible changes.
 
 The canonical repository identity is Moguet on GitHub, with a GitLab mirror.
@@ -535,7 +533,7 @@ is non-zero. `upgrade-aur`, its dry-run, and the fresh AUR phase of
 and `--noconfirm` do not add a prompt or approve a rebuild.
 
 v2.5.0 does not query or compare the upstream VCS revision and does not publish
-devel build provenance. The current development tree includes the trusted
+devel build provenance. Moguet now includes the trusted
 HTTPS Git remote revision observer foundation from
 [issue #475](https://github.com/seekerkrt/moguet/issues/475), limited to
 default HEAD and exact branches with strict complete SHA-1 / SHA-256 results.
@@ -561,7 +559,6 @@ not repair records, adopt external history, or create a missing baseline. A base
 requires an explicitly reviewed supported build, an actual install, and successful
 publication. Same-version reinstalls invalidate historical provenance when the
 installed artifact binding changes. See the [devel tracking and migration contract](https://github.com/seekerkrt/moguet/blob/develop/docs/contracts/devel-tracking.md).
-This describes the development candidate for v2.7.0, not a released v2.7.0 feature.
 
 `--aur` limits supported `-S`, `-Ss`, and `-Si` forms to AUR. `--repo`
 limits those forms to official binary repositories and is also the

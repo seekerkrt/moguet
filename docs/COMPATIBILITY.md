@@ -193,11 +193,11 @@ normal AUR `UpdateAvailable`はdevel assessmentより優先し、suffix候補や
 `RequiresCheck`はautomatic update / rebuild candidateへ昇格しない。`upgrade-aur`はcurrent all-target contractに従い、1件でもあればoperation全体をAUR mutation前にblockする。dry-runは同じ状態を`Blocked`とnon-zeroへ投影し、`upgrade-all`はsystem、registered source、fresh foreign inventoryまでの完了済みphaseを保持したままfresh AUR phaseをblockする。non-TTYと`--noconfirm`はmanual rebuild promptやimplicit approvalを追加しない。query、recursive plan、provider selection、conflicts / replaces metadata、preparationを全targetについて確認してからexecutionへ進み、blocking targetが1件でもあればcache作成、git checkout、makepkg、`pacman -U`、sudoを開始しない。
 
 v2.5.0のconservative connectionはupstream VCS revisionをquery / 比較せず、provenanceを保存しない。
-current development treeはIssue #476のinstalled provenanceとP/I/R revalidationを持ち、7-Bだけが#475を呼ぶ。
+現在のMoguetはIssue #476のinstalled provenanceとP/I/R revalidationを持ち、7-Bだけが#475を呼ぶ。
 normal AUR updateとregistered AUR updateは7-Dからassessmentを使い、GitRevision candidateのexecutionは
 reviewed pinから7-C→S4→S5→S6を通す。initial subsetはnon-split、one child/artifact、no overlay、one floating
 HTTPS Git、default HEAD/exact branch、architecture-independent sourceに限定する。
-full VCS trackingやv2.7.0 release済みの主張ではない。public contract・identity invariants・schema v1の
+full VCS trackingの主張ではない。public contract・identity invariants・schema v1の
 no-auto-migration policyは[devel tracking contract](contracts/devel-tracking.md)を参照する。
 
 official repository package、AURに存在しないforeign package、source preferenceだけで選ばれるpackageはautomatic AUR update対象にしない。
@@ -594,4 +594,4 @@ registered AUR OnlyIfUpdatedは共通coreをversion-only shortcutより先に使
 dry-runは同じcurrent read-only producerを使い、source/build/transaction/publicationを実行しない。
 actual prior-phase後のfuture stateと同一とは主張しない。explicit reviewed buildだけが7-Cからbaselineをbootstrapできる。
 詳細は[normal devel routes](contracts/devel-normal-routes.md)、identity・schema/migration・compatibility matrixは
-[devel tracking](contracts/devel-tracking.md)を正とする。current development candidateの契約であり、release宣言ではない。
+[devel tracking](contracts/devel-tracking.md)を正とする。この対応範囲と安全境界を現行契約とする。

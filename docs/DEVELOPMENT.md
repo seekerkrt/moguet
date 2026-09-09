@@ -464,16 +464,15 @@ ccache / mold parityは必要なreleaseでの追加validationであり、上記d
         README.md \
         README.ja.md \
         RELEASE_NOTES.md \
-        containers/arch-live-validation/run-aur-install.sh \
         docs/DEVELOPMENT.md \
-        man/moguet.1.in \
-        man/ja/moguet.1.in \
+        docs/COMPATIBILITY.md \
+        docs/contracts/devel-tracking.md \
         man/moguet.1 \
         man/ja/moguet.1 \
         po/moguet.pot \
         po/ja.po \
         scripts/check_public_documentation.py \
-        tests/test-live-contract.sh
+        tests/test-public-documentation-checker.py
 
     git diff --cached --name-only | LC_ALL=C sort
     git status --short
@@ -482,23 +481,28 @@ ccache / mold parityは必要なreleaseでの追加validationであり、上記d
 
     gh pr create --base main --head release/vX.Y.Z
 
-上記の`git add`は、現在のv2.6.0 release preparationでstage対象とするpathを1件ずつ明示した
+上記の`git add`は、v2.7.0 release preparationでstage対象とする13 pathsを1件ずつ明示した
 current release用のexact path setです。`git add .`や代表pathだけのpartial listへ置き換えません。commit前に
-cached path一覧をこのreleaseのdiffと再照合し、release scopeのunstaged / untracked pathや
-unrelatedなstaged pathがないことを確認します。現在のv2.6.0 release preparationでは、上記の
-14-path listがstage対象のcurrent release scopeのauthorityです。`PKGBUILD`はroot `VERSION`を動的に
-読み、published tagへprojectするためcontent changeはありません。
-`containers/arch-validation/Dockerfile`にはv2.6.0 release metadataとしての変更contractがなく、
-`po/POTFILES.in`はsource extraction inventory変更なし、completionはversion independent、CMake、
-source、その他testsはrelease metadata preparationでは変更しないため、current listへ含めません。man
-templateは`@VERSION@` authorityを維持しつつrelease dateを更新し、generated pageとともにcurrent
-listへ含めます。`scripts/check_public_documentation.py`はrelease-noteのcurrent version assertionをroot
-`VERSION`から導出し、formal RCのSSOT blockerを解消するためcurrent listへ含めます。
-`containers/arch-live-validation/run-aur-install.sh`と`tests/test-live-contract.sh`は、Formal RCで検出した
-AUR live artifact-evidence authority driftをcurrent production ownerへ同期するvalidation-side fixとして
-current listへ含めます。v2.1.0固有の履歴は、下記の
-`v2.1.0 post-release closure`として別に扱い、current listの根拠にはしません。将来のrelease
-では、このlistを流用せず、そのreleaseで監査済みのexact path setへ置き換えます。
+cached path一覧をこのreleaseのactual diffと再照合し、release scopeのunstaged / untracked pathや
+unrelatedなstaged pathがないことを確認します。
+
+root `VERSION`、README EN/JA、`RELEASE_NOTES.md`、generated man EN/JA、gettext metadataを同期します。
+`docs/COMPATIBILITY.md`と`docs/contracts/devel-tracking.md`は、実装時のdevelopment-candidate表現だけを
+release後にも成立するcontract表現へ整理します。既存のdevel / metadata failure semanticsは変更しません。
+`docs/DEVELOPMENT.md`自身は今回のexact path setとその理由を保持します。
+`scripts/check_public_documentation.py`はroot `VERSION`由来のcurrent release sectionと、v2.6.0で導入した
+historical `-Syu` compatibility boundaryを別々に検証します。対応regressionは
+`tests/test-public-documentation-checker.py`へ含めます。過去releaseの導入versionをcurrent VERSIONへ
+読み替えたり、current versionのmanual duplicate authorityを追加したりしません。
+
+`PKGBUILD`はroot `VERSION`を動的に読み、published tagへprojectするためcontent changeはありません。
+man templateは`@VERSION@`と既存の`September 2026`を維持するため変更しません。
+`po/POTFILES.in`はsource extraction inventory変更なし、completionはversion independentです。
+Make / CMake、production source、container Dockerfile / runner、fixture package metadata、その他testsには
+今回のrelease metadata preparationによる変更contractがないため、current listへ含めません。
+旧CMake inventory件数の整理はnon-blocking follow-upとして、このrelease-prep差分へ混ぜません。
+v2.1.0固有の履歴は下記の`v2.1.0 post-release closure`として別に扱います。将来のreleaseでは、このlistを
+流用せず、そのreleaseで監査済みのexact path setへ置き換えます。
 
 merge 後:
 

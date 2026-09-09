@@ -44,13 +44,11 @@ Moguet v2.0.1は、採用済みXDG storage契約のうちsource-preference部分
 preferenceは実行user自身のXDG config contextだけを使い、公開済みv2.0.0のtag、Release、
 release noteは歴史的記録のまま変更しません。
 
-Moguet v2.6.0は最新releaseです。exact target-less `moguet -Syu`はofficial repository
-system updateを実行し、その成功後にnormal installed-AUR updateを続けます。saved
-source-build preferenceは明示的なsource-aware `upgrade*` workflowだけに限定したままです。
-通常の`-Syu`ではindependent devel `RequiresCheck` targetを局所的にskipし、unrelatedな
-AUR updateをblockしません。一方、required `RequiresCheck` relationと明示的なupgrade
-workflowはstrictなままです。利用者から見える変更の全体は
-[v2.6.0 release](https://github.com/seekerkrt/moguet/releases/tag/v2.6.0)を参照してください。
+Moguet v2.7.0は最新releaseです。検証済みbuild/install provenanceを持つ対応devel packageに、
+同versionでの更新を含むauthoritativeなGit revision trackingを追加し、package metadataの取得不能と
+確認済みの不在を区別します。初期Git/HTTPS subsetと明示的なsource reviewの要件は限定的であり、
+full VCS trackingではありません。利用者から見える変更の全体は
+[v2.7.0 release](https://github.com/seekerkrt/moguet/releases/tag/v2.7.0)を参照してください。
 
 canonical repository identityはGitHub上のMoguetで、GitLab mirrorを持ちます。Moguet
 packageは`jpacker` command aliasを提供しません。AUR publicationは将来の別判断であり、
@@ -470,7 +468,7 @@ unrelatedなnormal AUR updateを継続してaggregate successを許します。u
 blocker semanticsを維持します。non-TTYや`--noconfirm`でもpromptを追加せずrebuildを承認しません。
 
 v2.5.0ではupstream VCS revisionのquery / 比較やdevel build provenanceのpublicationを
-行いません。current development treeには
+行いません。現在のMoguetには
 [Issue #475](https://github.com/seekerkrt/moguet/issues/475)のtrusted HTTPS Git remote revision
 observer foundationが入り、default HEAD / exact branchとcompleteなSHA-1 / SHA-256 resultだけへ
 限定されています。[Issue #476](https://github.com/seekerkrt/moguet/issues/476) Slice 7-Bのinternal coordinatorは、
@@ -490,7 +488,6 @@ fail closedとし、updaterはrecord修復、external history adoption、missing
 baselineには明示的にreviewした対応build、実install、publication成功が必要です。同version reinstallでも
 installed artifact bindingが変わればhistorical provenanceは無効です。詳細は
 [devel tracking / migration contract](https://github.com/seekerkrt/moguet/blob/develop/docs/contracts/devel-tracking.md)を参照してください。
-これはv2.7.0向けdevelopment candidateの説明であり、v2.7.0のrelease済み機能とは扱いません。
 
 `--aur`は対応する`-S`、`-Ss`、`-Si`をAURへ限定します。`--repo`はこれらのformを
 official binary repositoryへ限定し、exact target-less `-Syu`ではrepository-only selectorに
