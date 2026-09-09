@@ -101,8 +101,8 @@ production callerの境界:
 
 - #475 remote observer、7-A current observer / Git comparatorの新consumerは7-B coordinatorだけ。
 - coordinator自身のnormal route callerは0。
-- S6 publisherのexternal callerは0。
-- 7-C execution bridge、7-D -Syu/upgrade/upgrade-all/upgrade-aur/registered source/-Qua/dry-runはNOT CONNECTED。
+- S6 publisherのconsumerは別の7-C execution ownerだけで、assessmentからのcallは0。
+- [7-C execution bridge](reviewed-devel-source-build-execution.md)とassessmentの結合、および7-D -Syu/upgrade/upgrade-all/upgrade-aur/registered source/-Qua/dry-runはNOT CONNECTED。
 - Slice 8はNOT STARTED。
 
 ## Validation

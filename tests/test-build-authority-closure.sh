@@ -193,7 +193,7 @@ else
     scan_status=$?
     [ "$scan_status" -eq 1 ] || fail "S5-A consumer scan failed: $scan_status"
 fi
-printf '%s\n' "$repo_root/source/source_artifact_install_trusted_transport.cpp" \
+printf '%s\n' "$repo_root/source/reviewed_devel_source_build_execution.cpp" "$repo_root/source/source_artifact_install_trusted_transport.cpp" \
     > "$test_root/expected-evaluated-transport-consumers.txt"
 cmp -s "$bridge_consumers" "$test_root/expected-evaluated-transport-consumers.txt" ||
     fail 'S5-A transport gained a normal production caller'
@@ -251,7 +251,7 @@ else
     scan_status=$?
     [ "$scan_status" -eq 1 ] || fail "S6-B publisher scan failed: $scan_status"
 fi
-printf '%s\n' "$repo_root/source/devel_build_provenance_publication.cpp" > "$test_root/expected-publication-consumers.txt"
+printf '%s\n' "$repo_root/source/devel_build_provenance_publication.cpp" "$repo_root/source/reviewed_devel_source_build_execution.cpp" > "$test_root/expected-publication-consumers.txt"
 cmp -s "$publication_consumers" "$test_root/expected-publication-consumers.txt" || fail 'S6-B gained a normal route caller'
 assert_not_matches "$repo_root/source/devel_build_provenance_publication.cpp" \
     '(observe_installed|observe_git_remote_revision|InstalledArtifactBindingObserver|execute_exact|capture_process|read_xdg_generation_store|openat\(|fopen\(|\.path\()'
@@ -284,6 +284,16 @@ assert_not_matches "$repo_root/source/current_installed_artifact_binding_observe
     '(observe_git_remote_revision|publish_devel_build_provenance|read_devel_build_provenance|read_reviewed_source_state|execute_exact|ExactArtifactTransactionReceipt|FreshInstalledArtifactBinding)'
 assert_not_matches "$repo_root/source/devel_git_revision_comparison.cpp" \
     '(observe_git_remote_revision|read_.*store|capture_process|vercmp|pkgver|AurVersionRelation)'
+# S7-C composes existing sealed owners; only its dedicated entrance is new.
+if grep -l -E -- 'prepare_reviewed_production_source_execution|execute_reviewed_devel_source_build|reviewed_devel_source_build_execution' "$repo_root"/source/*.cpp > "$test_root/s7c-callers.txt"; then :
+else
+    scan_status=$?
+    [ "$scan_status" -eq 1 ] || fail "S7-C scan failed: $scan_status"
+fi
+printf '%s\n' "$repo_root/source/reviewed_devel_source_build_execution.cpp" > "$test_root/s7c-callers-expected.txt"
+cmp -s "$test_root/s7c-callers.txt" "$test_root/s7c-callers-expected.txt" || fail 'S7-C gained a normal route caller'
+assert_not_matches "$repo_root/source/reviewed_devel_source_build_execution.cpp" \
+    '(assess_current_devel_package|observe_git_remote_revision|parse_git_remote_revision|printsrcinfo|shared_ptr<void>|static_pointer_cast|reinterpret_cast|publish_devel_build_provenance\(|execute_separated_)'
 assert_not_contains "$makefile" 'legacy-cpp-focused-authority'
 assert_not_contains "$makefile" '-std=c++20'
 assert_not_contains "$makefile" '-Wall'
@@ -382,8 +392,8 @@ assert_contains "$repo_root/.gitignore" '/compile_commands.json'
 
 # Compare the historical Make aliases with the actual CMake focused targets.
 # This checks the frontend mapping without duplicating either inventory here.
-[ "$#" -eq 122 ] ||
-    fail "Make focused alias inventory is $#, expected 122"
+[ "$#" -eq 123 ] ||
+    fail "Make focused alias inventory is $#, expected 123"
 make_aliases=$test_root/make-focused-aliases.txt
 cmake_aliases=$test_root/cmake-focused-aliases.txt
 cmake_help=$test_root/cmake-target-help.txt
@@ -391,15 +401,15 @@ missing_aliases=$test_root/missing-focused-aliases.txt
 unexpected_aliases=$test_root/unexpected-focused-aliases.txt
 
 printf '%s\n' "$@" | LC_ALL=C sort > "$make_aliases"
-[ "$(LC_ALL=C sort -u "$make_aliases" | wc -l)" -eq 122 ] ||
+[ "$(LC_ALL=C sort -u "$make_aliases" | wc -l)" -eq 123 ] ||
     fail 'Make focused alias inventory contains duplicates'
 
 "$cmake_command" --build "$cmake_build_dir" --target help > "$cmake_help"
 sed -n \
     's/.*moguet-focus-\(test-[a-z0-9-][a-z0-9-]*\).*/\1/p' \
     "$cmake_help" | LC_ALL=C sort -u > "$cmake_aliases"
-[ "$(wc -l < "$cmake_aliases")" -eq 122 ] ||
-    fail "CMake focused target inventory is $(wc -l < "$cmake_aliases"), expected 122"
+[ "$(wc -l < "$cmake_aliases")" -eq 123 ] ||
+    fail "CMake focused target inventory is $(wc -l < "$cmake_aliases"), expected 123"
 
 LC_ALL=C comm -23 "$make_aliases" "$cmake_aliases" > "$missing_aliases"
 LC_ALL=C comm -13 "$make_aliases" "$cmake_aliases" > "$unexpected_aliases"
@@ -431,5 +441,5 @@ assert_contains "$phony_marker" 'test-cmake'
 assert_contains "$phony_marker" 'test-repository'
 
 printf '%s\n' \
-    'build-authority-closure-test: Make aliases=122, CMake targets=122, missing=0, unexpected=0'
+    'build-authority-closure-test: Make aliases=123, CMake targets=123, missing=0, unexpected=0'
 printf '%s\n' 'build-authority-closure-test: all checks passed'

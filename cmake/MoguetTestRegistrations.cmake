@@ -10,6 +10,13 @@ macro(_moguet_add_direct_ctest test_name target_name)
     )
 endmacro()
 
+moguet_add_ctest(
+    NAME cpp.reviewed_devel_source_build_execution
+    TARGETS reviewed-devel-source-build-execution-test
+    COMMAND "$<TARGET_FILE:reviewed-devel-source-build-execution-test>" --reviewed-devel-execution
+    WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+)
+set_tests_properties(cpp.reviewed_devel_source_build_execution PROPERTIES TIMEOUT 480)
 _moguet_add_direct_ctest(cpp.devel_package_assessment devel-package-assessment-test)
 _moguet_add_direct_ctest(cpp.current_installed_artifact_binding current-installed-artifact-binding-test)
 _moguet_add_direct_ctest(cpp.devel_git_revision_comparison devel-git-revision-comparison-test)

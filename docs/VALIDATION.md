@@ -50,6 +50,7 @@ release操作は[`DEVELOPMENT.md`](DEVELOPMENT.md)を正とする。この文書
 | actual devel provenance publication | `test-container-devel-publication` | S5 actual laneの別modeでproduction publisherを呼ぶ。1 fresh anonymous DB volume上でInstall/Upgrade/reinstall/downgradeを順次実行し、各S5 proof・cleanup、publication Complete、store generation 1→2→3→4、raw bytes SHA-256、schema v1/27 keys、persistent model・historyを確認。installed generationは別authorityとして記録する。S5 publication-noneとnormal routeの未接続を維持する |
 | current installed observation / pure Git comparison | `test-current-installed-artifact-binding` / `test-devel-git-revision-comparison` | transactionとは独立したfresh current bindingとtyped OID比較。S5 fresh proof/network/normal assessmentはmint・接続しない |
 | read-only devel assessment | `test-devel-package-assessment` | tip-only P/I/R exact後の#475 query、remote taxonomy、成功後のP/I/R one-time recheck、call counts。normal route/build/install/publicationは未接続 |
+| reviewed devel execution bridge | `test-reviewed-devel-source-build-execution` | typed reviewed pinから既存S4/S5/S6、install/proof/publication/cleanupの個別結果、one-shot/lifetime。normal routeは未接続 |
 | closed cleanup candidate authority | `test-container-cleanup-authority` | production collector、mutation前baseline、actual trusted dependency Install、post-success current / policy、aggregate / classifierとinstalled positive `Eligible` |
 
 PR / mergeのcanonical host gateは`test-host-release`である。`test`と

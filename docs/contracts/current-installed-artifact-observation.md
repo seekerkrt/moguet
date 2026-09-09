@@ -5,7 +5,7 @@
 Issue #476 Slice 7-Aのproduction-disconnected foundation。
 current observationはtransaction receipt、S5 `FreshInstalledArtifactBinding`、final build proofではない。
 7-B [assessment coordinator](devel-package-assessment.md)がこのfoundationを消費する。
-7-A自体はnetwork approval/queryを所有せず、7-C execution bridge、7-D normal routeは未接続。
+7-A自体はnetwork approval/queryを所有しない。7-C execution bridgeは別ownerが担い、7-D normal routeは未接続。
 
 ## Current installed owner
 

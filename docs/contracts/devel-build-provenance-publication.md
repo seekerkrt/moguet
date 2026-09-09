@@ -5,7 +5,8 @@
 Issue #476 Slice 6-Bは、[S5 installation result](installed-devel-source-build-proof.md)をconsumeし、
 historical semantic provenanceを[既存store](devel-build-provenance-store.md)へpublicationする内部producerである。
 normal CLI/source/upgrade/#476 routeは未接続。6-Cは既存publisherのactual/container acceptanceだけを追加する。
-Slice 7のcurrent binding re-observation/#475 comparison/devel assessment、Slice 8は未実装である。
+current binding re-observation/#475 comparisonは7-A/7-Bが、typed pinからの専用execution bridgeは
+[7-C](reviewed-devel-source-build-execution.md)が所有する。normal route activationの7-DとSlice 8は未実装である。
 
 ```text
 transaction success != receipt success != proof success != publication success
@@ -61,7 +62,7 @@ documentはS5 transaction後の観測事実を保存する。publication直前�
 publisherはworkspace/archive/stage/hook/installed DBを再openしない。
 proof Aの後に別transaction Bでinstalled recordが変わっても、Aのbindingを保存し、Bへ推定更新しない。
 storeのcurrent tipはpublication順であり、package transactionの全順序ではない。
-後続Slice 7がcurrent installed/#411/source identityを別途照合する。
+7-Bがcurrent installed/#411/source identityを別途照合する。
 
 ## Publication product / ordering
 

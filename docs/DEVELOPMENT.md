@@ -350,7 +350,7 @@ raw persistent bytesのSHA-256、schema v1/27 keys、final proofとの全field�
 contiguous historyを確認する。runnerはcopied source hashesとraw documentsをstdoutへ出し、
 検証者はcurrent candidateとの照合とrepository外へのevidence保存を行う。
 S5-only targetはpublication-noneを引き続き要求する。#475 comparisonは7-B coordinator内だけに接続し、
-normal #476 route、7-C/7-D、Slice 8は未接続である。
+normal #476 route、7-D、Slice 8は未接続である。7-Cは専用execution owner内だけでS4/S5/S6を結合する。
 詳細は[`exact-installed-artifact-binding.md`](contracts/exact-installed-artifact-binding.md)を正とする。
 
 S5-Cのfinal construction/lineage/N=1は`test-installed-devel-source-build-proof`、lossless aggregateとcleanup consequenceは
@@ -362,13 +362,18 @@ canonical negative compileへ含める。contractは[`installed-devel-source-bui
 Issue #476 Slice 7-Aは`test-current-installed-artifact-binding`と`test-devel-git-revision-comparison`で確認する。
 current observerは各callのfresh DB observationであり、S5 transaction proofではない。
 Git comparatorはsource/algorithmを先に照合するpure value comparisonで、networkやassessmentを実行しない。
-7-Bだけがこのfoundationを消費し、7-C/7-D、normal routeは未接続。詳細は
+7-Bだけがこのcomparison foundationを消費し、7-D normal routeは未接続。詳細は
 [`current installed observation contract`](contracts/current-installed-artifact-observation.md)を参照する。
 
 Issue #476 Slice 7-Bは`test-devel-package-assessment`でtip-only P/I/R gates、#475 remote mapping、
-remote成功後のone-time local recheckとcall countを確認する。normal routeとS6 publisherは未接続。
+remote成功後のone-time local recheckとcall countを確認する。normal routeは未接続で、assessmentからS6 publisherを呼ばない。
 approved-source mintはown-I/O coordinatorだけで、canonical negative compileにS7-B firewallを追加する。
 詳細は[`read-only assessment contract`](contracts/devel-package-assessment.md)を正とする。
+
+Issue #476 Slice 7-Cは`test-reviewed-devel-source-build-execution`でtyped pinからS4/S5/S6を結合する。
+normal ownerがtype erasure前に選べる専用variantを提供するが、現在のnormal routeはlegacy factoryを維持する。
+S5/S6 contractを変更せず、partial install/publication/cleanup outcomesとlive context lifetimeを保持する。
+詳細は[`reviewed devel execution bridge`](contracts/reviewed-devel-source-build-execution.md)を正とする。
 
 Issue #485 Slice 5のclosed lifecycle / authoritative candidate gateは、同じnetworkless installed imageを
 使う専用targetで確認する。

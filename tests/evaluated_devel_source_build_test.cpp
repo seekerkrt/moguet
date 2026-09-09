@@ -1,5 +1,13 @@
 #include "evaluated_devel_source_build.hpp"
 
+#ifdef MOGUET_TEST_REVIEWED_DEVEL_SOURCE_EXECUTION
+#include "reviewed_devel_source_build_execution.hpp"
+namespace publication_allocation {
+extern bool blocked;
+extern unsigned failures;
+} // namespace publication_allocation
+#endif
+
 #ifdef MOGUET_ENABLE_DEVEL_BUILD_PROVENANCE_PUBLICATION_TEST_HOOKS
 #include "devel_build_provenance_publication_fixture.hpp"
 #endif
@@ -482,6 +490,39 @@ public:
         return take_arm<InvocationOwnedMakepkgEnvironment>(
             result, "Makepkg environment creation failed");
     }
+
+#ifdef MOGUET_TEST_REVIEWED_DEVEL_SOURCE_EXECUTION
+    // Same typed publication/pin boundary as the normal source owner, before
+    // its legacy ProductionArtifactSourceTree lifetime erasure.
+    [[nodiscard]] PinnedReviewedSourceBuild execution_pin(bool overlay = false) {
+        if(!overlay) return make_pinned_build();
+        auto planned = plan_reviewed_source_lifecycle(identity());
+        auto requirement = take_arm<ReviewedSourceReviewRequirement>(planned, "overlay fixture expected initial review");
+        auto materialized = materialize_accepted_reviewed_source_checkout(accept_initial(std::move(requirement)), checkout());
+        auto accepted = take_arm<AcceptedReviewedSourceCheckout>(materialized, "overlay checkout failed");
+        auto boundary = begin_reviewed_source_editor_boundary(accepted);
+        {
+            std::ofstream file(repository_ / "PKGBUILD", std::ios::app);
+            file << "\n# invocation editor overlay\n";
+        }
+        auto overlay_proof = seal_reviewed_source_editor_overlay(accepted, take_arm<ReviewedSourceEditorBoundary>(boundary, "overlay boundary failed"));
+        auto publication = publish_accepted_reviewed_source_checkout_with_editor_overlay(std::move(accepted), take_arm<ReviewedSourceEditorOverlayProof>(overlay_proof, "overlay seal failed"));
+        return take_arm<PinnedReviewedSourceBuild>(publication, "overlay publication failed");
+    }
+    [[nodiscard]] ValidatedCachePath execution_checkout() const {
+        return checkout();
+    }
+    [[nodiscard]] ReviewedDevelSourceBuildIntent execution_intent(const PacmanDatabasePaths& database) const {
+        SourceBuildRequest request;
+        request.package_name = package_name_;
+        request.checkout_name = package_base_;
+        request.git_url = aur_remote_;
+        request.aur_review_identity = identity().package_base();
+        request.empty_value_policy = SourceEnvironmentEmptyValuePolicy::Forward;
+        request.custom_environment = SourceBuildEnvironment{{{"HOME", home_.string()}, {"PATH", "/usr/bin:/bin"}, {"LANG", "C"}, {"LC_ALL", "C"}, {"MAKEPKG_LIBRARY", "/usr/share/makepkg"}, {"GIT_TERMINAL_PROMPT", "0"}, {"GIT_CONFIG_COUNT", "1"}, {"GIT_CONFIG_KEY_0", "url.file://" + upstream_.remote().string() + ".insteadOf"}, {"GIT_CONFIG_VALUE_0", upstream_.url()}}};
+        return {std::move(request), {{package_base_, package_name_, DesiredInstallReason::Explicit}}, database, false, {true}};
+    }
+#endif
 
     [[nodiscard]] std::string stale_packagelist_filename() const {
         const fs::path pkgdest = tree_.path() / "stale-pkgdest";
@@ -2394,6 +2435,256 @@ void test_exact_installed_binding(std::string_view finalization = {}) {
 }
 #endif
 
+#ifdef MOGUET_TEST_REVIEWED_DEVEL_SOURCE_EXECUTION
+void deny_after_bridge_publication(const XdgGenerationStoreTestRaceContext&) {
+    publication_allocation::blocked = true;
+}
+
+void test_reviewed_devel_execution_bridge() {
+    using Stage = ReviewedDevelSourceBuildStage;
+    using Issue = ReviewedDevelSourceBuildIssue;
+    using Operation = DevelSourceArtifactInstallOperation;
+    using Pub = DevelBuildProvenancePublicationState;
+    using Cleanup = DevelSourceArtifactInstallCleanupState;
+    static_assert(!std::is_default_constructible_v<PreparedReviewedDevelSourceBuildExecution>);
+    static_assert(!std::is_copy_constructible_v<PreparedReviewedDevelSourceBuildExecution>);
+    static_assert(!std::is_default_constructible_v<ReviewedDevelSourceBuildExecutionResult>);
+    static_assert(!std::is_copy_constructible_v<ReviewedDevelSourceBuildExecutionResult>);
+    static_assert(std::is_nothrow_move_constructible_v<ReviewedDevelSourceBuildExecutionResult>);
+    UpstreamGitFixture upstream("s7c-upstream", GitObjectFormat::Sha1);
+    for(const std::string mode : {"install", "branch", "upgrade-explicit", "upgrade-dependency", "dependency-keeps-explicit",
+                                  "new-dependency", "promotion", "needed", "split", "rmdeps", "only-if-updated", "legacy", "overlay", "overlay-legacy",
+                                  "environment", "build-failure", "artifact-mismatch", "database-world", "snapshot-failure", "prepare-failure",
+                                  "nonzero", "unknown", "no-post", "binding-failure", "publication-failure", "publication-unknown",
+                                  "cleanup-failure", "retirement-failure", "no-allocation"}) {
+        ReviewedBuildFixture fixture("s7c-fixture", upstream, mode == "build-failure" ? RecipeShape::RawEvaluatedMismatch : RecipeShape::Valid,
+                                     false, mode == "branch");
+        struct ResetBridgeHooks {
+            ~ResetBridgeHooks() {
+                publication_allocation::blocked = false;
+                set_reviewed_devel_source_build_execution_test_hooks({});
+                set_evaluated_devel_source_artifact_transport_test_hooks({});
+                set_source_artifact_install_trusted_exec_test_hook({});
+                set_source_artifact_install_trusted_state_test_hook({});
+                set_installed_record_observation_test_hooks({});
+                reset_xdg_generation_store_test_hooks();
+            }
+        } reset_bridge_hooks;
+        TemporaryTree runtime("s7c-runtime");
+        const auto db = runtime.path() / "db";
+        fs::create_directories(db / "local");
+        write_file(db / "local/ALPM_DB_VERSION", "9\n");
+        int parent = open(runtime.path().c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+        require(parent >= 0, "S7-C runtime open failed");
+        auto store = SourceArtifactInstallTrustedStateStore::open_below_runtime_parent(parent, geteuid());
+        static_cast<void>(close(parent));
+        unsigned generation = 1, prepare_calls = 0, execute_calls = 0, consumes = 0, aborts = 0, build_entries = 0;
+        const std::string token(64, 'c');
+        std::optional<BuiltPackageArtifactEvidence> expected;
+        std::string actual_oid, raw_mtree;
+        fs::path installed_record;
+        const bool existing = mode == "upgrade-explicit" || mode == "upgrade-dependency" || mode == "dependency-keeps-explicit" || mode == "promotion";
+        const bool dependency_reason = mode == "upgrade-dependency" || mode == "promotion";
+        const auto write_package = [&](const std::string& version) {
+            if(!installed_record.empty() && fs::exists(installed_record)) fs::remove_all(installed_record);
+            installed_record = db / "local" / (fixture.package_name() + "-" + version);
+            fs::create_directory(installed_record);
+            write_file(installed_record / "desc", "%NAME%\n" + fixture.package_name() + "\n\n%BASE%\n" + fixture.package_base() +
+                                                      "\n\n%VERSION%\n" + version + "\n\n%ARCH%\nany\n\n%REASON%\n" + (dependency_reason ? "1" : "0") + "\n\n");
+            write_file(installed_record / "files", "%FILES%\nusr/share/moguet-test\n\n");
+            write_file(installed_record / "mtree", raw_mtree.empty() ? "old-mtree" : raw_mtree);
+        };
+        if(existing) write_package("0-1");
+        InstalledRecordObservationTestHooks record_hooks;
+        record_hooks.database_path = db.string();
+        record_hooks.expected_owner = geteuid();
+        record_hooks.name_to_handle = [&](int fd, const char* path, struct file_handle* handle, int* mount, int flags) {
+            require(fd >= 0 && path[0] == '\0' && flags == AT_EMPTY_PATH, "S7-C generation reopened path");
+            *mount = 1;
+            if(handle->handle_bytes == 0) {
+                handle->handle_bytes = 1;
+                errno = EOVERFLOW;
+                return -1;
+            }
+            handle->handle_type = 1;
+            handle->f_handle[0] = static_cast<unsigned char>(generation);
+            return 0;
+        };
+        set_installed_record_observation_test_hooks(record_hooks);
+        set_evaluated_devel_source_artifact_transport_test_hooks({[&](const ExplicitProcessInvocation& invocation) -> CapturedCommandResult {
+                                                                      require(invocation.executable == "/usr/bin/sudo" && invocation.arguments[1] == MOGUET_SOURCE_ARTIFACT_INSTALL_HELPER_PATH, "bridge bypassed S5 helper");
+                                                                      const auto& verb = invocation.arguments[2];
+                                                                      if(verb == "prepare-exact") {
+                                                                          ++prepare_calls;
+                                                                          if(mode == "prepare-failure") return {"", 77, false};
+                                                                          auto parsed = parse_source_artifact_install_trusted_helper_arguments({invocation.arguments.begin() + 2, invocation.arguments.end()});
+                                                                          const auto& helper = require_arm<SourceArtifactInstallTrustedHelperInvocation>(parsed, "invalid S7-C prepare");
+                                                                          SourceArtifactInstallRootPrepareRequest request{helper.transaction_token, helper.package_base, helper.directive, helper.needed, helper.no_confirm,
+                                                                                                                          helper.artifacts, SourceArtifactInstallTrustedPurpose::ExactInstalledBinding};
+                                                                          require(expected && !request.needed && request.directive == SourceArtifactInstallTrustedDirective::PreserveExistingReason &&
+                                                                                      request.artifacts.size() == 1 && request.artifacts[0].archive_sha256 == expected->archive_digest.value() &&
+                                                                                      request.artifacts[0].raw_mtree_sha256 == expected->mtree_digest.value(),
+                                                                                  "bridge changed S4 identity/S5 intent");
+                                                                          return {serialize_source_artifact_install_root_prepare_response(store.prepare(request, *invocation.standard_input_fd), request), 0, false};
+                                                                      }
+                                                                      if(verb == "execution-status") return {serialize_source_artifact_install_execution_observation(store.execution_status(token)), 0, false};
+                                                                      require(verb == "consume-exact", "bridge called a legacy consume");
+                                                                      ++consumes;
+                                                                      return {store.consume_exact(token), 0, false};
+                                                                  },
+                                                                  [&](const ExplicitProcessInvocation& invocation) -> ExplicitProcessExecutionResult {
+                                                                      if(invocation.arguments[2] == "abort") {
+                                                                          ++aborts;
+                                                                          store.abort(token);
+                                                                          return {ExplicitProcessExecutionStatus::StartedKnownOutcome, 0};
+                                                                      }
+                                                                      require(invocation.arguments[2] == "execute", "unexpected bridge transport action");
+                                                                      ++execute_calls;
+                                                                      const auto status = store.execute(token);
+                                                                      if(mode == "unknown") return {ExplicitProcessExecutionStatus::StartedOutcomeUnknown, std::nullopt};
+                                                                      return {ExplicitProcessExecutionStatus::StartedKnownOutcome, status};
+                                                                  },
+                                                                  {}});
+        set_source_artifact_install_trusted_exec_test_hook([&](const auto&) {
+            store.observe_execution(token);
+            if(mode == "nonzero") return 42;
+            ++generation;
+            write_package(expected->identity.full_version);
+            if(mode == "no-post") return 0;
+            int fds[2];
+            require(pipe(fds) == 0, "bridge NeedsTargets pipe");
+            const auto targets = fixture.package_name() + "\n";
+            require(write(fds[1], targets.data(), targets.size()) == static_cast<ssize_t>(targets.size()), "bridge NeedsTargets write");
+            static_cast<void>(close(fds[1]));
+            if(existing)
+                store.record_upgrade(token, fds[0]);
+            else
+                store.record_install(token, fds[0]);
+            static_cast<void>(close(fds[0]));
+            if(mode == "binding-failure") write_file(installed_record / "mtree", raw_mtree + "changed");
+            return 0;
+        });
+        set_source_artifact_install_trusted_state_test_hook([&](auto event, int, const auto&) {
+            if((mode == "cleanup-failure" && event == SourceArtifactInstallTrustedStateTestEvent::BeforeExactCleanup) ||
+               (mode == "retirement-failure" && event == SourceArtifactInstallTrustedStateTestEvent::BeforeExactRetirement)) throw std::bad_alloc();
+        });
+        set_reviewed_devel_source_build_execution_test_hooks({[&](Stage stage, const EvaluatedDevelSourceBuildProof* built) {
+                                                                  if(stage == Stage::Build) ++build_entries;
+                                                                  if(stage != Stage::Transport) return;
+                                                                  require(built && built->valid(), "bridge did not retain S4 proof");
+                                                                  expected.emplace(built->artifact().evidence());
+                                                                  actual_oid = *built->actual_built_revision().revision().value().git_commit();
+                                                                  const auto mtree = capture_process("/usr/bin/bsdtar", {"-xOf", built->artifact().path().string(), ".MTREE"}, {"PATH=/usr/bin:/bin", "LC_ALL=C"});
+                                                                  require(mtree.exit_code == 0 && xdg_generation_store_raw_contents_sha256(mtree.output) == expected->mtree_digest.value(), "bridge MTREE oracle mismatch");
+                                                                  raw_mtree = mtree.output;
+                                                                  if(mode == "snapshot-failure") {
+                                                                      std::ofstream file(built->artifact().path(), std::ios::app);
+                                                                      file << 'x';
+                                                                  }
+                                                                  if(mode == "publication-failure") fail_next_xdg_generation_store_operation_for_test(XdgGenerationStoreTestFailurePoint::Write);
+                                                                  if(mode == "publication-unknown") fail_next_xdg_generation_store_operation_for_test(XdgGenerationStoreTestFailurePoint::DirectorySync);
+                                                                  if(mode == "no-allocation") run_xdg_generation_store_race_once_for_test(XdgGenerationStoreTestRacePoint::AfterVerifiedPublication, &deny_after_bridge_publication);
+                                                              },
+                                                              token});
+        auto intent = fixture.execution_intent({"/", db});
+        if(mode == "new-dependency" || mode == "upgrade-dependency" || mode == "dependency-keeps-explicit") intent.required_targets.front().desired_reason = DesiredInstallReason::Dependency;
+        if(mode == "needed") intent.request.needed = true;
+        if(mode == "split") intent.required_targets.push_back({fixture.package_base(), "another-child", DesiredInstallReason::Explicit});
+        if(mode == "rmdeps") intent.rm_deps = true;
+        if(mode == "only-if-updated") intent.request.only_if_updated = true;
+        if(mode == "environment") intent.request.custom_environment.ordered_assignments.push_back({"PKGDEST", "/forbidden"});
+        if(mode == "database-world") intent.database_paths.db_path = "/different-db";
+        if(mode == "artifact-mismatch") {
+            intent.request.package_name = "wrong-child";
+            intent.required_targets[0].package_name = "wrong-child";
+        }
+        fs::path root;
+        {
+            auto pin = fixture.execution_pin(mode == "overlay" || mode == "overlay-legacy");
+            auto selected = prepare_reviewed_production_source_execution(
+                mode == "legacy" || mode == "overlay-legacy" ? ReviewedProductionExecutionChoice::Legacy : ReviewedProductionExecutionChoice::AuthoritativeDevel,
+                fixture.execution_checkout(), std::move(pin), ProductionReviewedSourceOutcome::InitialFullReview, std::nullopt, intent);
+            require(!pin.valid(), "pin was copied instead of moved");
+            if(mode == "legacy" || mode == "overlay-legacy") {
+                require(std::holds_alternative<ProductionArtifactSourceTree>(selected) && build_entries == 0 && prepare_calls == 0, "legacy path entered authoritative execution");
+                fixture.require_no_provenance_publication();
+                if(mode == "overlay-legacy") require(std::get<ProductionArtifactSourceTree>(selected).provenance().editor_overlay == ReviewedSourceEditorOverlayStatus::InvocationLocal, "legacy overlay lost");
+                std::cout << "S7C " << mode << " branch / authoritative-build0 / publication0 PASS\n";
+                continue;
+            }
+            if(mode == "needed" || mode == "split" || mode == "rmdeps" || mode == "only-if-updated" || mode == "overlay") {
+                require(std::holds_alternative<ReviewedDevelSourceBuildRejected>(selected) && build_entries == 0 && prepare_calls == 0, "unsupported intent entered S4/S5");
+                fixture.require_no_provenance_publication();
+                if(mode == "overlay") require(std::get<ReviewedDevelSourceBuildRejected>(selected).issue == Issue::EditorOverlay, "overlay admitted");
+                std::cout << "S7C intent " << mode << " rejected/build0/transaction0/publication0 PASS\n";
+                continue;
+            }
+            auto prepared = take_arm<PreparedReviewedDevelSourceBuildExecution>(selected, "bridge preparation failed");
+            publication_allocation::failures = 0;
+            auto executed = execute_reviewed_devel_source_build(std::move(prepared));
+            const bool blocked = publication_allocation::blocked;
+            publication_allocation::blocked = false;
+            require(executed && executed->valid() && !prepared.valid() && !execute_reviewed_devel_source_build(std::move(prepared)), "bridge replay/move failed");
+            root = executed->owned_root();
+            auto moved = std::move(*executed);
+            require(moved.valid() && !executed->valid(), "bridge result was copied");
+            const auto* publication = moved.publication();
+            const bool early = mode == "environment" || mode == "build-failure" || mode == "artifact-mismatch" || mode == "database-world" || mode == "new-dependency" || mode == "promotion";
+            if(early) {
+                require(!publication && prepare_calls == 0 && execute_calls == 0, "early failure reached S5/S6");
+                if(mode == "build-failure") require(moved.build_failure() && !moved.build_completed(), "S4 failure lost");
+                if(mode == "environment") require(moved.context_failure(), "S3 environment failure lost");
+                if(mode == "new-dependency" || mode == "promotion") require(moved.issue() == Issue::InstallReasonUnsupported && moved.install_reason_directive() != InstallReasonDirective::Default, "reason was silently changed");
+                fixture.require_no_provenance_publication();
+            } else {
+                require(publication && publication->valid() && moved.build_completed(), "S6 product missing");
+                const auto& installation = publication->installation();
+                const bool not_attempted = mode == "prepare-failure" || mode == "snapshot-failure";
+                const bool no_proof = not_attempted || mode == "nonzero" || mode == "unknown" || mode == "no-post" || mode == "binding-failure";
+                require(installation.operation() == (not_attempted ? Operation::NotAttempted : mode == "nonzero" ? Operation::Failed
+                                                                                           : mode == "unknown"   ? Operation::OutcomeUnknown
+                                                                                                                 : Operation::Succeeded),
+                        "operation fact flattened");
+                require(installation.source_context_cleanup() == Cleanup::Retained && fs::exists(root), "source context destroyed before final owner");
+                if(no_proof) {
+                    require(publication->state() == Pub::NotAttempted && installation.proof_state() != DevelSourceArtifactInstallProof::Complete, "incomplete S5 published");
+                    fixture.require_no_provenance_publication();
+                } else {
+                    require(installation.receipt_state() == DevelSourceArtifactInstallReceipt::Complete && installation.proof_state() == DevelSourceArtifactInstallProof::Complete, "successful proof flattened");
+                    const auto expected_pub = mode == "publication-failure" ? Pub::Failed : mode == "publication-unknown" ? Pub::OutcomeUnknown
+                                                                                                                          : Pub::Complete;
+                    require(publication->state() == expected_pub && installation.operation() == Operation::Succeeded, "publication partial outcome flattened install");
+                    if(mode == "cleanup-failure" || mode == "retirement-failure") require(installation.privileged_cleanup().state == Cleanup::Failed && publication->state() == Pub::Complete, "cleanup failure lost");
+                    if(expected_pub == Pub::Complete) {
+                        const auto read = read_devel_build_provenance(installation.proof()->built_proof().package_base());
+                        const auto& loaded = require_arm<DevelBuildProvenanceStoreLoaded>(read, "bridge readback failed");
+                        require(loaded.provenance.artifact() == *expected && loaded.provenance.installed_binding() == installation.proof()->installed_binding() &&
+                                    *loaded.provenance.actual_built_revision().revision().value().git_commit() == actual_oid && actual_oid == upstream.oid() &&
+                                    *loaded.provenance.reviewed_recipe_revision().value().git_commit() == fixture.recipe_oid(),
+                                "publication did not derive from actual S4/S5 proof");
+                        auto session = PackageMetadataSession::open({"/", db});
+                        const auto metadata = session.query_installed_package(fixture.package_name());
+                        require(require_arm<InstalledPackageMetadata>(metadata, "installed reason readback failed").reason == (dependency_reason ? InstalledPackageReason::Dependency : InstalledPackageReason::Explicit), "default reason semantics changed");
+                    }
+                }
+                require(execute_calls == (not_attempted ? 0U : 1U), "transaction repeated");
+                if(mode == "unknown") require(consumes == 0 && aborts == 0, "unknown transaction retried/consumed/aborted");
+                if(mode == "no-allocation") require(blocked && publication_allocation::failures == 0, "outer result allocated after publication success");
+            }
+            require(build_entries == (mode == "environment" ? 0U : 1U), "multiple build paths executed");
+        }
+        require(root.empty() || !fs::exists(root), "last bridge owner left source context behind");
+        set_reviewed_devel_source_build_execution_test_hooks({});
+        set_evaluated_devel_source_artifact_transport_test_hooks({});
+        set_source_artifact_install_trusted_exec_test_hook({});
+        set_source_artifact_install_trusted_state_test_hook({});
+        set_installed_record_observation_test_hooks({});
+        reset_xdg_generation_store_test_hooks();
+        std::cout << "S7C integrated " << mode << " / one-shot / lifetime / lossless PASS\n";
+    }
+}
+#endif
+
 std::vector<fs::path> context_root_inventory() {
     std::vector<fs::path> roots;
     for(const auto& root : g_fixture_context_roots) {
@@ -2411,6 +2702,13 @@ std::vector<fs::path> context_root_inventory() {
 int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
     const std::vector<fs::path> before = context_root_inventory();
     try {
+#ifdef MOGUET_TEST_REVIEWED_DEVEL_SOURCE_EXECUTION
+        if(argc == 2 && std::string(argv[1]) == "--reviewed-devel-execution") {
+            test_reviewed_devel_execution_bridge();
+            require(context_root_inventory() == before, "S7-C retained a build context");
+            return 0;
+        }
+#endif
 #ifdef MOGUET_ENABLE_DEVEL_BUILD_PROVENANCE_PUBLICATION_TEST_HOOKS
         if(argc == 2 && std::string(argv[1]) == "--installed-devel-publication") {
             test_installed_exact_binding(true);
