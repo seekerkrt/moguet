@@ -4706,10 +4706,15 @@ UnifiedPlanRenderingResult render_unified_plan_observation(
     for(const auto& metadata : observation.root_metadata()) {
         if(const auto* update = std::get_if<UnifiedPlanBorrowedAuthorityReference<AurUpdatePlanEntry>>(&metadata);
            update && aur_update_basis(update->get()) == AurUpdateBasis::GitRevision) {
-            // TRANSLATORS: The placeholder is a package name. This is a Git revision difference, not a newer package version.
-            state.output << localization::format_translated_message("  Observed update basis: {} — Git revision difference", terminal_safe_text_display(update->get().installed_name)) << '\n';
+            state.output << localization::format_translated_message(
+                                // TRANSLATORS: The placeholders are a package name and the literal tool name "Git". This is a revision difference, not a newer package version.
+                                "  Observed update basis: {} — {} revision difference", terminal_safe_text_display(update->get().installed_name), "Git")
+                         << '\n';
         } else if(update && update->get().devel_assessment_origin == AurDevelAssessmentOrigin::CurrentObservation && update->get().devel_assessment.state() == DevelUpdateAssessmentState::UpToDate) {
-            state.output << localization::format_translated_message("  Observed devel assessment: {} — same Git revision", terminal_safe_text_display(update->get().installed_name)) << '\n';
+            state.output << localization::format_translated_message(
+                                // TRANSLATORS: The placeholders are a package name and the literal tool name "Git".
+                                "  Observed devel assessment: {} — same {} revision", terminal_safe_text_display(update->get().installed_name), "Git")
+                         << '\n';
         }
     }
     render_phases(observation, state);

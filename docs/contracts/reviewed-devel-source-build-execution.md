@@ -103,7 +103,7 @@ privileged cleanup、source context cleanupをconst診断として参照でき�
 | known transaction nonzero | operation Failed(status)、publication NotAttempted |
 | transaction OutcomeUnknown | original Unknown、publication NotAttempted、retryなし |
 | install success + proof不足 | Succeededとproof/receipt issue、publication NotAttempted |
-| install/proof success + publication Failed | install successを維持、将来routeではpartial nonzero |
+| install/proof success + publication Failed | install successを維持、normal routeへpartial nonzeroを伝播 |
 | PublishedUncertain | publication OutcomeUnknown、adopt/rebase/retryなし |
 | proof/publication Complete + privileged cleanup Failed | cleanup failureを独立保持、rollbackと扱わない |
 
@@ -121,7 +121,7 @@ destructorへprivileged cleanup、transaction/publication retry、store mutation
 - new preparation/execution APIのnormal consumerは7-D reviewed route adapter。
 - S6 publisherの新consumerは7-C execution ownerだけ。
 - 7-B assessmentからexecutionへのdirect callは0。7-Dがpolicyとtyped reviewed selectionを結合する。
-- normal routingとdry-run/queryは7-Dを参照する。Slice 8はNOT STARTED。
+- normal routingとdry-run/queryは7-D、public contractとmigrationは[devel tracking](devel-tracking.md)を参照する。
 
 S5 receipt/protocol/FreshInstalledArtifactBinding、S5 final proof authority、S6 publication/result/lifetimeは変更しない。
 bridge外での新たなsource再評価や、既存sealed authorityを置換する新proof定義は追加しない。

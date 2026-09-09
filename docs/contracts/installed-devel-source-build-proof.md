@@ -5,9 +5,9 @@
 Issue #476 S5-Cは、[Slice 4 built proof](evaluated-devel-source-build-proof.md)と
 [S5-B exact receipt / fresh binding](exact-installed-artifact-binding.md)を同一lineageで照合し、
 `InstalledDevelSourceBuildProof`と`DevelSourceArtifactInstallResult`を作る内部producerである。
-production TUへcompileするが、normal CLI/source build/upgrade routeから呼ばない。
+normal routeは7-CからS4→S5を実行し、このproof/resultをS6へ渡す。
 S5自体はpublicationを行わない。[Slice 6-B](devel-build-provenance-publication.md)はこのresultをconsumeする別ownerである。
-normal route、#475 comparison、devel assessmentは未接続。
+normal route policyと#475 comparisonは[7-D](devel-normal-routes.md)と7-Bの別責務である。
 
 ```text
 ReviewedSourceState != built provenance
@@ -106,4 +106,4 @@ final proofのdestructorはprivileged token/state、installed DB、provenance st
 - `test-devel-source-artifact-install-result`: 既存S5-B fixtureを再利用するfocused aggregate matrix、fileless/unsupported/no-proof、known nonzeroとcleanup failure。
 - canonical negative compile: granting narrow headers、same-name authority spoof、raw component/tuple/decoded binding、copy/default、contradictory aggregateを拒否。
 - `test-container-exact-installed-binding`: isolated anonymous volume上の実Install/Upgrade/reinstall/downgradeからfinal proofまで。host package DB非共有、publicationなし。
-- `test-build-authority-closure`: source/link境界、S5 producerからstoreへの未接続、normal routeの未接続。
+- `test-build-authority-closure`: source/link境界、S5 producerからstoreへのdirect callなし、7-C経由のnormal connection。

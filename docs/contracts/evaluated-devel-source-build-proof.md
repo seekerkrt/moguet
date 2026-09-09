@@ -3,7 +3,7 @@
 ## 位置づけ
 
 この文書はIssue #476 Slice 4で確立する、reviewed AUR recipeからactual fresh package archiveまでの
-production-compiled / production-disconnected proof contractを定める。Slice 4が証明するのは
+actual build proof contractを定める。Slice 4が証明するのは
 **何を実際にbuildしたか**であり、何をinstallしたかではない。
 
 責務の後続境界は次のとおり分離する。
@@ -13,7 +13,8 @@ production-compiled / production-disconnected proof contractを定める。Slice
 - Slice 6: successful install後のprovenance publication
 - Slice 7: #475 remote observationとのauthoritative comparison
 
-current CLI、normal source-build / install、AUR assessment、upgrade routeはこのcapabilityを生成または消費しない。
+current normal source-buildは[7-C execution](reviewed-devel-source-build-execution.md)からこのcapabilityを生成し、
+S5/S6へ渡す。AUR assessmentは保存済みhistorical evidenceを7-Bで再検証する別ownerである。
 
 ## Input authorityとlineage
 
@@ -112,9 +113,9 @@ artifactを保持する。S5-Aの`EvaluatedDevelSourceArtifactTransport`はproof
 保存archive digestとの再照合を経てoriginal retained FDを既存sealed transportへ渡す。
 同ownerのS5-B `execute_exact`は[exact receiptとfresh installed binding](exact-installed-artifact-binding.md)までを
 内部producerとして実装する。`finalize()`は元proofのopaque build lineageを維持して
-[S5-C final proof/result](installed-devel-source-build-proof.md)へ所有権を移す。通常routeとSlice 6 publicationは未接続である。
+[S5-C final proof/result](installed-devel-source-build-proof.md)へ所有権を移す。normal routeは7-CからS4→S5→S6を一度だけ実行する。
 接続の契約は[trusted transport](trusted-source-artifact-transport.md)を正とする。
-Slice 4 producer自身にはinstall呼出を追加せず、normal routeは未接続のままである。
+Slice 4 producer自身はinstall/publicationを呼ばず、後続phaseのownerは7-Cである。
 
 ## Failureとcleanup
 

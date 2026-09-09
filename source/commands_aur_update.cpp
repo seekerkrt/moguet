@@ -52,7 +52,9 @@ std::string aur_update_preflight_reason_label(
         case AurUpdateExecutionReason::UpToDate:
             return localization::translate_message("up to date");
         case AurUpdateExecutionReason::DevelObservationUnknown:
-            return localization::translate_message("devel Git observation failed");
+            return localization::format_translated_message(
+                // TRANSLATORS: The placeholder is the literal tool name "Git".
+                "devel {} observation failed", "Git");
         case AurUpdateExecutionReason::DevelUnsupported:
             return localization::translate_message("devel automatic update unsupported");
         case AurUpdateExecutionReason::DevelRequiresCheck:

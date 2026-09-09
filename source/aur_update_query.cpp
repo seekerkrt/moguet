@@ -168,7 +168,9 @@ AurUpdateQueryResult query_aur_updates_for_foreign_inventory(
     result.devel_observations = refine_aur_devel_updates(result.plan);
     for(const auto& entry : result.plan.entries) {
         if(aur_update_basis(entry) == AurUpdateBasis::GitRevision)
-            Logger::info(localization::format_translated_message("Git revision update available: {} (package-version decision unchanged).", entry.installed_name));
+            Logger::info(localization::format_translated_message(
+                // TRANSLATORS: The placeholders are the literal tool name "Git" and a package name.
+                "{} revision update available: {} (package-version decision unchanged).", "Git", entry.installed_name));
     }
     return result;
 }

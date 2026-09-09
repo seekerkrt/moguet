@@ -267,3 +267,31 @@ filtered/system/upgrade-all、-Qua、dry-run/unified projection/renderer、legac
 7-A/7-B/7-C、#475、canonical negatives、build-authority-closure、cmake-frontend-contractを維持する。
 normal link objectsで7-Bだけが#475、7-Cだけがpublisherを直接呼ぶことを確認する。
 このfocused candidate gateをSlice 8/full live/release gateの完了へ拡張しない。
+
+### Issue #476 final acceptance / Slice 8
+
+final candidateでは新authorityを追加せず、[public contract / migration](contracts/devel-tracking.md)と
+Issue本文のAcceptance criteriaを1項目ずつsource/evidenceへ対応させる。実行結果はrepository外のhandoffへ保存する。
+各項目はPASS / FAIL / FOLLOW-UP・NON-BLOCKINGを区別し、blocking FAILがあればimplementation COMPLETEとしない。
+
+- `test-host-release`でfull A–D + Gをfreshに実行する。既存のS1〜S7 focused/integrated、normal route、
+  same-version、partial outcomes、dry-run/-Qua、source-build/artifact/install/reviewed-source/AUR/upgrade-all、
+  public documentation/help/manとfrontendを含める。同一candidateで包含されたfocused aliasesを重複実行する必要はない。
+- actual Git/makepkg/artifact proofとloopback HTTPS observerをdeterministic receipt/process seamと区別する。
+  normal queryのP/I/R fixtureとnormal executionのreal typed productが何を結合し、何を省略するかを記録する。
+- `test-container-exact-installed-binding`はS5-only、`test-container-devel-publication`はactual S4→S5→S6を
+  fresh anonymous DB volumeで別々に実行する。host DBは共有しない。Install/Upgrade/same-version reinstall/downgrade、
+  actual OID/artifact/binding readback、raw document SHA-256、schema v1/27 keys、predecessor/historyを保持する。
+- same-version different-artifact / identical same-second reinstallと`--needed` skipのactual gateは
+  `test-container-installed-binding-characterization`、transportのskip/failureは
+  `test-container-source-artifact-receipt`で確認する。S5/S6 positiveへskipを混ぜない。
+- current Arch E / actual provider・AUR・local Fは利用可能な安全なcontainer環境で確認し、
+  environment blockedや未実施を明記する。full public-network normal devel CLI transactionを
+  deterministic normal route、networkless transaction、既存FのPASSから推定しない。
+- fresh CMake inventory / focused aliases / descriptor ledgerとactual production objectsのcaller closureを保存する。
+  S5-A/G9=12、S5-B=11、S5-C=23、S6-B=22、S7-A=19、S7-B=17、S7-C=20のcanonical negative diagnosticsを維持する。
+  normal binary/helpersのtest macro・seam・symbol leakageなしを確認し、blind descriptor hash updateをしない。
+- `git diff --check`、candidate manifest/diff、source/build byte continuity、staged/unstaged/untrackedとHEADを記録する。
+
+このgateの完了はimplementation-sideのfinal independent audit準備であり、Issue close、merge、tag、
+releaseを行う権限やRC approval epochを代替しない。必須でない改善は理由付きfollow-upへ分離する。

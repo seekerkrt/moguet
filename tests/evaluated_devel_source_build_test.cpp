@@ -377,7 +377,9 @@ public:
         bool prepare_mutation = false,
         bool exact_branch = false,
         bool tracked_local_source = false,
-        bool disable_debug = false)
+        // The reviewed fixture owns its one-artifact shape even when the
+        // current Arch makepkg.conf enables a debug package by default.
+        bool disable_debug = true)
         : tree_(label), upstream_(upstream),
           package_base_("example-base"),
           package_name_("moguet-slice4-" + label),

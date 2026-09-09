@@ -3,7 +3,8 @@
 ## Scope / decision owners
 
 Issue #476 Slice 7-Dは既存7-B assessmentと7-C executionをnormal routeへ接続する。
-新しいbuild/installed/remote approval/publication proofは定義しない。Slice 8のmigration・full live acceptance・release完了は含めない。
+新しいbuild/installed/remote approval/publication proofは定義しない。全体のpublic contract・migrationは
+[devel tracking](devel-tracking.md)、final acceptanceは[VALIDATION](../VALIDATION.md)を参照する。
 
 `aur_update_query` → `aur_devel_update` → `assess_current_devel_package`を共通read-only ownerとする。
 normal AUR RPC VersionとGit revisionは独立したauthorityである。

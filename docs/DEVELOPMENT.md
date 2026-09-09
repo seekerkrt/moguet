@@ -296,13 +296,13 @@ reinstall、identical same-second reinstallをactual `pacman -U`で実行し、f
 filesystem/runtime、またはidentical same-second replacementを区別できない環境はPASSへ丸めずfail closedする。
 このtargetはfeasibility evidenceであり、provenance publication、host A–D、offline E、actual Fを代替しない。
 
-Issue #476 Slice 2のproduction-disconnected storage foundationは、host focused target
+Issue #476 Slice 2のstorage foundationは、host focused target
 `test-xdg-generation-store`と`test-devel-build-provenance-store`で確認する。前者は#411から抽出した
 raw immutable-generation/CAS機械層、後者は別namespace、strict codec、exact #411 binding、future-schema
-refusal、typed lookup/publicationを所有する。production sourceへcompileされてもnormal CLIからのstore
-lookup/publication callerは持たず、installed characterizationやcontainer transaction evidenceを代替しない。
+refusal、typed lookup/publicationを所有する。normal queryは7-Bからreadし、7-C→S6がpublicationする。
+このfocused evidenceはinstalled characterizationやcontainer transaction evidenceを代替しない。
 
-Issue #476 Slice 3のproduction-disconnected build-context foundationは、host focused target
+Issue #476 Slice 3のbuild-context foundationは、host focused target
 `test-invocation-owned-source-build-context`で確認する。`PinnedReviewedSourceBuild`だけをproduction mint入口とし、
 exact reviewed Git treeから`.git`を含まないprivate recipe snapshotを作り、同じ一意なownerへprivate
 `PKGDEST` / `BUILDDIR` / `SRCDEST`と固定`/usr/bin/makepkg` identityを束縛する。tracked symlink / gitlink、
@@ -310,10 +310,10 @@ editor overlay、dirty / untracked drift、unsafe path / root、shared fallback�
 parentはrootまたはeffective user所有だけを許し、group / other writableならsticky bitを必須とし、retained
 descriptorとnamed identityをcontext lifetime中も再検証する。partial construction failureはretain済みのroot / child
 だけをdescriptor-relativeにcleanupし、abort cleanup failureをprimary creation failureと別のtyped consequenceへ
-保持する。このfoundationはproduction sourceへcompileされるが、current source-build caller、makepkg phase、
-provenance publication、devel comparisonへは接続しない。
+保持する。current normal source-buildは7-Cからこのcontextを作り、S4のmakepkg phaseへ渡す。
+context producer自体はinstall/publicationやdevel comparisonを呼ばない。
 
-Issue #476 Slice 4のproduction-disconnected actual-build proofは、host focused target
+Issue #476 Slice 4のactual-build proofは、host focused target
 `test-evaluated-devel-source-build`で確認する。exact reviewed snapshotと同じcontext内のprivate working recipeを
 分離し、retained `/usr/bin/makepkg` FD、raw/evaluated source一致、`--nobuild`後のprivate mirror/worktree、
 pre/post-build complete Git OID、dynamic version、fresh one-artifact inventory、retained-FD libalpm metadata、
@@ -350,7 +350,9 @@ raw persistent bytesのSHA-256、schema v1/27 keys、final proofとの全field�
 contiguous historyを確認する。runnerはcopied source hashesとraw documentsをstdoutへ出し、
 検証者はcurrent candidateとの照合とrepository外へのevidence保存を行う。
 S5-only targetはpublication-noneを引き続き要求する。#475 comparisonは7-B coordinator内だけに接続し、
-7-Dがnormal routeから7-B/7-Cへ接続する。Slice 8は未着手で、S4/S5/S6のowner contractは変更しない。
+7-Dがnormal routeから7-B/7-Cへ接続する。Slice 8の最終契約とmigration判断は
+[devel tracking contract](contracts/devel-tracking.md)、final acceptanceの選択とevidenceは
+[VALIDATION](VALIDATION.md)を参照する。S4/S5/S6のowner contractは変更しない。
 詳細は[`exact-installed-artifact-binding.md`](contracts/exact-installed-artifact-binding.md)を正とする。
 
 S5-Cのfinal construction/lineage/N=1は`test-installed-devel-source-build-proof`、lossless aggregateとcleanup consequenceは

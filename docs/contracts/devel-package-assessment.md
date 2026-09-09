@@ -5,7 +5,7 @@
 Issue #476 Slice 7-Bのread-only coordinatorは
 `assess_current_devel_package(const DevelPackageAssessmentTarget&)`だけをproduction入口にする。
 targetは解決済みPackageBase/AUR source identity、同じbaseに属するinstalled child集合、既知develのhintを保持する。
-future callerがsource resolutionとinventory groupingを所有する。空集合、複数child、source/base不一致はremote前に拒否する。
+normal query callerがsource resolutionとinventory groupingを所有する。空集合、複数child、source/base不一致はremote前に拒否する。
 hintはMissing時の保守的な分類にだけ使用し、network authorityを与えない。
 
 callerはprovenance、current installed observation、reviewed state、raw OID、parser resultを入力できない。
@@ -103,7 +103,7 @@ production callerの境界:
 - coordinatorのnormal callerは7-DのAUR devel query adapter。
 - S6 publisherのconsumerは別の7-C execution ownerだけで、assessmentからのcallは0。
 - [7-D normal routing](devel-normal-routes.md)がassessment/policyと[7-C execution](reviewed-devel-source-build-execution.md)を結合する。coordinatorからbuild/install/publicationを呼ばない。
-- Slice 8はNOT STARTED。
+- public contractとmigrationは[devel tracking](devel-tracking.md)を参照する。
 
 ## Validation
 

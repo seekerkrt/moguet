@@ -2,9 +2,9 @@
 
 ## 文書の位置づけ
 
-この文書はIssue #476 Slice 2で確立する、将来のactual build/install proofを保存するための
-internal XDG current-provenance store contractである。Slice 2終了時点ではproduction lifecycle、
-CLI、AUR update assessment、Issue #475 observerのいずれにも接続しない。
+この文書はIssue #476 Slice 2で確立したinternal XDG current-provenance store contractである。
+current normal routeでは7-Bがhistorical tipを読み、7-CがS4/S5を完了してS6からpublicationする。
+全体の接続とmigration方針は[devel tracking contract](devel-tracking.md)を参照する。
 
 ## Authority separation
 
@@ -21,7 +21,7 @@ CLI、AUR update assessment、Issue #475 observerのいずれにも接続しな�
 #411 bindingは、AUR source identityとPackageBase、exact reviewed recipe OID、#411 record
 generation、observed raw state documentのSHA-256を保持する。#411 state path、generation leaf、
 device、inode、mode、link count、mtime、ctimeはruntime filesystem/CAS proofであり、provenanceの
-persistent business identityへ保存しない。将来のconsumerはcurrent #411 store readに対して、
+persistent business identityへ保存しない。7-B consumerはcurrent #411 store readに対して、
 semantic state、generation、raw document digestを再照合できる。
 
 generation ownerは次のとおり分離する。
@@ -122,13 +122,13 @@ S5-Bの[live installed observation producer](exact-installed-artifact-binding.md
 complete private declarationを共有する。persistent decodeからfresh live bindingへ昇格する入口はない。
 [S5-C final proof](installed-devel-source-build-proof.md)もin-memory capabilityであり、token、receipt lifetime、
 fresh binding capabilityをpersistent schemaへ入れない。[Slice 6-B publisher](devel-build-provenance-publication.md)が、そのsealed resultをconsumeしてsemantic valueをprojectionする。
-store schemaは不変で、通常routeへの未接続は維持する。
+store schemaはv1のままであり、normal routeは7-B/7-Cを介して利用する。
 
-## Production-disconnected boundary
+## Production consumer boundary
 
-store/modelとSlice 6-B publisherはproduction binaryへcompileされるが、normal CLI/source/upgrade routeから
-lookup、directory creation、publicationを呼ぶconsumerは存在しない。publisherはsealed S5 resultを受け取る内部入口と
-deterministic fixtureだけで検証する。AUR comparison、CLI output/exit statusは変更しない。
+normal queryは7-Bだけからstoreをreadし、read-only lookupでdirectoryを作らない。
+publicationは7-C→S6がsealed S5 resultをconsumeして行う。store自体はbuild/install、#475、
+normal route policyを所有せず、historical decodeをfresh proofへ昇格しない。
 
 ## Non-scope
 

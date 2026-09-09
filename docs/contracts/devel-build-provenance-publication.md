@@ -6,7 +6,8 @@ Issue #476 Slice 6-Bは、[S5 installation result](installed-devel-source-build-
 historical semantic provenanceを[既存store](devel-build-provenance-store.md)へpublicationする内部producerである。
 normal routeは7-D→7-Cを通じてこのpublisherを使う。6-Cは既存publisherのactual/container acceptanceだけを追加する。
 current binding re-observation/#475 comparisonは7-A/7-Bが、typed pinからの専用execution bridgeは
-[7-C](reviewed-devel-source-build-execution.md)が所有する。normal route activationの7-DとSlice 8は未実装である。
+[7-C](reviewed-devel-source-build-execution.md)が所有する。全体のpublic contractとmigrationは
+[devel tracking](devel-tracking.md)、normal route policyは[7-D](devel-normal-routes.md)を参照する。
 
 ```text
 transaction success != receipt success != proof success != publication success
@@ -110,7 +111,7 @@ destructor結果を事前にCompleteとしない。destructorにprivileged trans
 - `test-devel-build-provenance-publication-result`: no-publication gates、store/refusal/resource/uncertainty mapping、cleanup failure。
 - `test-container-devel-publication`: isolated actual Install/Upgrade/reinstall/downgradeからpublication Complete、raw document/readback/historyとstore世代1→2→3→4。installed世代とversion orderingはstore世代へ混ぜない。S5-only laneのpublication-noneは維持する。
 - canonical negative compile: raw/decoded values、store DTO、private entry、same-name/reverse friend/late include、copy/default、contradictory aggregateを拒否。
-- `test-build-authority-closure`: normal routeと#475からのdisconnection。
+- `test-build-authority-closure`: normal direct callerは7-Cだけ、7-B/#475からのpublication callなし。
 
 S5 publication-none testsは残す。今回のtestsはisolated temporary HOME/XDG_STATE_HOMEとexisting trusted helper seamを使う。
 actual package transaction/container publicationは6-Cで別途検証し、このcontractのdeterministic PASSをその代替にしない。

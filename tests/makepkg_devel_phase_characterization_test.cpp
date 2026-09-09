@@ -361,6 +361,7 @@ void characterize_makepkg_phases() {
     const std::string pkgbuild =
         "pkgname=" + std::string(PACKAGE_NAME) + "\n"
                                                  "pkgver=0\n"
+                                                 "options=('!debug')\n"
                                                  "pkgrel=1\n"
                                                  "pkgdesc='Moguet makepkg phase characterization fixture'\n"
                                                  "arch=('any')\n"

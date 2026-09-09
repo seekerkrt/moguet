@@ -477,7 +477,12 @@ S4/S5/S6を一度だけconsumeします。開始後にlegacyへfallbackしませ
 別のpartial outcomeとして保持し、non-zeroにします。registered RequiresCheckはdefault-Noの明示rebuild確認へ進みますが、
 それがsource reviewを代替することはありません。`--noconfirm`からreview authorityを作りません。
 詳細は[normal devel route contract](https://github.com/seekerkrt/moguet/blob/develop/docs/contracts/devel-normal-routes.md)を参照してください。
-Slice 8のmigration、full live acceptance、release completionは未完了です。
+provenanceは別XDG state namespaceのschema v1を維持します。unknown/future schema、corrupt/unsafe historyは
+fail closedとし、updaterはrecord修復、external history adoption、missing baselineの自動生成を行いません。
+baselineには明示的にreviewした対応build、実install、publication成功が必要です。同version reinstallでも
+installed artifact bindingが変わればhistorical provenanceは無効です。詳細は
+[devel tracking / migration contract](https://github.com/seekerkrt/moguet/blob/develop/docs/contracts/devel-tracking.md)を参照してください。
+これはv2.7.0向けdevelopment candidateの説明であり、v2.7.0のrelease済み機能とは扱いません。
 
 `--aur`は対応する`-S`、`-Ss`、`-Si`をAURへ限定します。`--repo`はこれらのformを
 official binary repositoryへ限定し、exact target-less `-Syu`ではrepository-only selectorに

@@ -5,7 +5,7 @@
 Issue #476 Slice 5 S5-Bは、[S5-Aのretained artifact transport](trusted-source-artifact-transport.md)から、
 actual Install/Upgrade receiptとfresh installed DB bindingを作る内部producerを定める。
 [S5-C final producer](installed-devel-source-build-proof.md)がこれらのowned componentを消費する。
-normal CLI/source route、Slice 6のpublication、#475 comparisonには接続しない。
+normal routeは7-CからこのS5 producerを使い、final proofを別ownerのS6へ渡す。S5から#475を呼ばない。
 
 ```text
 execution witness != exact transaction receipt != fresh installed binding
@@ -149,7 +149,8 @@ malicious root/adminに対する耐性を保証しない。
 
 S5-Cの`InstalledDevelSourceBuildProof`とlossless resultは[専用contract](installed-devel-source-build-proof.md)に従い、
 元build/transactionのopaque identityとexact metadata/raw generationを再照合する。
-Slice 6 publication、XDG provenance write、normal #476 route、#475 comparisonは未接続である。
+[S6 publication](devel-build-provenance-publication.md)は7-Cだけが呼び、S5 producer自体はXDG writeをしない。
+normal #476 routeと#475 comparisonは7-D/7-Bを参照する。
 
 ## Validation入口
 

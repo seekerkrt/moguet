@@ -545,7 +545,13 @@ remain separate partial outcomes and produce a non-zero result. Registered
 `RequiresCheck` uses an explicit default-No rebuild confirmation; this does not
 replace source review. `--noconfirm` cannot supply review authority. See the
 [normal devel route contract](https://github.com/seekerkrt/moguet/blob/develop/docs/contracts/devel-normal-routes.md).
-Slice 8 migration, full live acceptance, and release completion remain pending.
+The provenance format remains schema v1 in a separate XDG state namespace.
+Unknown/future schemas and corrupt or unsafe history fail closed; the updater does
+not repair records, adopt external history, or create a missing baseline. A baseline
+requires an explicitly reviewed supported build, an actual install, and successful
+publication. Same-version reinstalls invalidate historical provenance when the
+installed artifact binding changes. See the [devel tracking and migration contract](https://github.com/seekerkrt/moguet/blob/develop/docs/contracts/devel-tracking.md).
+This describes the development candidate for v2.7.0, not a released v2.7.0 feature.
 
 `--aur` limits supported `-S`, `-Ss`, and `-Si` forms to AUR. `--repo`
 limits those forms to official binary repositories and is also the

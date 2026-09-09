@@ -35,7 +35,7 @@ NOT implemented by #475:
 従って、#475の完成を「VCS/devel update tracking完成」と表現しない。current production buildには
 observer implementationが含まれる。#476 Slice 7-Bの[read-only assessment coordinator](devel-package-assessment.md)だけが
 P/I/R local gates後にauthority-approved requestを生成し、このobserverを呼ぶ。
-normal CLI/AUR update routeは未接続であり、raw metadataをnetwork authorityへ昇格させない。
+normal CLI/AUR update routeは[7-D](devel-normal-routes.md)から7-Bを通す。raw metadataをnetwork authorityへ昇格させない。
 
 ## Purpose
 
@@ -65,7 +65,7 @@ raw source syntax / metadata
         │
         │ direct promotion forbidden
         ▼
-future reviewed/evaluated source authority (#476)
+current P/I/R-validated source authority (#476 / 7-B)
         ↓
 AuthorityApprovedGitSourceIdentity
         ↓
@@ -82,7 +82,8 @@ GitRemoteRevisionObservationResult
 
 `AuthorityApprovedGitSourceIdentity`は、前段ownerが一つのeffective Git sourceをremote observationへ
 使用してよいと承認済みであることを表すsealed capabilityである。#475にはこのcapabilityの
-production factory / friend producerがなく、test-only fixtureだけがcompile definitionで隔離される。
+production factoryはない。current treeでは#476の7-B coordinatorだけがprivate friend producerであり、
+test-only fixtureはcompile definitionで隔離する。
 
 次の型や値は、それ自体ではnetwork authorityではない。
 
@@ -93,8 +94,8 @@ production factory / friend producerがなく、test-only fixtureだけがcompil
 - `SourceAwarePackageIdentity`: generic identity foundationであり、authority-approved upstream source connectionではない。current generic repository / AUR projectionのrevision `Unknown`をobserved revisionへ昇格させない。
 - `AurRecipeRevision`、reviewed source state、accepted AUR recipe commit: AUR recipe authorityであり、PKGBUILD内のupstream Git revision authorityではない。
 
-requestは上記raw / generic型からconstructibleでもconvertibleでもない。#476がreview済み / 評価済みの
-effective source metadata producerを追加するまで、このfirewallをconvenience adapterで迂回しない。
+requestは上記raw / generic型からconstructibleでもconvertibleでもない。#476の7-Bが
+historical evaluated sourceをcurrent P/I/Rへ照合する入口以外から、このfirewallを迂回しない。
 
 ## Supported subset
 
@@ -108,13 +109,13 @@ current production subsetは次へ閉じる。
 | Object ID | canonical lowercase SHA-1 40 hex、canonical lowercase SHA-256 64 hex |
 
 supportは「requestとobserverがこのsubsetを正しく表現・実行できる」という意味である。
-production authority producerやpublic update workflowへの接続を意味しない。
+public update workflowのeligibilityは別ownerの#476 P/I/R gatesが判定する。
 
 ## Request model
 
 | Type | Contract |
 | --- | --- |
-| `AuthorityApprovedGitSourceIdentity` | separate authority ownerが承認済みのGit source capability。#475 production producerなし |
+| `AuthorityApprovedGitSourceIdentity` | 7-B coordinatorがP/I/R gates後に承認するGit source capability。#475自身はmintしない |
 | `ValidatedHttpsGitRemote` | libcurl-backed canonical HTTPS URLだけを保持。raw spellingをnetwork sidecarとして保持しない |
 | `ValidatedExactGitBranch` | fixed `/usr/bin/git check-ref-format --branch`が受理し、stdoutもexact一致したbranch |
 | `ValidatedGitRemoteSelector` | payloadなし`DefaultHead`、または`ValidatedExactGitBranch`を持つ`ExactBranch` |
@@ -570,7 +571,7 @@ same-invocation dedupに利用できるが、#475は次を追加しない。
   #411には存在しない。
 - **#476**: reviewed/evaluated source metadataから`AuthorityApprovedGitSourceIdentity`を作るproduction
   producer、installed/build provenance、same-invocation orchestration、remote comparison、
-  `UpdateAvailable` / `UpToDate`、AUR update connectionを所有するfuture follow-upである。
+  `UpdateAvailable` / `UpToDate`、AUR update connectionを所有する。current connectionは[devel tracking](devel-tracking.md)を参照する。
 
 ## Validation evidence
 
@@ -612,6 +613,6 @@ current focused entryは`test-git-remote-revision-observer`でunit/composition�
 ## Compatibility
 
 このfoundation自体はcurrent CLI、AUR update result、output、exit status、config / state / cache layout、
-build / install / transactionを変更しない。利用者向けの対応subsetと未接続境界は
+build / install / transactionを変更しない。利用者向けの対応subsetとowner境界は
 [`COMPATIBILITY.md`のobserver foundation section](../COMPATIBILITY.md#compat-git-remote-revision-observer)
 を参照する。

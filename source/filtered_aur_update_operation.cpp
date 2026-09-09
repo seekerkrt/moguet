@@ -1648,7 +1648,9 @@ FilteredAurUpdateTargetAdapter adapt_aur_update_plan_for_upgrade_all(
                     UPGRADE_ALL_COMMAND_NAME));
             case AurUpdateEffectiveState::Unknown:
                 status = UpgradeAllAurTargetStatus::Incomplete;
-                status_detail = localization::translate_message("Devel Git observation failed; no automatic build.");
+                status_detail = localization::format_translated_message(
+                    // TRANSLATORS: The placeholder is the literal tool name "Git".
+                    "Devel {} observation failed; no automatic build.", "Git");
                 break;
             case AurUpdateEffectiveState::Unsupported:
                 status = UpgradeAllAurTargetStatus::Incomplete;

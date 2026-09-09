@@ -1556,7 +1556,9 @@ int cmd_query_foreign_updates() {
                     entry.aur_package->version));
                 break;
             case AurUpdateEffectiveState::Unknown:
-                Logger::error(localization::format_translated_message("Devel Git observation failed: {}", entry.installed_name));
+                Logger::error(localization::format_translated_message(
+                    // TRANSLATORS: The placeholders are the literal tool name "Git" and a package name.
+                    "Devel {} observation failed: {}", "Git", entry.installed_name));
                 query_result.recoverable_failures.push_back({{entry.installed_name}, "Devel Git observation failed"});
                 break;
             case AurUpdateEffectiveState::Unsupported:
