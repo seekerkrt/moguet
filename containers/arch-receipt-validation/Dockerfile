@@ -32,6 +32,7 @@ RUN cmake -S . -B build/cmake-receipt-testing \
         -DMOGUET_INSTALL_INTERNAL_EXECUTABLE_DIRECTORY=/usr/libexec/moguet \
     && cmake --build build/cmake-receipt-testing \
         --target moguet-source-artifact-install-installed-fixture \
+                 evaluated-devel-source-artifact-transport-test \
         --parallel 8
 
 RUN for fixture in \

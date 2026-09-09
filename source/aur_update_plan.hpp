@@ -49,8 +49,8 @@ enum class AurUpdateClassification {
 
 // The effective state projects the two orthogonal authorities without
 // changing AurUpdateClassification or AurVersionRelation. Inconsistent keeps
-// assessment states outside this conservative connection from becoming a
-// silent success before their producer contract is connected.
+// legacy conservative inputs and current 7-B observations distinct. Unknown
+// origins and inconsistent normal metadata never become silent success.
 enum class AurUpdateEffectiveState {
     UpdateAvailable,
     UpToDate,
@@ -58,8 +58,15 @@ enum class AurUpdateEffectiveState {
     NonAurForeign,
     MetadataUnavailable,
     VersionComparisonUnavailable,
+    Unknown,
+    Unsupported,
     Inconsistent,
 };
+
+enum class AurDevelAssessmentOrigin { Conservative,
+                                      CurrentObservation };
+enum class AurUpdateBasis { Version,
+                            GitRevision };
 
 struct AurUpdatePlanInput {
     std::string installed_name;
@@ -78,6 +85,9 @@ struct AurUpdatePlanEntry {
     std::optional<DevelPackageClassification> devel_classification;
     DevelUpdateAssessment devel_assessment =
         DevelUpdateAssessment::not_applicable();
+
+    // Pure routing metadata, not a build or remote-approval capability.
+    AurDevelAssessmentOrigin devel_assessment_origin = AurDevelAssessmentOrigin::Conservative;
 
     AurUpdatePlanEntry() = default;
 
@@ -113,13 +123,21 @@ struct AurUpdatePlan {
 AurUpdatePlanEntry classify_aur_update(const AurUpdatePlanInput& input);
 AurUpdatePlan make_aur_update_plan(const std::vector<AurUpdatePlanInput>& inputs);
 
-// Conservative production producer: only suffix-candidate evidence is
-// connected. Trusted metadata and build provenance remain disconnected.
+// Conservative value projection for unrefined/legacy inputs. The normal
+// query owner replaces it only with an actual 7-B observation.
 DevelUpdateAssessment project_conservative_devel_update_assessment(
     const DevelPackageClassification& classification);
 
 // Normal AUR UpdateAvailable always wins. Other normal failure/absence states
-// retain their existing authority; only normal UpToDate can expose the
-// conservative devel assessment.
+// retain their existing authority; only normal UpToDate (same/older version)
+// can expose a current devel assessment.
 AurUpdateEffectiveState project_aur_update_effective_state(
     const AurUpdatePlanEntry& entry) noexcept;
+
+inline std::optional<AurUpdateBasis> aur_update_basis(const AurUpdatePlanEntry& entry) noexcept {
+    if(entry.classification == AurUpdateClassification::UpdateAvailable) return AurUpdateBasis::Version;
+    if(entry.classification == AurUpdateClassification::UpToDate && entry.devel_assessment_origin == AurDevelAssessmentOrigin::CurrentObservation &&
+       entry.devel_assessment.state() == DevelUpdateAssessmentState::UpdateAvailable && entry.aur_package &&
+       (entry.aur_package->version_relation == AurVersionRelation::SameAsInstalled || entry.aur_package->version_relation == AurVersionRelation::OlderThanInstalled)) return AurUpdateBasis::GitRevision;
+    return std::nullopt;
+}

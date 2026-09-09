@@ -320,6 +320,17 @@ void add_initial_classification_issue(AurUpdateExecutionTarget& target) {
                     "Installed and remote versions could not be compared.",
                     target.update.installed_name));
             break;
+        case AurUpdateEffectiveState::Unknown:
+            add_issue(target, make_localized_execution_issue(AurUpdateExecutionReason::DevelObservationUnknown,
+                                                             localization::format_translated_message(
+                                                                 // TRANSLATORS: The placeholder is the literal tool name "Git".
+                                                                 "Devel {} observation failed; no automatic build.", "Git"),
+                                                             target.update.installed_name));
+            break;
+        case AurUpdateEffectiveState::Unsupported:
+            add_issue(target, make_localized_execution_issue(AurUpdateExecutionReason::DevelUnsupported,
+                                                             "Devel source is unsupported for automatic updates.", target.update.installed_name));
+            break;
         case AurUpdateEffectiveState::Inconsistent:
             add_issue(
                 target,

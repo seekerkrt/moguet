@@ -4034,10 +4034,50 @@ void run_case(const std::string& name, Callable callable) {
     std::cout << "  ok: " << name << '\n';
 }
 
+void test_authoritative_devel_route_policy_matrix() {
+    for(const auto reason : {DevelRequiresCheckReason::ProvenanceMissing, DevelRequiresCheckReason::InstalledArtifactDrift, DevelRequiresCheckReason::AurRecipeAdvanced}) {
+        for(const auto policy : {DevelRequiresCheckPolicy::BlockOperation, DevelRequiresCheckPolicy::SkipIndependentTarget}) {
+            reset_preflight_stub();
+            auto entry = requires_check_entry("current-git", "current");
+            entry.devel_assessment_origin = AurDevelAssessmentOrigin::CurrentObservation;
+            entry.devel_assessment = DevelUpdateAssessment::requires_check(reason);
+            const auto result = ::resolve_aur_update_execution_preflight(AurUpdatePlan{{entry}}, policy);
+            expect(resolver_call_count() == 0 && !can_execute(result), "RequiresCheck became a build root");
+            expect(result.targets.front().status == (policy == DevelRequiresCheckPolicy::BlockOperation ? AurUpdateExecutionTargetStatus::Incomplete : AurUpdateExecutionTargetStatus::Skipped), "strict/independent policy differs");
+            expect(result.targets.front().issues.front().devel_requires_check_reason == reason && has_valid_aur_update_execution_policy_snapshot(result), "current reason/snapshot lost");
+        }
+    }
+    for(const auto assessment : {DevelUpdateAssessment::up_to_date(), DevelUpdateAssessment::unknown(DevelUnknownReason::RemoteObservationFailed), DevelUpdateAssessment::unsupported(DevelUnsupportedReason::UnsupportedVcs)}) {
+        reset_preflight_stub();
+        auto entry = requires_check_entry("current-git", "current");
+        entry.devel_assessment_origin = AurDevelAssessmentOrigin::CurrentObservation;
+        entry.devel_assessment = assessment;
+        const auto result = ::resolve_aur_update_execution_preflight(AurUpdatePlan{{entry}}, DevelRequiresCheckPolicy::SkipIndependentTarget);
+        expect(resolver_call_count() == 0 && !can_execute(result), "non-positive observation became build root");
+        expect(has_blocking_targets(result) == (assessment.state() != DevelUpdateAssessmentState::UpToDate), "Unknown/Unsupported silently skipped");
+    }
+    reset_preflight_stub();
+    auto required = requires_check_entry("required-devel-git", "required-devel-base");
+    required.devel_assessment_origin = AurDevelAssessmentOrigin::CurrentObservation;
+    required.devel_assessment = DevelUpdateAssessment::requires_check(DevelRequiresCheckReason::ProvenanceMissing);
+    BuildPlan plan = build_plan_for({{"affected-root", "affected-root", "affected-root"}});
+    add_required_package_target(plan, "required-devel-git", "required-devel-base", {RootTargetIdentity{0, "affected-root"}});
+    plan.dependency_edges.push_back(typed_aur_exact_edge("affected-root", "affected-root", "required-devel-git", "required-devel-base"));
+    return_build_plan(std::move(plan));
+    const auto blocked = ::resolve_aur_update_execution_preflight(AurUpdatePlan{{remote_entry("affected-root", InstalledPackageReason::Explicit), required}}, DevelRequiresCheckPolicy::SkipIndependentTarget);
+    expect(has_blocking_targets(blocked) && !can_execute(blocked), "current RequiresCheck dependency re-entry was not blocked");
+    bool retained = false;
+    for(const auto& target : blocked.targets)
+        for(const auto& issue : target.issues)
+            if(issue.required_devel_target_blocker && issue.required_devel_target_blocker->devel_requires_check_reason == DevelRequiresCheckReason::ProvenanceMissing) retained = true;
+    expect(retained, "required dependency reason was rewritten to suffix-only");
+}
+
 } // namespace
 
 int main() {
     try {
+        test_authoritative_devel_route_policy_matrix();
         run_case(
             "classification order and combined resolution",
             test_classification_order_and_combined_resolution);

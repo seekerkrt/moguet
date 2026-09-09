@@ -1366,6 +1366,9 @@ validate_production_source_build_work_item_outcome(
                 return CleanupWorkItemOutcomeShape::Invalid;
             }
             return CleanupWorkItemOutcomeShape::ValidSucceeded;
+        case ProductionSourceBuildWorkItemStatus::AuthoritativePartial:
+            // A partial authoritative execution is not cleanup eligibility.
+            return CleanupWorkItemOutcomeShape::Invalid;
         case ProductionSourceBuildWorkItemStatus::Failed:
             if(!outcome.failure_stage.has_value() ||
                !is_valid_failure_stage(outcome.failure_stage.value()) ||

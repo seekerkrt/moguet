@@ -1,6 +1,10 @@
 #pragma once
 
 #include "dependency_plan.hpp"
+#include "aur_update_query.hpp"
+#include "interactive_confirmation.hpp"
+#include "source_build_request.hpp"
+#include "reviewed_devel_source_build_execution.hpp"
 #include "package_metadata.hpp"
 #include "reviewed_source_production_failure.hpp"
 #include "separated_package_base_source_build.hpp"
@@ -17,11 +21,31 @@ struct AppConfig;
 class RemoteAurCleanupCandidateCollector;
 class ReviewedSourceFatalStatePreflightSlot;
 
+// Routing/diagnostic adapter only. The immutable owner retains the original
+// move-only product; copies share its lifetime and cannot execute or publish.
+struct ReviewedDevelExecutionSnapshot {
+    std::shared_ptr<const ReviewedDevelSourceBuildExecutionResult> owner;
+    bool complete = false;
+    bool projection_failed = false;
+    bool build_completed = false;
+    std::optional<DevelSourceArtifactInstallOperation> operation;
+    std::optional<int> pacman_exit_status;
+    std::optional<DevelSourceArtifactInstallReceipt> receipt;
+    std::optional<DevelSourceArtifactInstallProof> proof;
+    std::optional<DevelBuildProvenancePublicationState> publication;
+    std::optional<DevelSourceArtifactInstallCleanupState> cleanup;
+    std::optional<ArtifactPackageIdentity> artifact;
+    std::optional<ProductionSourceBuildStagedOutcome> production_outcome;
+};
+using SourceBuildPackageBaseExecutionResult = std::variant<PackageBaseSourceBuildExecutionResult, ReviewedDevelExecutionSnapshot>;
+
 enum class SourceBuildExecutionStatus {
     Installed,
     SkippedAsNeeded,
     UpToDate,
     UpdateStatusUnknownSkipped,
+    AuthoritativeIncomplete,
+    DevelRequiresCheckSkipped,
 };
 
 enum class SourceBuildUpdateStatusUnknownSkipReason {
@@ -57,34 +81,10 @@ struct SourceBuildExecutionResult {
     std::string diagnostic;
     std::optional<ProductionSourceBuildStagedOutcome>
         production_outcome;
-};
-
-// upgrade baselineの有無と、snapshot時点の未installを別状態として保持する。
-struct SourceUpdateBaseline {
-    std::optional<std::string> installed_version;
-};
-
-// authoritative snapshotの有無はrequest側のoptionalで表し、観測済みの未installと分ける。
-struct SourceInstalledSnapshot {
-    std::optional<std::string> installed_version;
-};
-
-struct SourceBuildRequest {
-    std::string package_name;
-    std::string checkout_name;
-    std::string git_url;
-    SourceBuildEnvironment custom_environment;
-    SourceEnvironmentEmptyValuePolicy empty_value_policy =
-        SourceEnvironmentEmptyValuePolicy::Omit;
-    std::optional<SourceUpdateBaseline> update_baseline;
-    std::optional<SourceInstalledSnapshot> installed_snapshot;
-    bool only_if_updated = false;
-    bool needed = false;
-    std::optional<PackageBaseIdentity> aur_review_identity;
-    // Invocation preparation owns this read. Copies of a prepared work item
-    // share one consumable snapshot rather than minting another observation.
-    std::shared_ptr<ReviewedSourceFatalStatePreflightSlot>
-        reviewed_state_preflight;
+    // Shared immutable diagnostic ownership; the contained live product is never copied or extracted.
+    std::optional<ReviewedDevelExecutionSnapshot> devel_execution = std::nullopt;
+    std::shared_ptr<const AurUpdateQueryResult> devel_update_query = nullptr;
+    std::optional<ConfirmationDecisionOrigin> devel_rebuild_confirmation = std::nullopt;
 };
 
 // AUR requests return one single-consumption slot; repository requests return
@@ -97,6 +97,7 @@ preflight_reviewed_source_fatal_state_for_production(
 // execution capability。raw pathはpreparation/executor ownerへ閉じる。
 class PreparedSourceBuildNeedsBuild final {
     std::optional<ProductionArtifactSourceTree> source_tree_;
+    std::optional<PreparedReviewedDevelSourceBuildExecution> devel_;
     std::optional<ValidatedPrivateCacheRoot> artifact_root_;
     bool rebuild_ = false;
     bool clean_build_ = false;
@@ -111,6 +112,8 @@ class PreparedSourceBuildNeedsBuild final {
           clean_build_(clean_build) {
     }
 
+    explicit PreparedSourceBuildNeedsBuild(PreparedReviewedDevelSourceBuildExecution devel) noexcept : devel_(std::move(devel)) {
+    }
     PreparedSourceBuildNeedsBuild() noexcept = default;
 
     friend struct SourceBuildPreparationAccess;
@@ -161,9 +164,10 @@ SourceBuildPreparationOutcome prepare_source_build_for_execution(
     const std::string& display_name,
     SourceBuildUpdatePolicy update_policy,
     const ValidatedCacheRoot& cache_root,
-    const AppConfig& config);
+    const AppConfig& config,
+    const ReviewedDevelSourceBuildIntent* execution_intent = nullptr);
 
-PackageBaseSourceBuildExecutionResult
+SourceBuildPackageBaseExecutionResult
 execute_prepared_source_build_package_base_typed(
     const SourceBuildRequest& request,
     const std::vector<RequiredPackageArtifactTarget>& required_targets,
@@ -190,7 +194,7 @@ SourceBuildExecutionResult execute_source_build_typed(
 
 // source-neutralなPackageBase execution。ordered required_targetsを一つのfresh
 // workspace/transactionへ渡し、multipleではrequest.package_nameを使わない。
-PackageBaseSourceBuildExecutionResult
+SourceBuildPackageBaseExecutionResult
 execute_source_build_package_base_typed(
     const SourceBuildRequest& request,
     const std::vector<RequiredPackageArtifactTarget>& required_targets,
@@ -207,3 +211,6 @@ execute_source_build_package_base_with_cleanup_authority(
     const AppConfig& config,
     RemoteAurCleanupCandidateCollector& collector,
     std::size_t work_item_index);
+
+ProductionSourceBuildStagedOutcome project_reviewed_devel_execution_outcome(const ReviewedDevelSourceBuildExecutionResult& result);
+bool reviewed_devel_execution_succeeded(const ReviewedDevelSourceBuildExecutionResult& result) noexcept;

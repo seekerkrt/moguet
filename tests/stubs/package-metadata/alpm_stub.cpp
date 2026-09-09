@@ -1443,6 +1443,13 @@ int alpm_release(alpm_handle_t* handle) {
     return 0;
 }
 
+int alpm_option_set_logcb(alpm_handle_t* handle, alpm_cb_log, void*) {
+    // The CLI metadata stub cannot attest a real installed-record lazy load.
+    // Link the dormant observer without supplying a positive live-proof path.
+    set_handle_error(handle, ALPM_ERR_WRONG_ARGS);
+    return -1;
+}
+
 alpm_errno_t alpm_errno(alpm_handle_t* handle) {
     if(handle == nullptr) return ALPM_ERR_HANDLE_NULL;
     return handle->error;
@@ -1917,6 +1924,11 @@ const char* alpm_pkg_get_arch(alpm_pkg_t* package) {
         return nullptr;
     }
     return package_state->architecture.c_str();
+}
+
+alpm_filelist_t* alpm_pkg_get_files(alpm_pkg_t* package) {
+    if(package) set_handle_error(package->handle, ALPM_ERR_PKG_INVALID);
+    return nullptr;
 }
 
 alpm_list_t* alpm_pkg_get_provides(alpm_pkg_t* package) {

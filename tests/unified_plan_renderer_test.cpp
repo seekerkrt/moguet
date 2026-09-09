@@ -3166,10 +3166,26 @@ void test_rendering_issue_is_isolated_from_execution_status() {
         "rendering issue changed execution status");
 }
 
+void test_git_revision_basis_is_truthful() {
+    AurUpdatePlanEntry update{"same-version-git", "1-1", InstalledPackageReason::Explicit,
+                              AurUpdateRemotePackage{"same-version-git", "same-version", "1-1", AurVersionRelation::SameAsInstalled}, AurUpdateClassification::UpToDate};
+    update.devel_assessment_origin = AurDevelAssessmentOrigin::CurrentObservation;
+    update.devel_assessment = DevelUpdateAssessment::update_available();
+    UnifiedPlanObservationInput input;
+    input.status = UnifiedPlanObservationStatus::NoOp;
+    input.root_metadata.push_back(UnifiedPlanBorrowedAuthorityReference<AurUpdatePlanEntry>(update));
+    auto observed = make_unified_plan_observation(std::move(input));
+    const auto rendered = render_unified_plan_observation(expect_valid(observed, "Git basis"));
+    expect_contains(rendered.text, "Observed update basis: same-version-git", "Git basis name");
+    expect_contains(rendered.text, "Git revision difference", "Git basis explanation");
+    expect(rendered.text.find("1-1 -> 1-1") == std::string::npos, "Git update rendered a fake version arrow");
+}
+
 } // namespace
 
 int main() {
     try {
+        test_git_revision_basis_is_truthful();
         test_ready_rendering_and_identity_boundaries();
         test_no_op_and_blocked_rendering();
         test_local_build_plan_dependency_authority();

@@ -698,6 +698,13 @@ AurUpdateExecutionPreflight resolve_aur_update_execution_preflight(
                     target.update.installed_name,
                     "fixture version comparator failed"));
                 break;
+            case AurUpdateEffectiveState::Unknown:
+            case AurUpdateEffectiveState::Unsupported:
+                target.status = AurUpdateExecutionTargetStatus::Incomplete;
+                target.issues.push_back(make_preflight_issue(
+                    project_aur_update_effective_state(target.update) == AurUpdateEffectiveState::Unknown ? AurUpdateExecutionReason::DevelObservationUnknown : AurUpdateExecutionReason::DevelUnsupported,
+                    target.update.installed_name, "fixture devel observation is not executable"));
+                break;
             case AurUpdateEffectiveState::Inconsistent:
                 target.status = AurUpdateExecutionTargetStatus::Incomplete;
                 target.issues.push_back(make_preflight_issue(

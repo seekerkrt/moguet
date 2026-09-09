@@ -51,7 +51,7 @@ AurPackageInfo package_info(
 }
 
 bool is_graph_scenario(const std::string& scenario) {
-    return scenario != "foreign-fallback" &&
+    return !scenario.starts_with("foreign-authoritative-") && scenario != "foreign-fallback" &&
            scenario != "foreign-fallback-schema-failure" &&
            scenario != "foreign-ordinary-failure" &&
            scenario != "foreign-schema-failure" &&
@@ -331,6 +331,11 @@ std::map<std::string, AurPackageInfo> foreign_info_many(
                 {"foreign-order-z", package_info("foreign-order-z")},
                 {"foreign-order-a", package_info("foreign-order-a")}};
         }
+    } else if(scenario.starts_with("foreign-authoritative-")) {
+        std::map<std::string, AurPackageInfo> result;
+        for(const auto& name : package_names)
+            result.emplace(name, package_info(name));
+        return result;
     } else if(scenario == "foreign-classification") {
         const std::vector<std::string> expected = {
             "foreign-up-to-date", "foreign-non-aur"};

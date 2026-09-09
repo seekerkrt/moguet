@@ -74,6 +74,7 @@ bool same_update_entry(
            same_remote_package(lhs.aur_package, rhs.aur_package) &&
            lhs.classification == rhs.classification &&
            lhs.devel_classification == rhs.devel_classification &&
+           lhs.devel_assessment_origin == rhs.devel_assessment_origin &&
            lhs.devel_assessment == rhs.devel_assessment;
 }
 
@@ -166,6 +167,8 @@ bool is_known_preflight_reason(AurUpdateExecutionReason reason) noexcept {
         case AurUpdateExecutionReason::None:
         case AurUpdateExecutionReason::UpToDate:
         case AurUpdateExecutionReason::DevelRequiresCheck:
+        case AurUpdateExecutionReason::DevelObservationUnknown:
+        case AurUpdateExecutionReason::DevelUnsupported:
         case AurUpdateExecutionReason::RequiredDevelTargetRequiresCheck:
         case AurUpdateExecutionReason::NonAurForeign:
         case AurUpdateExecutionReason::AurMetadataUnavailable:
@@ -405,6 +408,7 @@ bool is_known_child_status(AurUpdateChildExecutionStatus status) noexcept {
 bool is_known_failure_kind(AurUpdateWorkItemFailureKind kind) noexcept {
     switch(kind) {
         case AurUpdateWorkItemFailureKind::None:
+        case AurUpdateWorkItemFailureKind::AuthoritativeExecutionIncomplete:
         case AurUpdateWorkItemFailureKind::BuildOrInstallFailed:
         case AurUpdateWorkItemFailureKind::CleanupFailedAfterPackageTransaction:
         case AurUpdateWorkItemFailureKind::UnknownException:
@@ -438,6 +442,7 @@ bool has_consistent_failure_kind(
         case AurUpdateWorkItemExecutionStatus::Failed:
             return failure_kind ==
                        AurUpdateWorkItemFailureKind::BuildOrInstallFailed ||
+                   failure_kind == AurUpdateWorkItemFailureKind::AuthoritativeExecutionIncomplete ||
                    failure_kind ==
                        AurUpdateWorkItemFailureKind::UnknownException;
         case AurUpdateWorkItemExecutionStatus::UpdatedCleanupFailed:
@@ -550,6 +555,8 @@ bool failure_payload_is_consistent(
         case AurUpdateWorkItemFailureKind::PriorWorkItemStopped:
             return has_no_detail &&
                    !work_item.transaction_failure.has_value();
+        case AurUpdateWorkItemFailureKind::AuthoritativeExecutionIncomplete:
+            return has_no_detail && !work_item.transaction_failure && work_item.devel_execution && work_item.devel_execution->owner && !work_item.devel_execution->complete;
         case AurUpdateWorkItemFailureKind::BuildOrInstallFailed:
             if(has_no_detail) return false;
             if(const auto* transaction = std::get_if<
@@ -819,7 +826,8 @@ bool child_selected_artifact_is_coherent(
 
 bool child_outcome_matches_work_item(
     AurUpdateWorkItemExecutionStatus work_item_status,
-    AurUpdateChildExecutionStatus child_status) noexcept {
+    AurUpdateChildExecutionStatus child_status, bool authoritative = false) noexcept {
+    if(authoritative && work_item_status == AurUpdateWorkItemExecutionStatus::Failed && child_status == AurUpdateChildExecutionStatus::Installed) return true;
     switch(work_item_status) {
         case AurUpdateWorkItemExecutionStatus::Updated:
             return child_status == AurUpdateChildExecutionStatus::Installed ||
@@ -850,6 +858,10 @@ bool work_item_child_outcomes_are_consistent(
     bool has_installed = false;
     for(const auto& child : work_item.child_results) {
         if(!is_known_child_status(child.status)) return false;
+        if(work_item.devel_execution && work_item.status == AurUpdateWorkItemExecutionStatus::Failed &&
+           work_item.devel_execution->operation == DevelSourceArtifactInstallOperation::Succeeded &&
+           work_item.devel_execution->proof == DevelSourceArtifactInstallProof::Complete &&
+           work_item.devel_execution->artifact && child.status == AurUpdateChildExecutionStatus::Installed && child_selected_artifact_is_coherent(child)) continue;
         switch(work_item.status) {
             case AurUpdateWorkItemExecutionStatus::Updated:
                 if((child.status != AurUpdateChildExecutionStatus::Installed &&
@@ -2055,7 +2067,7 @@ AurUpdateOperationResult reduce_aur_update_operation_result(
                         continue;
                     }
                     if(!child_outcome_matches_work_item(
-                           work_item.status, child.status)) {
+                           work_item.status, child.status, work_item.devel_execution.has_value())) {
                         add_reduction_issue(
                             result,
                             AurUpdateOperationReductionReason::
@@ -2274,7 +2286,7 @@ AurUpdateOperationResult reduce_aur_update_operation_result(
                     continue;
                 }
                 if(!child_outcome_matches_work_item(
-                       work_item.status, child.status)) {
+                       work_item.status, child.status, work_item.devel_execution.has_value())) {
                     add_reduction_issue(
                         result,
                         AurUpdateOperationReductionReason::

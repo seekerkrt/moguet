@@ -136,7 +136,15 @@ installed packageのうち、現在もexact AUR packageへ解決できるもの�
 conventionalなdevel suffix根拠だけを持ち、normal AUR versionが新しくないexact AUR
 packageは確認が必要な状態として表示し、AUR mutationより前にoperation全体をblockします。
 automatic rebuildは行いません。
-upstream VCS revisionの比較とdevel build provenanceのpublicationはまだ行いません。
+対応するreviewed single-child HTTPS Git subsetでは、same/older versionをcurrent installed/reviewed
+provenanceとremote Git観測で補完します。normal version-newer precedenceは維持します。
+Git revision updateはversion増加とは区別します。reviewed executionはactual build/install provenanceを
+publishし、install後のpublication failure/uncertaintyはpartial non-zeroとして保持します。
+cleanup failureも別に残し、retryやrollbackを主張しません。provenanceは別XDG state namespaceの
+schema v1を維持し、unknown/future schema、corrupt/unsafe historyはfail closedとします。
+missing baselineをupdaterが自動生成せず、明示的にreviewした対応buildと実installを要求します。
+same-version reinstallでもinstalled bindingが変わればhistorical provenanceは無効です。
+dry-runは同じread-only assessmentを行い、build/publicationを実行しません。
 installed AUR targetに対応するsaved source-build preferenceをStrictに確認・適用する
 source-aware workflowです。
 このtarget-less operationは

@@ -96,14 +96,17 @@ struct PendingRequiredDevelRelation {
 inline bool is_update_candidate(const AurUpdatePlanEntry& update) noexcept {
     // Normal version precedence is the candidate authority. Devel evidence
     // cannot remove a real UpdateAvailable root.
-    return update.classification ==
-           AurUpdateClassification::UpdateAvailable;
+    return update.classification == AurUpdateClassification::UpdateAvailable ||
+           (update.classification == AurUpdateClassification::UpToDate &&
+            update.devel_assessment_origin == AurDevelAssessmentOrigin::CurrentObservation &&
+            update.devel_assessment.state() == DevelUpdateAssessmentState::UpdateAvailable);
 }
 
 inline bool is_requires_check_candidate(
     const AurUpdatePlanEntry& update) noexcept {
-    constexpr DevelRequiresCheckReason reason =
-        DevelRequiresCheckReason::SuffixCandidateOnly;
+    const auto* observed_reason = update.devel_assessment.requires_check_reason();
+    if(!observed_reason) return false;
+    const auto reason = *observed_reason;
     return update.classification == AurUpdateClassification::UpToDate &&
            update.devel_assessment ==
                DevelUpdateAssessment::requires_check(reason) &&
@@ -590,8 +593,7 @@ collect_requires_check_identities(
         if(!is_requires_check_candidate(target.update)) {
             continue;
         }
-        constexpr DevelRequiresCheckReason reason =
-            DevelRequiresCheckReason::SuffixCandidateOnly;
+        const auto reason = *target.update.devel_assessment.requires_check_reason();
         if(positions_by_name[target.update.installed_name] != 1) {
             authority_is_complete = false;
             continue;

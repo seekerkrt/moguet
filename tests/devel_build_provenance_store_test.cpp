@@ -9,6 +9,7 @@
 #include <iterator>
 #include <limits>
 #include <optional>
+#include <new>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -16,6 +17,27 @@
 #include <unistd.h>
 #include <utility>
 #include <variant>
+
+namespace allocation_fault {
+bool blocked = false;
+std::size_t failures = 0;
+} // namespace allocation_fault
+
+// Preserve the replacement boundary under optimized fixture compilation.
+[[gnu::noinline]] void* operator new(std::size_t size) {
+    if(allocation_fault::blocked) {
+        ++allocation_fault::failures;
+        throw std::bad_alloc();
+    }
+    if(void* memory = std::malloc(size == 0 ? 1 : size)) return memory;
+    throw std::bad_alloc();
+}
+[[gnu::noinline]] void operator delete(void* memory) noexcept {
+    std::free(memory);
+}
+[[gnu::noinline]] void operator delete(void* memory, std::size_t) noexcept {
+    std::free(memory);
+}
 
 namespace fs = std::filesystem;
 
@@ -565,10 +587,54 @@ void test_authority_unavailable_is_not_missing() {
         "unavailable XDG authority was flattened to Missing");
 }
 
+
+void block_after_verified_publication(const XdgGenerationStoreTestRaceContext&) {
+    allocation_fault::blocked = true;
+}
+
+void test_publication_resource_boundary() {
+    StoreHome home;
+    const auto value = provenance();
+    allocation_fault::blocked = true;
+    std::optional<DevelBuildProvenanceStorePublishResult> result;
+    try {
+        result.emplace(publish_devel_build_provenance(value, std::nullopt));
+    } catch(...) {
+        allocation_fault::blocked = false;
+        throw;
+    }
+    allocation_fault::blocked = false;
+    require(require_arm<DevelBuildProvenanceStoreFailure>(*result, "wrapper allocation escaped").store_failure.kind ==
+                XdgGenerationStoreFailureKind::ResourceFailure,
+            "wrapper resource cause lost");
+    require(!fs::exists(devel_build_provenance_store_directory()), "pre-write wrapper failure created namespace");
+
+    run_xdg_generation_store_race_once_for_test(XdgGenerationStoreTestRacePoint::AfterVerifiedPublication,
+                                                &block_after_verified_publication);
+    allocation_fault::failures = 0;
+    try {
+        result.emplace(publish_devel_build_provenance(value, std::nullopt));
+    } catch(...) {
+        allocation_fault::blocked = false;
+        throw;
+    }
+    const bool remained_blocked = allocation_fault::blocked;
+    allocation_fault::blocked = false;
+    const auto& published = require_arm<DevelBuildProvenanceStorePublished>(*result, "verified low-level success disappeared in wrapper");
+    require(remained_blocked && allocation_fault::failures == 0 && published.provenance == value,
+            "wrapper allocated after verified low-level success");
+    require(require_arm<DevelBuildProvenanceStoreLoaded>(read_devel_build_provenance(value.package_base()),
+                                                         "verified wrapper result did not persist")
+                    .observed == published.observed,
+            "wrapper observed record changed");
+    std::cout << "semantic publication terminal allocation firewall PASS\n";
+}
+
 } // namespace
 
 int main() {
     try {
+        test_publication_resource_boundary();
         test_codec_roundtrip_and_strict_failures();
         test_store_read_publish_cas_and_namespaces();
         test_invalid_mismatch_and_future_are_not_missing_or_rebound();

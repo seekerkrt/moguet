@@ -1,5 +1,6 @@
 #pragma once
 
+#include "devel_package_assessment_authority.hpp"
 #include "process.hpp"
 #include "vcs_source_identity.hpp"
 
@@ -49,6 +50,7 @@ public:
         const AuthorityApprovedGitSourceIdentity&) const = default;
 
 private:
+    friend class DevelPackageAssessmentAuthority;
 #ifdef MOGUET_ENABLE_GIT_REMOTE_REVISION_OBSERVER_TEST_HOOKS
     friend AuthorityApprovedGitSourceIdentity
     make_authority_approved_git_source_identity_fixture_for_test(

@@ -2778,10 +2778,31 @@ void run_case(const std::string& name, Callable callable) {
     std::cout << "  ok: " << name << '\n';
 }
 
+void test_git_revision_intent_is_root_local() {
+    stub::reset();
+    for(const auto& name : {"private-dependency", "shared-dependency", "root-b", "root-a"})
+        stub::enqueue_source_preference_result(name, SourcePreferenceAbsent{});
+    stub::set_database_paths(PacmanDatabasePaths{"/", "/var/lib/pacman"});
+    auto preflight = ordered_multi_root_preflight();
+    auto& update = preflight.targets.front().update;
+    update.classification = AurUpdateClassification::UpToDate;
+    update.aur_package->version_relation = AurVersionRelation::SameAsInstalled;
+    update.devel_assessment_origin = AurDevelAssessmentOrigin::CurrentObservation;
+    update.devel_assessment = DevelUpdateAssessment::update_available();
+    const AppConfig config;
+    auto result = prepare_aur_update_source_build_invocation(preflight, false, config);
+    expect(result.is_prepared(), "Git revision candidate failed normal preparation");
+    const auto& work = result.invocation->production_invocation_for_test().work_items;
+    expect(work.size() == 4, "Git preparation changed dependency units");
+    for(const auto& item : work)
+        expect(item.request.authoritative_devel_update == (item.request.checkout_name == "root-a"), "Git root selection intent leaked to dependency/other root");
+}
+
 } // namespace
 
 int main() {
     try {
+        run_case("Git revision intent remains root-local", test_git_revision_intent_is_root_local);
         run_case(
             "no-op and blocking preflight short circuit",
             test_noop_and_blocking_preflight_short_circuit);

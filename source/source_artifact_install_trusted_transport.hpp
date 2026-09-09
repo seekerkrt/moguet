@@ -2,6 +2,7 @@
 
 #include "package_base_artifact_install_executor.hpp"
 #include "source_artifact_install_receipt_evidence.hpp"
+#include "source_artifact_install_trusted_protocol.hpp"
 
 #include <optional>
 #include <string>
@@ -30,6 +31,7 @@ enum class SourceArtifactInstallTrustedExecutionStatus {
     Missing,
     Complete,
     OutcomeUnknown,
+    ArtifactSealingFailed,
 };
 
 class SourceArtifactInstallTrustedExecutionResult final {
@@ -62,6 +64,8 @@ public:
     operation_result() const noexcept;
     [[nodiscard]] const std::optional<std::string>& diagnostic()
         const noexcept;
+    [[nodiscard]] const std::optional<SourceArtifactInstallSealingRefusal>&
+    sealing_failure() const noexcept;
 
 private:
     SourceArtifactInstallTrustedExecutionResult(
@@ -71,7 +75,8 @@ private:
         std::optional<SourceArtifactInstallReceiptObservation> observation,
         std::optional<std::string> diagnostic,
         std::optional<PackageBaseArtifactInstallExecutionResult>
-            operation_result = std::nullopt) noexcept;
+            operation_result = std::nullopt,
+        std::optional<SourceArtifactInstallSealingRefusal> sealing_failure = std::nullopt) noexcept;
 
     SourceArtifactInstallTrustedExecutionStatus status_;
     std::optional<int> pacman_exit_status_;
@@ -80,6 +85,7 @@ private:
     std::optional<std::string> diagnostic_;
     std::optional<PackageBaseArtifactInstallExecutionResult>
         operation_result_;
+    std::optional<SourceArtifactInstallSealingRefusal> sealing_failure_;
 
     friend class SourceArtifactInstallTrustedTransport;
 };

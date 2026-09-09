@@ -325,9 +325,9 @@ makepkg -si
 system with `pacman -U` in the same step. This differs from `make` and
 `./moguet --help` above, which only build and inspect the development tree
 in place and install nothing. The `PKGBUILD` is the canonical production
-CMake build/install consumer and configures `BUILD_TESTING=OFF`; the 106
+CMake build/install consumer and configures `BUILD_TESTING=OFF`; the 115
 developer C++ test-ledger executables, one `EXCLUDE_FROM_ALL` installed
-transport fixture harness, and 131 CTest registrations remain in host, CI,
+transport fixture harness, and 146 CTest registrations remain in host, CI,
 and release validation. This `PKGBUILD` is a repository-provided
 packaging path, not an AUR submission; Moguet still has no published AUR
 page.
@@ -529,11 +529,29 @@ devel build provenance. The current development tree includes the trusted
 HTTPS Git remote revision observer foundation from
 [issue #475](https://github.com/seekerkrt/moguet/issues/475), limited to
 default HEAD and exact branches with strict complete SHA-1 / SHA-256 results.
-It has no production source-authority producer or caller and is not connected
-to AUR update assessment. Installed-artifact-bound provenance and authoritative
-`UpdateAvailable` / `UpToDate` comparison remain
-[issue #476](https://github.com/seekerkrt/moguet/issues/476); users still cannot
-automatically compare VCS package revisions through the current CLI.
+The internal [issue #476](https://github.com/seekerkrt/moguet/issues/476)
+Slice 7-B coordinator compares the provenance tip with fresh installed and
+reviewed state before querying the remote, then rechecks local state before
+returning `UpdateAvailable` / `UpToDate`. Slice 7-D connects this producer to
+normal AUR updates, registered AUR updates, `-Qua`, and affected dry-run routes.
+A newer normal AUR version keeps precedence without a Git query; same/older
+versions may be refined by the validated Git assessment. Git revision differences
+are displayed separately from package-version changes.
+
+The initial authoritative execution path requires a real reviewed pin and the
+existing single-child HTTPS Git subset. It consumes S4/S5/S6 once, with no legacy
+fallback after starting. Installation success and provenance publication failure
+remain separate partial outcomes and produce a non-zero result. Registered
+`RequiresCheck` uses an explicit default-No rebuild confirmation; this does not
+replace source review. `--noconfirm` cannot supply review authority. See the
+[normal devel route contract](https://github.com/seekerkrt/moguet/blob/develop/docs/contracts/devel-normal-routes.md).
+The provenance format remains schema v1 in a separate XDG state namespace.
+Unknown/future schemas and corrupt or unsafe history fail closed; the updater does
+not repair records, adopt external history, or create a missing baseline. A baseline
+requires an explicitly reviewed supported build, an actual install, and successful
+publication. Same-version reinstalls invalidate historical provenance when the
+installed artifact binding changes. See the [devel tracking and migration contract](https://github.com/seekerkrt/moguet/blob/develop/docs/contracts/devel-tracking.md).
+This describes the development candidate for v2.7.0, not a released v2.7.0 feature.
 
 `--aur` limits supported `-S`, `-Ss`, and `-Si` forms to AUR. `--repo`
 limits those forms to official binary repositories and is also the

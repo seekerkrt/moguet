@@ -1284,6 +1284,27 @@ if printf '%s\n' "$installed_binding_target_body" | grep -F -- \
     '/var/lib/pacman' >/dev/null; then
     fail 'installed-binding characterization references the host package DB'
 fi
+exact_binding_runner=$repo_root/containers/arch-receipt-validation/run-exact-installed-binding.py
+assert_contains "$exact_binding_runner" 'STATE_ROOT.is_mount()'
+assert_contains "$exact_binding_runner" 'Path("/.dockerenv").is_file()'
+assert_contains "$exact_binding_runner" 'same-version-reinstall'
+assert_contains "$exact_binding_runner" 'downgrade'
+assert_contains "$exact_binding_runner" 'host package DB unavailable'
+assert_contains "$exact_binding_runner" 'S5C-INSTALLED'
+assert_contains "$exact_binding_runner" 'cleanup-Complete'
+assert_contains "$exact_binding_runner" 'publication-none'
+assert_contains "$test_targets_file" 'MOGUET_ENABLE_DEVEL_SOURCE_ARTIFACT_INSTALL_TEST_HOOKS'
+assert_not_contains "$production_cmake_file" 'MOGUET_ENABLE_DEVEL_SOURCE_ARTIFACT_INSTALL_TEST_HOOKS'
+assert_contains "$receipt_dockerfile" 'evaluated-devel-source-artifact-transport-test'
+exact_binding_target_body=$(make_target_body test-container-exact-installed-binding)
+printf '%s\n' "$exact_binding_target_body" | grep -F -- '--network=none' >/dev/null ||
+    fail 'exact installed binding lost its network-none boundary'
+printf '%s\n' "$exact_binding_target_body" | grep -F -- \
+    '--mount type=volume,destination=/var/lib/moguet-exact-installed-binding,volume-nocopy' >/dev/null ||
+    fail 'exact installed binding lost its anonymous volume DB'
+if printf '%s\n' "$exact_binding_target_body" | grep -E -- 'type=bind|/var/lib/pacman|--privileged' >/dev/null; then
+    fail 'exact installed binding gained a host DB/privilege boundary'
+fi
 assert_contains "$test_targets_file" 'source/source_install.cpp'
 assert_contains "$test_targets_file" \
     'MOGUET_ENABLE_REMOTE_AUR_CLEANUP_RUNNER_TEST_HOOKS'

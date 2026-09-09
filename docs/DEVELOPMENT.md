@@ -107,8 +107,8 @@ include / link graph、negative compile recipeを所有しない。
 | `build/cmake-production` | `BUILD_TESTING=OFF` | 通常の`make`、install / uninstall、production smoke |
 | `build/cmake-testing` | `BUILD_TESTING=ON` | developer、CTest、host / release validation、focused test |
 
-通常の`make`はproduction treeだけから`moguet`をbuildし、106個のC++ test-ledger executable、
-1個の`EXCLUDE_FROM_ALL` installed transport fixture harness、131件のCTest registrationを不用意にbuildしない。
+通常の`make`はproduction treeだけから`moguet`をbuildし、107個のC++ test-ledger executable、
+1個の`EXCLUDE_FROM_ALL` installed transport fixture harness、132件のCTest registrationを不用意にbuildしない。
 `make test`はtesting treeをbuildし、CTestを実行してから
 gettext、shell、docs、packaging等のrepository-specific validationを実行する。`make test-<area>`は
 互換entrypointとして残るが、exact target / CTest selectionは
@@ -173,6 +173,35 @@ executableとimmutable required argumentsへ分けてconfigure前に比較する
 reuseで維持する。異なるcompiler実体、argumentの変更、argumentの削除はcacheやtreeを変更する前に
 停止する。frontendからraw spellingを毎回`-DCMAKE_CXX_COMPILER`へ再注入しない。
 
+#### CMake policy contract
+
+`cmake/MoguetPolicies.cmake`はminimumを3.18に保ち、target作成前に次のbehaviorを明示する。
+policy version rangeの一括引き上げは、未検証のpolicyまでNEWにするため行わない。
+
+| Policy | Behavior | Moguetで維持する契約 |
+| --- | --- | --- |
+| [CMP0200](https://cmake.org/cmake/help/latest/policy/CMP0200.html) | NEW（利用可能なCMake） | `IMPORTED_CONFIGURATIONS`をavailable configurationsのauthorityとする。current ArchのCURLはgeneric / RELEASEとも同じshared library、ALPM / JSONはconfiguration-independentなINTERFACE targetであり、選択名が変わってもcompile / link inputsは変わらない。 |
+| [CMP0156](https://cmake.org/cmake/help/latest/policy/CMP0156.html) | OLD（利用可能なCMake） | static libraryの必要な反復と、shared libraryの最後の出現を残す既存orderingを維持する。current GNU ldではNEWでもlink commandは同じだが、外部linker指定時のde-duplication strategyやCMP0179の選択まで暗黙に変更しない。 |
+| [CMP0181](https://cmake.org/cmake/help/latest/policy/CMP0181.html) | OLD（利用可能なCMake） | `CMAKE_*_LINKER_FLAGS`を既存command fragmentとして消費する。`LDFLAGS`には`-Wl,...`等のcompiler-driver形式を使用し、`LINKER:` prefixへの移行や再引用をこの整理へ含めない。 |
+
+JSONのexportは内部の`cmake_policy(VERSION ...)`でCMP0200を未設定へ戻すため、その
+`find_package`呼び出し中だけ`CMAKE_POLICY_DEFAULT_CMP0200=NEW`を与え、終了後に元の値／未定義へ
+戻す。header-onlyなJSON usage requirementsにはconfiguration選択に依存するlocationやdefinitionが
+なく、このdefaultで意味は変わらない。packageが明示的に選んだpolicyは上書きしない。
+
+Issue #530のCMake 4.4.3 / GCC 16.2.1 / GNU ld 2.47でのfresh reproductionでは、通常configureの
+対象warningは0件だった。`--trace-expand`を付けるとCMP0200はimported target selection、
+CMP0156はMoguetのlibrary de-duplication、CMP0181は`CMAKE_CXX_CREATE_CONSOLE_EXE`の
+command fragmentを起点にwarningが出た。CMP0156 / CMP0181は単なる未設定では通常warnせず、
+[trace / debugによるpolicy診断の有効化](https://cmake.org/cmake/help/latest/variable/CMAKE_POLICY_WARNING_CMPNNNN.html)
+が発生条件だった。completion frontend fixtureも同じpolicy moduleを読み、standalone projectの
+policy未設定を持ち込まない。warning suppression optionは使用しない。
+
+外部flagのauthorityは上記External toolchain inputsのままとする。Moguet自身が同期するのは
+`CMAKE_EXE_LINKER_FLAGS`だけで、shared / module flagsとconfiguration別flagsはCMakeの
+environment初期化、cache、toolchainに委ねる。CMP0156 / CMP0181のNEWへの移行は、必要になった
+時点でexternal flagsとlinker別のgenerated command / symbol closureを検証して決める。
+
 #### Test composition / link firewall
 
 `cmake/MoguetTests.cmake`、`MoguetTestTargets.cmake`、`MoguetTestRegistrations.cmake`が次のfail-closed
@@ -180,17 +209,25 @@ inventoryを所有する。
 
 | Inventory | Expected |
 | --- | ---: |
-| C++ test executables | 106 |
+| C++ test executables | 115 |
 | installed transport fixture harnesses (`EXCLUDE_FROM_ALL`) | 1 |
-| support / stub translation units | 30 |
+| support / stub translation units | 32 |
 | link firewalls | 50 |
 | firewall descriptors | 50 |
-| CTest registrations | 131 |
+| CTest registrations | 146 |
 
 stub / real implementation exclusion、replacement ABI、ALPM stub、exact source closureをtarget-localに
 維持する。単一production libraryを全testへ無条件linkしない。negative compileはCTest registrationから
 effective CMake compiler / launcher / compile optionを取得し、GNU Make recursive compileへ戻さない。
-Make focused aliasとCMake focused targetは各110件で一致し、missing / unexpectedを0に保つ。
+Make focused aliasとCMake focused targetは各126件で一致し、missing / unexpectedを0に保つ。
+
+`make test-installed-fixture-compile`は既存のinstalled transport fixture全体をcompile/linkする
+host gateであり、fixtureを実行しない。`make test`のrepository validationにも含め、production headerと
+fixture内のreplacement definitionとのsignature driftをcontainer acceptanceより前に検出する。
+対象source、test-only macro、include/link profileは`MoguetTestTargets.cmake`の既存targetをそのまま使う。
+`EXCLUDE_FROM_ALL`を維持し、通常のproduction/testing `all`やinstall payloadには追加しない。
+fixture runtimeのownerは引き続きinstalled container laneであり、host compile PASSはactual S5/S6の
+transaction/publication acceptanceを代替しない。
 
 completion生成が使う`moguet-cli-authority-exporter`もCMake targetであり、Python generatorはcompilerを
 直接起動しない。このtargetは`EXCLUDE_FROM_ALL`なので通常のproduction/package buildへ混ざらず、
@@ -296,13 +333,13 @@ reinstall、identical same-second reinstallをactual `pacman -U`で実行し、f
 filesystem/runtime、またはidentical same-second replacementを区別できない環境はPASSへ丸めずfail closedする。
 このtargetはfeasibility evidenceであり、provenance publication、host A–D、offline E、actual Fを代替しない。
 
-Issue #476 Slice 2のproduction-disconnected storage foundationは、host focused target
+Issue #476 Slice 2のstorage foundationは、host focused target
 `test-xdg-generation-store`と`test-devel-build-provenance-store`で確認する。前者は#411から抽出した
 raw immutable-generation/CAS機械層、後者は別namespace、strict codec、exact #411 binding、future-schema
-refusal、typed lookup/publicationを所有する。production sourceへcompileされてもnormal CLIからのstore
-lookup/publication callerは持たず、installed characterizationやcontainer transaction evidenceを代替しない。
+refusal、typed lookup/publicationを所有する。normal queryは7-Bからreadし、7-C→S6がpublicationする。
+このfocused evidenceはinstalled characterizationやcontainer transaction evidenceを代替しない。
 
-Issue #476 Slice 3のproduction-disconnected build-context foundationは、host focused target
+Issue #476 Slice 3のbuild-context foundationは、host focused target
 `test-invocation-owned-source-build-context`で確認する。`PinnedReviewedSourceBuild`だけをproduction mint入口とし、
 exact reviewed Git treeから`.git`を含まないprivate recipe snapshotを作り、同じ一意なownerへprivate
 `PKGDEST` / `BUILDDIR` / `SRCDEST`と固定`/usr/bin/makepkg` identityを束縛する。tracked symlink / gitlink、
@@ -310,18 +347,72 @@ editor overlay、dirty / untracked drift、unsafe path / root、shared fallback�
 parentはrootまたはeffective user所有だけを許し、group / other writableならsticky bitを必須とし、retained
 descriptorとnamed identityをcontext lifetime中も再検証する。partial construction failureはretain済みのroot / child
 だけをdescriptor-relativeにcleanupし、abort cleanup failureをprimary creation failureと別のtyped consequenceへ
-保持する。このfoundationはproduction sourceへcompileされるが、current source-build caller、makepkg phase、
-provenance publication、devel comparisonへは接続しない。
+保持する。current normal source-buildは7-Cからこのcontextを作り、S4のmakepkg phaseへ渡す。
+context producer自体はinstall/publicationやdevel comparisonを呼ばない。
 
-Issue #476 Slice 4のproduction-disconnected actual-build proofは、host focused target
+Issue #476 Slice 4のactual-build proofは、host focused target
 `test-evaluated-devel-source-build`で確認する。exact reviewed snapshotと同じcontext内のprivate working recipeを
 分離し、retained `/usr/bin/makepkg` FD、raw/evaluated source一致、`--nobuild`後のprivate mirror/worktree、
 pre/post-build complete Git OID、dynamic version、fresh one-artifact inventory、retained-FD libalpm metadata、
 archive / ALPM-MTREE SHA-256を一つのmove-only capabilityへ束縛する。pre-build stale packagelist、source shape drift、
 ambiguous workspace、PKGDEST contamination、artifact replacement/mismatch、cross-context compositionはfail closedする。
-このproofはcontextとartifactをSlice 5向けに保持するが、current source-build / install / CLI、pacman、provenance
-publication、#475 observationへは接続しない。詳細は
+このproofはcontextとartifactをSlice 5向けに保持するが、current source-build / install / CLI、provenance
+publication、#475 observationを直接呼ばない。S5-A/B producerがretained artifactをtrusted transactionへ渡し、
+S6-Bは完成したS5 result内のsemantic valuesだけを読む。詳細は
 [`evaluated-devel-source-build-proof.md`](contracts/evaluated-devel-source-build-proof.md)を正とする。
+
+Issue #476 S5-Bのpurpose/operation protocol、root helper publication、fresh local DB/generation、live mintの結合は
+`test-exact-artifact-transaction-protocol`、`test-exact-artifact-transaction-receipt`、
+`test-installed-package-record-observation`、`test-exact-installed-binding`で確認する。
+最後のtargetは既存Slice 4/transport fixture executableの専用modeを使用し、通常host DBのtransactionは行わない。
+canonical negative compileにはsame-name observer spoof、raw generation/binding/path/fd/tuple、historical decodeからの
+fresh mint、private entry/receipt constructorの拒否を登録する。
+
+    make test-container-exact-installed-binding
+
+このinstalled acceptanceはnetworkless Dockerとanonymous volumeのDBを使用し、actual Slice 4 proofから
+first Install、Upgrade、same-version reinstall、downgradeを通す。fixed pacman-confで解決した同じDB world、
+PostTransaction anchor、通常userのnew ALPM handle、raw MTREE、opaque record generation、live bindingを確認する。
+S5-Cの`InstalledDevelSourceBuildProof`完成までを確認し、XDG provenanceが作られないことを要求する。
+host package DBはmount/変更しない。S5 laneはpublicationなしを維持する。
+Slice 6-Bの内部publisherは`test-devel-build-provenance-publication`と`test-devel-build-provenance-publication-result`で
+deterministic S4/S5 fixtureから検証する。6-Cのactual publicationは同じinstalled laneの別modeで確認する。
+
+    make test-container-devel-publication
+
+1つのfresh anonymous DB volumeで4 transactionsを順次実行し、各S5 receipt/fresh binding/final proofを
+先に確認してからproduction publisherを呼ぶ。store世代1→2→3→4とopaque installed generationを
+別々に記録する。same-version reinstallでも新世代へ進み、downgradeでもpublication順は逆行しない。
+raw persistent bytesのSHA-256、schema v1/27 keys、final proofとの全field一致、旧世代の保存と
+contiguous historyを確認する。runnerはcopied source hashesとraw documentsをstdoutへ出し、
+検証者はcurrent candidateとの照合とrepository外へのevidence保存を行う。
+S5-only targetはpublication-noneを引き続き要求する。#475 comparisonは7-B coordinator内だけに接続し、
+7-Dがnormal routeから7-B/7-Cへ接続する。Slice 8の最終契約とmigration判断は
+[devel tracking contract](contracts/devel-tracking.md)、final acceptanceの選択とevidenceは
+[VALIDATION](VALIDATION.md)を参照する。S4/S5/S6のowner contractは変更しない。
+詳細は[`exact-installed-artifact-binding.md`](contracts/exact-installed-artifact-binding.md)を正とする。
+
+S5-Cのfinal construction/lineage/N=1は`test-installed-devel-source-build-proof`、lossless aggregateとcleanup consequenceは
+`test-devel-source-artifact-install-result`で確認する。同じS5-B fixtureの出力を消費し、41-case matrixは複製しない。
+同一fixture executableをbuildするfocused targetは別invocationで実行し、同じbuild outputへの重複buildを避ける。
+finalizerのcomplete private authority、raw tuple/decoded binding/contradictory resultのconstruction firewallも
+canonical negative compileへ含める。contractは[`installed-devel-source-build-proof.md`](contracts/installed-devel-source-build-proof.md)を正とする。
+
+Issue #476 Slice 7-Aは`test-current-installed-artifact-binding`と`test-devel-git-revision-comparison`で確認する。
+current observerは各callのfresh DB observationであり、S5 transaction proofではない。
+Git comparatorはsource/algorithmを先に照合するpure value comparisonで、networkやassessmentを実行しない。
+7-Bだけがこのcomparison foundationを消費し、normal routeは7-Dを参照する。詳細は
+[`current installed observation contract`](contracts/current-installed-artifact-observation.md)を参照する。
+
+Issue #476 Slice 7-Bは`test-devel-package-assessment`でtip-only P/I/R gates、#475 remote mapping、
+remote成功後のone-time local recheckとcall countを確認する。normal routeは7-Dから接続し、assessmentからS6 publisherを呼ばない。
+approved-source mintはown-I/O coordinatorだけで、canonical negative compileにS7-B firewallを追加する。
+詳細は[`read-only assessment contract`](contracts/devel-package-assessment.md)を正とする。
+
+Issue #476 Slice 7-Cは`test-reviewed-devel-source-build-execution`でtyped pinからS4/S5/S6を結合する。
+normal ownerがtype erasure前に選べる専用variantを提供するが、7-Dがnormal finalizerからLegacy/AuthoritativeDevelを選択する。
+S5/S6 contractを変更せず、partial install/publication/cleanup outcomesとlive context lifetimeを保持する。
+詳細は[`reviewed devel execution bridge`](contracts/reviewed-devel-source-build-execution.md)を正とする。
 
 Issue #485 Slice 5のclosed lifecycle / authoritative candidate gateは、同じnetworkless installed imageを
 使う専用targetで確認する。
@@ -503,3 +594,7 @@ placeholderの`<tag-object-sha>`には手順5で確認したGitHub tag object SH
 - 実装後はPR作成・merge・branch削除・mirror結果・clean確認まで締める
 - published tagは移動・再作成せず、通常recoveryでReleaseを削除・unpublishしない
 - 大きなリネームや破壊的変更は major release で扱う
+
+Issue #476 Slice 7-Dのnormal routingは`test-aur-devel-route`、normal finalizerのS4/S5/S6結合は
+`test-normal-reviewed-devel-execution`で確認する。normal routeの既存query/preflight/runner/reducer/CLI/dry-run tests、
+construction firewalls、frontendを併用する。contractは[devel normal routes](contracts/devel-normal-routes.md)。

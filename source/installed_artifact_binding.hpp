@@ -1,13 +1,14 @@
 #pragma once
 
+#include "devel_build_provenance_decoder_authority.hpp"
+#include "current_installed_artifact_binding_observer_authority.hpp"
+#include "installed_artifact_binding_observer_authority.hpp"
 #include "installed_package.hpp"
 #include "source_package_identity.hpp"
 
 #include <string>
 #include <utility>
 #include <variant>
-
-class DevelBuildProvenancePersistentDecoderAccess;
 
 class AlpmMtreeSha256Digest final {
 public:
@@ -76,6 +77,8 @@ public:
 
 private:
     friend class DevelBuildProvenancePersistentDecoderAccess;
+    friend class InstalledArtifactBindingObserver;
+    friend class CurrentInstalledArtifactBindingObserver;
 #ifdef MOGUET_ENABLE_INSTALLED_ARTIFACT_BINDING_TEST_HOOKS
     friend InstalledPackageRecordGeneration
     make_installed_package_record_generation_fixture_for_test(
@@ -118,6 +121,8 @@ public:
 
 private:
     friend class DevelBuildProvenancePersistentDecoderAccess;
+    friend class InstalledArtifactBindingObserver;
+    friend class CurrentInstalledArtifactBindingObserver;
 #ifdef MOGUET_ENABLE_INSTALLED_ARTIFACT_BINDING_TEST_HOOKS
     friend InstalledArtifactBinding
     make_installed_artifact_binding_fixture_for_test(
@@ -199,15 +204,15 @@ using InstalledArtifactBindingObservationResult = std::variant<
     InstalledArtifactBindingObservationFailure>;
 
 #ifdef MOGUET_ENABLE_INSTALLED_ARTIFACT_BINDING_TEST_HOOKS
-// Test-only mint. Production obtains this capability only from a future
-// supported installed-record observation adapter.
+// Test-only mint. Production uses the separate S5 transaction-bound or
+// S7-A current installed-record observation owner.
 [[nodiscard]] InstalledPackageRecordGeneration
 make_installed_package_record_generation_fixture_for_test(
     std::string opaque_identity);
 
 // Whole-binding raw construction is test-only. Persistent decode has a
-// separate friend boundary; a future live observer must add its own producer
-// capability rather than reopening InstalledArtifactBinding::make().
+// separate friend boundary; current observation has its own complete private
+// producer rather than reopening InstalledArtifactBinding::make().
 [[nodiscard]] InstalledArtifactBinding
 make_installed_artifact_binding_fixture_for_test(
     PackageChildIdentity package,

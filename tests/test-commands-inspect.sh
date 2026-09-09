@@ -1300,6 +1300,24 @@ assert_not_contains "non-aur-git: devel package" "$stdout_file"
 assert_no_foreign_update_mutation
 echo "  ok: foreign devel suffix candidates are visible RequiresCheck states"
 
+# Current devel decisions preserve their basis and never invent a version arrow.
+for decision in different same requires-check unsupported unknown; do
+    setup_case "foreign-authoritative-$decision"
+    export MOGUET_TEST_INSPECTION_SCENARIO="foreign-authoritative-$decision"
+    set_foreign_inventory 'observed-git 2.0-1 explicit'
+    export MOGUET_TEST_VERCMP_OUTPUT=0
+    if [ "$decision" = unknown ]; then run_fail -Qua; else run_ok -Qua; fi
+    assert_not_contains 'observed-git 2.0-1 ->' "$stdout_file"
+    case $decision in
+        different) assert_contains 'observed-git 2.0-1 [Git revision update available]' "$stdout_file" ;;
+        same) assert_not_contains '[Git revision update available]' "$stdout_file" ;;
+        unknown) assert_contains 'Devel Git observation failed' "$stderr_file" ;;
+        requires-check) assert_contains 'local authority is unavailable or has changed' "$stdout_file" ;;
+        unsupported) assert_contains 'Devel automatic update is unsupported' "$stdout_file" ;;
+    esac
+    assert_no_foreign_update_mutation
+done
+
 # vercmp parse failureはwarningを出し、fail-closedでupdateに分類しない。
 setup_case foreign-invalid-vercmp
 export MOGUET_TEST_INSPECTION_SCENARIO=foreign-classification

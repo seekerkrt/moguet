@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -24,9 +25,23 @@ inline constexpr std::size_t
 
 enum class SourceArtifactInstallTrustedHelperCommand {
     Prepare,
+    PrepareExact,
+    Execute,
+    ExecutionStatus,
+    ObserveExecution,
     Record,
+    RecordInstall,
+    RecordUpgrade,
+    ConsumeExact,
     Consume,
     Abort,
+};
+
+// The legacy route remains Install-only cleanup evidence. A distinct prepared
+// protocol and fixed helper entry select the installed-binding purpose.
+enum class SourceArtifactInstallTrustedPurpose {
+    CleanupInstallOnly,
+    ExactInstalledBinding,
 };
 
 enum class SourceArtifactInstallTrustedDirective {
@@ -62,6 +77,39 @@ enum class SourceArtifactInstallTrustedProtocolIssueKind {
     InvalidHookDirectory,
     InvalidStagedArtifactPath,
     InvalidReceiptState,
+    InvalidDigest,
+};
+
+enum class SourceArtifactInstallSealingFailure {
+    StagedArtifactDigestMismatch,
+    StagedArtifactGenerationMismatch,
+    StagedArtifactReplacement,
+    StagedArtifactRevalidationFailure,
+    SignatureDigestMismatch,
+    TrustedTransportProtocolMismatch,
+    ExecutableLaunchFailure,
+    TransactionLifetimeBusy,
+};
+
+struct SourceArtifactInstallSealingRefusal {
+    SourceArtifactInstallSealingFailure reason;
+    int error_number = 0;
+    bool operator==(const SourceArtifactInstallSealingRefusal&) const = default;
+};
+
+// A hook phase is positive package-manager-side evidence. Authorization is
+// only permission to launch and cannot stand in for either observed phase.
+enum class SourceArtifactInstallExecutionEvidence {
+    Unobserved,
+    PreTransaction,
+    PostTransaction,
+};
+
+struct SourceArtifactInstallExecutionObservation {
+    std::string transaction_token;
+    bool authorized = false;
+    std::optional<SourceArtifactInstallSealingRefusal> refusal;
+    SourceArtifactInstallExecutionEvidence execution_evidence = SourceArtifactInstallExecutionEvidence::Unobserved;
 };
 
 struct SourceArtifactInstallTrustedProtocolFailure {
@@ -76,6 +124,11 @@ struct SourceArtifactInstallRootArtifactExpectation {
     std::string architecture;
     std::uint64_t artifact_size;
     std::uint64_t signature_size;
+    // Exact bytes from the retained descriptor, verified again against the
+    // sealed input and privileged stage. Signature identity is independent.
+    std::string archive_sha256;
+    std::string signature_sha256;
+    std::string raw_mtree_sha256 = "-";
 
     bool operator==(
         const SourceArtifactInstallRootArtifactExpectation&) const =
@@ -89,6 +142,7 @@ struct SourceArtifactInstallRootPrepareRequest {
     bool needed;
     bool no_confirm;
     std::vector<SourceArtifactInstallRootArtifactExpectation> artifacts;
+    SourceArtifactInstallTrustedPurpose purpose = SourceArtifactInstallTrustedPurpose::CleanupInstallOnly;
 
     bool operator==(
         const SourceArtifactInstallRootPrepareRequest&) const = default;
@@ -125,6 +179,7 @@ struct SourceArtifactInstallRootPrepareResponse {
     std::string transaction_token;
     std::string hook_directory;
     std::vector<SourceArtifactInstallStagedArtifact> artifacts;
+    std::string staged_identity_sha256 = {};
 };
 
 using SourceArtifactInstallRootPrepareResponseResult = std::variant<
@@ -193,3 +248,10 @@ parse_source_artifact_install_root_prepare_response(
 
 [[nodiscard]] SourceArtifactInstallRootReceiptResult
 parse_source_artifact_install_root_receipt(std::string_view protocol);
+
+[[nodiscard]] bool is_valid_source_artifact_install_sha256(std::string_view digest) noexcept;
+[[nodiscard]] std::string serialize_source_artifact_install_execution_observation(
+    const SourceArtifactInstallExecutionObservation& observation);
+[[nodiscard]] std::variant<SourceArtifactInstallExecutionObservation,
+                           SourceArtifactInstallTrustedProtocolFailure>
+parse_source_artifact_install_execution_observation(std::string_view protocol);

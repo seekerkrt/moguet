@@ -1556,7 +1556,7 @@ PackageBaseArtifactInstallTransactionError::release_attempts() && noexcept {
     return std::move(attempts_);
 }
 
-PackageBaseSourceBuildExecutionResult
+SourceBuildPackageBaseExecutionResult
 execute_prepared_package_base_source_build_work_item_typed(
     const ProductionSourceBuildWorkItem& work_item,
     const PacmanDatabasePaths& database_paths,

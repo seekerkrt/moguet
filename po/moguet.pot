@@ -8,13 +8,13 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.6.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-04 07:23+0900\n"
+"POT-Creation-Date: 2026-09-09 16:54+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "Language: \n"
 "MIME-Version: 1.0\n"
-"Content-Type: text/plain; charset=CHARSET\n"
+"Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=INTEGER; plural=EXPRESSION;\n"
 
@@ -819,6 +819,9 @@ msgstr ""
 msgid "prior work item stopped"
 msgstr ""
 
+msgid "authoritative execution incomplete; installation and publication outcomes are retained separately"
+msgstr ""
+
 #. TRANSLATORS: AUR is a runtime project identity.
 #, c++-format
 msgid "Unknown {} work-item failure kind."
@@ -936,6 +939,15 @@ msgstr ""
 msgid "An unattempted {} work item unexpectedly has a production outcome."
 msgstr ""
 
+msgid "transaction succeeded; exact installed proof unavailable"
+msgstr ""
+
+msgid "transaction outcome unknown; installed artifact unverified"
+msgstr ""
+
+msgid "transaction failed; package effects unverified"
+msgstr ""
+
 msgid "installed / updated"
 msgstr ""
 
@@ -1025,6 +1037,14 @@ msgid "{} update metadata is unavailable."
 msgstr ""
 
 msgid "Installed and remote versions could not be compared."
+msgstr ""
+
+#. TRANSLATORS: The placeholder is the literal tool name "Git".
+#, c++-format
+msgid "Devel {} observation failed; no automatic build."
+msgstr ""
+
+msgid "Devel source is unsupported for automatic updates."
 msgstr ""
 
 #. TRANSLATORS: {} is the literal service name "AUR".
@@ -1808,6 +1828,11 @@ msgstr ""
 msgid "Failed to fetch {} info: {}"
 msgstr ""
 
+#. TRANSLATORS: The placeholders are the literal tool name "Git" and a package name.
+#, c++-format
+msgid "{} revision update available: {} (package-version decision unchanged)."
+msgstr ""
+
 msgid "Planned package target root attribution is inconsistent."
 msgstr ""
 
@@ -2060,6 +2085,14 @@ msgid "Unknown {} update operation status."
 msgstr ""
 
 msgid "up to date"
+msgstr ""
+
+#. TRANSLATORS: The placeholder is the literal tool name "Git".
+#, c++-format
+msgid "devel {} observation failed"
+msgstr ""
+
+msgid "devel automatic update unsupported"
 msgstr ""
 
 msgid "devel update requires check"
@@ -2787,6 +2820,10 @@ msgstr ""
 msgid "Failed to write {} to {}."
 msgstr ""
 
+#, c++-format
+msgid "{}: devel update requires check; local authority is unavailable or has changed."
+msgstr ""
+
 msgid "Devel check-required update entry is inconsistent."
 msgstr ""
 
@@ -2823,6 +2860,15 @@ msgstr ""
 
 #, c++-format
 msgid "Failed to compare versions: {} -> {}"
+msgstr ""
+
+#. TRANSLATORS: The placeholders are the literal tool name "Git" and a package name.
+#, c++-format
+msgid "Devel {} observation failed: {}"
+msgstr ""
+
+#, c++-format
+msgid "Devel automatic update is unsupported: {}"
 msgstr ""
 
 #, c++-format
@@ -3683,6 +3729,12 @@ msgid "build or install failed"
 msgstr ""
 
 msgid "cleanup failed after package transaction"
+msgstr ""
+
+msgid "authoritative execution incomplete; installation and publication outcomes are separate"
+msgstr ""
+
+msgid "devel update requires check; explicit rebuild declined"
 msgstr ""
 
 msgid "package update status unknown"
@@ -5040,9 +5092,6 @@ msgstr ""
 #. TRANSLATORS: {} is the literal service name "AUR".
 #, c++-format
 msgid "{} update candidate has no remote package identity"
-msgstr ""
-
-msgid "devel package update status requires check: suffix candidate only"
 msgstr ""
 
 #. TRANSLATORS: {} is the literal service name "AUR".
@@ -7123,6 +7172,12 @@ msgstr ""
 msgid "Source checkout or build preparation failed."
 msgstr ""
 
+msgid "Devel update requires check. Continue with an explicit reviewed rebuild?"
+msgstr ""
+
+msgid "Devel package requires check; explicit rebuild was not accepted."
+msgstr ""
+
 #, c++-format
 msgid "{} private artifact workspace preparation failed."
 msgstr ""
@@ -9082,11 +9137,24 @@ msgstr ""
 msgid "Blockers:"
 msgstr ""
 
+msgid "skipped: devel update requires check; local authority is unavailable or has changed"
+msgstr ""
+
 msgid "Unified plan:"
 msgstr ""
 
 #, c++-format
 msgid "  Status: {}"
+msgstr ""
+
+#. TRANSLATORS: The placeholders are a package name and the literal tool name "Git". This is a revision difference, not a newer package version.
+#, c++-format
+msgid "  Observed update basis: {} — {} revision difference"
+msgstr ""
+
+#. TRANSLATORS: The placeholders are a package name and the literal tool name "Git".
+#, c++-format
+msgid "  Observed devel assessment: {} — same {} revision"
 msgstr ""
 
 #, c++-format

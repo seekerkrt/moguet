@@ -1,6 +1,10 @@
 #include "source_build.hpp"
 
 #include "app_config.hpp"
+#include "aur_devel_update.hpp"
+#include "reviewed_devel_source_route.hpp"
+#include "srcinfo_source_metadata.hpp"
+#include <fstream>
 #include "diagnostic_projection.hpp"
 #include "interactive_confirmation.hpp"
 #include "localization.hpp"
@@ -52,6 +56,9 @@ struct PreparedSourceBuildExecutionCapabilities {
 };
 
 struct SourceBuildPreparationAccess {
+    static PreparedSourceBuildNeedsBuild make(PreparedReviewedDevelSourceBuildExecution devel) noexcept {
+        return PreparedSourceBuildNeedsBuild(std::move(devel));
+    }
     static PreparedSourceBuildNeedsBuild make(
         ProductionArtifactSourceTree source_tree,
         ValidatedPrivateCacheRoot artifact_root,
@@ -64,6 +71,10 @@ struct SourceBuildPreparationAccess {
 };
 
 struct SourceBuildPreparedExecutionAccess {
+    static std::optional<PreparedReviewedDevelSourceBuildExecution> take_devel(PreparedSourceBuildNeedsBuild& prepared) {
+        if(!prepared.devel_) return std::nullopt;
+        return std::move(prepared.devel_);
+    }
     static PreparedSourceBuildExecutionCapabilities consume(
         PreparedSourceBuildNeedsBuild prepared) {
         if(!prepared.source_tree_.has_value() ||
@@ -95,7 +106,8 @@ class ReviewedSourceFatalStatePreflightSlot final {
         const std::string& display_name,
         SourceBuildUpdatePolicy update_policy,
         const ValidatedCacheRoot& cache_root,
-        const AppConfig& config);
+        const AppConfig& config,
+        const ReviewedDevelSourceBuildIntent* execution_intent);
 };
 
 ProductionArtifactSourceTree
@@ -951,13 +963,16 @@ ReviewedSourceEditorOverlayProofResult seal_aur_editor_boundary(
         authority);
 }
 
-ProductionArtifactSourceTree finalize_aur_checkout_authority(
+ReviewedProductionSourceExecution finalize_aur_checkout_authority(
     AurCheckoutAuthority authority,
     const ValidatedCachePath& checkout,
     std::optional<ReviewedSourceEditorOverlayProof> editor_overlay,
-    bool editor_invoked) {
+    bool editor_invoked,
+    const ReviewedDevelSourceBuildIntent* intent = nullptr) {
     if(auto* compatibility =
            std::get_if<AurCompatibilityCheckout>(&authority)) {
+        if(intent && intent->request.authoritative_devel_update)
+            return ReviewedDevelSourceBuildRejected{ReviewedDevelSourceBuildIssue::InvalidPin};
         if(editor_overlay.has_value()) {
             throw std::logic_error(
                 "Compatibility checkout received reviewed overlay authority.");
@@ -1034,9 +1049,7 @@ ProductionArtifactSourceTree finalize_aur_checkout_authority(
                   std::move(editor_overlay.value()));
     if(auto* pinned =
            std::get_if<PinnedReviewedSourceBuild>(&publication)) {
-        return make_reviewed_production_artifact_source_tree(
-            checkout, std::move(*pinned), reviewed_outcome.outcome,
-            reviewed_outcome.abnormal_state_reason);
+        return select_normal_reviewed_source_execution(checkout, std::move(*pinned), reviewed_outcome.outcome, reviewed_outcome.abnormal_state_reason, intent);
     }
     if(std::holds_alternative<ReviewedSourcePublicationUncertain>(
            publication)) {
@@ -1280,7 +1293,7 @@ MakepkgBuildOptions resolve_makepkg_build_options(
 }
 
 struct PreparedSourceBuildCheckout {
-    ProductionArtifactSourceTree source_tree;
+    ReviewedProductionSourceExecution source_tree;
     MakepkgBuildOptions makepkg_options;
 };
 
@@ -1297,7 +1310,8 @@ SourceBuildCheckoutPreparation prepare_source_build_checkout(
     const ValidatedCacheRoot& build_root,
     std::optional<ReviewedSourceFatalStatePreflight>
         reviewed_state_preflight,
-    const AppConfig& config) {
+    const AppConfig& config,
+    const ReviewedDevelSourceBuildIntent* execution_intent) {
     require_valid_package_name(request.checkout_name);
     if(update_policy == SourceBuildUpdatePolicy::OnlyIfUpdated &&
        !request.installed_snapshot.has_value()) {
@@ -1570,11 +1584,10 @@ SourceBuildCheckoutPreparation prepare_source_build_checkout(
             if(update_check == UpdateCheckResult::UpToDate) {
                 std::optional<ProductionSourceBuildProvenance> provenance;
                 if(aur_authority.has_value()) {
-                    ProductionArtifactSourceTree source_tree =
-                        finalize_aur_checkout_authority(
-                            std::move(aur_authority.value()),
-                            pkg_path, std::nullopt, false);
-                    provenance = source_tree.provenance();
+                    auto selected = finalize_aur_checkout_authority(
+                        std::move(aur_authority.value()),
+                        pkg_path, std::nullopt, false);
+                    provenance = std::get<ProductionArtifactSourceTree>(selected).provenance();
                 } else {
                     ProductionArtifactSourceTree source_tree =
                         make_unreviewed_production_artifact_source_tree(
@@ -1713,17 +1726,17 @@ SourceBuildCheckoutPreparation prepare_source_build_checkout(
     pkg_path = revalidate_trusted_cache_path(
         pkg_path, CachePathRequirement::ExistingDirectory);
     require_safe_persistent_checkout_descendants(pkg_path);
-    ProductionArtifactSourceTree source_tree = aur_authority.has_value()
-                                                   ? finalize_aur_checkout_authority(
-                                                         std::move(aur_authority.value()), pkg_path,
-                                                         std::move(editor_overlay), editor_invoked)
-                                                   : make_unreviewed_production_artifact_source_tree(
-                                                         pkg_path, std::move(package_base_lease.value()),
-                                                         ProductionSourceReviewStatus::NotApplicable,
-                                                         editor_invoked
-                                                             ? ReviewedSourceEditorOverlayStatus::
-                                                                   InvocationLocal
-                                                             : ReviewedSourceEditorOverlayStatus::None);
+    ReviewedProductionSourceExecution source_tree = aur_authority.has_value()
+                                                        ? finalize_aur_checkout_authority(
+                                                              std::move(aur_authority.value()), pkg_path,
+                                                              std::move(editor_overlay), editor_invoked, execution_intent)
+                                                        : make_unreviewed_production_artifact_source_tree(
+                                                              pkg_path, std::move(package_base_lease.value()),
+                                                              ProductionSourceReviewStatus::NotApplicable,
+                                                              editor_invoked
+                                                                  ? ReviewedSourceEditorOverlayStatus::
+                                                                        InvocationLocal
+                                                                  : ReviewedSourceEditorOverlayStatus::None);
     return PreparedSourceBuildCheckout{
         std::move(source_tree), makepkg_options};
 }
@@ -1825,7 +1838,8 @@ SourceBuildPreparationOutcome prepare_source_build_for_execution(
     const std::string& display_name,
     SourceBuildUpdatePolicy update_policy,
     const ValidatedCacheRoot& cache_root,
-    const AppConfig& config) {
+    const AppConfig& config,
+    const ReviewedDevelSourceBuildIntent* execution_intent) {
     std::optional<ReviewedSourceFatalStatePreflight> reviewed_state_preflight;
     if(request.aur_review_identity.has_value()) {
         std::shared_ptr<ReviewedSourceFatalStatePreflightSlot> slot =
@@ -1872,7 +1886,7 @@ SourceBuildPreparationOutcome prepare_source_build_for_execution(
         try {
             return prepare_source_build_checkout(
                 request, display_name, update_policy, cache_root,
-                std::move(reviewed_state_preflight), config);
+                std::move(reviewed_state_preflight), config, execution_intent);
         } catch(const ReviewedSourceProductionError&) {
             throw;
         } catch(const TrustedCacheError&) {
@@ -1903,8 +1917,12 @@ SourceBuildPreparationOutcome prepare_source_build_for_execution(
     }
     PreparedSourceBuildCheckout checkout = std::move(
         std::get<PreparedSourceBuildCheckout>(checkout_preparation));
+    if(auto* devel = std::get_if<PreparedReviewedDevelSourceBuildExecution>(&checkout.source_tree))
+        return SourceBuildPreparationAccess::make(std::move(*devel));
+    if(std::holds_alternative<ReviewedDevelSourceBuildRejected>(checkout.source_tree))
+        throw std::runtime_error("Authoritative reviewed devel execution intent was rejected; no legacy fallback.");
     return SourceBuildPreparationAccess::make(
-        std::move(checkout.source_tree), std::move(artifact_root),
+        std::get<ProductionArtifactSourceTree>(std::move(checkout.source_tree)), std::move(artifact_root),
         checkout.makepkg_options.rebuild,
         checkout.makepkg_options.clean_build);
 }
@@ -1927,13 +1945,56 @@ prepared_source_build_provenance_for_test(
 #endif
 
 SourceBuildExecutionResult execute_source_build_typed(
-    const SourceBuildRequest& request,
+    const SourceBuildRequest& input_request,
     const ValidatedCacheRoot& cache_root,
     DesiredInstallReason desired_reason,
     const PacmanDatabasePaths& database_paths,
     const AppConfig& config) {
+    require_valid_package_name(input_request.package_name);
+    SourceBuildRequest request = input_request;
+    std::shared_ptr<const AurUpdateQueryResult> devel_query;
+    std::optional<ConfirmationDecisionOrigin> devel_confirmation;
+    if(request.only_if_updated && request.aur_review_identity && request.installed_snapshot && request.installed_snapshot->installed_version) {
+        devel_query = std::make_shared<AurUpdateQueryResult>(query_registered_aur_devel_update(*request.aur_review_identity, request.package_name));
+        const auto& entry = devel_query->plan.entries.front();
+        const auto effective = project_aur_update_effective_state(entry);
+        if(effective == AurUpdateEffectiveState::UpdateAvailable) {
+            request.only_if_updated = false;
+            request.authoritative_devel_update = aur_update_basis(entry) == AurUpdateBasis::GitRevision;
+        } else if(effective == AurUpdateEffectiveState::RequiresCheck) {
+            auto answer = request_confirmation(localization::translate_message("Devel update requires check. Continue with an explicit reviewed rebuild?"), ConfirmationDefault::No, config.no_confirm);
+            if(const auto* accepted = std::get_if<ConfirmationAccepted>(&answer)) {
+                devel_confirmation = accepted->origin;
+                request.only_if_updated = false; // Explicit rebuild intent; still requires the normal reviewed pin.
+                request.authoritative_devel_update = false;
+            } else if(const auto* declined = std::get_if<ConfirmationDeclined>(&answer)) {
+                SourceBuildExecutionResult out;
+                out.status = SourceBuildExecutionStatus::DevelRequiresCheckSkipped;
+                out.devel_update_query = devel_query;
+                out.devel_rebuild_confirmation = declined->origin;
+                out.diagnostic = localization::translate_message("Devel package requires check; explicit rebuild was not accepted.");
+                return out;
+            } else {
+                DiagnosticIdentity identity;
+                identity.requested_package = request.package_name;
+                identity.package_base = request.checkout_name;
+                stop_after_confirmation(std::move(answer), DiagnosticPhase::Preflight, std::move(identity));
+            }
+        } else if(effective == AurUpdateEffectiveState::UpToDate && entry.devel_assessment.state() == DevelUpdateAssessmentState::NotApplicable) {
+            // Ordinary registered preference/baseline semantics stay on the legacy path.
+        } else {
+            SourceBuildExecutionResult out;
+            out.devel_update_query = devel_query;
+            out.status = effective == AurUpdateEffectiveState::UpToDate ? SourceBuildExecutionStatus::UpToDate : SourceBuildExecutionStatus::AuthoritativeIncomplete;
+            out.diagnostic = effective == AurUpdateEffectiveState::UpToDate ? "Git revision matches the validated installed baseline." : effective == AurUpdateEffectiveState::Unknown     ? "Devel Git observation failed; no automatic build."
+                                                                                                                                     : effective == AurUpdateEffectiveState::RequiresCheck ? "Devel package requires check; no automatic build."
+                                                                                                                                                                                           : "Devel automatic update is unsupported.";
+            return out;
+        }
+    }
     // generic/direct/system compatibility pathはsingular identityを引き続き要求する。
     require_valid_package_name(request.package_name);
+    const ReviewedDevelSourceBuildIntent intent{request, {{request.checkout_name, request.package_name, desired_reason}}, database_paths, config.rm_deps, {config.no_confirm}};
     SourceBuildPreparationOutcome preparation = [&]() {
         try {
             return prepare_source_build_for_execution(
@@ -1941,7 +2002,7 @@ SourceBuildExecutionResult execute_source_build_typed(
                 request.only_if_updated
                     ? SourceBuildUpdatePolicy::OnlyIfUpdated
                     : SourceBuildUpdatePolicy::AlwaysBuild,
-                cache_root, config);
+                cache_root, config, &intent);
         } catch(const SourceBuildPreparationError& error) {
             throw std::runtime_error(error.what());
         }
@@ -1976,9 +2037,23 @@ SourceBuildExecutionResult execute_source_build_typed(
         }
         return result;
     }
-    PreparedSourceBuildExecutionCapabilities prepared =
-        SourceBuildPreparedExecutionAccess::consume(std::move(
-            std::get<PreparedSourceBuildNeedsBuild>(preparation)));
+    auto& pending = std::get<PreparedSourceBuildNeedsBuild>(preparation);
+    if(auto devel = SourceBuildPreparedExecutionAccess::take_devel(pending)) {
+        SourceBuildExecutionResult out;
+        out.devel_execution.emplace(execute_normal_reviewed_devel(std::move(*devel)));
+        out.devel_update_query = devel_query;
+        out.devel_rebuild_confirmation = devel_confirmation;
+        out.status = out.devel_execution->complete ? SourceBuildExecutionStatus::Installed : SourceBuildExecutionStatus::AuthoritativeIncomplete;
+        try {
+            out.production_outcome = out.devel_execution->production_outcome;
+        } catch(...) {
+            out.devel_execution->projection_failed = true;
+            out.devel_execution->complete = false;
+            out.status = SourceBuildExecutionStatus::AuthoritativeIncomplete;
+        }
+        return out;
+    }
+    PreparedSourceBuildExecutionCapabilities prepared = SourceBuildPreparedExecutionAccess::consume(std::move(pending));
 
     const SeparatedSourceBuildUnitOptions options{
         .no_confirm = config.no_confirm,
@@ -2001,12 +2076,13 @@ SourceBuildExecutionResult execute_source_build_typed(
     SourceBuildExecutionResult result =
         source_build_result_from_artifact_outcome(
             separated.install_outcome);
-    result.production_outcome =
-        std::move(separated.production_outcome);
+    result.production_outcome = std::move(separated.production_outcome);
+    result.devel_update_query = devel_query;
+    result.devel_rebuild_confirmation = devel_confirmation;
     return result;
 }
 
-PackageBaseSourceBuildExecutionResult
+SourceBuildPackageBaseExecutionResult
 execute_prepared_source_build_package_base_typed(
     const SourceBuildRequest& request,
     const std::vector<RequiredPackageArtifactTarget>& required_targets,
@@ -2016,6 +2092,9 @@ execute_prepared_source_build_package_base_typed(
     require_package_base_source_build_request(request, required_targets);
     require_supported_separated_install_options(config.rm_deps);
     require_unclaimed_artifact_pkgdest(request.custom_environment);
+    if(auto devel = SourceBuildPreparedExecutionAccess::take_devel(prepared)) {
+        return execute_normal_reviewed_devel(std::move(*devel));
+    }
     PreparedSourceBuildExecutionCapabilities capabilities =
         SourceBuildPreparedExecutionAccess::consume(
             std::move(prepared));
@@ -2072,7 +2151,7 @@ execute_prepared_source_build_package_base_with_cleanup_authority(
 
 namespace {
 
-PackageBaseSourceBuildExecutionResult
+SourceBuildPackageBaseExecutionResult
 execute_source_build_package_base_typed_impl(
     const SourceBuildRequest& request,
     const std::vector<RequiredPackageArtifactTarget>& required_targets,
@@ -2085,12 +2164,13 @@ execute_source_build_package_base_typed_impl(
     require_package_base_source_build_request(request, required_targets);
     require_supported_separated_install_options(config.rm_deps);
     require_unclaimed_artifact_pkgdest(request.custom_environment);
+    const ReviewedDevelSourceBuildIntent intent{request, required_targets, database_paths, config.rm_deps, {config.no_confirm}};
     SourceBuildPreparationOutcome preparation = [&]() {
         try {
             return prepare_source_build_for_execution(
                 request, request.checkout_name,
                 SourceBuildUpdatePolicy::AlwaysBuild,
-                cache_root, config);
+                cache_root, config, collector ? nullptr : &intent);
         } catch(const ReviewedSourceProductionError& error) {
             throw SeparatedPackageBaseSourceBuildPhaseError(
                 SeparatedPackageBaseSourceBuildFailurePhase::Build,
@@ -2149,7 +2229,7 @@ execute_source_build_package_base_typed_impl(
 
 } // namespace
 
-PackageBaseSourceBuildExecutionResult
+SourceBuildPackageBaseExecutionResult
 execute_source_build_package_base_typed(
     const SourceBuildRequest& request,
     const std::vector<RequiredPackageArtifactTarget>& required_targets,
@@ -2170,7 +2250,7 @@ execute_source_build_package_base_with_cleanup_authority(
     const AppConfig& config,
     RemoteAurCleanupCandidateCollector& collector,
     std::size_t work_item_index) {
-    return execute_source_build_package_base_typed_impl(
+    return std::get<PackageBaseSourceBuildExecutionResult>(execute_source_build_package_base_typed_impl(
         request, required_targets, cache_root, database_paths,
-        config, &collector, work_item_index);
+        config, &collector, work_item_index));
 }

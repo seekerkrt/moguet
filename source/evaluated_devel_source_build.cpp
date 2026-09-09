@@ -2252,7 +2252,7 @@ std::uintmax_t FreshDevelPackageArtifact::size() const noexcept {
 }
 
 EvaluatedDevelSourceBuildProof::EvaluatedDevelSourceBuildProof(
-    std::unique_ptr<State> state) noexcept
+    std::unique_ptr<State> state)
     : state_(std::move(state)) {
 }
 
