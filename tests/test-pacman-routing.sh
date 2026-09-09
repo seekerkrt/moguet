@@ -176,6 +176,11 @@ assert_no_sudo
 run_ok "$tmp_dir/search.out" -Ss keyword
 assert_command "pacman -Ss keyword"
 assert_no_sudo
+# Auto info now classifies from typed repository metadata before delegation.
+repository_metadata_state=$tmp_dir/repository-metadata.state
+printf 'core filesystem 1 1\n' > "$repository_metadata_state"
+export MOGUET_TEST_REPOSITORY_METADATA_STATE_FILE=$repository_metadata_state
+export MOGUET_TEST_PACMAN_CONF_REPOSITORY_LIST=core
 run_ok "$tmp_dir/info.out" -Si filesystem
 assert_command "pacman -Si filesystem"
 assert_no_sudo

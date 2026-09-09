@@ -10,7 +10,6 @@
 
 namespace {
 
-std::size_t g_legacy_repo_package_queries = 0;
 std::size_t g_sync_database_package_queries = 0;
 std::size_t g_strict_repo_provider_queries = 0;
 std::size_t g_target_metadata_provider_queries = 0;
@@ -130,15 +129,10 @@ std::vector<ProvidedDependency> repository_providers(
 namespace dependency_plan_repository_query_stub {
 
 void reset_query_counts() {
-    g_legacy_repo_package_queries = 0;
     g_sync_database_package_queries = 0;
     g_strict_repo_provider_queries = 0;
     g_target_metadata_provider_queries = 0;
     g_source_change_provider_queries = 0;
-}
-
-std::size_t legacy_repo_package_query_count() {
-    return g_legacy_repo_package_queries;
 }
 
 std::size_t sync_database_package_query_count() {
@@ -150,11 +144,6 @@ std::size_t strict_repo_provider_query_count() {
 }
 
 } // namespace dependency_plan_repository_query_stub
-
-bool is_repo_package(const std::string& package_name) {
-    ++g_legacy_repo_package_queries;
-    return package_name == "case6-repo-lib";
-}
 
 StrictRepositoryPackageQueryResult query_repository_package_strict(
     const std::string& package_name) {

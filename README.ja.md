@@ -79,6 +79,14 @@ fail-closedで停止します。v2.xは、Moguetのsource-aware入口、安全�
 - `deps`と`plan`は調査・表示だけを行い、clone、build、installしません。`fetch`は
   未取得repositoryをcloneし、既存cloneでは`git fetch origin`だけを実行します。
   pull、merge、reset、working tree更新、build、installは行いません。
+- repository metadataの取得失敗と、確認済みの不在は区別します。Auto `-Si`は不在を
+  確認できた場合だけAURへfallbackし、取得失敗targetをdiagnostic付きで除外して独立targetを
+  続行します。`revert`は対象ごとのmetadata確認をpreference削除前に行い、失敗targetの
+  preferenceを保持し、成功したrepository targetを既存のgrouped reinstallへ渡します。
+- AUR infoはinstalled stateを取得できない場合、`no`ではなく取得不能表示とwarningを出します。
+  Auto searchの`[installed]`は成功したforeign inventoryへの所属だけで付け、取得不能時は
+  warningとともにannotationを省略します。これらのoptional表示だけではsearch / infoの
+  成功規則を変更しません。AurOnly searchはinstalled / repository metadataをqueryしません。
 - dependency edgeはtyped requirement、source-aware candidate、constraint resultを保持します。
   `deps`は`Unsatisfied` / `Unknown`をwarning付きで継続し、`plan`はincompleteとして表示します。
   `Invalid` / `Conflicting`はfail-closedです。`fetch`、build、install、upgrade、local buildは

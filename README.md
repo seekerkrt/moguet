@@ -94,6 +94,16 @@ detailed plan.
   build, or install. `fetch` clones missing repositories or runs only
   `git fetch origin` for an existing clone; it does not pull, merge, reset,
   advance the working tree, build, or install.
+- Repository metadata failure is distinct from confirmed absence. Auto `-Si`
+  falls back to AUR only after confirmed absence; a failed target is reported
+  and excluded while independent targets continue. `revert` checks repository
+  metadata before deleting each preference, preserving failed targets and
+  grouping successful repository targets into the existing reinstall.
+- AUR info shows an unavailable installed state with a warning instead of
+  reporting `no`. Auto search derives `[installed]` only from a successful
+  foreign inventory; unavailable inventory produces a warning and omits the
+  annotation. These optional annotations do not change the search/info success
+  policy. AUR-only search does not query installed or repository metadata.
 - Dependency edges retain the typed requirement, source-aware candidate, and
   constraint result. `deps` continues with a warning for `Unsatisfied` or
   `Unknown`; `plan` marks the result incomplete. `Invalid` and `Conflicting`

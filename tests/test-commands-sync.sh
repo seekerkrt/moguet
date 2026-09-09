@@ -34,6 +34,7 @@ setup_case() {
     case_dir=$tmp_dir/cases/$case_name
     command_log=$case_dir/commands.log
     output_file=$case_dir/output
+    metadata_log=$case_dir/metadata.log
     config_file=$case_dir/config.toml
     package_metadata_state=$case_dir/package-metadata.state
     repository_metadata_state=$case_dir/repository-metadata.state
@@ -45,6 +46,7 @@ setup_case() {
     chmod 0700 "$case_dir/xdg-config"
     : > "$command_log"
     : > "$output_file"
+    : > "$metadata_log"
     : > "$package_metadata_state"
     : > "$repository_metadata_state"
     printf '%s\n' 'schema_version = 1' > "$config_file"
@@ -68,7 +70,11 @@ setup_case() {
     unset MOGUET_TEST_PACKAGE_METADATA_PACMAN_CONF_FAILURE_AT
     unset MOGUET_TEST_PACKAGE_METADATA_STATE_FILE
     unset MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE
-    unset MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG
+    export MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG=$metadata_log
+    unset MOGUET_TEST_PACKAGE_METADATA_INITIALIZE_FAILURE
+    unset MOGUET_TEST_PACKAGE_METADATA_QUERY_FAILURE_PACKAGE
+    unset MOGUET_TEST_SYNC_CACHE_FAILURE_REPOSITORY
+    unset MOGUET_TEST_REPOSITORY_QUERY_FAILURE_PACKAGE
     unset MOGUET_TEST_MAKEPKG_PACKAGE_METADATA_STATE_AFTER_SUCCESS_FILE
     unset MOGUET_TEST_PACMAN_MAIN_COMMAND
     unset MOGUET_TEST_PACMAN_MAIN_OUTPUT
@@ -440,6 +446,8 @@ assert_contains "Searching AUR..." "$output_file"
 assert_contains "${ESC}[1;35maur${ESC}[0m/${ESC}[1msearch-presented${ESC}[0m ${ESC}[1;32m2.0-1${ESC}[0m ${ESC}[1;31m[out-of-date]${ESC}[0m ${ESC}[1;33m[orphaned]${ESC}[0m" "$output_file"
 assert_output_line_before "Searching AUR..." "aur${ESC}[0m/${ESC}[1msearch-presented"
 assert_not_contains "[installed]" "$output_file"
+assert_event_prefix_absent '^pacman-conf '
+assert_not_contains "alpm " "$metadata_log"
 assert_contains "    search presentation fixture" "$output_file"
 
 setup_case aur-search-empty
@@ -465,56 +473,67 @@ assert_event_prefix_absent '^aur '
 assert_event_prefix_absent '^pacman '
 
 setup_case auto-search-pacman-failure-aur-success
+export MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE=$package_metadata_state
 export MOGUET_TEST_PACMAN_MAIN_COMMAND='-Ss search-hit-a'
 export MOGUET_TEST_PACMAN_MAIN_OUTPUT='repo search failed output'
 export MOGUET_TEST_PACMAN_MAIN_STATUS=9
 run_status 0 -Ss search-hit-a
 assert_event_at 1 "pacman -Ss search-hit-a"
-assert_event_at 2 "pacman -Qm"
-assert_event_at 3 "aur search search-hit-a"
+assert_event_at 2 "pacman-conf --verbose RootDir DBPath"
+assert_event_at 3 "pacman-conf --repo-list"
+assert_event_at 4 "aur search search-hit-a"
 assert_output_line_before "repo search failed output" "Searching AUR..."
 assert_output_line_before "Searching AUR..." "aur${ESC}[0m/${ESC}[1msearch-hit-a"
 
 setup_case auto-search-pacman-success-aur-empty
+export MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE=$package_metadata_state
 export MOGUET_TEST_PACMAN_MAIN_COMMAND='-Ss search-empty'
 export MOGUET_TEST_PACMAN_MAIN_STATUS=0
 run_status 0 -Ss search-empty
 assert_event_at 1 "pacman -Ss search-empty"
-assert_event_at 2 "pacman -Qm"
-assert_event_at 3 "aur search search-empty"
+assert_event_at 2 "pacman-conf --verbose RootDir DBPath"
+assert_event_at 3 "pacman-conf --repo-list"
+assert_event_at 4 "aur search search-empty"
 
 setup_case auto-search-both-empty-fail
+export MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE=$package_metadata_state
 export MOGUET_TEST_PACMAN_MAIN_COMMAND='-Ss search-empty'
 export MOGUET_TEST_PACMAN_MAIN_STATUS=8
 run_status 1 -Ss search-empty
 assert_event_at 1 "pacman -Ss search-empty"
-assert_event_at 2 "pacman -Qm"
-assert_event_at 3 "aur search search-empty"
+assert_event_at 2 "pacman-conf --verbose RootDir DBPath"
+assert_event_at 3 "pacman-conf --repo-list"
+assert_event_at 4 "aur search search-empty"
 
 setup_case auto-search-installed-presentation
+export MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE=$package_metadata_state
 export MOGUET_TEST_PACMAN_MAIN_COMMAND='-Ss search-presented'
 export MOGUET_TEST_PACMAN_MAIN_STATUS=0
-export MOGUET_TEST_PACMAN_QM_OUTPUT='search-presented 1.0-1'
+printf 'search-presented 1.0-1\n' > "$package_metadata_state"
 run_status 0 -Ss search-presented
 assert_event_at 1 "pacman -Ss search-presented"
-assert_event_at 2 "pacman -Qm"
-assert_event_at 3 "aur search search-presented"
+assert_event_at 2 "pacman-conf --verbose RootDir DBPath"
+assert_event_at 3 "pacman-conf --repo-list"
+assert_event_at 4 "aur search search-presented"
 assert_contains "${ESC}[1;36m[installed]${ESC}[0m ${ESC}[1;31m[out-of-date]${ESC}[0m ${ESC}[1;33m[orphaned]${ESC}[0m" "$output_file"
 
 setup_case auto-search-refresh-preflight-and-deferred-failure
+export MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE=$package_metadata_state
 export MOGUET_TEST_SUDO_MAIN_OUTPUT='repo refresh search output'
 export MOGUET_TEST_SUDO_MAIN_STATUS=7
 run_status 0 -Ssy search-deferred search-hit-b -- -skip
 assert_event_at 1 "aur search search-deferred"
 assert_event_at 2 "aur search search-hit-b"
 assert_event_at 3 "sudo pacman -Ssy search-deferred search-hit-b -- -skip"
-assert_event_at 4 "pacman -Qm"
-assert_event_at 5 "aur search search-deferred"
-assert_event_at 6 "aur search search-hit-b"
+assert_event_at 4 "pacman-conf --verbose RootDir DBPath"
+assert_event_at 5 "pacman-conf --repo-list"
+assert_event_at 6 "aur search search-deferred"
+assert_event_at 7 "aur search search-hit-b"
 assert_event_absent "aur search -skip"
 assert_output_line_before "repo refresh search output" "Searching AUR..."
 
 setup_case auto-search-refresh-schema-stop
+export MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE=$package_metadata_state
 run_status 1 -Ssy search-hit-a search-schema
 assert_event_at 1 "aur search search-hit-a"
 assert_event_at 2 "aur search search-schema"
@@ -539,16 +558,16 @@ assert_contains "Invalid AUR package target: core/filesystem" "$output_file"
 assert_command_log_empty
 
 setup_case aur-info-continuation-installed-and-layout
-export MOGUET_TEST_PACMAN_INSTALLED_PACKAGES='info-installed'
+printf 'info-installed 1.0-1\n' > "$package_metadata_state"
 run_status 1 -Si --aur info-installed info-missing info-error info-uninstalled
 assert_event_at 1 "aur info info-installed"
 assert_event_at 2 "aur info info-missing"
 assert_event_at 3 "aur info info-error"
 assert_event_at 4 "aur info info-uninstalled"
-assert_event_at 5 "pacman -Q info-installed"
-assert_event_at 6 "pacman -Q info-uninstalled"
-assert_event_count 1 "pacman -Q info-installed"
-assert_event_count 1 "pacman -Q info-uninstalled"
+assert_event_at 5 "pacman-conf --verbose RootDir DBPath"
+assert_contains "alpm query info-installed" "$metadata_log"
+assert_event_at 6 "pacman-conf --verbose RootDir DBPath"
+assert_contains "alpm query info-uninstalled" "$metadata_log"
 assert_event_absent "pacman -Q info-missing"
 assert_event_absent "pacman -Q info-error"
 assert_event_prefix_absent '^pacman -Si( |$)'
@@ -564,10 +583,10 @@ setup_case aur-info-all-success
 run_status 0 -Si --aur info-a info-b
 assert_event_at 1 "aur info info-a"
 assert_event_at 2 "aur info info-b"
-assert_event_at 3 "pacman -Q info-a"
-assert_event_at 4 "pacman -Q info-b"
-assert_event_count 1 "pacman -Q info-a"
-assert_event_count 1 "pacman -Q info-b"
+assert_event_at 3 "pacman-conf --verbose RootDir DBPath"
+assert_contains "alpm query info-a" "$metadata_log"
+assert_event_at 4 "pacman-conf --verbose RootDir DBPath"
+assert_contains "alpm query info-b" "$metadata_log"
 assert_event_prefix_absent '^pacman -Si( |$)'
 assert_event_prefix_absent '^sudo '
 assert_output_line_before "Name            : info-a" "Name            : info-b"
@@ -588,23 +607,21 @@ assert_contains "Use a repository-qualified target such as repo/package, or run 
 assert_command_log_empty
 
 setup_case auto-info-mixed-continuation-filtering-and-layout
-export MOGUET_TEST_PACMAN_REPO_PACKAGES='repo-local'
+write_repository_package repo-local
 export MOGUET_TEST_PACMAN_MAIN_COMMAND='-Si core/qualified --config info-a repo-local'
 export MOGUET_TEST_PACMAN_MAIN_OUTPUT='repo info transaction output'
 export MOGUET_TEST_PACMAN_MAIN_STATUS=0
 run_status 1 -Si core/qualified --config info-a repo-local info-a info-missing info-error info-b
-assert_event_at 1 "pacman -Si repo-local"
-assert_event_at 2 "pacman -Si info-a"
-assert_event_at 3 "aur info info-a"
-assert_event_at 4 "pacman -Si info-missing"
-assert_event_at 5 "aur info info-missing"
-assert_event_at 6 "pacman -Si info-error"
-assert_event_at 7 "aur info info-error"
-assert_event_at 8 "pacman -Si info-b"
-assert_event_at 9 "aur info info-b"
-assert_event_at 10 "pacman -Si core/qualified --config info-a repo-local"
-assert_event_at 11 "pacman -Q info-a"
-assert_event_at 12 "pacman -Q info-b"
+assert_event_count 7 "pacman-conf --verbose RootDir DBPath"
+assert_event_count 5 "pacman-conf --repo-list"
+assert_contains "alpm sync-query core/repo-local" "$metadata_log"
+assert_event_before "aur info info-a" "aur info info-missing"
+assert_event_before "aur info info-missing" "aur info info-error"
+assert_event_before "aur info info-error" "aur info info-b"
+assert_event_before "aur info info-b" "pacman -Si core/qualified --config info-a repo-local"
+assert_contains "alpm query info-a" "$metadata_log"
+assert_contains "alpm query info-b" "$metadata_log"
+assert_event_absent "pacman -Si repo-local"
 assert_event_absent "pacman -Si core/qualified --config info-a repo-local info-missing info-error"
 assert_contains "Package not found in repos or AUR: info-missing" "$output_file"
 assert_contains "Failed to fetch AUR info for info-error: fixture info failure" "$output_file"
@@ -618,15 +635,103 @@ export MOGUET_TEST_PACMAN_MAIN_COMMAND='-Si core/qualified'
 export MOGUET_TEST_PACMAN_MAIN_OUTPUT='repo info failed output'
 export MOGUET_TEST_PACMAN_MAIN_STATUS=6
 run_status 1 -Si core/qualified info-a
-assert_event_at 1 "pacman -Si info-a"
-assert_event_at 2 "aur info info-a"
-assert_event_at 3 "pacman -Si core/qualified"
-assert_event_at 4 "pacman -Q info-a"
+assert_event_at 1 "pacman-conf --verbose RootDir DBPath"
+assert_event_at 2 "pacman-conf --repo-list"
+assert_event_at 3 "aur info info-a"
+assert_event_at 4 "pacman -Si core/qualified"
+assert_event_at 5 "pacman-conf --verbose RootDir DBPath"
+assert_contains "alpm query info-a" "$metadata_log"
 assert_contains "Name            : info-a" "$output_file"
 assert_output_line_before "repo info failed output" "Repository      : aur"
 assert_one_blank_line_between_output_lines "repo info failed output" "Repository      : aur"
 
 # P0-5/P0-6/P0-7: install transaction boundary, all-root/all-source barriers, ordering and failure stops.
+# Issue #512: optional installed metadata preserves useful info, but never says no.
+for failure in config open query cache; do
+    setup_case "info-installed-metadata-$failure"
+    printf 'info-a 1.0-1\n' > "$package_metadata_state"
+    case $failure in
+        config) export MOGUET_TEST_PACKAGE_METADATA_PACMAN_CONF_EXIT_CODE=7 ;;
+        open) export MOGUET_TEST_PACKAGE_METADATA_INITIALIZE_FAILURE=1 ;;
+        query) export MOGUET_TEST_PACKAGE_METADATA_QUERY_FAILURE_PACKAGE=info-a ;;
+        cache) export MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE=$case_dir/missing ;;
+    esac
+    run_status 0 -Si --aur info-a
+    assert_event "aur info info-a"
+    assert_contains "Installed       : unavailable" "$output_file"
+    assert_contains "Installed state is unavailable for info-a:" "$output_file"
+    assert_not_contains "Installed       : no" "$output_file"
+    assert_event_prefix_absent '^pacman -Q '
+done
+
+for failure in config open cache query malformed; do
+    setup_case "auto-info-metadata-$failure"
+    case $failure in
+        config) export MOGUET_TEST_PACKAGE_METADATA_PACMAN_CONF_EXIT_CODE=7 ;;
+        open) export MOGUET_TEST_PACKAGE_METADATA_INITIALIZE_FAILURE=1 ;;
+        cache) export MOGUET_TEST_SYNC_CACHE_FAILURE_REPOSITORY=core ;;
+        query) export MOGUET_TEST_REPOSITORY_QUERY_FAILURE_PACKAGE=info-a ;;
+        malformed) printf 'core info-a 1 1 invalid/base\n' > "$repository_metadata_state" ;;
+    esac
+    run_status 1 -Si info-a
+    assert_event_prefix_absent '^aur '
+    assert_event_prefix_absent '^pacman '
+    assert_contains "Failed to inspect repository metadata for info-a:" "$output_file"
+    assert_not_contains "Package not found" "$output_file"
+done
+
+setup_case auto-info-metadata-failure-mixed-operands
+write_repository_package repo-local
+export MOGUET_TEST_REPOSITORY_QUERY_FAILURE_PACKAGE=info-a
+export MOGUET_TEST_PACMAN_MAIN_COMMAND='-Si core/qualified --config info-a repo-local'
+export MOGUET_TEST_PACMAN_MAIN_STATUS=0
+run_status 1 -Si core/qualified --config info-a info-a repo-local info-b
+assert_event_absent "aur info info-a"
+assert_event "aur info info-b"
+assert_event "pacman -Si core/qualified --config info-a repo-local"
+assert_event_count 1 "pacman -Si core/qualified --config info-a repo-local"
+assert_event_absent "pacman -Si core/qualified --config info-a info-a repo-local"
+assert_contains "Failed to inspect repository metadata for info-a:" "$output_file"
+assert_contains "Name            : info-b" "$output_file"
+
+setup_case auto-search-confirmed-empty-inventory
+export MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE=$package_metadata_state
+run_status 0 -Ss search-presented
+assert_not_contains "[installed]" "$output_file"
+assert_not_contains "inventory is unavailable" "$output_file"
+assert_contains "alpm sync-cache core" "$metadata_log"
+
+setup_case auto-search-native-not-foreign
+printf 'search-presented 1.0-1\n' > "$package_metadata_state"
+export MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE=$package_metadata_state
+write_repository_package search-presented
+run_status 0 -Ss search-presented
+assert_not_contains "[installed]" "$output_file"
+assert_not_contains "inventory is unavailable" "$output_file"
+assert_contains "alpm sync-query core/search-presented" "$metadata_log"
+
+for failure in config open cache query partial; do
+    setup_case "auto-search-inventory-$failure"
+    printf 'search-presented 1.0-1\n' > "$package_metadata_state"
+    export MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE=$package_metadata_state
+    case $failure in
+        config) export MOGUET_TEST_PACKAGE_METADATA_PACMAN_CONF_EXIT_CODE=7 ;;
+        open) export MOGUET_TEST_PACKAGE_METADATA_INITIALIZE_FAILURE=1 ;;
+        cache) export MOGUET_TEST_SYNC_CACHE_FAILURE_REPOSITORY=core ;;
+        query) export MOGUET_TEST_REPOSITORY_QUERY_FAILURE_PACKAGE=search-presented ;;
+        partial) printf 'invalid/name 1.0-1\n' >> "$package_metadata_state" ;;
+    esac
+    run_status 0 -Ss search-presented
+    assert_event "aur search search-presented"
+    assert_not_contains "[installed]" "$output_file"
+    assert_contains "Foreign package inventory is unavailable; installed annotations are omitted:" "$output_file"
+    assert_event_absent "pacman -Qm"
+    if [ "$failure" = partial ]; then
+        # The first package was observed before the later malformed entry.
+        assert_contains "alpm sync-query core/search-presented" "$metadata_log"
+    fi
+done
+
 setup_case repo-install-one-ordered-transaction
 write_source_preference repo-a 'CFLAGS=-Oshould-not-load'
 export MOGUET_TEST_SUDO_MAIN_STATUS=31

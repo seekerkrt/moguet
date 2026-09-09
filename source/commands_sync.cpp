@@ -10,6 +10,7 @@
 #include "localization.hpp"
 #include "logging.hpp"
 #include "package_identifier.hpp"
+#include "package_metadata.hpp"
 #include "process.hpp"
 #include "repository_query.hpp"
 #include "root_package_route_projection.hpp"
@@ -78,8 +79,28 @@ bool search_aur(
     const std::vector<std::string>& keywords, bool query_installed_state = true) {
     bool found = false;
     // POLICY(#168): AurOnly search must not invoke pacman, even for the optional [installed] annotation.
-    std::set<std::string> installed_foreign_packages =
-        query_installed_state ? get_foreign_package_names() : std::set<std::string>{};
+    std::optional<std::set<std::string>> installed_foreign_packages;
+    if(query_installed_state) {
+        ForeignPackageInventoryResult inventory;
+        try {
+            inventory = query_foreign_package_inventory(
+                resolve_pacman_repository_configuration());
+        } catch(const PackageMetadataError& error) {
+            inventory = error.failure();
+        }
+        if(const auto* failure = std::get_if<PackageMetadataFailure>(&inventory)) {
+            // Optional enrichment must not turn unavailable membership into
+            // confirmed absence or change the search match/exit policy.
+            Logger::warn(localization::format_translated_message(
+                "Foreign package inventory is unavailable; installed annotations are omitted: {}",
+                failure->diagnostic));
+        } else {
+            installed_foreign_packages.emplace();
+            for(const auto& package : std::get<ForeignPackageInventory>(inventory)) {
+                installed_foreign_packages->insert(package.name);
+            }
+        }
+    }
     for(const auto& pkg_name : keywords) {
         if(pkg_name.empty()) continue;
         if(pkg_name[0] == '-') continue;
@@ -90,7 +111,8 @@ bool search_aur(
             // namespace prefix; name and version are package identities.
             std::cout << "\033[1;35maur\033[0m/\033[1m" << name << "\033[0m \033[1;32m"
                       << info.Version << "\033[0m";
-            if(installed_foreign_packages.contains(name)) {
+            if(installed_foreign_packages.has_value() &&
+               installed_foreign_packages->contains(name)) {
                 std::cout << " \033[1;36m"
                           << localization::translate_message("[installed]")
                           << "\033[0m";
@@ -123,8 +145,24 @@ std::string join_display_values(const std::vector<std::string>& values) {
 }
 
 std::string installed_display(const AurPackageInfo& pkg) {
-    if(!is_installed_package(pkg.Name)) {
+    InstalledPackageQueryResult result;
+    try {
+        PackageMetadataSession session = PackageMetadataSession::open(
+            resolve_pacman_database_paths());
+        result = session.query_installed_package(pkg.Name);
+    } catch(const PackageMetadataError& error) {
+        result = error.failure();
+    }
+    if(std::holds_alternative<PackageNotFound>(result)) {
         return localization::translate_message("no");
+    }
+    if(const auto* failure = std::get_if<PackageMetadataFailure>(&result)) {
+        // Info remains useful when only its installed-state annotation fails.
+        // Never label that package as not installed.
+        Logger::warn(localization::format_translated_message(
+            "Installed state is unavailable for {}: {}",
+            pkg.Name, failure->diagnostic));
+        return localization::translate_message("unavailable");
     }
     return "\033[1;36m" + localization::translate_message("yes") +
            "\033[0m";
@@ -2182,7 +2220,7 @@ int cmd_sync_info(
 
     bool failed = false;
     std::vector<std::string> repo_targets;
-    std::set<size_t> aur_target_token_indices;
+    std::set<size_t> excluded_target_token_indices;
     std::vector<AurPackageInfo> aur_infos;
 
     for(size_t i = 0; i < parsed.targets.size(); ++i) {
@@ -2193,36 +2231,46 @@ int cmd_sync_info(
         }
 
         require_valid_package_name(target);
-        if(is_repo_package(target)) {
+        const StrictRepositoryPackageQueryResult repository =
+            query_repository_package_strict(target);
+        if(std::holds_alternative<RepositoryPackagePresent>(repository)) {
             repo_targets.push_back(target);
             continue;
         }
+        // Exclude only operand positions, including failed observations; an
+        // identically spelled option value must still reach pacman unchanged.
+        excluded_target_token_indices.insert(parsed.target_token_indices[i]);
+        if(const auto* failure = std::get_if<RepositoryMetadataFailure>(&repository)) {
+            Logger::error(localization::format_translated_message(
+                "Failed to inspect repository metadata for {}: {}",
+                target, failure->diagnostic));
+            failed = true;
+            continue;
+        }
 
+        // Only authoritative NotFound permits an AUR info fallback.
         try {
             std::optional<AurPackageInfo> info = AurClient::info(target);
             if(info.has_value()) {
                 aur_infos.push_back(info.value());
-                aur_target_token_indices.insert(parsed.target_token_indices[i]);
             } else {
                 Logger::error(localization::format_translated_message(
                     "Package not found in repos or {}: {}",
                     "AUR", target));
                 failed = true;
-                aur_target_token_indices.insert(parsed.target_token_indices[i]);
             }
         } catch(const std::exception& e) {
             Logger::error(localization::format_translated_message(
                 "Failed to fetch {} info for {}: {}",
                 "AUR", target, e.what()));
             failed = true;
-            aur_target_token_indices.insert(parsed.target_token_indices[i]);
         }
     }
 
     if(!repo_targets.empty()) {
-        // POLICY(#173): 同名のoption valueを残し、AUR targetのtoken位置だけを除外する。
+        // POLICY(#173): 同名のoption valueを残し、AUR / failure targetのtoken位置だけを除外する。
         std::vector<std::string> pacman_args =
-            ordered_pacman_args_excluding_targets(parsed, aur_target_token_indices);
+            ordered_pacman_args_excluding_targets(parsed, excluded_target_token_indices);
         if(run_command(pacman_prefix + join_pacman_args(pacman_args, config)) != 0) failed = true;
         if(!aur_infos.empty()) std::cout << std::endl;
     }

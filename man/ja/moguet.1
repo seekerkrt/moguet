@@ -317,6 +317,9 @@ entryがmissingならpreference directoryを作成せずに成功します。
 source-build preferenceを1件以上削除し、configured official repositoryにtargetがあれば
 対応するofficial binary packageをreinstallします。
 preferenceがmissingでもdirectoryを作成せず、repository reinstallは省略しません。
+対象ごとのrepository metadata確認をpreference削除前に行います。取得に失敗した対象は
+preferenceを保持し、reinstallに含めず、commandをnon-zeroにします。独立targetは続行し、
+grouped reinstallとpacman failureの診断優先順位を維持します。
 confirm前に表示されたpacman transactionをreviewしてください。
 .
 .TP
@@ -391,6 +394,8 @@ unknown modifier formはexisting routingを維持し、installed-AUR sweepを開
 .B "-Ss <query>"
 packageを検索します。
 Auto modeはofficial repositoryとAURのresultを組み合わせます。
+installed表示は正常なforeign inventoryへの所属だけから作ります。取得不能時はwarningを出して
+annotationを省略し、search本体の成功規則は変更しません。AurOnly searchはこのmetadata queryを開始しません。
 .B --aur
 はAURだけを使いpacman databaseをrefreshせず、
 .B --repo
@@ -399,8 +404,11 @@ Auto modeはofficial repositoryとAURのresultを組み合わせます。
 .TP
 .B "-Si <pkg>"
 package情報を表示します。
-Auto modeはofficial repository情報を優先し、packageが存在しない場合だけexact AUR
-metadataへfallbackします。
+Auto modeはofficial repository情報を優先し、packageの不在を確認できた場合だけexact AUR
+metadataへfallbackします。metadata failureはAURへfallbackせず、失敗operandをpacmanからも除外し、
+独立targetを続行して最終non-zeroにします。
+AUR infoのinstalled表示は正常時のyes/noを維持し、取得不能時はnoとせずunavailableとwarningを表示します。
+このoptional annotationのfailureだけではinfo本体の成功規則を変更しません。
 source selectorはlookupを指定sourceへ限定します。
 AUR metadataではdeclared conflict / replacementをmetadataとして表示し、installed / planned
 assessmentをplan / build preflightへ延期したことを明示します。
