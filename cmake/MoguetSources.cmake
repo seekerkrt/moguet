@@ -43,6 +43,7 @@ set(MOGUET_PRODUCTION_SOURCES
     source/devel_update_model.cpp
     source/current_installed_artifact_binding_observer.cpp
     source/devel_git_revision_comparison.cpp
+    source/devel_package_assessment.cpp
     source/dependency_constraint.cpp
     source/dependency_constraint_presentation.cpp
     source/dependency_plan.cpp

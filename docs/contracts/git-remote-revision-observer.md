@@ -33,9 +33,9 @@ NOT implemented by #475:
 ```
 
 従って、#475の完成を「VCS/devel update tracking完成」と表現しない。current production buildには
-observer implementationが含まれるが、authority-approved requestを作るproduction producerも
-observerを呼ぶproduction consumerも存在しない。これは[#476](https://github.com/seekerkrt/moguet/issues/476)
-までnetwork authorityをraw metadataから切り離す、意図したfail-closed stateである。
+observer implementationが含まれる。#476 Slice 7-Bの[read-only assessment coordinator](devel-package-assessment.md)だけが
+P/I/R local gates後にauthority-approved requestを生成し、このobserverを呼ぶ。
+normal CLI/AUR update routeは未接続であり、raw metadataをnetwork authorityへ昇格させない。
 
 ## Purpose
 

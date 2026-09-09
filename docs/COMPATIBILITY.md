@@ -213,7 +213,8 @@ zero-I/Oとする。`upgrade-aur`と`upgrade-all`は`BlockOperation` + Strictの
 Issue #475のobserverはproduction buildへ含まれるinternal foundationだが、current CLI、AUR update
 assessment、build / install lifecycleへ接続していない。raw `ParsedSourceEntry` /
 `ParsedSrcinfoSourceMetadata`、bare VCS identity、suffix classificationをnetwork authorityへ昇格せず、
-future #476 producerが作るauthority-approved source capabilityだけをrequest前段として要求する。
+#476 Slice 7-B coordinatorがP/I/R local gates後に作るauthority-approved source capabilityだけをrequest前段として要求する。
+このinternal read-only comparisonはnormal CLI/AUR update routeへは接続していない。
 
 current supported subsetはGit、HTTPS、default HEAD、exact branch、canonical lowercase SHA-1 40 hex / SHA-256
 64 hexである。HTTP、SSH、file / local path、`git://`、ext、tag / annotated tag / peeling、fixed commit、

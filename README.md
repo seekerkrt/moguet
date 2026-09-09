@@ -529,11 +529,12 @@ devel build provenance. The current development tree includes the trusted
 HTTPS Git remote revision observer foundation from
 [issue #475](https://github.com/seekerkrt/moguet/issues/475), limited to
 default HEAD and exact branches with strict complete SHA-1 / SHA-256 results.
-It has no production source-authority producer or caller and is not connected
-to AUR update assessment. Installed-artifact-bound provenance and authoritative
-`UpdateAvailable` / `UpToDate` comparison remain
-[issue #476](https://github.com/seekerkrt/moguet/issues/476); users still cannot
-automatically compare VCS package revisions through the current CLI.
+The internal [issue #476](https://github.com/seekerkrt/moguet/issues/476)
+Slice 7-B coordinator compares the provenance tip with fresh installed and
+reviewed state before querying the remote, then rechecks local state before
+returning `UpdateAvailable` / `UpToDate`. This remains disconnected from normal
+AUR update routes; users still cannot automatically compare VCS package
+revisions through the current CLI.
 
 `--aur` limits supported `-S`, `-Ss`, and `-Si` forms to AUR. `--repo`
 limits those forms to official binary repositories and is also the

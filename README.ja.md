@@ -465,9 +465,9 @@ v2.5.0ではupstream VCS revisionのquery / 比較やdevel build provenanceのpu
 行いません。current development treeには
 [Issue #475](https://github.com/seekerkrt/moguet/issues/475)のtrusted HTTPS Git remote revision
 observer foundationが入り、default HEAD / exact branchとcompleteなSHA-1 / SHA-256 resultだけへ
-限定されています。ただしproduction source-authority producer / callerはなく、AUR update assessmentへ
-未接続です。installed artifactへ束縛したprovenanceとauthoritativeな`UpdateAvailable` / `UpToDate`
-比較は引き続き[Issue #476](https://github.com/seekerkrt/moguet/issues/476)の責務であり、current CLIから
+限定されています。[Issue #476](https://github.com/seekerkrt/moguet/issues/476) Slice 7-Bのinternal coordinatorは、
+provenance tipとfresh installed / reviewed stateを照合した後だけremoteを観測し、local stateを再確認してから
+`UpdateAvailable` / `UpToDate`を返します。normal AUR update routeは未接続であり、current CLIから
 VCS package revisionを自動比較することはまだできません。
 
 `--aur`は対応する`-S`、`-Ss`、`-Si`をAURへ限定します。`--repo`はこれらのformを

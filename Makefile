@@ -71,6 +71,7 @@ CMAKE_FOCUSED_ALIASES := \
 	test-devel-build-provenance-publication-result \
 	test-installed-artifact-binding \
 	test-current-installed-artifact-binding \
+	test-devel-package-assessment \
 	test-devel-git-revision-comparison \
 	test-installed-package-record-observation \
 	test-devel-build-provenance \

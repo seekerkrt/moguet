@@ -4,7 +4,8 @@
 
 Issue #476 Slice 7-Aのproduction-disconnected foundation。
 current observationはtransaction receipt、S5 `FreshInstalledArtifactBinding`、final build proofではない。
-7-B assessment、#475 network approval/observer caller、7-C execution bridge、7-D normal routeは未接続。
+7-B [assessment coordinator](devel-package-assessment.md)がこのfoundationを消費する。
+7-A自体はnetwork approval/queryを所有せず、7-C execution bridge、7-D normal routeは未接続。
 
 ## Current installed owner
 
@@ -25,7 +26,7 @@ provenanceからsourceをコピーする自己比較や、historical provenance�
 
 recordのfreshness boundaryは既存raw readerの最終generation/descriptor reproofである。
 追加のworld確認はDB worldに対する確認であり、worldとrecordをglobal atomic snapshotにしたり、
-観測後のrecord不変を保証したりしない。7-Bのremoteを挟む再確認はまだ実装しない。
+観測後のrecord不変を保証したりしない。remoteを挟む再確認は7-B coordinatorが所有し、7-Aには追加しない。
 
 pacman transaction lock、S5 receipt/Post anchor/transaction lineageを追加しない。
 XDG store lookup/publication/repair、namespace作成、PKGBUILD評価、checkout、Git queryを行わない。
