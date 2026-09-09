@@ -358,6 +358,12 @@ S5-Cのfinal construction/lineage/N=1は`test-installed-devel-source-build-proof
 finalizerのcomplete private authority、raw tuple/decoded binding/contradictory resultのconstruction firewallも
 canonical negative compileへ含める。contractは[`installed-devel-source-build-proof.md`](contracts/installed-devel-source-build-proof.md)を正とする。
 
+Issue #476 Slice 7-Aは`test-current-installed-artifact-binding`と`test-devel-git-revision-comparison`で確認する。
+current observerは各callのfresh DB observationであり、S5 transaction proofではない。
+Git comparatorはsource/algorithmを先に照合するpure value comparisonで、networkやassessmentを実行しない。
+7-B/7-C/7-D、normal routeは未接続。詳細は
+[`current installed observation contract`](contracts/current-installed-artifact-observation.md)を参照する。
+
 Issue #485 Slice 5のclosed lifecycle / authoritative candidate gateは、同じnetworkless installed imageを
 使う専用targetで確認する。
 

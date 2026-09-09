@@ -36,6 +36,8 @@ foreach(_moguet_direct_focus IN ITEMS
     source-package-identity
     exact-artifact-transaction-protocol
     installed-artifact-binding
+    current-installed-artifact-binding
+    devel-git-revision-comparison
     installed-package-record-observation
     devel-build-provenance
     devel-build-provenance-store

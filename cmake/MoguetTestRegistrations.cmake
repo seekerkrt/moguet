@@ -10,6 +10,8 @@ macro(_moguet_add_direct_ctest test_name target_name)
     )
 endmacro()
 
+_moguet_add_direct_ctest(cpp.current_installed_artifact_binding current-installed-artifact-binding-test)
+_moguet_add_direct_ctest(cpp.devel_git_revision_comparison devel-git-revision-comparison-test)
 _moguet_add_direct_ctest(cpp.exact_artifact_transaction_protocol exact-artifact-transaction-protocol-test)
 _moguet_add_direct_ctest(cpp.installed_package_record_observation installed-package-record-observation-test)
 moguet_add_ctest(

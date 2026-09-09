@@ -19,6 +19,7 @@ contractの規範上の正本は各文書の日本語本文である。英語利
 | [Exact transaction receipt and fresh installed binding](exact-installed-artifact-binding.md) | #476 S5-B | cleanup/exact purpose分離、Install/Upgrade hook receipt、Post anchor、fresh descriptor-bound local DB、opaque generation、live mint |
 | [Installed devel source build proof / Slice 5 result](installed-devel-source-build-proof.md) | #476 S5-C | closed final producer、same-lineage correlation、N=1、lossless operation/receipt/proof/cleanup、non-publication |
 | [Trusted devel provenance publication](devel-build-provenance-publication.md) | #476 S6-B | sealed S5 resultのone-shot historical publication、lossless outcome、normal route未接続 |
+| [Current installed artifact observation / pure Git comparison](current-installed-artifact-observation.md) | #476 S7-A | fresh current bindingとtyped pure OID比較、transaction/network/normal routeから独立 |
 | [PackageBase build / required-child selection](packagebase-child-selection.md) | #268 | PackageBase build unitとrequired child install selectionの分離 |
 | [separated source-build `--rmdeps`](source-build-rmdeps.md) | #269 / #404 | current source-buildのfail-closed、pacman-only no-op、future causal ownership / interaction boundary |
 | [XDG cache cutover safety](xdg-cache-safety.md) | #305 | cache filesystem identityとlegacy cache非変更 |

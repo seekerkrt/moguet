@@ -200,7 +200,7 @@ cmp -s "$bridge_consumers" "$test_root/expected-evaluated-transport-consumers.tx
 assert_not_matches "$repo_root/source/source_artifact_install_trusted_transport.cpp" \
     '(publish_devel_build_provenance|make_devel_build_provenance|devel_build_provenance_store|InstalledArtifactBinding::make|name_to_handle_at|InstalledDevelSourceBuildProof)'
 live_observer_consumers=$test_root/live-installed-observer-consumers.txt
-if grep -l -F -- 'InstalledArtifactBindingObserver::observe' "$repo_root"/source/*.cpp > "$live_observer_consumers"
+if grep -l -E -- '(^|[^A-Za-z0-9_])InstalledArtifactBindingObserver::observe' "$repo_root"/source/*.cpp > "$live_observer_consumers"
 then
     :
 else
@@ -256,6 +256,24 @@ cmp -s "$publication_consumers" "$test_root/expected-publication-consumers.txt" 
 assert_not_matches "$repo_root/source/devel_build_provenance_publication.cpp" \
     '(observe_installed|observe_git_remote_revision|InstalledArtifactBindingObserver|execute_exact|capture_process|read_xdg_generation_store|openat\(|fopen\(|\.path\()'
 assert_not_contains "$repo_root/cmake/MoguetSources.cmake" 'tests/devel_build_provenance_publication_fixture.cpp'
+# S7-A remains dormant: these own-I/O/pure entrances have no normal caller.
+for entry in observe_current_installed_artifact_binding compare_devel_git_revision; do
+    case $entry in
+        observe_current_installed_artifact_binding) owner=current_installed_artifact_binding_observer ;;
+        compare_devel_git_revision) owner=devel_git_revision_comparison ;;
+    esac
+    if grep -l -E -- "$entry|$owner" "$repo_root"/source/*.cpp > "$test_root/s7a-$entry.txt"; then :
+    else
+        scan_status=$?
+        [ "$scan_status" -eq 1 ] || fail "S7-A scan failed: $scan_status"
+    fi
+    printf '%s\n' "$repo_root/source/$owner.cpp" > "$test_root/s7a-$entry-expected.txt"
+    cmp -s "$test_root/s7a-$entry.txt" "$test_root/s7a-$entry-expected.txt" || fail "S7-A gained a normal caller: $entry"
+done
+assert_not_matches "$repo_root/source/current_installed_artifact_binding_observer.cpp" \
+    '(observe_git_remote_revision|publish_devel_build_provenance|read_devel_build_provenance|read_reviewed_source_state|execute_exact|ExactArtifactTransactionReceipt|FreshInstalledArtifactBinding)'
+assert_not_matches "$repo_root/source/devel_git_revision_comparison.cpp" \
+    '(observe_git_remote_revision|read_.*store|capture_process|vercmp|pkgver|AurVersionRelation)'
 assert_not_contains "$makefile" 'legacy-cpp-focused-authority'
 assert_not_contains "$makefile" '-std=c++20'
 assert_not_contains "$makefile" '-Wall'
@@ -354,8 +372,8 @@ assert_contains "$repo_root/.gitignore" '/compile_commands.json'
 
 # Compare the historical Make aliases with the actual CMake focused targets.
 # This checks the frontend mapping without duplicating either inventory here.
-[ "$#" -eq 119 ] ||
-    fail "Make focused alias inventory is $#, expected 119"
+[ "$#" -eq 121 ] ||
+    fail "Make focused alias inventory is $#, expected 121"
 make_aliases=$test_root/make-focused-aliases.txt
 cmake_aliases=$test_root/cmake-focused-aliases.txt
 cmake_help=$test_root/cmake-target-help.txt
@@ -363,15 +381,15 @@ missing_aliases=$test_root/missing-focused-aliases.txt
 unexpected_aliases=$test_root/unexpected-focused-aliases.txt
 
 printf '%s\n' "$@" | LC_ALL=C sort > "$make_aliases"
-[ "$(LC_ALL=C sort -u "$make_aliases" | wc -l)" -eq 119 ] ||
+[ "$(LC_ALL=C sort -u "$make_aliases" | wc -l)" -eq 121 ] ||
     fail 'Make focused alias inventory contains duplicates'
 
 "$cmake_command" --build "$cmake_build_dir" --target help > "$cmake_help"
 sed -n \
     's/.*moguet-focus-\(test-[a-z0-9-][a-z0-9-]*\).*/\1/p' \
     "$cmake_help" | LC_ALL=C sort -u > "$cmake_aliases"
-[ "$(wc -l < "$cmake_aliases")" -eq 119 ] ||
-    fail "CMake focused target inventory is $(wc -l < "$cmake_aliases"), expected 119"
+[ "$(wc -l < "$cmake_aliases")" -eq 121 ] ||
+    fail "CMake focused target inventory is $(wc -l < "$cmake_aliases"), expected 121"
 
 LC_ALL=C comm -23 "$make_aliases" "$cmake_aliases" > "$missing_aliases"
 LC_ALL=C comm -13 "$make_aliases" "$cmake_aliases" > "$unexpected_aliases"
@@ -403,5 +421,5 @@ assert_contains "$phony_marker" 'test-cmake'
 assert_contains "$phony_marker" 'test-repository'
 
 printf '%s\n' \
-    'build-authority-closure-test: Make aliases=119, CMake targets=119, missing=0, unexpected=0'
+    'build-authority-closure-test: Make aliases=121, CMake targets=121, missing=0, unexpected=0'
 printf '%s\n' 'build-authority-closure-test: all checks passed'

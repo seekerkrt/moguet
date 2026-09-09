@@ -48,6 +48,7 @@ release操作は[`DEVELOPMENT.md`](DEVELOPMENT.md)を正とする。この文書
 | devel provenance store foundation | `test-xdg-generation-store` / `test-devel-build-provenance-store` | production-disconnectedなimmutable-generation/CAS機械層と、別XDG namespaceのstrict provenance codec/storeを確認する |
 | trusted devel provenance publication | `test-devel-build-provenance-publication` / `test-devel-build-provenance-publication-result` | deterministic S4/S5 fixtureからschema v1 projection、historical binding、one-shot ownership、no-publication negatives、store fault mappingとlossless resultを確認する。6-C actual/container publication acceptanceとnormal routeを代替しない |
 | actual devel provenance publication | `test-container-devel-publication` | S5 actual laneの別modeでproduction publisherを呼ぶ。1 fresh anonymous DB volume上でInstall/Upgrade/reinstall/downgradeを順次実行し、各S5 proof・cleanup、publication Complete、store generation 1→2→3→4、raw bytes SHA-256、schema v1/27 keys、persistent model・historyを確認。installed generationは別authorityとして記録する。S5 publication-noneとnormal routeの未接続を維持する |
+| current installed observation / pure Git comparison | `test-current-installed-artifact-binding` / `test-devel-git-revision-comparison` | transactionとは独立したfresh current bindingとtyped OID比較。S5 fresh proof/network/normal assessmentはmint・接続しない |
 | closed cleanup candidate authority | `test-container-cleanup-authority` | production collector、mutation前baseline、actual trusted dependency Install、post-success current / policy、aggregate / classifierとinstalled positive `Eligible` |
 
 PR / mergeのcanonical host gateは`test-host-release`である。`test`と
