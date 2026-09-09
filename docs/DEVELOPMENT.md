@@ -173,6 +173,35 @@ executableとimmutable required argumentsへ分けてconfigure前に比較する
 reuseで維持する。異なるcompiler実体、argumentの変更、argumentの削除はcacheやtreeを変更する前に
 停止する。frontendからraw spellingを毎回`-DCMAKE_CXX_COMPILER`へ再注入しない。
 
+#### CMake policy contract
+
+`cmake/MoguetPolicies.cmake`はminimumを3.18に保ち、target作成前に次のbehaviorを明示する。
+policy version rangeの一括引き上げは、未検証のpolicyまでNEWにするため行わない。
+
+| Policy | Behavior | Moguetで維持する契約 |
+| --- | --- | --- |
+| [CMP0200](https://cmake.org/cmake/help/latest/policy/CMP0200.html) | NEW（利用可能なCMake） | `IMPORTED_CONFIGURATIONS`をavailable configurationsのauthorityとする。current ArchのCURLはgeneric / RELEASEとも同じshared library、ALPM / JSONはconfiguration-independentなINTERFACE targetであり、選択名が変わってもcompile / link inputsは変わらない。 |
+| [CMP0156](https://cmake.org/cmake/help/latest/policy/CMP0156.html) | OLD（利用可能なCMake） | static libraryの必要な反復と、shared libraryの最後の出現を残す既存orderingを維持する。current GNU ldではNEWでもlink commandは同じだが、外部linker指定時のde-duplication strategyやCMP0179の選択まで暗黙に変更しない。 |
+| [CMP0181](https://cmake.org/cmake/help/latest/policy/CMP0181.html) | OLD（利用可能なCMake） | `CMAKE_*_LINKER_FLAGS`を既存command fragmentとして消費する。`LDFLAGS`には`-Wl,...`等のcompiler-driver形式を使用し、`LINKER:` prefixへの移行や再引用をこの整理へ含めない。 |
+
+JSONのexportは内部の`cmake_policy(VERSION ...)`でCMP0200を未設定へ戻すため、その
+`find_package`呼び出し中だけ`CMAKE_POLICY_DEFAULT_CMP0200=NEW`を与え、終了後に元の値／未定義へ
+戻す。header-onlyなJSON usage requirementsにはconfiguration選択に依存するlocationやdefinitionが
+なく、このdefaultで意味は変わらない。packageが明示的に選んだpolicyは上書きしない。
+
+Issue #530のCMake 4.4.3 / GCC 16.2.1 / GNU ld 2.47でのfresh reproductionでは、通常configureの
+対象warningは0件だった。`--trace-expand`を付けるとCMP0200はimported target selection、
+CMP0156はMoguetのlibrary de-duplication、CMP0181は`CMAKE_CXX_CREATE_CONSOLE_EXE`の
+command fragmentを起点にwarningが出た。CMP0156 / CMP0181は単なる未設定では通常warnせず、
+[trace / debugによるpolicy診断の有効化](https://cmake.org/cmake/help/latest/variable/CMAKE_POLICY_WARNING_CMPNNNN.html)
+が発生条件だった。completion frontend fixtureも同じpolicy moduleを読み、standalone projectの
+policy未設定を持ち込まない。warning suppression optionは使用しない。
+
+外部flagのauthorityは上記External toolchain inputsのままとする。Moguet自身が同期するのは
+`CMAKE_EXE_LINKER_FLAGS`だけで、shared / module flagsとconfiguration別flagsはCMakeの
+environment初期化、cache、toolchainに委ねる。CMP0156 / CMP0181のNEWへの移行は、必要になった
+時点でexternal flagsとlinker別のgenerated command / symbol closureを検証して決める。
+
 #### Test composition / link firewall
 
 `cmake/MoguetTests.cmake`、`MoguetTestTargets.cmake`、`MoguetTestRegistrations.cmake`が次のfail-closed

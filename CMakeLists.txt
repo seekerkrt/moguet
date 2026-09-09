@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 3.18)
+include(cmake/MoguetPolicies.cmake NO_POLICY_SCOPE)
 
 # This is an invocation-scoped frontend signal, not persistent provenance.
 # Make and PKGBUILD pass ON on every canonical configure; ordinary direct
@@ -182,7 +183,25 @@ if(
 endif()
 
 find_package(CURL REQUIRED)
+# The JSON export resets its policy version before creating its header-only
+# target. Adopt CMP0200 there too, without changing any other package policy
+# or leaking a default into subsequent find_package calls. Explicit policies
+# chosen by the package still take precedence over this default.
+if(POLICY CMP0200)
+    if(DEFINED CMAKE_POLICY_DEFAULT_CMP0200)
+        set(_moguet_saved_cmp0200_default "${CMAKE_POLICY_DEFAULT_CMP0200}")
+    endif()
+    set(CMAKE_POLICY_DEFAULT_CMP0200 NEW)
+endif()
 find_package(nlohmann_json CONFIG REQUIRED)
+if(POLICY CMP0200)
+    if(DEFINED _moguet_saved_cmp0200_default)
+        set(CMAKE_POLICY_DEFAULT_CMP0200 "${_moguet_saved_cmp0200_default}")
+        unset(_moguet_saved_cmp0200_default)
+    else()
+        unset(CMAKE_POLICY_DEFAULT_CMP0200)
+    endif()
+endif()
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(ALPM REQUIRED IMPORTED_TARGET libalpm)
 find_path(

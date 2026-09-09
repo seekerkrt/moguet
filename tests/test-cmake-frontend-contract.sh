@@ -146,23 +146,41 @@ fi
 # Direct CMake keeps explicit cache inputs authoritative even when similarly
 # named environment variables are present. The frontend sync signal is absent.
 direct_tree=$test_root/direct
-CPPFLAGS='-DMOGUET_ENV_CPP=1' \
+direct_configure_log=$test_root/direct-configure.log
+if CPPFLAGS='-DMOGUET_ENV_CPP=1' \
 CXXFLAGS='-DMOGUET_ENV_CXX=1' \
 LDFLAGS='-Wl,--build-id=sha1' \
 CCACHE=$launcher_a \
-    "$cmake_command" -S "$repo_root" -B "$direct_tree" \
+    "$cmake_command" --debug-output -S "$repo_root" -B "$direct_tree" \
         -DBUILD_TESTING=OFF \
         -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
         '-DMOGUET_CPPFLAGS:STRING=-DMOGUET_DIRECT_CPP=1' \
         '-DCMAKE_CXX_FLAGS:STRING=-DMOGUET_DIRECT_CXX=1' \
-        '-DCMAKE_EXE_LINKER_FLAGS:STRING=-Wl,--build-id=md5' \
+        '-DCMAKE_EXE_LINKER_FLAGS:STRING=-Wl,--build-id=md5 -Wl,-rpath,"$ORIGIN"' \
         "-DCMAKE_CXX_COMPILER_LAUNCHER:STRING=$launcher_b" \
-        -DMOGUET_ENABLE_DEFAULT_COMPILE_OPTIONS:BOOL=ON
+        -DMOGUET_ENABLE_DEFAULT_COMPILE_OPTIONS:BOOL=ON \
+        > "$direct_configure_log" 2>&1
+then
+    :
+else
+    configure_status=$?
+    cat "$direct_configure_log" >&2
+    fail "direct configure failed with status $configure_status"
+fi
+# Debug output enables otherwise opt-in policy warnings. Exercise the real
+# imported packages and generated executable links, not just policy GETs.
+for policy in CMP0200 CMP0156 CMP0181
+do
+    assert_not_contains "$direct_configure_log" "Policy $policy is not set"
+done
+assert_contains \
+    "$direct_tree/CMakeFiles/moguet-alpm-receipt-helper.dir/link.txt" \
+    '-Wl,--build-id=md5 -Wl,-rpath,"$ORIGIN"'
 direct_cache=$direct_tree/CMakeCache.txt
 assert_cache_value "$direct_cache" MOGUET_CPPFLAGS '-DMOGUET_DIRECT_CPP=1'
 assert_cache_value "$direct_cache" CMAKE_CXX_FLAGS '-DMOGUET_DIRECT_CXX=1'
 assert_cache_value \
-    "$direct_cache" CMAKE_EXE_LINKER_FLAGS '-Wl,--build-id=md5'
+    "$direct_cache" CMAKE_EXE_LINKER_FLAGS '-Wl,--build-id=md5 -Wl,-rpath,"$ORIGIN"'
 assert_cache_value \
     "$direct_cache" CMAKE_CXX_COMPILER_LAUNCHER "$launcher_b"
 assert_cache_value \
@@ -715,6 +733,7 @@ cp \
     "$repo_root/cmake/MoguetCompilerPreflight.cmake" \
     "$completion_fixture/cmake/MoguetCompilerPreflight.cmake"
 cp \
+    "$repo_root/cmake/MoguetPolicies.cmake" \
     "$repo_root/cmake/MoguetGenerateCompletions.cmake" \
     "$repo_root/cmake/MoguetPublishCompileCommands.cmake" \
     "$completion_fixture/cmake/"
@@ -732,6 +751,7 @@ cp \
     "$completion_fixture/completions/descriptions/en.json"
 printf '%s\n' \
     'cmake_minimum_required(VERSION 3.18)' \
+    'include(cmake/MoguetPolicies.cmake NO_POLICY_SCOPE)' \
     'project(MoguetCompletionFreshness LANGUAGES CXX)' \
     'option(MOGUET_DEVELOPER_COMPILE_COMMANDS_LINK "" OFF)' \
     'add_executable(' \
@@ -768,6 +788,21 @@ printf '%s\n' \
     '    moguet-cli-authority-exporter' \
     ')' \
     > "$completion_fixture/CMakeLists.txt"
+
+if "$cmake_command" --debug-output \
+    -S "$completion_fixture" -B "$test_root/completion-policy" \
+    > "$test_root/completion-policy.log" 2>&1
+then
+    :
+else
+    configure_status=$?
+    cat "$test_root/completion-policy.log" >&2
+    fail "completion fixture configure failed with status $configure_status"
+fi
+for policy in CMP0200 CMP0156 CMP0181
+do
+    assert_not_contains "$test_root/completion-policy.log" "Policy $policy is not set"
+done
 
 (
     cd "$completion_fixture"
