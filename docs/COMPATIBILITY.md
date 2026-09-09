@@ -501,6 +501,22 @@ pacman pass-throughである。AurOnlyはinvalidであり、`-Syu --aur`をAUR-o
 
 `--aur`と`--repo`の同時指定はconflictとして、pacman、sudo、AUR RPC、git、makepkg、cache mutationより前に停止する。scope外のoperationでselectorを認識した場合も黙って無視しない。selectorはpacman option value待ち、`--`後のopaque operand、`--` markerより優先されず、通常位置のtokenだけを消費する。
 
+## Package metadata compatibility probes
+
+repository packageの分類はtyped exact metadataを使用し、confirmed `NotFound`だけをAUR fallback条件とする。
+Auto `-Si`はmetadata failure対象をdiagnostic付きで失敗扱いにし、AURへ照会せず、後段pacman operandからも除外する。
+独立targetの表示とqualified target、option value、operand順序、refresh barrierは維持する。
+
+`revert`は対象ごとにrepository metadataを確認してからsource preferenceを削除する。metadata failure対象は
+preferenceを保持し、binary reinstallへ含めず、最終non-zeroにする。独立成功targetの継続、grouped reinstall、
+preference削除failure時の継続、pacman failureの診断優先順位を維持し、rollbackは追加しない。
+
+AUR infoのinstalled表示はtyped local metadataを使い、成功時のyes / noを維持する。取得不能時は
+`unavailable`とwarningを表示する。Auto searchの`[installed]`は正常なforeign inventoryへの所属だけで付け、
+正常0件では省略する。inventory failureではpartial resultを採用せず、取得不能のwarningとともにannotationを省略する。
+これらはoptional presentationであり、そのfailureだけではsearch / info本体の成功規則を変更しない。
+AurOnly searchはこのmetadata queryを開始しない。表示用の継続policyをplanning / executionのabsence判定へ流用しない。
+
 ## pacman由来 operationのpass-through
 
 MoguetがAUR / source-buildへ介入しない場合、次のoperationは基本的にpacmanへ委譲する。

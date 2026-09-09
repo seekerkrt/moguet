@@ -208,6 +208,8 @@ setup_case() {
     unset MOGUET_TEST_ALPM_VERCMP_RESULT
     unset MOGUET_TEST_MAKEPKG_PACKAGE_METADATA_STATE_AFTER_SUCCESS_FILE
     unset MOGUET_TEST_REPOSITORY_PACKAGE_BASE
+    unset MOGUET_TEST_REPOSITORY_QUERY_FAILURE_PACKAGE
+    unset MOGUET_TEST_SYNC_CACHE_FAILURE_REPOSITORY
     unset MOGUET_TEST_PACMAN_U_SUCCESS_LOG
     unset MOGUET_TEST_REPLACE_WORKSPACE_AFTER_PACMAN_U
     unset MOGUET_TEST_APPEND_LOCAL_PKGBUILD_AFTER_ASDEPS
@@ -1843,8 +1845,10 @@ setup_case revert-missing-store-does-not-create
 rmdir "$preference_dir"
 run_ok revert absent-source
 assert_path_absent "$preference_dir"
-assert_command_at 1 "pacman -Si absent-source"
-assert_total_command_count 1
+assert_command "pacman-conf --verbose RootDir DBPath"
+assert_command "pacman-conf --repo-list"
+assert_command "alpm sync-query core/absent-source"
+assert_command_content_absent "pacman -Si "
 
 setup_case del-src-partial-failure
 for package in alpha beta gamma; do
@@ -1868,12 +1872,11 @@ done
 chmod 644 "$preference_dir/remove-fail"
 export MOGUET_TEST_PACMAN_REPO_PACKAGES='official-a official-b remove-fail'
 run_fail --noconfirm revert official-a remove-fail aur-a official-b
-assert_command_at 1 "pacman -Si official-a"
-assert_command_absent "pacman -Si remove-fail"
-assert_command_at 2 "pacman -Si aur-a"
-assert_command_at 3 "pacman -Si official-b"
-assert_command_at 4 "sudo pacman -S --noconfirm official-a official-b"
-assert_total_command_count 4
+assert_command_count "pacman-conf --verbose RootDir DBPath" 4
+assert_command_count "pacman-conf --repo-list" 4
+assert_command "alpm sync-query core/remove-fail"
+assert_command_before "alpm sync-query core/official-b" "sudo pacman -S --noconfirm official-a official-b"
+assert_command_content_absent "pacman -Si "
 assert_command_count "sudo pacman -S --noconfirm official-a official-b" 1
 assert_contains "official-b was not marked." "$output_file"
 assert_contains "aur-a is likely an AUR package. Config removed only." "$output_file"
@@ -1901,6 +1904,66 @@ chmod 644 "$preference_dir/delete-fail"
 run_fail revert delete-fail
 assert_contains "Failed to revert one or more packages." "$output_file"
 assert_command_content_absent "sudo pacman -S"
+
+# Issue #512: metadata failure is resolved before this target's deletion.
+for failure in config open cache query malformed; do
+    setup_case "revert-metadata-$failure"
+    printf 'CFLAGS=-O2\n' > "$preference_dir/official-a"
+    expected_preference=$case_dir/expected-preference
+    cp "$preference_dir/official-a" "$expected_preference"
+    export MOGUET_TEST_PACMAN_REPO_PACKAGES=official-a
+    case $failure in
+        config) export MOGUET_TEST_PACKAGE_METADATA_PACMAN_CONF_EXIT_CODE=7 ;;
+        open) export MOGUET_TEST_PACKAGE_METADATA_INITIALIZE_FAILURE=1 ;;
+        cache) export MOGUET_TEST_SYNC_CACHE_FAILURE_REPOSITORY=core ;;
+        query) export MOGUET_TEST_REPOSITORY_QUERY_FAILURE_PACKAGE=official-a ;;
+        malformed) export MOGUET_TEST_REPOSITORY_PACKAGE_BASE='invalid/base' ;;
+    esac
+    run_fail --noconfirm revert official-a
+    assert_file_equals "$expected_preference" "$preference_dir/official-a"
+    assert_command_content_absent "sudo pacman"
+    assert_not_contains "Unmarking source-build" "$output_file"
+    assert_not_contains "Config removed only" "$output_file"
+    assert_contains "Failed to inspect repository metadata for official-a:" "$output_file"
+    assert_contains "Failed to revert one or more packages." "$output_file"
+done
+
+setup_case revert-metadata-mixed-targets
+for package in official-a metadata-fail aur-a remove-fail official-b; do
+    printf 'CFLAGS=-O2\n' > "$preference_dir/$package"
+done
+chmod 644 "$preference_dir/remove-fail"
+cp "$preference_dir/metadata-fail" "$case_dir/expected-preference"
+export MOGUET_TEST_PACMAN_REPO_PACKAGES='official-a metadata-fail remove-fail official-b'
+export MOGUET_TEST_REPOSITORY_QUERY_FAILURE_PACKAGE=metadata-fail
+run_fail --noconfirm revert official-a metadata-fail aur-a remove-fail official-b
+assert_file_equals "$case_dir/expected-preference" "$preference_dir/metadata-fail"
+assert_file_equals "$case_dir/expected-preference" "$preference_dir/remove-fail"
+assert_path_absent "$preference_dir/official-a"
+assert_path_absent "$preference_dir/aur-a"
+assert_path_absent "$preference_dir/official-b"
+assert_command_count "sudo pacman -S --noconfirm official-a official-b" 1
+assert_command_absent "sudo pacman -S --noconfirm official-a metadata-fail official-b"
+assert_contains "Failed to inspect repository metadata for metadata-fail:" "$output_file"
+assert_contains "Failed to revert one or more packages." "$output_file"
+
+setup_case revert-metadata-reinstall-error-priority
+printf 'CFLAGS=-O2\n' > "$preference_dir/metadata-fail"
+cp "$preference_dir/metadata-fail" "$case_dir/expected-preference"
+export MOGUET_TEST_PACMAN_REPO_PACKAGES=official-a
+export MOGUET_TEST_REPOSITORY_QUERY_FAILURE_PACKAGE=metadata-fail
+printf 'pacman -S official-a\n' > "$sudo_failures"
+run_fail revert metadata-fail official-a
+assert_file_equals "$case_dir/expected-preference" "$preference_dir/metadata-fail"
+assert_contains "Failed to reinstall binaries." "$output_file"
+assert_not_contains "Failed to revert one or more packages." "$output_file"
+
+setup_case revert-missing-store-metadata-failure
+rmdir "$preference_dir"
+export MOGUET_TEST_PACKAGE_METADATA_PACMAN_CONF_EXIT_CODE=7
+run_fail revert absent-source
+assert_path_absent "$preference_dir"
+assert_command_content_absent "sudo pacman"
 
 echo "  ok: P0-4 cmd_del_src/cmd_revert"
 

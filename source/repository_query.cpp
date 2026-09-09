@@ -3,26 +3,15 @@
 #include "localization.hpp"
 #include "package_identifier.hpp"
 #include "package_metadata.hpp"
-#include "process.hpp"
-#include "shell_words.hpp"
 
 #include <algorithm>
 #include <optional>
-#include <set>
-#include <sstream>
 #include <string>
 #include <utility>
 #include <variant>
 #include <vector>
 
 namespace {
-
-std::string trim(const std::string& value) {
-    const std::size_t first = value.find_first_not_of(" \t\n\r");
-    if(first == std::string::npos) return {};
-    const std::size_t last = value.find_last_not_of(" \t\n\r");
-    return value.substr(first, last - first + 1);
-}
 
 RepositoryMetadataFailureKind repository_failure_kind(
     PackageMetadataErrorCode code,
@@ -106,21 +95,6 @@ bool add_repository_provider_candidates(
 }
 
 } // namespace
-
-bool is_installed_package(const std::string& pkg_name) {
-    if(pkg_name.empty()) return false;
-    return command_status(
-               "pacman -Q " + shell_words::quote(pkg_name) +
-               " > /dev/null 2>&1") == 0;
-}
-
-bool is_repo_package(const std::string& pkg_name) {
-    require_valid_package_name(pkg_name);
-    const std::string command =
-        "pacman -Si " + shell_words::quote(pkg_name) +
-        " > /dev/null 2>&1";
-    return command_status(command) == 0;
-}
 
 StrictRepositoryPackageQueryResult query_repository_package_strict(
     const PacmanRepositoryConfiguration& configuration,
@@ -263,33 +237,4 @@ InstalledExactPackageObservationResult query_installed_exact_package_strict(
         return InstalledExactPackageQueryFailure{
             package_name, error.failure()};
     }
-}
-
-std::vector<InstalledPackage> get_foreign_packages() {
-    std::vector<InstalledPackage> packages;
-    const std::string output = exec_command("pacman -Qm 2>/dev/null");
-    if(output.empty()) return packages;
-
-    std::stringstream stream(output);
-    std::string line;
-    while(std::getline(stream, line)) {
-        line = trim(line);
-        if(line.empty()) continue;
-
-        std::stringstream line_stream(line);
-        InstalledPackage package;
-        if(line_stream >> package.name >> package.version) {
-            require_valid_package_name(package.name);
-            packages.push_back(std::move(package));
-        }
-    }
-    return packages;
-}
-
-std::set<std::string> get_foreign_package_names() {
-    std::set<std::string> names;
-    for(const auto& package : get_foreign_packages()) {
-        names.insert(package.name);
-    }
-    return names;
 }

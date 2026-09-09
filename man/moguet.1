@@ -346,6 +346,10 @@ official binary packages when the targets exist in configured official
 repositories.
 A missing preference does not create directories and does not suppress the
 repository reinstall.
+Repository metadata is checked before each preference is removed. A failed
+observation preserves that target's preference, excludes it from reinstall,
+and makes the command exit non-zero. Independent targets continue and share
+the grouped reinstall; pacman failure retains diagnostic priority.
 Review the displayed pacman transaction before confirming it.
 .
 .TP
@@ -429,6 +433,9 @@ installed-AUR sweep.
 .B "-Ss <query>"
 Search packages.
 Auto mode combines official repository and AUR results.
+Installed annotations use only a successful foreign-package inventory.
+An unavailable inventory produces a warning and omits annotations without
+changing the search match/exit policy. AUR-only search skips this metadata query.
 .B --aur
 uses only AUR and does not refresh pacman databases;
 .B --repo
@@ -438,7 +445,12 @@ uses only official repositories.
 .B "-Si <pkg>"
 Show package information.
 Auto mode prefers official repository information and falls back to exact AUR
-metadata when the package is absent.
+metadata only when the package is authoritatively absent. Metadata failure
+is reported without AUR fallback; the failed operand is excluded from pacman
+while independent targets continue, and the command exits non-zero.
+AUR info retains installed yes/no on successful observation. Unavailable
+installed state is shown with a warning instead of no; this optional annotation
+failure alone does not change the info exit policy.
 Source selectors restrict the lookup to their named source.
 For AUR metadata, declared conflicts and replacements are shown as metadata;
 the installed/planned assessment is explicitly deferred to planning and build

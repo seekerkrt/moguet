@@ -5,16 +5,9 @@
 
 #include <cstddef>
 #include <optional>
-#include <set>
 #include <string>
 #include <variant>
 #include <vector>
-
-// pacman local database から読んだ installed package の最小情報。
-struct InstalledPackage {
-    std::string name;
-    std::string version;
-};
 
 // strict repository readで、confirmed absenceとmetadata read failureを分離する。
 enum class RepositoryMetadataFailureKind {
@@ -75,8 +68,6 @@ using StrictRepositoryProvidersQueryResult = std::variant<
     RepositoryProviderQuerySnapshot,
     RepositoryMetadataFailure>;
 
-bool is_installed_package(const std::string& pkg_name);
-bool is_repo_package(const std::string& pkg_name);
 StrictRepositoryPackageQueryResult query_repository_package_strict(
     const std::string& package_name);
 // Reuses one already-resolved read-only repository configuration. The result
@@ -88,5 +79,3 @@ StrictRepositoryProvidersQueryResult query_repository_providers_strict(
     const std::string& dependency_name);
 InstalledExactPackageObservationResult query_installed_exact_package_strict(
     const std::string& package_name);
-std::vector<InstalledPackage> get_foreign_packages();
-std::set<std::string> get_foreign_package_names();

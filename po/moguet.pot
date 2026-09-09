@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.6.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-09 16:54+0900\n"
+"POT-Creation-Date: 2026-09-10 05:44+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -3204,6 +3204,10 @@ msgid "Removing {} from list..."
 msgstr ""
 
 #, c++-format
+msgid "Failed to inspect repository metadata for {}: {}"
+msgstr ""
+
+#, c++-format
 msgid "Unmarking source-build for {}"
 msgstr ""
 
@@ -3263,6 +3267,10 @@ msgstr ""
 msgid "{} cache is empty."
 msgstr ""
 
+#, c++-format
+msgid "Foreign package inventory is unavailable; installed annotations are omitted: {}"
+msgstr ""
+
 msgid "[installed]"
 msgstr ""
 
@@ -3273,6 +3281,13 @@ msgid "[orphaned]"
 msgstr ""
 
 msgid "no"
+msgstr ""
+
+#, c++-format
+msgid "Installed state is unavailable for {}: {}"
+msgstr ""
+
+msgid "unavailable"
 msgstr ""
 
 msgid "yes"
@@ -5938,9 +5953,6 @@ msgstr ""
 msgid "partial"
 msgstr ""
 
-msgid "unavailable"
-msgstr ""
-
 msgid "invalid"
 msgstr ""
 
@@ -7295,10 +7307,6 @@ msgstr ""
 
 #, c++-format
 msgid "Repository exact package identity does not match the requested package {}."
-msgstr ""
-
-#, c++-format
-msgid "Failed to inspect repository metadata for {}: {}"
 msgstr ""
 
 #, c++-format

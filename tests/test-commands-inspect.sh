@@ -65,6 +65,8 @@ extra'
     export MOGUET_TEST_SUDO_EXIT_CODE=99
     export MOGUET_TEST_VERCMP_OUTPUT=1
     unset MOGUET_TEST_INSPECTION_SCENARIO
+    unset MOGUET_TEST_INSPECTION_REPOSITORY_FAILURE_PACKAGES
+    unset MOGUET_TEST_PACMAN_INSTALLED_PACKAGES
     unset MOGUET_TEST_PACMAN_QM_OUTPUT
     unset MOGUET_TEST_PACMAN_Q_OUTPUT
     unset MOGUET_TEST_PACMAN_Q_EXIT_CODE
@@ -378,6 +380,25 @@ assert_numbered_foreign_batches() {
         fail_case "foreign query did not issue exactly one 100-package and one 1-package batch"
     fi
 }
+
+# Issue #512: both non-TTY and --noconfirm keep the strict recursive boundary.
+for mode in non-tty noconfirm; do
+    setup_case "deps-recursive-repository-failure-$mode"
+    export MOGUET_TEST_INSPECTION_SCENARIO=deps-recursive-repository-failure
+    export MOGUET_TEST_INSPECTION_REPOSITORY_FAILURE_PACKAGES=moguet-inspect-203-virtual-provider
+    if [ "$mode" = noconfirm ]; then
+        run_fail --noconfirm deps --recursive provider-root
+    else
+        run_fail deps --recursive provider-root
+    fi
+    assert_contains "inspection repository metadata failure" "$stderr_file"
+    assert_not_exact_line "aur info moguet-inspect-203-virtual-provider" "$command_log"
+    assert_not_exact_line "aur info-strict moguet-inspect-203-virtual-provider" "$command_log"
+    assert_not_contains "pacman -Si " "$command_log"
+    assert_not_contains "git " "$command_log"
+    assert_not_contains "makepkg " "$command_log"
+    assert_not_contains "sudo " "$command_log"
+done
 
 # P0-1: ordinary failureはtarget単位で集約し、元のindexに基づく空行を保って後続へ進む。
 setup_case deps-partial-failure
@@ -1032,7 +1053,7 @@ assert_contains "AUR package metadata constraint projection failed: constraint-i
 # and local-database query failure remains a typed Unknown rather than absence.
 setup_case deps-installed-source-classification
 export MOGUET_TEST_INSPECTION_SCENARIO=deps-installed-source-classification
-export MOGUET_TEST_PACMAN_Q_OUTPUT='foreign-installed 1.0-1'
+export MOGUET_TEST_PACMAN_INSTALLED_PACKAGES='foreign-installed'
 run_ok deps installed-display-root
 assert_contains "Installed dependencies:" "$stdout_file"
 assert_exact_line_count 1 "  foreign-installed" "$stdout_file"

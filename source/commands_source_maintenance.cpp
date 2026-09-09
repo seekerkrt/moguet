@@ -1294,6 +1294,17 @@ void cmd_revert(
     bool failed = false;
     std::vector<std::string> reinstall_targets;
     for(const auto& pkg : targets) {
+        // The repository decision precedes this target's preference mutation.
+        // Independent targets still continue and share the final reinstall.
+        const StrictRepositoryPackageQueryResult repository =
+            query_repository_package_strict(pkg);
+        if(const auto* failure = std::get_if<RepositoryMetadataFailure>(&repository)) {
+            Logger::error(localization::format_translated_message(
+                "Failed to inspect repository metadata for {}: {}",
+                pkg, failure->diagnostic));
+            failed = true;
+            continue;
+        }
         bool was_removed = false;
         try {
             was_removed = remove_source_preference_entry(pkg);
@@ -1311,7 +1322,7 @@ void cmd_revert(
             Logger::warn(localization::format_translated_message(
                 "{} was not marked.", pkg));
         }
-        if(is_repo_package(pkg)) {
+        if(std::holds_alternative<RepositoryPackagePresent>(repository)) {
             // TRANSLATORS: The placeholder is a package name.
             Logger::info(localization::format_translated_message(
                 "{} exists in official repos. Will reinstall binary.",

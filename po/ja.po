@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.6.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-09 16:54+0900\n"
+"POT-Creation-Date: 2026-09-10 05:44+0900\n"
 "PO-Revision-Date: 2026-09-09 16:53+0900\n"
 "Last-Translator: Moguet contributors\n"
 "Language-Team: Japanese\n"
@@ -3197,6 +3197,10 @@ msgid "Removing {} from list..."
 msgstr "{}を一覧から削除しています..."
 
 #, c++-format
+msgid "Failed to inspect repository metadata for {}: {}"
+msgstr "{} のリポジトリメタデータの確認に失敗しました: {}"
+
+#, c++-format
 msgid "Unmarking source-build for {}"
 msgstr "{}のソースビルド指定を解除しています"
 
@@ -3256,6 +3260,10 @@ msgstr "{}キャッシュの削除をスキップしました。"
 msgid "{} cache is empty."
 msgstr "{}キャッシュは空です。"
 
+#, c++-format
+msgid "Foreign package inventory is unavailable; installed annotations are omitted: {}"
+msgstr "foreignパッケージ一覧を取得できないため、インストール済みの表示を省略します: {}"
+
 msgid "[installed]"
 msgstr "[インストール済み]"
 
@@ -3267,6 +3275,13 @@ msgstr "[保守担当者なし]"
 
 msgid "no"
 msgstr "いいえ"
+
+#, c++-format
+msgid "Installed state is unavailable for {}: {}"
+msgstr "{} のインストール状態を取得できません: {}"
+
+msgid "unavailable"
+msgstr "利用不可"
 
 msgid "yes"
 msgstr "はい"
@@ -5930,9 +5945,6 @@ msgstr "完全"
 msgid "partial"
 msgstr "一部のみ"
 
-msgid "unavailable"
-msgstr "利用不可"
-
 msgid "invalid"
 msgstr "不正"
 
@@ -7291,10 +7303,6 @@ msgstr "本番用ソースビルドの作業項目に準備済みのキャッシ
 #, c++-format
 msgid "Repository exact package identity does not match the requested package {}."
 msgstr "リポジトリの正確なパッケージ識別情報が、要求されたパッケージ {} と一致しません。"
-
-#, c++-format
-msgid "Failed to inspect repository metadata for {}: {}"
-msgstr "{} のリポジトリメタデータの確認に失敗しました: {}"
 
 #, c++-format
 msgid "{} info for {} does not include {}."

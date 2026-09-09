@@ -225,23 +225,10 @@ void retain_configured_repository_order(
 }
 
 RepositoryPackageQueryStatus query_repository_package(
-    const std::string& package_name, BuildPlanResolutionMode mode,
+    const std::string& package_name,
     BuildPlanResolutionFailureContext* failure_context,
-    bool require_authoritative_repository_metadata = false,
     std::optional<RepositoryPackagePresent>* present_package = nullptr,
     BuildPlan* repository_configuration_authority = nullptr) {
-    if(mode == BuildPlanResolutionMode::Legacy &&
-       !require_authoritative_repository_metadata) {
-        if(is_repo_package(package_name)) {
-            if(present_package != nullptr) {
-                *present_package = RepositoryPackagePresent{
-                    {}, 0, package_name, {}, std::nullopt, std::nullopt, {}};
-            }
-            return RepositoryPackageQueryStatus::Present;
-        }
-        return RepositoryPackageQueryStatus::NotFound;
-    }
-
     StrictRepositoryPackageQueryResult result =
         query_repository_package_strict(package_name);
     if(const auto* present =
@@ -720,8 +707,7 @@ RecursiveDependencyNode resolve_recursive_dependency(
     }
 
     if(query_repository_package(
-           node.package_name, BuildPlanResolutionMode::Legacy, nullptr,
-           static_cast<bool>(select_provider)) ==
+           node.package_name, nullptr) ==
        RepositoryPackageQueryStatus::Present) {
         node.kind = DependencyKind::Repo;
         return node;
@@ -1472,8 +1458,7 @@ void resolve_build_plan_dependency(
     std::optional<RepositoryPackagePresent> present_repository_package;
     const RepositoryPackageQueryStatus repository_status =
         query_repository_package(
-            dep_name, resolution_mode, dependency_failure_sink,
-            true,
+            dep_name, dependency_failure_sink,
             &present_repository_package,
             &plan);
     if(repository_status == RepositoryPackageQueryStatus::Present) {

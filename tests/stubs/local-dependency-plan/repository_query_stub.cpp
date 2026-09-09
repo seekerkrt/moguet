@@ -106,16 +106,6 @@ std::size_t repository_query_count(
 
 } // namespace local_dependency_plan_query_stub
 
-bool is_repo_package(const std::string& package_name) {
-    g_query_history.push_back(
-        RepositoryQuery{RepositoryQueryKind::LegacyPackage, package_name});
-    const auto failure = g_package_failures.find(package_name);
-    if(failure != g_package_failures.end()) {
-        throw std::runtime_error(failure->second);
-    }
-    return require_package_response(package_name).repository_name.has_value();
-}
-
 StrictRepositoryPackageQueryResult query_repository_package_strict(
     const std::string& package_name) {
     g_query_history.push_back(

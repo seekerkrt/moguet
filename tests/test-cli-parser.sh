@@ -738,6 +738,7 @@ assert_command_absent "sudo pacman -S --noconfirm official-a clean-root official
 # 同名option valueとAUR targetを文字列一致でまとめて削除しない。
 setup_case info-removes-target-by-index
 export MOGUET_TEST_PACMAN_REPO_PACKAGES='official-a'
+write_repository_package official-a
 run_ok -Si official-a --config clean-root clean-root
 assert_command_count "pacman -Si official-a --config clean-root" 1
 assert_command_absent "pacman -Si official-a --config"
