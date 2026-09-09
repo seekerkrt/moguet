@@ -1164,7 +1164,8 @@ moguet_add_cpp_test(
 
 # Installed-container evidence invokes the production transport with real
 # process and libalpm boundaries. It is deliberately not a CTest or ordinary
-# all target: only the owner-specific container lane builds and runs it.
+# all target. The host compile gate builds it without execution; only the
+# owner-specific container lane runs it.
 set(
     _moguet_source_artifact_install_installed_fixture_sources
     tests/source_artifact_install_installed_fixture.cpp

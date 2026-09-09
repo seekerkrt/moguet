@@ -34,6 +34,7 @@ release操作は[`DEVELOPMENT.md`](DEVELOPMENT.md)を正とする。この文書
 | A: pure / unit | `test`の一部 | in-processのvalue、model、utility |
 | B: focused component | `test`の一部 | component、stubbed adapter、局所contract |
 | C: host/static/tool/filesystem integration | `test`の一部 | host tool、static contract、filesystem、packaging fixture |
+| installed fixture compile/link | `test-installed-fixture-compile`（`test-repository`にも含む） | `EXCLUDE_FROM_ALL` installed transport fixtureをhostでcompile/linkするだけのgate。runtimeとactual S5/S6 acceptanceはcontainerに限定する |
 | D: deterministic isolated full-CLI integration | `test`の一部 | isolated HOME / XDG、loopback fixture、PTY、full CLI |
 | A–D full host | `test` | host regression全体 |
 | G: release-only | `release-check-exclusive` | version、license、packaging metadata / payload、tracked Markdown |

@@ -31,6 +31,7 @@ COMPILE_COMMANDS_LINK := compile_commands.json
 # These names are developer-facing compatibility aliases. CMake owns each
 # alias's exact build-target and CTest selection mapping.
 CMAKE_FOCUSED_ALIASES := \
+	test-installed-fixture-compile \
 	test-application-identity \
 	test-interactive-confirmation \
 	test-localization \
@@ -760,6 +761,7 @@ test-container-live:
 		$(MAKE) test-container-live-local
 
 test-repository: \
+	test-installed-fixture-compile \
 	check-pot \
 	check-catalogs \
 	test-catalog-metadata-gate \

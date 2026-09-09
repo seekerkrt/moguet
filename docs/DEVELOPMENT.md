@@ -219,7 +219,15 @@ inventoryを所有する。
 stub / real implementation exclusion、replacement ABI、ALPM stub、exact source closureをtarget-localに
 維持する。単一production libraryを全testへ無条件linkしない。negative compileはCTest registrationから
 effective CMake compiler / launcher / compile optionを取得し、GNU Make recursive compileへ戻さない。
-Make focused aliasとCMake focused targetは各125件で一致し、missing / unexpectedを0に保つ。
+Make focused aliasとCMake focused targetは各126件で一致し、missing / unexpectedを0に保つ。
+
+`make test-installed-fixture-compile`は既存のinstalled transport fixture全体をcompile/linkする
+host gateであり、fixtureを実行しない。`make test`のrepository validationにも含め、production headerと
+fixture内のreplacement definitionとのsignature driftをcontainer acceptanceより前に検出する。
+対象source、test-only macro、include/link profileは`MoguetTestTargets.cmake`の既存targetをそのまま使う。
+`EXCLUDE_FROM_ALL`を維持し、通常のproduction/testing `all`やinstall payloadには追加しない。
+fixture runtimeのownerは引き続きinstalled container laneであり、host compile PASSはactual S5/S6の
+transaction/publication acceptanceを代替しない。
 
 completion生成が使う`moguet-cli-authority-exporter`もCMake targetであり、Python generatorはcompilerを
 直接起動しない。このtargetは`EXCLUDE_FROM_ALL`なので通常のproduction/package buildへ混ざらず、

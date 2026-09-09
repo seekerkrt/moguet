@@ -1,5 +1,22 @@
 # Supported `make test-<area>` frontends.  CMake owns the exact build targets
-# and CTest selections; Make only requests the corresponding custom target.
+# and optional CTest selections; Make only requests the corresponding target.
+
+# Compile/link the same installed fixture used by the container, without
+# executing it or adding it to the default build/install graph.
+get_target_property(
+    _moguet_installed_fixture_excluded
+    moguet-source-artifact-install-installed-fixture
+    EXCLUDE_FROM_ALL
+)
+if(NOT _moguet_installed_fixture_excluded)
+    message(FATAL_ERROR "Installed fixture must remain EXCLUDE_FROM_ALL")
+endif()
+unset(_moguet_installed_fixture_excluded)
+add_custom_target(
+    moguet-focus-test-installed-fixture-compile
+    DEPENDS moguet-source-artifact-install-installed-fixture
+)
+
 moguet_add_focused_ctest_alias(
     test-exact-artifact-transaction-receipt
     TESTS cpp.exact_artifact_transaction_receipt
