@@ -651,7 +651,10 @@ AurUpdateSourceBuildExecutionResult::package_state_change()
        PackageStateChange::Changed) {
         return PackageStateChange::Changed;
     }
+    bool uncertain = selected_repository_provider_transaction.package_state_change == PackageStateChange::Unknown;
     for(const auto& work_item_result : work_item_results) {
+        if(work_item_result.devel_execution && work_item_result.devel_execution->operation &&
+           *work_item_result.devel_execution->operation != DevelSourceArtifactInstallOperation::NotAttempted) uncertain = true;
         for(const auto& child : work_item_result.child_results) {
             if(child.status == AurUpdateChildExecutionStatus::Installed ||
                child.status == AurUpdateChildExecutionStatus::
@@ -660,8 +663,7 @@ AurUpdateSourceBuildExecutionResult::package_state_change()
             }
         }
     }
-    return selected_repository_provider_transaction.package_state_change ==
-                   PackageStateChange::Unknown
+    return uncertain
                ? PackageStateChange::Unknown
                : PackageStateChange::NoChange;
 }
@@ -751,11 +753,30 @@ execute_prepared_aur_update_source_build_invocation(
         AurUpdateWorkItemExecutionResult& work_item_result =
             result.work_item_results[index];
         try {
-            PackageBaseSourceBuildExecutionResult completed =
-                execute_prepared_package_base_source_build_work_item_typed(
-                    production_invocation.work_items[index],
-                    production_invocation.database_paths,
-                    config);
+            auto execution = execute_prepared_package_base_source_build_work_item_typed(
+                production_invocation.work_items[index],
+                production_invocation.database_paths,
+                config);
+            if(auto* devel = std::get_if<ReviewedDevelExecutionSnapshot>(&execution)) {
+                work_item_result.devel_execution.emplace(std::move(*devel));
+                const auto& observed = *work_item_result.devel_execution;
+                work_item_result.status = observed.complete ? AurUpdateWorkItemExecutionStatus::Updated : AurUpdateWorkItemExecutionStatus::Failed;
+                work_item_result.failure_kind = observed.complete ? AurUpdateWorkItemFailureKind::None : AurUpdateWorkItemFailureKind::AuthoritativeExecutionIncomplete;
+                if(observed.artifact) {
+                    if(work_item_result.child_results.size() != 1 || observed.artifact->package_name != work_item_result.child_results.front().required_package_name)
+                        throw std::logic_error("Authoritative execution child correlation failed.");
+                    work_item_result.child_results.front().selected_artifact = observed.artifact;
+                    work_item_result.child_results.front().status = AurUpdateChildExecutionStatus::Installed;
+                }
+                work_item_result.production_outcome = observed.production_outcome;
+                if(!observed.complete) {
+                    work_item_result.diagnostic = "Authoritative devel execution incomplete; installation/publication details retained.";
+                    result.status = AurUpdateInvocationExecutionStatus::StoppedOnWorkItemFailure;
+                    return result;
+                }
+                continue;
+            }
+            auto completed = std::get<PackageBaseSourceBuildExecutionResult>(std::move(execution));
             work_item_result.production_outcome =
                 completed.production_outcome();
             if(auto failure = validate_completed_package_base_result(

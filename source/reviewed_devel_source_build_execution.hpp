@@ -3,7 +3,8 @@
 #include "reviewed_devel_source_build_execution_authority.hpp"
 #include "devel_build_provenance_publication.hpp"
 #include "evaluated_devel_source_build.hpp"
-#include "source_build.hpp"
+#include "source_build_request.hpp"
+#include "separated_package_base_source_build.hpp"
 
 #include <memory>
 
@@ -111,9 +112,9 @@ private:
     std::unique_ptr<ReviewedDevelSourceBuildExecutionState> state_;
 };
 
-// The normal owner can select this at finalize_aur_checkout_authority's typed
-// pin boundary. Current normal routes still call the legacy factory directly;
-// 7-D owns activation. Rejection never automatically chooses the other arm.
+// The normal 7-D owner selects this at finalize_aur_checkout_authority's typed
+// pin boundary, before legacy lifetime erasure. Rejection never automatically
+// chooses the other arm.
 [[nodiscard]] ReviewedProductionSourceExecution prepare_reviewed_production_source_execution(
     ReviewedProductionExecutionChoice choice, ValidatedCachePath checkout, PinnedReviewedSourceBuild reviewed,
     ProductionReviewedSourceOutcome reviewed_outcome,

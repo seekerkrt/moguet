@@ -3,6 +3,7 @@
 #include "aur_update_execution_preparation.hpp"
 #include "aur_update_execution_preflight.hpp"
 #include "aur_update_query.hpp"
+#include "aur_devel_update.hpp"
 #include "commands_sync.hpp"
 #include "filtered_aur_update_operation.hpp"
 #include "local_dependency_plan_projection.hpp"
@@ -79,9 +80,8 @@ project_system_aur_requires_check_attentions(
                target.update, target.issues, target.skip_kind,
                DevelRequiresCheckPolicy::SkipIndependentTarget) ||
            !target.update.aur_package.has_value() ||
-           target.issues.front().devel_requires_check_reason !=
-               std::optional<DevelRequiresCheckReason>{
-                   DevelRequiresCheckReason::SuffixCandidateOnly}) {
+           !target.issues.front().devel_requires_check_reason ||
+           !is_known_devel_requires_check_reason(*target.issues.front().devel_requires_check_reason)) {
             reject_inconsistent_input(
                 "System/AUR independent RequiresCheck attention is inconsistent.");
         }
@@ -98,6 +98,22 @@ project_system_aur_requires_check_attentions(
             AurUpdateEffectiveState::RequiresCheck});
     }
     return attentions;
+}
+
+void append_registered_devel_observations(const SystemSourceUpgradeProjectionAuthority& prepared,
+                                          const std::vector<RegisteredAurDevelObservation>* observations, UnifiedPlanObservationInput& out) {
+    if(!observations) return;
+    for(const auto& observed : *observations) {
+        const auto matching = std::find_if(prepared.source_work_items().begin(), prepared.source_work_items().end(), [&](const auto& work) {
+            return work.source().original_preference_index == observed.preference_index && work.checkout_package_base() == observed.package_base &&
+                   work.required_targets().size() == 1 && work.required_targets().front().package_name == observed.package_name;
+        });
+        if(matching == prepared.source_work_items().end() || observed.query.plan.entries.size() != 1 || observed.query.plan.entries.front().installed_name != observed.package_name)
+            reject_inconsistent_input("Registered devel observation/source attribution differs.");
+        out.root_metadata.push_back(UnifiedPlanBorrowedAuthorityReference<AurUpdatePlanEntry>(observed.query.plan.entries.front()));
+        for(const auto& issue : observed.issues)
+            out.blockers.push_back(RoutePreflightUnifiedPlanBlocker{UnifiedPlanBorrowedAuthorityReference<AurUpdateExecutionIssue>(issue)});
+    }
 }
 
 void append_build_plan_blockers(
@@ -388,6 +404,7 @@ bool same_aur_update_entry(
            same_aur_remote_package(lhs.aur_package, rhs.aur_package) &&
            lhs.classification == rhs.classification &&
            lhs.devel_classification == rhs.devel_classification &&
+           lhs.devel_assessment_origin == rhs.devel_assessment_origin &&
            lhs.devel_assessment == rhs.devel_assessment;
 }
 
@@ -1537,6 +1554,8 @@ bool is_known_wrapped_preflight_issue_reason(
             return false;
         case AurUpdateExecutionReason::UpToDate:
         case AurUpdateExecutionReason::DevelRequiresCheck:
+        case AurUpdateExecutionReason::DevelObservationUnknown:
+        case AurUpdateExecutionReason::DevelUnsupported:
         case AurUpdateExecutionReason::RequiredDevelTargetRequiresCheck:
         case AurUpdateExecutionReason::NonAurForeign:
         case AurUpdateExecutionReason::AurMetadataUnavailable:
@@ -3507,6 +3526,7 @@ project_system_source_upgrade_unified_plan(
     append_system_source_roots(prepared, observation);
     append_system_source_issues(prepared.issues(), observation);
     append_prepared_source_work(prepared, observation);
+    append_registered_devel_observations(prepared, input.registered_devel, observation);
     if(plan != nullptr) {
         observation.dependency_authorities.push_back(
             UnifiedPlanDependencyAuthorityReference::from_build_plan(
@@ -3591,6 +3611,7 @@ std::unique_ptr<UnifiedPlanProjection> project_upgrade_all_unified_plan(
                 PreparedUpgradeAllAurPreflight>(
                 *aggregate_aur_preflight));
         append_system_source_roots(system_source, observation);
+        append_registered_devel_observations(system_source, input.registered_devel, observation);
         append_system_source_issues(system_source.issues(), observation);
         append_prepared_source_work(system_source, observation);
         for(const UpgradeAllOperationIssue& issue :
@@ -3715,6 +3736,7 @@ std::unique_ptr<UnifiedPlanProjection> project_upgrade_all_unified_plan(
                 *aggregate_aur_preflight));
     }
     append_system_source_roots(system_source, observation);
+    append_registered_devel_observations(system_source, input.registered_devel, observation);
     append_system_source_issues(system_source.issues(), observation);
     append_prepared_source_work(system_source, observation);
     const std::size_t registered_artifact_count =
@@ -3791,7 +3813,8 @@ std::unique_ptr<UnifiedPlanProjection> project_upgrade_all_unified_plan(
 
 std::unique_ptr<UnifiedPlanProjection> project_upgrade_all_unified_plan(
     const UpgradeAllOperationProjectionAuthority& prepared,
-    const PreparedUpgradeAllAurPreflight& aur_preflight) {
+    const PreparedUpgradeAllAurPreflight& aur_preflight,
+    const std::vector<RegisteredAurDevelObservation>* registered_devel) {
     if(const PreparedFilteredAurUpdateOperation* filtered =
            aur_preflight.filtered_operation();
        filtered != nullptr) {
@@ -3807,13 +3830,13 @@ std::unique_ptr<UnifiedPlanProjection> project_upgrade_all_unified_plan(
                 std::cref(aur_preflight.issues()),
                 std::cref(
                     filtered->source_build_preparation().value()),
-                std::cref(aur_preflight)});
+                std::cref(aur_preflight), registered_devel});
     }
     return project_upgrade_all_unified_plan(
         UpgradeAllUnifiedPlanProjectionInput{
             std::cref(prepared), std::nullopt, std::nullopt,
             std::cref(aur_preflight.issues()), std::nullopt,
-            std::cref(aur_preflight)});
+            std::cref(aur_preflight), registered_devel});
 }
 
 std::unique_ptr<SystemAurUpdateUnifiedPlanProjection>

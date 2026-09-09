@@ -256,9 +256,9 @@ int execute_sync_source_build_invocation(
     PreparedProductionSourceBuildInvocation invocation,
     const AppConfig& config) {
     try {
-        execute_prepared_source_build_invocation(
+        const auto result = execute_prepared_source_build_invocation(
             std::move(invocation), config);
-        return 0;
+        return result.command_exit_status();
     } catch(const ProductionSourceBuildInvocationError& error) {
         Logger::error(
             format_production_source_build_invocation_failure(error));

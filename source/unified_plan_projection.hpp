@@ -19,6 +19,7 @@
 #include <vector>
 
 struct AurUpdateQueryResult;
+struct RegisteredAurDevelObservation;
 struct AurUpdateSourceBuildPreparation;
 class PreparedFilteredAurUpdateOperation;
 class PreparedUpgradeAllAurPreflight;
@@ -94,6 +95,7 @@ using SystemSourceUpgradeUnifiedPlanProjectionSource = std::variant<
 
 struct SystemSourceUpgradeUnifiedPlanProjectionInput {
     SystemSourceUpgradeUnifiedPlanProjectionSource source;
+    const std::vector<RegisteredAurDevelObservation>* registered_devel = nullptr;
 };
 
 using UpgradeAllUnifiedPlanProjectionSource = std::variant<
@@ -115,6 +117,7 @@ struct UpgradeAllUnifiedPlanProjectionInput {
     std::optional<std::reference_wrapper<
         const PreparedUpgradeAllAurPreflight>>
         aur_operation_preflight = std::nullopt;
+    const std::vector<RegisteredAurDevelObservation>* registered_devel = nullptr;
 };
 
 // BuildPlan routeのRequiredPackageArtifactTargetはowned projection resultまたは
@@ -191,7 +194,8 @@ private:
     friend std::unique_ptr<UnifiedPlanProjection>
     project_upgrade_all_unified_plan(
         const UpgradeAllOperationProjectionAuthority& prepared,
-        const PreparedUpgradeAllAurPreflight& aur_preflight);
+        const PreparedUpgradeAllAurPreflight& aur_preflight,
+        const std::vector<RegisteredAurDevelObservation>* registered_devel);
     friend std::unique_ptr<SystemAurUpdateUnifiedPlanProjection>
     project_system_aur_update_unified_plan(
         const SystemAurUpdateDryRunObservation& observation);
@@ -355,7 +359,8 @@ std::unique_ptr<UnifiedPlanProjection> project_upgrade_all_unified_plan(
     UpgradeAllUnifiedPlanProjectionInput input);
 std::unique_ptr<UnifiedPlanProjection> project_upgrade_all_unified_plan(
     const UpgradeAllOperationProjectionAuthority& prepared,
-    const PreparedUpgradeAllAurPreflight& aur_preflight);
+    const PreparedUpgradeAllAurPreflight& aur_preflight,
+    const std::vector<RegisteredAurDevelObservation>* registered_devel = nullptr);
 std::unique_ptr<SystemAurUpdateUnifiedPlanProjection>
 project_system_aur_update_unified_plan(
     const SystemAurUpdateDryRunObservation& observation);

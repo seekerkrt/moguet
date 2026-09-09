@@ -51,6 +51,10 @@ std::string aur_update_preflight_reason_label(
             return localization::translate_message("none");
         case AurUpdateExecutionReason::UpToDate:
             return localization::translate_message("up to date");
+        case AurUpdateExecutionReason::DevelObservationUnknown:
+            return localization::translate_message("devel Git observation failed");
+        case AurUpdateExecutionReason::DevelUnsupported:
+            return localization::translate_message("devel automatic update unsupported");
         case AurUpdateExecutionReason::DevelRequiresCheck:
             return localization::translate_message(
                 "devel update requires check");
@@ -384,6 +388,8 @@ bool is_routine_aur_update_skip(AurUpdateExecutionReason reason) {
         case AurUpdateExecutionReason::NonAurForeign:
             return true;
         case AurUpdateExecutionReason::None:
+        case AurUpdateExecutionReason::DevelObservationUnknown:
+        case AurUpdateExecutionReason::DevelUnsupported:
         case AurUpdateExecutionReason::DevelRequiresCheck:
         case AurUpdateExecutionReason::RequiredDevelTargetRequiresCheck:
         case AurUpdateExecutionReason::AurMetadataUnavailable:

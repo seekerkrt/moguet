@@ -212,6 +212,10 @@ std::string source_failure_label(
         case RegisteredSourceUpgradeFailureKind::
             CleanupFailedAfterPackageTransaction:
             return localization::translate_message("cleanup failed after package transaction");
+        case RegisteredSourceUpgradeFailureKind::AuthoritativeExecutionIncomplete:
+            return localization::translate_message("authoritative execution incomplete; installation and publication outcomes are separate");
+        case RegisteredSourceUpgradeFailureKind::DevelRequiresCheckSkipped:
+            return localization::translate_message("devel update requires check; explicit rebuild declined");
         case RegisteredSourceUpgradeFailureKind::UpdateStatusUnknownSkipped:
             return localization::translate_message("package update status unknown");
         case RegisteredSourceUpgradeFailureKind::PriorPhaseStopped:

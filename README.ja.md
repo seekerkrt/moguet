@@ -279,8 +279,8 @@ makepkg -si
 `makepkg -si`は、そのtag付きreleaseをbuildし、同じ操作で`pacman -U`によってlive
 systemへinstallします。これは、development treeをその場でbuild・確認するだけで
 何もinstallしない、上記の`make`や`./moguet --help`とは異なります。`PKGBUILD`はcanonicalな
-production CMake build / install consumerとして`BUILD_TESTING=OFF`を指定し、106個のdeveloper
-C++ test-ledger executable、1個の`EXCLUDE_FROM_ALL` installed transport fixture harness、131件のCTest
+production CMake build / install consumerとして`BUILD_TESTING=OFF`を指定し、115個のdeveloper
+C++ test-ledger executable、1個の`EXCLUDE_FROM_ALL` installed transport fixture harness、146件のCTest
 registrationはhost / CI / release validation側で扱います。
 この`PKGBUILD`は
 repository同梱のpackaging経路であり、AUR submissionではありません。Moguetはまだ
@@ -467,8 +467,17 @@ v2.5.0ではupstream VCS revisionのquery / 比較やdevel build provenanceのpu
 observer foundationが入り、default HEAD / exact branchとcompleteなSHA-1 / SHA-256 resultだけへ
 限定されています。[Issue #476](https://github.com/seekerkrt/moguet/issues/476) Slice 7-Bのinternal coordinatorは、
 provenance tipとfresh installed / reviewed stateを照合した後だけremoteを観測し、local stateを再確認してから
-`UpdateAvailable` / `UpToDate`を返します。normal AUR update routeは未接続であり、current CLIから
-VCS package revisionを自動比較することはまだできません。
+`UpdateAvailable` / `UpToDate`を返します。Slice 7-Dではnormal AUR update、registered AUR update、
+`-Qua`、対応するdry-runをこのproducerへ接続します。normal AUR versionが新しい場合はGit queryなしで
+既存のversion authorityを優先し、same/olderの場合だけvalidated Git assessmentで補完します。
+Git revision差分はpackage version変更と区別して表示します。
+
+initial authoritative executionは実際のreviewed pinと既存のsingle-child HTTPS Git subsetを要求し、
+S4/S5/S6を一度だけconsumeします。開始後にlegacyへfallbackしません。install成功とprovenance publication失敗は
+別のpartial outcomeとして保持し、non-zeroにします。registered RequiresCheckはdefault-Noの明示rebuild確認へ進みますが、
+それがsource reviewを代替することはありません。`--noconfirm`からreview authorityを作りません。
+詳細は[normal devel route contract](https://github.com/seekerkrt/moguet/blob/develop/docs/contracts/devel-normal-routes.md)を参照してください。
+Slice 8のmigration、full live acceptance、release completionは未完了です。
 
 `--aur`は対応する`-S`、`-Ss`、`-Si`をAURへ限定します。`--repo`はこれらのformを
 official binary repositoryへ限定し、exact target-less `-Syu`ではrepository-only selectorに

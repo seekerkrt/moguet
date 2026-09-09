@@ -1707,10 +1707,10 @@ PackageBaseSourceBuildExecutionResult execute_package_base_work_item_typed(
         fs::current_path() == scenario.caller_working_directory,
         "PackageBase production execution started from a drifted working directory");
     try {
-        PackageBaseSourceBuildExecutionResult result =
-            execute_prepared_package_base_source_build_work_item_typed(
-                invocation.work_items.at(work_item_index),
-                invocation.database_paths, scenario.config);
+        auto execution = execute_prepared_package_base_source_build_work_item_typed(
+            invocation.work_items.at(work_item_index), invocation.database_paths, scenario.config);
+        expect(std::holds_alternative<PackageBaseSourceBuildExecutionResult>(execution), "Legacy fixture selected authoritative execution");
+        auto result = std::get<PackageBaseSourceBuildExecutionResult>(std::move(execution));
         expect(
             fs::current_path() == scenario.caller_working_directory,
             "PackageBase production success leaked a changed working directory");

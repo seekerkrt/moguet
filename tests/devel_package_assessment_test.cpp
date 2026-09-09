@@ -1,4 +1,37 @@
 #include "devel_package_assessment.hpp"
+#ifdef MOGUET_TEST_AUR_DEVEL_ROUTING
+#include "aur_devel_update.hpp"
+#include "aur_rpc.hpp"
+#include "system_source_upgrade.hpp"
+struct UnifiedPlanProjectionTestAccess {
+    static SystemSourceUpgradeProjectionAuthority source_view(const SystemSourceUpgradePreparedSnapshot& snapshot,
+                                                              const ProductionSourceBuildWorkItem& work, const std::vector<SystemSourceUpgradeIssue>& issues) {
+        std::vector<PreparedSystemSourceWorkReference> refs;
+        refs.push_back(PreparedSystemSourceWorkReference(snapshot.registered_sources.front(), work));
+        return SystemSourceUpgradeProjectionAuthority(snapshot, nullptr, issues, std::move(refs));
+    }
+};
+namespace route_rpc {
+std::string version = "1-1";
+std::string name = "assessment-git";
+unsigned calls = 0;
+} // namespace route_rpc
+std::map<std::string, AurPackageInfo> AurClient::info_many(const std::vector<std::string>& names) {
+    ++route_rpc::calls;
+    std::map<std::string, AurPackageInfo> out;
+    for(const auto& n : names) {
+        AurPackageInfo p;
+        p.Name = n;
+        p.PackageBase = "assessment";
+        p.Version = route_rpc::version;
+        out.emplace(n, std::move(p));
+    }
+    return out;
+}
+std::optional<AurPackageInfo> AurClient::info_strict(const std::string& n) {
+    return info_many({n}).at(n);
+}
+#endif
 
 #include <array>
 #include <cerrno>
@@ -468,10 +501,141 @@ void read_only_snapshot() {
     require(copy.assessment == result.assessment && fixture.remote_calls == 1 && fixture.sessions == 2, "snapshot copy performed I/O");
     std::cout << "S7B read-only inventory/bytes and snapshot-copy PASS\n";
 }
+#ifdef MOGUET_TEST_AUR_DEVEL_ROUTING
+void normal_route_matrix() {
+    for(const std::string mode : {"same", "different", "sha256", "format", "timeout", "missing", "recipe", "generation", "split", "unknown-base", "ordinary-same", "ordinary-newer", "newer-same", "newer-timeout", "older-different", "registered-different", "registered-same", "db-context"}) {
+        Fixture f(mode == "sha256" ? 64 : 40);
+        struct Reset {
+            ~Reset() {
+                set_aur_devel_update_database_paths_for_test(std::nullopt);
+            }
+        } reset;
+        set_aur_devel_update_database_paths_for_test(PacmanDatabasePaths{"/", f.db});
+        if(mode == "db-context") set_aur_devel_update_database_paths_for_test(PacmanDatabasePaths{"/", f.root / "different-db"});
+        route_rpc::version = mode.starts_with("newer") || mode == "ordinary-newer" ? "2-1" : mode == "older-different" ? "0-1"
+                                                                                                                       : "1-1";
+        route_rpc::calls = 0;
+        std::string name = f.child.package_name();
+        if(mode.starts_with("ordinary") || mode == "missing") fs::rename(f.p_file().parent_path(), f.root / "detached-p");
+        if(mode.starts_with("ordinary")) {
+            name = "ordinary";
+            replace(f.record / "desc", "assessment-git", "ordinary");
+            fs::rename(f.record, f.db / "local/ordinary-1-1");
+        }
+        if(mode == "recipe") f.publish_reviewed(std::string(40, 'c'));
+        if(mode == "generation") f.generation = 1;
+        if(mode == "split" || mode == "unknown-base") {
+            const auto sibling = f.db / "local/sibling-1-1";
+            fs::create_directory(sibling);
+            write(sibling / "desc", "%NAME%\nsibling\n\n%VERSION%\n1-1\n\n%ARCH%\nany\n\n%REASON%\n0\n\n" + (mode == "split" ? std::string("%BASE%\nassessment\n\n") : std::string()));
+            write(sibling / "files", "%FILES%\n\n");
+            write(sibling / "mtree", "sibling");
+        }
+        f.remote_mode = mode == "timeout" || mode == "newer-timeout" ? "timeout" : mode == "format"                                                                                     ? "format"
+                                                                               : mode == "different" || mode == "sha256" || mode == "older-different" || mode == "registered-different" ? "different"
+                                                                                                                                                                                        : "same";
+        ForeignPackageInventory supplied_inventory;
+        supplied_inventory.push_back(InstalledPackageMetadata{name, "1-1", InstalledPackageReason::Explicit});
+        AurUpdateQueryResult q = mode.starts_with("registered") ? query_registered_aur_devel_update(f.base, name) : query_aur_updates_for_foreign_inventory(std::move(supplied_inventory));
+        require(q.plan.entries.size() == 1, "normal route lost target");
+        const auto& entry = q.plan.entries.front();
+        const auto actual = project_aur_update_effective_state(entry);
+        const bool version = route_rpc::version == "2-1";
+        const bool git = mode == "different" || mode == "sha256" || mode == "older-different" || mode == "registered-different";
+        const bool local = mode == "missing" || mode == "recipe" || mode == "generation" || mode == "split" || mode == "unknown-base" || mode == "db-context";
+        const auto expected = version || git ? AurUpdateEffectiveState::UpdateAvailable : mode == "timeout"       ? AurUpdateEffectiveState::Unknown
+                                                                                      : local || mode == "format" ? AurUpdateEffectiveState::RequiresCheck
+                                                                                                                  : AurUpdateEffectiveState::UpToDate;
+        require(actual == expected, "normal state/precedence mismatch");
+        require(aur_update_basis(entry) == (version ? std::optional{AurUpdateBasis::Version} : git ? std::optional{AurUpdateBasis::GitRevision}
+                                                                                                   : std::nullopt),
+                "normal update basis flattened");
+        const unsigned remote = version || local || mode == "ordinary-same" ? 0 : 1;
+        require(f.remote_calls == remote, "normal remote query/retry count");
+        require(route_rpc::calls == 1, "normal RPC repeated");
+        if(version)
+            require(q.devel_observations.empty() && f.stages.empty(), "RPC-newer entered coordinator");
+        else
+            require(q.devel_observations.size() == 1 && q.devel_observations.front().evidence->assessment == entry.devel_assessment, "normal diagnostic evidence lost");
+        std::cout << "S7D query " << mode << " state=" << static_cast<int>(actual) << " remote=" << f.remote_calls << " PASS\n";
+    }
+}
+void registered_observation_parity() {
+    for(const std::string mode : {"same", "different", "missing", "unknown", "split", "repo-only", "absent"}) {
+        Fixture f;
+        struct Reset {
+            ~Reset() {
+                set_aur_devel_update_database_paths_for_test(std::nullopt);
+            }
+        } reset;
+        set_aur_devel_update_database_paths_for_test(PacmanDatabasePaths{"/", f.db});
+        route_rpc::version = "1-1";
+        route_rpc::calls = 0;
+        f.remote_mode = mode == "different" ? "different" : mode == "unknown" ? "timeout"
+                                                                              : "same";
+        if(mode == "missing") fs::rename(f.p_file().parent_path(), f.root / "detached-p");
+        if(mode == "absent") fs::rename(f.record, f.root / "detached-record");
+        if(mode == "split") {
+            const auto sibling = f.db / "local/sibling-1-1";
+            fs::create_directory(sibling);
+            write(sibling / "desc", "%NAME%\nsibling\n\n%BASE%\nassessment\n\n%VERSION%\n1-1\n\n%ARCH%\nany\n\n%REASON%\n0\n\n");
+            write(sibling / "files", "%FILES%\n\n");
+            write(sibling / "mtree", "sibling");
+        }
+        SystemSourceUpgradePreparedSnapshot snapshot;
+        RegisteredSourcePreferenceSnapshot source;
+        source.original_preference_index = 7;
+        source.preference_package_name = f.child.package_name();
+        source.resolved_package_base = f.base.package_base();
+        source.source_kind = mode == "repo-only" ? SourceBuildSourceKind::Repository : SourceBuildSourceKind::Aur;
+        snapshot.registered_sources.push_back(source);
+        ProductionSourceBuildWorkItem work;
+        work.request.package_name = f.child.package_name();
+        work.request.checkout_name = f.base.package_base();
+        work.request.aur_review_identity = f.base;
+        work.request.only_if_updated = true;
+        work.required_targets.push_back({f.base.package_base(), f.child.package_name(), DesiredInstallReason::Explicit});
+        work.required_target_provenance = RequiredTargetProvenance::AurBuildPlanProjection;
+        work.artifact_lifecycle_intent = ArtifactLifecycleIntent::SingularCompatibility;
+        const std::vector<SystemSourceUpgradeIssue> issues;
+        const auto view = UnifiedPlanProjectionTestAccess::source_view(snapshot, work, issues);
+        if(mode == "repo-only" || mode == "absent") {
+            const auto result = observe_registered_aur_devel_updates(view);
+            require(result.empty() && f.remote_calls == 0 && route_rpc::calls == 0, "unrelated/absent registered source queried Git");
+        } else {
+            const auto actual = query_registered_aur_devel_update(f.base, f.child.package_name());
+            const auto expected = project_aur_update_effective_state(actual.plan.entries.front());
+            f.stages.clear();
+            f.remote_calls = 0;
+            f.sessions = 0;
+            route_rpc::calls = 0;
+            const auto observed = observe_registered_aur_devel_updates(view);
+            require(observed.size() == 1 && observed.front().preference_index == 7, "registered observation lost source attribution");
+            require(project_aur_update_effective_state(observed.front().query.plan.entries.front()) == expected &&
+                        aur_update_basis(observed.front().query.plan.entries.front()) == aur_update_basis(actual.plan.entries.front()),
+                    "registered actual/dry-run state or basis differs");
+            const bool blocked = expected == AurUpdateEffectiveState::RequiresCheck || expected == AurUpdateEffectiveState::Unknown;
+            require(observed.front().issues.empty() != blocked, "registered blocker mapping differs");
+            require(f.remote_calls == (mode == "missing" || mode == "split" ? 0U : 1U) && route_rpc::calls == 1, "registered observation query/retry count");
+            if(mode == "unknown") require(observed.front().issues.front().reason == AurUpdateExecutionReason::DevelObservationUnknown, "remote failure became local RequiresCheck");
+        }
+        std::cout << "S7D registered observation parity " << mode << " / read-only / no execution PASS\n";
+    }
+}
+
+#endif
+
 } // namespace
 
-int main() {
+int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv) {
     try {
+#ifdef MOGUET_TEST_AUR_DEVEL_ROUTING
+        if(argc == 2 && std::string(argv[1]) == "--normal-route") {
+            normal_route_matrix();
+            registered_observation_parity();
+            return 0;
+        }
+#endif
         positive_matrix();
         remote_failures();
         local_matrix();

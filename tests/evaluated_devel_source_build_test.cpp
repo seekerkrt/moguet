@@ -2,6 +2,16 @@
 
 #ifdef MOGUET_TEST_REVIEWED_DEVEL_SOURCE_EXECUTION
 #include "reviewed_devel_source_build_execution.hpp"
+#ifdef MOGUET_TEST_NORMAL_REVIEWED_DEVEL_EXECUTION
+#include "source_build.hpp"
+#include "source_install.hpp"
+#include "reviewed_devel_source_route.hpp"
+#include "app_config.hpp"
+namespace aur_devel_update_test_stub {
+void reset_registered_calls();
+unsigned registered_call_count();
+} // namespace aur_devel_update_test_stub
+#endif
 namespace publication_allocation {
 extern bool blocked;
 extern unsigned failures;
@@ -509,6 +519,33 @@ public:
         auto publication = publish_accepted_reviewed_source_checkout_with_editor_overlay(std::move(accepted), take_arm<ReviewedSourceEditorOverlayProof>(overlay_proof, "overlay seal failed"));
         return take_arm<PinnedReviewedSourceBuild>(publication, "overlay publication failed");
     }
+#ifdef MOGUET_TEST_NORMAL_REVIEWED_DEVEL_EXECUTION
+    SourceBuildExecutionResult normal_execution(const ReviewedDevelSourceBuildIntent& intent, bool no_confirm = false, bool package_base = false) {
+        // Seed an actually accepted #411 record, then release the pin/lease.
+        {
+            auto accepted = execution_pin();
+            require(accepted.valid(), "normal fixture review failed");
+        }
+        const auto wrapper = tree_.path() / "normal-git";
+        std::ofstream script(wrapper);
+        script << "#!/bin/sh\nfor argument do if [ \"$argument\" = fetch ]; then exit 0; fi; done\nexec /usr/bin/git \"$@\"\n";
+        script.close();
+        fs::permissions(wrapper, fs::perms::owner_all);
+        ScopedEnvironmentVariable git("MOGUET_TEST_GIT_EXECUTABLE", wrapper.string());
+        AppConfig config;
+        config.no_confirm = no_confirm;
+        config.user_config.review.pkgbuild = ReviewPolicy::Skip;
+        config.rm_deps = false;
+        if(package_base) {
+            auto execution = execute_source_build_package_base_typed(intent.request, intent.required_targets, *cache_root_, intent.database_paths, config);
+            SourceBuildExecutionResult out;
+            out.devel_execution.emplace(std::get<ReviewedDevelExecutionSnapshot>(std::move(execution)));
+            out.status = out.devel_execution->complete ? SourceBuildExecutionStatus::Installed : SourceBuildExecutionStatus::AuthoritativeIncomplete;
+            return out;
+        }
+        return execute_source_build_typed(intent.request, *cache_root_, intent.required_targets.front().desired_reason, intent.database_paths, config);
+    }
+#endif
     [[nodiscard]] ValidatedCachePath execution_checkout() const {
         return checkout();
     }
@@ -2436,11 +2473,16 @@ void test_exact_installed_binding(std::string_view finalization = {}) {
 #endif
 
 #ifdef MOGUET_TEST_REVIEWED_DEVEL_SOURCE_EXECUTION
+unsigned g_bridge_publication_entries = 0;
+void count_bridge_publication(DevelBuildProvenancePublicationStage stage) {
+    if(stage == DevelBuildProvenancePublicationStage::Projection) ++g_bridge_publication_entries;
+}
+
 void deny_after_bridge_publication(const XdgGenerationStoreTestRaceContext&) {
     publication_allocation::blocked = true;
 }
 
-void test_reviewed_devel_execution_bridge() {
+void test_reviewed_devel_execution_bridge(bool normal = false) {
     using Stage = ReviewedDevelSourceBuildStage;
     using Issue = ReviewedDevelSourceBuildIssue;
     using Operation = DevelSourceArtifactInstallOperation;
@@ -2451,17 +2493,64 @@ void test_reviewed_devel_execution_bridge() {
     static_assert(!std::is_default_constructible_v<ReviewedDevelSourceBuildExecutionResult>);
     static_assert(!std::is_copy_constructible_v<ReviewedDevelSourceBuildExecutionResult>);
     static_assert(std::is_nothrow_move_constructible_v<ReviewedDevelSourceBuildExecutionResult>);
+#ifdef MOGUET_TEST_NORMAL_REVIEWED_DEVEL_EXECUTION
+    if(normal) {
+        for(const auto lifecycle : {ArtifactLifecycleIntent::SingularCompatibility, ArtifactLifecycleIntent::PackageBaseSet}) {
+            PreparedProductionSourceBuildInvocation invocation;
+            ProductionSourceBuildWorkItem work;
+            work.request.checkout_name = "legacy-exception";
+            work.artifact_lifecycle_intent = lifecycle;
+            invocation.work_items = {work, work};
+            unsigned calls = 0;
+            SourceInvocationExecutionTestHooks hooks;
+            hooks.singular = [&](const auto&, const auto&, const auto&) -> SourceBuildExecutionResult { ++calls; throw std::runtime_error("original legacy failure"); };
+            hooks.package_base = [&](const auto&, const auto&, const auto&) -> SourceBuildPackageBaseExecutionResult { ++calls; throw std::runtime_error("original legacy failure"); };
+            set_source_invocation_execution_test_hooks(std::move(hooks));
+            bool caught = false;
+            try {
+                static_cast<void>(execute_prepared_source_build_invocation(std::move(invocation), AppConfig{}));
+            } catch(const ProductionSourceBuildInvocationError& error) {
+                caught = true;
+                require(error.result().work_items[0].status == ProductionSourceBuildWorkItemStatus::Failed && error.result().work_items[0].failure_exception &&
+                            !error.result().work_items[0].devel_execution && error.result().work_items[1].status == ProductionSourceBuildWorkItemStatus::NotAttempted,
+                        "legacy exception aggregate changed");
+                bool original = false;
+                try {
+                    error.rethrow_failure();
+                } catch(const std::runtime_error& cause) {
+                    original = std::string(cause.what()) == "original legacy failure";
+                }
+                require(original && calls == 1, "legacy typed cause or one-shot lost");
+            }
+            require(caught, "legacy exception became normal partial");
+        }
+        set_source_invocation_execution_test_hooks({});
+        std::cout << "S7D outer legacy exception / singular + PackageBaseSet / original cause PASS\n";
+    }
+#endif
     UpstreamGitFixture upstream("s7c-upstream", GitObjectFormat::Sha1);
-    for(const std::string mode : {"install", "branch", "upgrade-explicit", "upgrade-dependency", "dependency-keeps-explicit",
-                                  "new-dependency", "promotion", "needed", "split", "rmdeps", "only-if-updated", "legacy", "overlay", "overlay-legacy",
-                                  "environment", "build-failure", "artifact-mismatch", "database-world", "snapshot-failure", "prepare-failure",
-                                  "nonzero", "unknown", "no-post", "binding-failure", "publication-failure", "publication-unknown",
-                                  "cleanup-failure", "retirement-failure", "no-allocation"}) {
-        ReviewedBuildFixture fixture("s7c-fixture", upstream, mode == "build-failure" ? RecipeShape::RawEvaluatedMismatch : RecipeShape::Valid,
+    for(const std::string case_name : {"install", "branch", "upgrade-explicit", "upgrade-dependency", "dependency-keeps-explicit",
+                                       "new-dependency", "promotion", "needed", "split", "rmdeps", "only-if-updated", "legacy", "overlay", "overlay-legacy",
+                                       "environment", "build-failure", "artifact-mismatch", "database-world", "snapshot-failure", "prepare-failure",
+                                       "nonzero", "unknown", "no-post", "binding-failure", "publication-failure", "publication-unknown",
+                                       "cleanup-failure", "retirement-failure", "no-allocation", "registered-different", "registered-same", "registered-unknown", "registered-check",
+                                       "outer-singular-publication-failure", "outer-singular-publication-unknown", "outer-singular-cleanup-failure", "outer-singular-no-allocation",
+                                       "outer-set-publication-failure", "outer-set-publication-unknown", "outer-set-cleanup-failure", "outer-set-no-allocation"}) {
+        const bool outer = case_name.starts_with("outer-");
+        const bool outer_set = case_name.starts_with("outer-set-");
+        const std::string mode = outer ? case_name.substr(outer_set ? 10 : 15) : case_name;
+        if(outer && !normal) continue;
+        if(!normal && mode.starts_with("registered-")) continue;
+        ReviewedBuildFixture fixture("s7c-fixture", upstream, mode == "build-failure" ? RecipeShape::RawEvaluatedMismatch : normal && mode == "legacy" ? RecipeShape::UnsupportedVcs
+                                                                                                                                                       : RecipeShape::Valid,
                                      false, mode == "branch");
         struct ResetBridgeHooks {
             ~ResetBridgeHooks() {
                 publication_allocation::blocked = false;
+#ifdef MOGUET_TEST_NORMAL_REVIEWED_DEVEL_EXECUTION
+                set_source_invocation_execution_test_hooks({});
+#endif
+                set_devel_build_provenance_publication_test_hook(nullptr);
                 set_reviewed_devel_source_build_execution_test_hooks({});
                 set_evaluated_devel_source_artifact_transport_test_hooks({});
                 set_source_artifact_install_trusted_exec_test_hook({});
@@ -2479,11 +2568,13 @@ void test_reviewed_devel_execution_bridge() {
         auto store = SourceArtifactInstallTrustedStateStore::open_below_runtime_parent(parent, geteuid());
         static_cast<void>(close(parent));
         unsigned generation = 1, prepare_calls = 0, execute_calls = 0, consumes = 0, aborts = 0, build_entries = 0;
+        g_bridge_publication_entries = 0;
+        set_devel_build_provenance_publication_test_hook(&count_bridge_publication);
         const std::string token(64, 'c');
         std::optional<BuiltPackageArtifactEvidence> expected;
         std::string actual_oid, raw_mtree;
         fs::path installed_record;
-        const bool existing = mode == "upgrade-explicit" || mode == "upgrade-dependency" || mode == "dependency-keeps-explicit" || mode == "promotion";
+        const bool existing = mode == "upgrade-explicit" || mode == "upgrade-dependency" || mode == "dependency-keeps-explicit" || mode == "promotion" || mode.starts_with("registered-");
         const bool dependency_reason = mode == "upgrade-dependency" || mode == "promotion";
         const auto write_package = [&](const std::string& version) {
             if(!installed_record.empty() && fs::exists(installed_record)) fs::remove_all(installed_record);
@@ -2587,6 +2678,16 @@ void test_reviewed_devel_execution_bridge() {
                                                               },
                                                               token});
         auto intent = fixture.execution_intent({"/", db});
+#ifdef MOGUET_TEST_NORMAL_REVIEWED_DEVEL_EXECUTION
+        std::optional<ScopedEnvironmentVariable> registered_state;
+        if(normal && mode.starts_with("registered-")) {
+            registered_state.emplace("MOGUET_TEST_REGISTERED_DEVEL_STATE", mode.substr(11));
+            intent.request.only_if_updated = true;
+            intent.request.installed_snapshot = SourceInstalledSnapshot{std::string("0-1")};
+            aur_devel_update_test_stub::reset_registered_calls();
+        }
+#endif
+
         if(mode == "new-dependency" || mode == "upgrade-dependency" || mode == "dependency-keeps-explicit") intent.required_targets.front().desired_reason = DesiredInstallReason::Dependency;
         if(mode == "needed") intent.request.needed = true;
         if(mode == "split") intent.required_targets.push_back({fixture.package_base(), "another-child", DesiredInstallReason::Explicit});
@@ -2598,36 +2699,144 @@ void test_reviewed_devel_execution_bridge() {
             intent.request.package_name = "wrong-child";
             intent.required_targets[0].package_name = "wrong-child";
         }
+#ifdef MOGUET_TEST_NORMAL_REVIEWED_DEVEL_EXECUTION
+        if(normal && (mode == "registered-same" || mode == "registered-unknown" || mode == "registered-check")) {
+            const auto result = fixture.normal_execution(intent, true);
+            const auto expected_status = mode == "registered-same" ? SourceBuildExecutionStatus::UpToDate : mode == "registered-check" ? SourceBuildExecutionStatus::DevelRequiresCheckSkipped
+                                                                                                                                       : SourceBuildExecutionStatus::AuthoritativeIncomplete;
+            require(result.status == expected_status && result.devel_update_query && !result.devel_execution, "registered decision was flattened into execution");
+            if(mode == "registered-check") require(result.devel_rebuild_confirmation == ConfirmationDecisionOrigin::NoConfirm, "noconfirm approved a rebuild");
+            require(aur_devel_update_test_stub::registered_call_count() == 1 && build_entries == 0 && prepare_calls == 0 && execute_calls == 0, "registered negative repeated query or built");
+            fixture.require_no_provenance_publication();
+            std::cout << "S7D normal registered " << mode << " / query1 / build0 / publication0 PASS\n";
+            continue;
+        }
+        if(normal && (mode == "new-dependency" || mode == "promotion" || mode == "needed" || mode == "split" || mode == "rmdeps" || mode == "only-if-updated" || mode == "legacy" || mode == "overlay" || mode == "overlay-legacy")) {
+            if(mode == "overlay") intent.request.authoritative_devel_update = true;
+            auto pin = fixture.execution_pin(mode == "overlay" || mode == "overlay-legacy");
+            auto selected = select_normal_reviewed_source_execution(fixture.execution_checkout(), std::move(pin), ProductionReviewedSourceOutcome::InitialFullReview, std::nullopt, &intent);
+            const bool reject = mode == "overlay" || mode == "only-if-updated";
+            require(reject ? std::holds_alternative<ReviewedDevelSourceBuildRejected>(selected) : std::holds_alternative<ProductionArtifactSourceTree>(selected), "normal Legacy/Reject selection differs");
+            require(build_entries == 0 && prepare_calls == 0 && execute_calls == 0, "normal selection started an unexpected authority path");
+            fixture.require_no_provenance_publication();
+            std::cout << "S7D normal selection " << mode << " / authoritative0 / publication0 PASS\n";
+            continue;
+        }
+        if(normal && mode == "database-world") {
+            bool rejected = false;
+            try {
+                static_cast<void>(fixture.normal_execution(intent));
+            } catch(const std::exception& error) {
+                rejected = std::string(error.what()).find("package metadata session") != std::string::npos;
+            }
+            require(rejected && build_entries == 0 && prepare_calls == 0 && execute_calls == 0, "invalid normal DB intent reached build/transaction");
+            fixture.require_no_provenance_publication();
+            std::cout << "S7D normal-finalizer database-world / early policy rejection / build0 PASS\n";
+            continue;
+        }
+#endif
         fs::path root;
         {
-            auto pin = fixture.execution_pin(mode == "overlay" || mode == "overlay-legacy");
-            auto selected = prepare_reviewed_production_source_execution(
-                mode == "legacy" || mode == "overlay-legacy" ? ReviewedProductionExecutionChoice::Legacy : ReviewedProductionExecutionChoice::AuthoritativeDevel,
-                fixture.execution_checkout(), std::move(pin), ProductionReviewedSourceOutcome::InitialFullReview, std::nullopt, intent);
-            require(!pin.valid(), "pin was copied instead of moved");
-            if(mode == "legacy" || mode == "overlay-legacy") {
-                require(std::holds_alternative<ProductionArtifactSourceTree>(selected) && build_entries == 0 && prepare_calls == 0, "legacy path entered authoritative execution");
-                fixture.require_no_provenance_publication();
-                if(mode == "overlay-legacy") require(std::get<ProductionArtifactSourceTree>(selected).provenance().editor_overlay == ReviewedSourceEditorOverlayStatus::InvocationLocal, "legacy overlay lost");
-                std::cout << "S7C " << mode << " branch / authoritative-build0 / publication0 PASS\n";
-                continue;
+            bool blocked = false;
+            std::optional<ReviewedDevelSourceBuildExecutionResult> executed;
+            std::optional<ReviewedDevelSourceBuildExecutionResult> direct_moved;
+            const ReviewedDevelSourceBuildExecutionResult* observed = nullptr;
+#ifdef MOGUET_TEST_NORMAL_REVIEWED_DEVEL_EXECUTION
+            std::optional<SourceBuildExecutionResult> normal_result;
+            std::optional<ProductionSourceBuildInvocationResult> outer_result;
+            if(normal) {
+                publication_allocation::failures = 0;
+                const ReviewedDevelExecutionSnapshot* normal_snapshot = nullptr;
+                if(outer) {
+                    PreparedProductionSourceBuildInvocation invocation;
+                    invocation.database_paths = intent.database_paths;
+                    ProductionSourceBuildWorkItem work;
+                    work.request = intent.request;
+                    work.required_targets = intent.required_targets;
+                    work.artifact_lifecycle_intent = outer_set ? ArtifactLifecycleIntent::PackageBaseSet : ArtifactLifecycleIntent::SingularCompatibility;
+                    invocation.work_items.push_back(work);
+                    invocation.work_items.push_back(work); // Must remain NotAttempted after partial.
+                    unsigned singular_calls = 0, set_calls = 0;
+                    SourceInvocationExecutionTestHooks hooks;
+                    hooks.singular = [&](const auto&, const auto&, const auto&) {
+                        ++singular_calls;
+                        return fixture.normal_execution(intent);
+                    };
+                    hooks.package_base = [&](const auto&, const auto&, const auto&) -> SourceBuildPackageBaseExecutionResult {
+                        ++set_calls;
+                        auto actual = fixture.normal_execution(intent, false, true);
+                        return std::move(*actual.devel_execution);
+                    };
+                    set_source_invocation_execution_test_hooks(std::move(hooks));
+                    outer_result.emplace(execute_prepared_source_build_invocation(std::move(invocation), AppConfig{}));
+                    blocked = publication_allocation::blocked;
+                    publication_allocation::blocked = false;
+                    require(singular_calls == (outer_set ? 0U : 1U) && set_calls == (outer_set ? 1U : 0U), "outer invocation repeated or mixed execution");
+                    require(!outer_result->is_success() && outer_result->command_exit_status() == 1 && outer_result->work_items.size() == 2, "outer partial became command success");
+                    const auto& item = outer_result->work_items.front();
+                    require(item.status == ProductionSourceBuildWorkItemStatus::AuthoritativePartial && !item.failure_exception && !item.failure_stage, "normal partial became exception failure");
+                    require(outer_result->work_items.back().status == ProductionSourceBuildWorkItemStatus::NotAttempted, "partial executed the suffix");
+                    require(item.devel_execution && item.devel_execution->owner, "outer discarded live owner");
+                    require(prepare_calls == 1 && execute_calls == 1 && consumes == 1 && g_bridge_publication_entries == 1 && aborts == 0, "outer retried/finalized/published more than once");
+                    const auto& dimensions = *item.devel_execution;
+                    const auto expected_publication = mode == "publication-failure" ? Pub::Failed : mode == "publication-unknown" ? Pub::OutcomeUnknown
+                                                                                                                                  : Pub::Complete;
+                    require(dimensions.operation == Operation::Succeeded && dimensions.receipt == DevelSourceArtifactInstallReceipt::Complete &&
+                                dimensions.proof == DevelSourceArtifactInstallProof::Complete && dimensions.publication == expected_publication &&
+                                dimensions.cleanup == (mode == "cleanup-failure" ? Cleanup::Failed : Cleanup::Complete),
+                            "outer partial dimensions changed");
+                    normal_snapshot = &*item.devel_execution;
+                    if(mode == "no-allocation") require(blocked && normal_snapshot->projection_failed, "outer allocation fault was missed");
+                } else {
+                    normal_result.emplace(fixture.normal_execution(intent));
+                    normal_snapshot = &*normal_result->devel_execution;
+                    blocked = publication_allocation::blocked;
+                }
+                publication_allocation::blocked = false;
+                require(normal_snapshot && normal_snapshot->owner, "normal finalizer did not choose authoritative execution");
+                observed = normal_snapshot->owner.get();
+                root = observed->owned_root();
+                if(mode == "environment") require(normal_result->production_outcome && normal_result->production_outcome->build_outcome == ProductionSourceBuildCommandOutcome::NotAttempted, "pre-build environment failure invented a build attempt");
+                const bool expected_complete = mode == "install" || mode == "branch" || mode == "upgrade-explicit" || mode == "upgrade-dependency" || mode == "dependency-keeps-explicit" || mode == "registered-different";
+                if(mode == "registered-different") require(aur_devel_update_test_stub::registered_call_count() == 1 && normal_result->devel_update_query && aur_update_basis(normal_result->devel_update_query->plan.entries.front()) == AurUpdateBasis::GitRevision, "registered same-version Git selection queried twice or lost basis");
+                require((normal_snapshot->complete) == expected_complete, "normal partial outcome became complete success");
+            } else
+#endif
+            {
+                auto pin = fixture.execution_pin(mode == "overlay" || mode == "overlay-legacy");
+                auto selected = prepare_reviewed_production_source_execution(
+                    mode == "legacy" || mode == "overlay-legacy" ? ReviewedProductionExecutionChoice::Legacy : ReviewedProductionExecutionChoice::AuthoritativeDevel,
+                    fixture.execution_checkout(), std::move(pin), ProductionReviewedSourceOutcome::InitialFullReview, std::nullopt, intent);
+                require(!pin.valid(), "pin was copied instead of moved");
+                if(mode == "legacy" || mode == "overlay-legacy") {
+                    require(std::holds_alternative<ProductionArtifactSourceTree>(selected) && build_entries == 0 && prepare_calls == 0, "legacy path entered authoritative execution");
+                    fixture.require_no_provenance_publication();
+                    if(mode == "overlay-legacy") require(std::get<ProductionArtifactSourceTree>(selected).provenance().editor_overlay == ReviewedSourceEditorOverlayStatus::InvocationLocal, "legacy overlay lost");
+                    std::cout << "S7C " << mode << " branch / authoritative-build0 / publication0 PASS\n";
+                    continue;
+                }
+                if(mode == "needed" || mode == "split" || mode == "rmdeps" || mode == "only-if-updated" || mode == "overlay") {
+                    require(std::holds_alternative<ReviewedDevelSourceBuildRejected>(selected) && build_entries == 0 && prepare_calls == 0, "unsupported intent entered S4/S5");
+                    fixture.require_no_provenance_publication();
+                    if(mode == "overlay") require(std::get<ReviewedDevelSourceBuildRejected>(selected).issue == Issue::EditorOverlay, "overlay admitted");
+                    std::cout << "S7C intent " << mode << " rejected/build0/transaction0/publication0 PASS\n";
+                    continue;
+                }
+                auto prepared = take_arm<PreparedReviewedDevelSourceBuildExecution>(selected, "bridge preparation failed");
+                publication_allocation::failures = 0;
+                auto returned = execute_reviewed_devel_source_build(std::move(prepared));
+                require(returned.has_value(), "direct bridge result absent");
+                executed.emplace(std::move(*returned));
+                blocked = publication_allocation::blocked;
+                publication_allocation::blocked = false;
+                require(executed && executed->valid() && !prepared.valid() && !execute_reviewed_devel_source_build(std::move(prepared)), "bridge replay/move failed");
+                root = executed->owned_root();
+                direct_moved.emplace(std::move(*executed));
+                require(direct_moved->valid() && !executed->valid(), "bridge result was copied");
+                observed = &*direct_moved;
             }
-            if(mode == "needed" || mode == "split" || mode == "rmdeps" || mode == "only-if-updated" || mode == "overlay") {
-                require(std::holds_alternative<ReviewedDevelSourceBuildRejected>(selected) && build_entries == 0 && prepare_calls == 0, "unsupported intent entered S4/S5");
-                fixture.require_no_provenance_publication();
-                if(mode == "overlay") require(std::get<ReviewedDevelSourceBuildRejected>(selected).issue == Issue::EditorOverlay, "overlay admitted");
-                std::cout << "S7C intent " << mode << " rejected/build0/transaction0/publication0 PASS\n";
-                continue;
-            }
-            auto prepared = take_arm<PreparedReviewedDevelSourceBuildExecution>(selected, "bridge preparation failed");
-            publication_allocation::failures = 0;
-            auto executed = execute_reviewed_devel_source_build(std::move(prepared));
-            const bool blocked = publication_allocation::blocked;
-            publication_allocation::blocked = false;
-            require(executed && executed->valid() && !prepared.valid() && !execute_reviewed_devel_source_build(std::move(prepared)), "bridge replay/move failed");
-            root = executed->owned_root();
-            auto moved = std::move(*executed);
-            require(moved.valid() && !executed->valid(), "bridge result was copied");
+            require(observed, "missing execution observation");
+            const auto& moved = *observed;
             const auto* publication = moved.publication();
             const bool early = mode == "environment" || mode == "build-failure" || mode == "artifact-mismatch" || mode == "database-world" || mode == "new-dependency" || mode == "promotion";
             if(early) {
@@ -2669,7 +2878,7 @@ void test_reviewed_devel_execution_bridge() {
                 }
                 require(execute_calls == (not_attempted ? 0U : 1U), "transaction repeated");
                 if(mode == "unknown") require(consumes == 0 && aborts == 0, "unknown transaction retried/consumed/aborted");
-                if(mode == "no-allocation") require(blocked && publication_allocation::failures == 0, "outer result allocated after publication success");
+                if(mode == "no-allocation") require(blocked && (normal ? publication_allocation::failures > 0 : publication_allocation::failures == 0), "allocation projection probe missed boundary");
             }
             require(build_entries == (mode == "environment" ? 0U : 1U), "multiple build paths executed");
         }
@@ -2680,7 +2889,7 @@ void test_reviewed_devel_execution_bridge() {
         set_source_artifact_install_trusted_state_test_hook({});
         set_installed_record_observation_test_hooks({});
         reset_xdg_generation_store_test_hooks();
-        std::cout << "S7C integrated " << mode << " / one-shot / lifetime / lossless PASS\n";
+        std::cout << (normal ? "S7D normal-finalizer " : "S7C integrated ") << case_name << " / one-shot / lifetime / lossless PASS\n";
     }
 }
 #endif
@@ -2703,6 +2912,13 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
     const std::vector<fs::path> before = context_root_inventory();
     try {
 #ifdef MOGUET_TEST_REVIEWED_DEVEL_SOURCE_EXECUTION
+#ifdef MOGUET_TEST_NORMAL_REVIEWED_DEVEL_EXECUTION
+        if(argc == 2 && std::string(argv[1]) == "--normal-reviewed-devel-execution") {
+            test_reviewed_devel_execution_bridge(true);
+            require(context_root_inventory() == before, "normal finalizer retained context");
+            return 0;
+        }
+#endif
         if(argc == 2 && std::string(argv[1]) == "--reviewed-devel-execution") {
             test_reviewed_devel_execution_bridge();
             require(context_root_inventory() == before, "S7-C retained a build context");

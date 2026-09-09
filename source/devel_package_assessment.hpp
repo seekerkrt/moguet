@@ -11,8 +11,8 @@
 #include <optional>
 #include <vector>
 
-// Resolved target context, not observed P/I/R evidence. The future caller owns
-// source resolution and installed-inventory grouping. A known devel hint only
+// Resolved target context, not observed P/I/R evidence. The normal 7-D adapter
+// owns source resolution and complete installed-inventory grouping. A known devel hint only
 // prevents Missing from becoming NotApplicable; it never authorizes network.
 struct DevelPackageAssessmentTarget {
     PackageBaseIdentity package_base;
@@ -83,7 +83,7 @@ struct DevelPackageAssessment {
 
 // Tip-only P/I/R gates, one #475 observation, then one fresh P/I/R set on
 // remote success. No RPC version policy, history adoption, publication or
-// normal route activation. Resource/internal exceptions propagate to the
+// execution. Normal route activation belongs to 7-D. Resource/internal exceptions propagate to the
 // existing command boundary rather than fabricating a remote failure.
 [[nodiscard]] DevelPackageAssessment assess_current_devel_package(
     const DevelPackageAssessmentTarget& target);

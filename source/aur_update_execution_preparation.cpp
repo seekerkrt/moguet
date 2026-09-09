@@ -1042,6 +1042,12 @@ bool collect_work_item_drafts(
                     child_roots,
                     package_target->roles});
             for(const auto index : child_update_plan_indices) {
+                for(const auto& binding : bindings) {
+                    if(binding.target->update_plan_index == index && binding.target->update.installed_name == package_target->package_name &&
+                       binding.target->update.aur_package && binding.target->update.aur_package->package_base == entry.package_base &&
+                       aur_update_basis(binding.target->update) == AurUpdateBasis::GitRevision)
+                        draft.work_item.request.authoritative_devel_update = true;
+                }
                 add_unique(draft.affected_update_plan_indices, index);
             }
             for(const auto& root : child_roots) {

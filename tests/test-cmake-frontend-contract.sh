@@ -590,7 +590,7 @@ reconfigure_with_equivalent_compiler() {
     if [ "$build_testing" = ON ]; then
         assert_contains \
             "$configure_log" \
-            'Moguet C++ tests: targets=113/113, support=30/30, firewalls=50/50, descriptors=50/50, CTest registrations=144'
+            'Moguet C++ tests: targets=115/115, support=32/32, firewalls=50/50, descriptors=50/50, CTest registrations=146'
     else
         assert_not_contains "$configure_log" 'Moguet C++ tests:'
     fi

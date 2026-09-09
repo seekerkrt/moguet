@@ -5,8 +5,8 @@
 Issue #476 Slice 7-Cは、typed reviewed pinから既存S3/S4/S5/S6をconsumeする専用execution branchである。
 `prepare_reviewed_production_source_execution`は、normal ownerの
 `finalize_aur_checkout_authority`が`PinnedReviewedSourceBuild`を得た直後に使用できる選択API。
-現在のnormal routeは従来の`make_reviewed_production_artifact_source_tree`を直接使い続ける。
-この選択APIをnormal updater/registered sourceから選ぶ7-D activationはまだ行わない。
+7-Dのnormal finalizerは`select_normal_reviewed_source_execution`からこの選択APIを使う。
+7-C自体は既存sealed producersのbridgeを維持し、normal route policyは[7-D](devel-normal-routes.md)が所有する。
 
 ```text
 typed PinnedReviewedSourceBuild + normal execution intent
@@ -118,11 +118,10 @@ destructorへprivileged cleanup、transaction/publication retry、store mutation
 
 ## Disconnection / escalation boundary
 
-- new preparation/execution APIのnormal route callerは0。
+- new preparation/execution APIのnormal consumerは7-D reviewed route adapter。
 - S6 publisherの新consumerは7-C execution ownerだけ。
-- 7-B assessmentからexecutionへのcallは0。assessmentのnormal callerも0。
-- -Syu/upgrade/upgrade-all/upgrade-aur/registered OnlyIfUpdated/-Qua/dry-runはNOT CONNECTED。
-- 7-D、Slice 8はNOT STARTED。
+- 7-B assessmentからexecutionへのdirect callは0。7-Dがpolicyとtyped reviewed selectionを結合する。
+- normal routingとdry-run/queryは7-Dを参照する。Slice 8はNOT STARTED。
 
 S5 receipt/protocol/FreshInstalledArtifactBinding、S5 final proof authority、S6 publication/result/lifetimeは変更しない。
 bridge外での新たなsource再評価や、既存sealed authorityを置換する新proof定義は追加しない。

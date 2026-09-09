@@ -834,8 +834,9 @@ int cmd_build_local(
                 std::move(accepted_metadata),
                 local_makepkg_options(config)});
 
-        execute_prepared_source_build_invocation(
+        const auto dependency_result = execute_prepared_source_build_invocation(
             std::move(dependency_invocation), config);
+        if(!dependency_result.is_success()) return dependency_result.command_exit_status();
         LocalSourceBuildResult build_result =
             execute_prepared_local_source_build(
                 std::move(local_build));
@@ -914,9 +915,9 @@ int cmd_build(
     }
 
     try {
-        build_source_target(
-            invocation.package_name,
-            invocation.source_environment, config);
+        if(!build_source_target(
+               invocation.package_name,
+               invocation.source_environment, config)) return 1;
     } catch(const ProductionSourceBuildInvocationError& error) {
         Logger::error(
             format_production_source_build_invocation_failure(error));

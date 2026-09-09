@@ -143,8 +143,11 @@ Update installed packages that still resolve to exact AUR packages.
 An exact AUR package with only a conventional devel suffix and no newer normal
 AUR version is reported as requiring a check and blocks the whole AUR
 execution before mutation; it is not rebuilt automatically.
-Moguet does not yet compare upstream VCS revisions or publish devel build
-provenance.
+For the supported reviewed single-child HTTPS Git subset, same/older package
+versions use authoritative installed/reviewed provenance and a remote Git observation.
+Normal version-newer precedence is unchanged. Git revision updates are not version
+increases. Reviewed execution publishes actual build/install provenance; publication
+failure after installation is a partial non-zero outcome.
 For installed AUR targets, this source-aware workflow strictly checks and
 applies corresponding saved source-build preferences.
 This target-less operation does not run

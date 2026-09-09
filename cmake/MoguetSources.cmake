@@ -18,6 +18,8 @@ set(MOGUET_PRODUCTION_SOURCES
     source/aur_update_operation_result.cpp
     source/aur_update_plan.cpp
     source/aur_update_query.cpp
+    source/aur_devel_update.cpp
+    source/reviewed_devel_source_route.cpp
     source/build_plan_artifact_target_projection.cpp
     source/build_plan_relation_assessment.cpp
     source/cache_authority.cpp

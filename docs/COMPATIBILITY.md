@@ -562,3 +562,14 @@ RepoOnly `-Syu --repo`ではcompatible pacman pass-throughの一部としてrepo
 ## Out of scope
 
 この方針はpacman完全互換、provider choiceの永続化、arbitrary multiple-outputの全自動install、debug package default install、conflicts / replacesの自動解決、dependency solver強化、pacman database write、package verificationの独自再実装を宣言しない。詳細なproduction safety contractは[`docs/contracts/`](contracts/README.md)と[`DECISIONS.md`](DECISIONS.md)へ分離している。
+
+## Authoritative devel update routes (#476 Slice 7-D)
+
+normal AUR RPC version-newerを優先し、same/olderだけを7-Bのtip-only P/I/R + remote assessmentで補完する。
+GitRevision updateはpackage version増加と別basisであり、-Qua/unified planは架空のversion arrowを作らない。
+ordinary -Syuのindependent RequiresCheck skip、required re-entry block、strict AUR routeのnonzeroを維持する。
+Unknownはremote observation failureとしてbuildせず、RequiresCheckとは別reasonを保持する。
+registered AUR OnlyIfUpdatedは共通coreをversion-only shortcutより先に使い、RequiresCheckはdefault-Noの明示rebuild確認を要求する。
+dry-runは同じcurrent read-only producerを使い、source/build/transaction/publicationを実行しない。
+actual prior-phase後のfuture stateと同一とは主張しない。explicit reviewed buildだけが7-Cからbaselineをbootstrapできる。
+詳細は[normal devel routes](contracts/devel-normal-routes.md)を正とする。Slice 8/full live/release completionは含まない。

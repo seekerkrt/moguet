@@ -11,6 +11,7 @@
 #include "trusted_cache.hpp"
 
 #include <exception>
+#include <functional>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -350,6 +351,8 @@ struct ProductionSourceBuildPreparationObservation {
 enum class ProductionSourceBuildWorkItemStatus {
     NotAttempted,
     Succeeded,
+    // Normal returned result; whole authoritative product is in devel_execution.
+    AuthoritativePartial,
     Failed,
 };
 
@@ -375,12 +378,16 @@ struct ProductionSourceBuildWorkItemOutcome {
     std::optional<ProductionSourceBuildFailureStage> failure_stage;
     std::optional<std::string> diagnostic;
     std::exception_ptr failure_exception;
+    std::shared_ptr<const AurUpdateQueryResult> devel_update_query = nullptr;
+    std::optional<ReviewedDevelExecutionSnapshot> devel_execution = std::nullopt;
 };
 
 struct ProductionSourceBuildInvocationResult {
     std::vector<ProductionSourceBuildWorkItemOutcome> work_items;
 
     bool is_success() const noexcept;
+    // Partial is a normal result, but never complete command success.
+    int command_exit_status() const noexcept;
 };
 
 // Normal source-build CLI preserves the complete preinitialized aggregate on
@@ -917,7 +924,7 @@ const RequiredPackageArtifactTarget& require_singular_required_package_target(
 void require_supported_production_source_build_options(
     const AppConfig& config);
 
-void build_source_target(
+bool build_source_target(
     const std::string& package_name,
     const SourceBuildEnvironment& custom_environment,
     const AppConfig& config);
@@ -1060,7 +1067,7 @@ execute_selected_repository_provider_transaction(
 
 // source-neutralなPackageBase set execution owner。required_targetsをauthorityにし、
 // child別outcomeとunselected artifact identityをflattenせず返す。
-PackageBaseSourceBuildExecutionResult
+SourceBuildPackageBaseExecutionResult
 execute_prepared_package_base_source_build_work_item_typed(
     const ProductionSourceBuildWorkItem& work_item,
     const PacmanDatabasePaths& database_paths,
@@ -1094,6 +1101,9 @@ execute_prepared_source_build_work_item(
 
 // lifecycle intentがSetならsource-neutral set owner、それ以外はroute ownerが
 // 検証済みのsingular compatibilityへroutingする。DB snapshotを再queryしない。
+// AuthoritativePartial returns the live result without an exception and stops
+// the suffix. Callers must inspect is_success()/command_exit_status(). Existing
+// thrown failures still use ProductionSourceBuildInvocationError.
 ProductionSourceBuildInvocationResult execute_prepared_source_build_invocation(
     PreparedProductionSourceBuildInvocation invocation,
     const AppConfig& config);
@@ -1104,3 +1114,13 @@ ProductionSourceBuildInvocationResult
 execute_prepared_remote_aur_cleanup_invocation(
     RemoteAurCleanupCandidateCollector& collector,
     const AppConfig& config);
+
+#ifdef MOGUET_ENABLE_SOURCE_INVOCATION_EXECUTION_TEST_HOOKS
+// Test profile replaces only invocation dispatch, not the aggregation loop.
+// Callbacks must run real execution producers when testing authoritative results.
+struct SourceInvocationExecutionTestHooks {
+    std::function<SourceBuildExecutionResult(const ProductionSourceBuildWorkItem&, const PacmanDatabasePaths&, const AppConfig&)> singular;
+    std::function<SourceBuildPackageBaseExecutionResult(const ProductionSourceBuildWorkItem&, const PacmanDatabasePaths&, const AppConfig&)> package_base;
+};
+void set_source_invocation_execution_test_hooks(SourceInvocationExecutionTestHooks hooks);
+#endif

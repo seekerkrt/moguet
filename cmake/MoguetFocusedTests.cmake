@@ -38,6 +38,8 @@ foreach(_moguet_direct_focus IN ITEMS
     installed-artifact-binding
     current-installed-artifact-binding
     devel-package-assessment
+    aur-devel-route
+    normal-reviewed-devel-execution
     reviewed-devel-source-build-execution
     devel-git-revision-comparison
     installed-package-record-observation

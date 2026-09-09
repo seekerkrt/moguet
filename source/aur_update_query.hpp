@@ -4,6 +4,8 @@
 #include "package_metadata.hpp"
 
 #include <string>
+#include <memory>
+#include <cstddef>
 #include <vector>
 
 // 継続可能なquery失敗を、external exception型から切り離したowned diagnostic。
@@ -14,10 +16,20 @@ struct AurUpdateQueryFailure {
     bool operator==(const AurUpdateQueryFailure&) const = default;
 };
 
+struct DevelPackageAssessment;
+struct AurDevelUpdateContextObservation;
+struct AurDevelUpdateObservation {
+    std::size_t plan_index;
+    std::shared_ptr<const DevelPackageAssessment> evidence;
+    std::shared_ptr<const AurDevelUpdateContextObservation> context = nullptr;
+    bool operator==(const AurDevelUpdateObservation&) const = default;
+};
+
 // 1 invocation分のread-only query結果。presentationや終了statusの判断はcallerが所有する。
 struct AurUpdateQueryResult {
     AurUpdatePlan plan;
     std::vector<AurUpdateQueryFailure> recoverable_failures;
+    std::vector<AurDevelUpdateObservation> devel_observations = {};
 
     bool operator==(const AurUpdateQueryResult&) const = default;
 };

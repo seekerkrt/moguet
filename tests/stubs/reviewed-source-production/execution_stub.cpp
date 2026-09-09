@@ -28,8 +28,10 @@ void fail_next_package_metadata() {
 
 } // namespace reviewed_source_production_execution_stub
 
+#ifndef MOGUET_TEST_NORMAL_REVIEWED_DEVEL_EXECUTION
 void require_supported_separated_install_options(bool) {
 }
+#endif
 
 SeparatedSourceBuildExecutionResult execute_separated_source_build_unit(
     SeparatedSourceBuildUnitRequest request,
@@ -129,3 +131,26 @@ SeparatedPackageBaseSourceBuildPhaseError::production_outcome()
     const noexcept {
     return production_outcome_;
 }
+
+#ifdef MOGUET_ENABLE_SOURCE_INVOCATION_EXECUTION_TEST_HOOKS
+// Pure legacy accessors needed by the real aggregate loop's error/display arms.
+// No legacy result constructor or authoritative producer is provided here.
+const std::string& PackageBaseSourceBuildExecutionResult::package_base() const noexcept {
+    return package_base_;
+}
+const ProductionSourceBuildStagedOutcome& PackageBaseSourceBuildExecutionResult::production_outcome() const noexcept {
+    return production_outcome_;
+}
+const std::vector<PackageBaseSourceBuildSelectedResult>& PackageBaseSourceBuildExecutionResult::selected_children() const noexcept {
+    return selected_children_;
+}
+const std::vector<ArtifactPackageIdentity>& PackageBaseSourceBuildExecutionResult::unselected_artifacts() const noexcept {
+    return unselected_artifacts_;
+}
+const std::optional<ProductionSourceBuildStagedOutcome>& SeparatedPackageBaseSourceBuildPreparationError::production_outcome() const noexcept {
+    return production_outcome_;
+}
+const PackageBaseSourceBuildExecutionResult& SeparatedPackageBaseSourceBuildCleanupError::result() const noexcept {
+    return result_;
+}
+#endif

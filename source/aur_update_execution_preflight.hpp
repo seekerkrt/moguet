@@ -141,6 +141,8 @@ enum class AurUpdateExecutionReason {
 
     UpToDate,
     DevelRequiresCheck,
+    DevelObservationUnknown,
+    DevelUnsupported,
     RequiredDevelTargetRequiresCheck,
     NonAurForeign,
 
@@ -328,8 +330,9 @@ inline bool is_valid_aur_update_normal_skip_snapshot(
             return update.classification ==
                        AurUpdateClassification::UpToDate &&
                    update.aur_package.has_value() &&
-                   update.devel_assessment ==
-                       DevelUpdateAssessment::not_applicable() &&
+                   (update.devel_assessment == DevelUpdateAssessment::not_applicable() ||
+                    (update.devel_assessment_origin == AurDevelAssessmentOrigin::CurrentObservation &&
+                     update.devel_assessment.state() == DevelUpdateAssessmentState::UpToDate)) &&
                    (update.aur_package->version_relation ==
                         AurVersionRelation::OlderThanInstalled ||
                     update.aur_package->version_relation ==
@@ -369,7 +372,12 @@ inline bool has_valid_requires_check_package_identity_shape(
 inline bool has_consistent_requires_check_producer_snapshot(
     const AurUpdatePlanEntry& update,
     DevelRequiresCheckReason reason) noexcept {
-    if(reason != DevelRequiresCheckReason::SuffixCandidateOnly ||
+    if(update.devel_assessment_origin == AurDevelAssessmentOrigin::CurrentObservation) {
+        return is_known_devel_requires_check_reason(reason) && update.aur_package &&
+               update.installed_name == update.aur_package->aur_name &&
+               update.devel_assessment == DevelUpdateAssessment::requires_check(reason);
+    }
+    if(update.devel_assessment_origin != AurDevelAssessmentOrigin::Conservative || reason != DevelRequiresCheckReason::SuffixCandidateOnly ||
        !update.devel_classification.has_value() ||
        update.devel_assessment !=
            DevelUpdateAssessment::requires_check(reason) ||

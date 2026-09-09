@@ -131,6 +131,7 @@ bool same_update_entry(
            lhs.install_reason == rhs.install_reason &&
            lhs.classification == rhs.classification &&
            lhs.devel_classification == rhs.devel_classification &&
+           lhs.devel_assessment_origin == rhs.devel_assessment_origin &&
            lhs.devel_assessment == rhs.devel_assessment &&
            same_remote_package(lhs.aur_package, rhs.aur_package);
 }
@@ -1625,7 +1626,7 @@ FilteredAurUpdateTargetAdapter adapt_aur_update_plan_for_upgrade_all(
                 }
                 status = UpgradeAllAurTargetStatus::Incomplete;
                 status_detail = localization::translate_message(
-                    "devel package update status requires check: suffix candidate only");
+                    "Devel package update status requires check.");
                 break;
             case AurUpdateEffectiveState::MetadataUnavailable:
                 status = UpgradeAllAurTargetStatus::Incomplete;
@@ -1645,6 +1646,14 @@ FilteredAurUpdateTargetAdapter adapt_aur_update_plan_for_upgrade_all(
                     // TRANSLATORS: {} is the literal command name "upgrade-all".
                     "Normal skip unexpectedly reached the {} target adapter.",
                     UPGRADE_ALL_COMMAND_NAME));
+            case AurUpdateEffectiveState::Unknown:
+                status = UpgradeAllAurTargetStatus::Incomplete;
+                status_detail = localization::translate_message("Devel Git observation failed; no automatic build.");
+                break;
+            case AurUpdateEffectiveState::Unsupported:
+                status = UpgradeAllAurTargetStatus::Incomplete;
+                status_detail = localization::translate_message("Devel source is unsupported for automatic updates.");
+                break;
             case AurUpdateEffectiveState::Inconsistent: {
                 status = UpgradeAllAurTargetStatus::Incomplete;
                 status_detail = localization::format_translated_message(

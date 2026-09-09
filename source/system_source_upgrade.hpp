@@ -54,6 +54,8 @@ enum class RegisteredSourceUpgradeFailureKind {
     BuildOrInstallFailed,
     CleanupFailedAfterPackageTransaction,
     UpdateStatusUnknownSkipped,
+    AuthoritativeExecutionIncomplete,
+    DevelRequiresCheckSkipped,
     PriorPhaseStopped,
     UnknownException,
 };
@@ -440,6 +442,9 @@ using RegisteredSourceUpgradeFailureDetail = std::variant<
     RegisteredSourceExecutionCorrelationFailure>;
 
 struct RegisteredSourceUpgradeResult {
+    std::shared_ptr<const AurUpdateQueryResult> devel_update_query = nullptr;
+    std::optional<ConfirmationDecisionOrigin> devel_rebuild_confirmation = std::nullopt;
+    std::optional<ReviewedDevelExecutionSnapshot> devel_execution = std::nullopt;
     std::size_t original_preference_index = 0;
     std::string preference_package_name;
     std::optional<std::string> canonical_source_identity_key;

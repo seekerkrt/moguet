@@ -109,7 +109,23 @@ AurUpdateEffectiveState project_aur_update_effective_state(
         case AurUpdateClassification::VersionComparisonUnavailable:
             return AurUpdateEffectiveState::VersionComparisonUnavailable;
         case AurUpdateClassification::UpToDate: {
-            if(!has_consistent_conservative_devel_projection(entry)) {
+            if(!entry.aur_package || entry.installed_name != entry.aur_package->aur_name) return AurUpdateEffectiveState::Inconsistent;
+            if(entry.devel_assessment_origin == AurDevelAssessmentOrigin::CurrentObservation) {
+                if(!entry.aur_package || entry.installed_name != entry.aur_package->aur_name ||
+                   (entry.aur_package->version_relation != AurVersionRelation::SameAsInstalled &&
+                    entry.aur_package->version_relation != AurVersionRelation::OlderThanInstalled))
+                    return AurUpdateEffectiveState::Inconsistent;
+                switch(entry.devel_assessment.state()) {
+                    case DevelUpdateAssessmentState::NotApplicable:
+                    case DevelUpdateAssessmentState::UpToDate: return AurUpdateEffectiveState::UpToDate;
+                    case DevelUpdateAssessmentState::UpdateAvailable: return AurUpdateEffectiveState::UpdateAvailable;
+                    case DevelUpdateAssessmentState::RequiresCheck: return AurUpdateEffectiveState::RequiresCheck;
+                    case DevelUpdateAssessmentState::Unknown: return AurUpdateEffectiveState::Unknown;
+                    case DevelUpdateAssessmentState::Unsupported: return AurUpdateEffectiveState::Unsupported;
+                }
+                return AurUpdateEffectiveState::Inconsistent;
+            }
+            if(entry.devel_assessment_origin != AurDevelAssessmentOrigin::Conservative || !has_consistent_conservative_devel_projection(entry)) {
                 return AurUpdateEffectiveState::Inconsistent;
             }
             return entry.devel_assessment.state() ==

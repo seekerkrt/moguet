@@ -180,17 +180,17 @@ inventoryを所有する。
 
 | Inventory | Expected |
 | --- | ---: |
-| C++ test executables | 109 |
+| C++ test executables | 115 |
 | installed transport fixture harnesses (`EXCLUDE_FROM_ALL`) | 1 |
-| support / stub translation units | 30 |
+| support / stub translation units | 32 |
 | link firewalls | 50 |
 | firewall descriptors | 50 |
-| CTest registrations | 136 |
+| CTest registrations | 146 |
 
 stub / real implementation exclusion、replacement ABI、ALPM stub、exact source closureをtarget-localに
 維持する。単一production libraryを全testへ無条件linkしない。negative compileはCTest registrationから
 effective CMake compiler / launcher / compile optionを取得し、GNU Make recursive compileへ戻さない。
-Make focused aliasとCMake focused targetは各115件で一致し、missing / unexpectedを0に保つ。
+Make focused aliasとCMake focused targetは各125件で一致し、missing / unexpectedを0に保つ。
 
 completion生成が使う`moguet-cli-authority-exporter`もCMake targetであり、Python generatorはcompilerを
 直接起動しない。このtargetは`EXCLUDE_FROM_ALL`なので通常のproduction/package buildへ混ざらず、
@@ -350,7 +350,7 @@ raw persistent bytesのSHA-256、schema v1/27 keys、final proofとの全field�
 contiguous historyを確認する。runnerはcopied source hashesとraw documentsをstdoutへ出し、
 検証者はcurrent candidateとの照合とrepository外へのevidence保存を行う。
 S5-only targetはpublication-noneを引き続き要求する。#475 comparisonは7-B coordinator内だけに接続し、
-normal #476 route、7-D、Slice 8は未接続である。7-Cは専用execution owner内だけでS4/S5/S6を結合する。
+7-Dがnormal routeから7-B/7-Cへ接続する。Slice 8は未着手で、S4/S5/S6のowner contractは変更しない。
 詳細は[`exact-installed-artifact-binding.md`](contracts/exact-installed-artifact-binding.md)を正とする。
 
 S5-Cのfinal construction/lineage/N=1は`test-installed-devel-source-build-proof`、lossless aggregateとcleanup consequenceは
@@ -362,16 +362,16 @@ canonical negative compileへ含める。contractは[`installed-devel-source-bui
 Issue #476 Slice 7-Aは`test-current-installed-artifact-binding`と`test-devel-git-revision-comparison`で確認する。
 current observerは各callのfresh DB observationであり、S5 transaction proofではない。
 Git comparatorはsource/algorithmを先に照合するpure value comparisonで、networkやassessmentを実行しない。
-7-Bだけがこのcomparison foundationを消費し、7-D normal routeは未接続。詳細は
+7-Bだけがこのcomparison foundationを消費し、normal routeは7-Dを参照する。詳細は
 [`current installed observation contract`](contracts/current-installed-artifact-observation.md)を参照する。
 
 Issue #476 Slice 7-Bは`test-devel-package-assessment`でtip-only P/I/R gates、#475 remote mapping、
-remote成功後のone-time local recheckとcall countを確認する。normal routeは未接続で、assessmentからS6 publisherを呼ばない。
+remote成功後のone-time local recheckとcall countを確認する。normal routeは7-Dから接続し、assessmentからS6 publisherを呼ばない。
 approved-source mintはown-I/O coordinatorだけで、canonical negative compileにS7-B firewallを追加する。
 詳細は[`read-only assessment contract`](contracts/devel-package-assessment.md)を正とする。
 
 Issue #476 Slice 7-Cは`test-reviewed-devel-source-build-execution`でtyped pinからS4/S5/S6を結合する。
-normal ownerがtype erasure前に選べる専用variantを提供するが、現在のnormal routeはlegacy factoryを維持する。
+normal ownerがtype erasure前に選べる専用variantを提供するが、7-Dがnormal finalizerからLegacy/AuthoritativeDevelを選択する。
 S5/S6 contractを変更せず、partial install/publication/cleanup outcomesとlive context lifetimeを保持する。
 詳細は[`reviewed devel execution bridge`](contracts/reviewed-devel-source-build-execution.md)を正とする。
 
@@ -555,3 +555,7 @@ placeholderの`<tag-object-sha>`には手順5で確認したGitHub tag object SH
 - 実装後はPR作成・merge・branch削除・mirror結果・clean確認まで締める
 - published tagは移動・再作成せず、通常recoveryでReleaseを削除・unpublishしない
 - 大きなリネームや破壊的変更は major release で扱う
+
+Issue #476 Slice 7-Dのnormal routingは`test-aur-devel-route`、normal finalizerのS4/S5/S6結合は
+`test-normal-reviewed-devel-execution`で確認する。normal routeの既存query/preflight/runner/reducer/CLI/dry-run tests、
+construction firewalls、frontendを併用する。contractは[devel normal routes](contracts/devel-normal-routes.md)。

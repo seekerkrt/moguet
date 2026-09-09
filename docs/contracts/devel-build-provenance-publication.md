@@ -4,7 +4,7 @@
 
 Issue #476 Slice 6-Bは、[S5 installation result](installed-devel-source-build-proof.md)をconsumeし、
 historical semantic provenanceを[既存store](devel-build-provenance-store.md)へpublicationする内部producerである。
-normal CLI/source/upgrade/#476 routeは未接続。6-Cは既存publisherのactual/container acceptanceだけを追加する。
+normal routeは7-D→7-Cを通じてこのpublisherを使う。6-Cは既存publisherのactual/container acceptanceだけを追加する。
 current binding re-observation/#475 comparisonは7-A/7-Bが、typed pinからの専用execution bridgeは
 [7-C](reviewed-devel-source-build-execution.md)が所有する。normal route activationの7-DとSlice 8は未実装である。
 

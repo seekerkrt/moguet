@@ -1154,17 +1154,17 @@ list(
     MOGUET_EXPECTED_CPP_TEST_FIREWALL_DESCRIPTORS
     _moguet_expected_firewall_descriptor_count
 )
-if(NOT _moguet_expected_target_count EQUAL 113)
+if(NOT _moguet_expected_target_count EQUAL 115)
     message(
         FATAL_ERROR
-        "Expected C++ test target inventory must contain 113 entries, got "
+        "Expected C++ test target inventory must contain 115 entries, got "
         "${_moguet_expected_target_count}"
     )
 endif()
-if(NOT _moguet_expected_support_count EQUAL 30)
+if(NOT _moguet_expected_support_count EQUAL 32)
     message(
         FATAL_ERROR
-        "Expected test support/stub inventory must contain 30 entries, got "
+        "Expected test support/stub inventory must contain 32 entries, got "
         "${_moguet_expected_support_count}"
     )
 endif()
@@ -1241,8 +1241,8 @@ list(
 list(LENGTH MOGUET_CTEST_NAMES _moguet_ctest_count)
 message(
     STATUS
-    "Moguet C++ tests: targets=${_moguet_test_target_count}/113, "
-    "support=${_moguet_test_support_count}/30, "
+    "Moguet C++ tests: targets=${_moguet_test_target_count}/115, "
+    "support=${_moguet_test_support_count}/32, "
     "firewalls=${_moguet_test_firewall_count}/50, "
     "descriptors=${_moguet_test_firewall_descriptor_count}/50, "
     "CTest registrations=${_moguet_ctest_count}"

@@ -100,9 +100,9 @@ normal AUR RPC version-newer precedenceは7-Dのroute orchestration責務であ�
 production callerの境界:
 
 - #475 remote observer、7-A current observer / Git comparatorの新consumerは7-B coordinatorだけ。
-- coordinator自身のnormal route callerは0。
+- coordinatorのnormal callerは7-DのAUR devel query adapter。
 - S6 publisherのconsumerは別の7-C execution ownerだけで、assessmentからのcallは0。
-- [7-C execution bridge](reviewed-devel-source-build-execution.md)とassessmentの結合、および7-D -Syu/upgrade/upgrade-all/upgrade-aur/registered source/-Qua/dry-runはNOT CONNECTED。
+- [7-D normal routing](devel-normal-routes.md)がassessment/policyと[7-C execution](reviewed-devel-source-build-execution.md)を結合する。coordinatorからbuild/install/publicationを呼ばない。
 - Slice 8はNOT STARTED。
 
 ## Validation

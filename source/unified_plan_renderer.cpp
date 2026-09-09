@@ -3007,6 +3007,10 @@ std::string aur_update_execution_reason_display(
             return "AurUpdateExecutionReason::UpToDate";
         case AurUpdateExecutionReason::DevelRequiresCheck:
             return "AurUpdateExecutionReason::DevelRequiresCheck";
+        case AurUpdateExecutionReason::DevelObservationUnknown:
+            return "AurUpdateExecutionReason::DevelObservationUnknown";
+        case AurUpdateExecutionReason::DevelUnsupported:
+            return "AurUpdateExecutionReason::DevelUnsupported";
         case AurUpdateExecutionReason::RequiredDevelTargetRequiresCheck:
             return "AurUpdateExecutionReason::RequiredDevelTargetRequiresCheck";
         case AurUpdateExecutionReason::NonAurForeign:
@@ -4680,7 +4684,9 @@ std::string invalid_snapshot_raw_value_display(std::string_view value) {
     return display;
 }
 
-std::string independent_requires_check_attention_message() {
+std::string independent_requires_check_attention_message(DevelRequiresCheckReason reason) {
+    if(reason != DevelRequiresCheckReason::SuffixCandidateOnly)
+        return localization::translate_message("skipped: devel update requires check; local authority is unavailable or has changed");
     return localization::translate_message(
         "skipped: devel update requires check: suffix candidate only; not automatically updated because authoritative build provenance is unavailable");
 }
@@ -4697,6 +4703,15 @@ UnifiedPlanRenderingResult render_unified_plan_observation(
                             observation.status(), state))
                  << '\n';
     render_roots(observation, state);
+    for(const auto& metadata : observation.root_metadata()) {
+        if(const auto* update = std::get_if<UnifiedPlanBorrowedAuthorityReference<AurUpdatePlanEntry>>(&metadata);
+           update && aur_update_basis(update->get()) == AurUpdateBasis::GitRevision) {
+            // TRANSLATORS: The placeholder is a package name. This is a Git revision difference, not a newer package version.
+            state.output << localization::format_translated_message("  Observed update basis: {} — Git revision difference", terminal_safe_text_display(update->get().installed_name)) << '\n';
+        } else if(update && update->get().devel_assessment_origin == AurDevelAssessmentOrigin::CurrentObservation && update->get().devel_assessment.state() == DevelUpdateAssessmentState::UpToDate) {
+            state.output << localization::format_translated_message("  Observed devel assessment: {} — same Git revision", terminal_safe_text_display(update->get().installed_name)) << '\n';
+        }
+    }
     render_phases(observation, state);
     render_configured_repositories(observation, state);
     render_dependencies(observation, state);
@@ -4906,8 +4921,7 @@ UnifiedPlanRenderingResult render_system_aur_update_unified_plan(
                 projection.requires_check_attentions()[index];
             const bool is_supported =
                 projection.mode() == SystemAurUpdateUnifiedPlanMode::Auto &&
-                attention.reason ==
-                    DevelRequiresCheckReason::SuffixCandidateOnly &&
+                is_known_devel_requires_check_reason(attention.reason) &&
                 attention.skip_kind ==
                     AurUpdateExecutionSkipKind::
                         IndependentDevelRequiresCheck &&
@@ -4938,7 +4952,7 @@ UnifiedPlanRenderingResult render_system_aur_update_unified_plan(
                          << invalid_snapshot_raw_value_display(
                                 attention.package_base)
                          << "): "
-                         << independent_requires_check_attention_message()
+                         << independent_requires_check_attention_message(attention.reason)
                          << '\n';
         }
     }

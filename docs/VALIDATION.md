@@ -47,10 +47,10 @@ release操作は[`DEVELOPMENT.md`](DEVELOPMENT.md)を正とする。この文書
 | exact receipt / fresh installed binding | `test-container-exact-installed-binding` | actual Slice 4 proofとinstalled root helper、別purposeのInstall/Upgrade receipt、Post anchor、new ALPM session、raw MTREE、AT_EMPTY_PATH generation、通常userのlive mintとS5-C final proof、publicationなしをanonymous volume DBで確認。Install/Upgrade/reinstall/downgradeを実行し、host DBは共有しない |
 | devel provenance store foundation | `test-xdg-generation-store` / `test-devel-build-provenance-store` | production-disconnectedなimmutable-generation/CAS機械層と、別XDG namespaceのstrict provenance codec/storeを確認する |
 | trusted devel provenance publication | `test-devel-build-provenance-publication` / `test-devel-build-provenance-publication-result` | deterministic S4/S5 fixtureからschema v1 projection、historical binding、one-shot ownership、no-publication negatives、store fault mappingとlossless resultを確認する。6-C actual/container publication acceptanceとnormal routeを代替しない |
-| actual devel provenance publication | `test-container-devel-publication` | S5 actual laneの別modeでproduction publisherを呼ぶ。1 fresh anonymous DB volume上でInstall/Upgrade/reinstall/downgradeを順次実行し、各S5 proof・cleanup、publication Complete、store generation 1→2→3→4、raw bytes SHA-256、schema v1/27 keys、persistent model・historyを確認。installed generationは別authorityとして記録する。S5 publication-noneとnormal routeの未接続を維持する |
+| actual devel provenance publication | `test-container-devel-publication` | S5 actual laneの別modeでproduction publisherを呼ぶ。1 fresh anonymous DB volume上でInstall/Upgrade/reinstall/downgradeを順次実行し、各S5 proof・cleanup、publication Complete、store generation 1→2→3→4、raw bytes SHA-256、schema v1/27 keys、persistent model・historyを確認。installed generationは別authorityとして記録する。S5 publication-noneを維持し、このlaneを7-D normal route acceptanceの代替にしない |
 | current installed observation / pure Git comparison | `test-current-installed-artifact-binding` / `test-devel-git-revision-comparison` | transactionとは独立したfresh current bindingとtyped OID比較。S5 fresh proof/network/normal assessmentはmint・接続しない |
-| read-only devel assessment | `test-devel-package-assessment` | tip-only P/I/R exact後の#475 query、remote taxonomy、成功後のP/I/R one-time recheck、call counts。normal route/build/install/publicationは未接続 |
-| reviewed devel execution bridge | `test-reviewed-devel-source-build-execution` | typed reviewed pinから既存S4/S5/S6、install/proof/publication/cleanupの個別結果、one-shot/lifetime。normal routeは未接続 |
+| read-only devel assessment | `test-devel-package-assessment` | tip-only P/I/R exact後の#475 query、remote taxonomy、成功後のP/I/R one-time recheck、call counts。normal routeは7-D、assessmentからbuild/install/publicationを呼ばない |
+| reviewed devel execution bridge | `test-reviewed-devel-source-build-execution` | typed reviewed pinから既存S4/S5/S6、install/proof/publication/cleanupの個別結果、one-shot/lifetime。normal routeは7-Dから接続 |
 | closed cleanup candidate authority | `test-container-cleanup-authority` | production collector、mutation前baseline、actual trusted dependency Install、post-success current / policy、aggregate / classifierとinstalled positive `Eligible` |
 
 PR / mergeのcanonical host gateは`test-host-release`である。`test`と
@@ -259,3 +259,11 @@ coverage数の差をperformance gainとして数えない。
 
 hostは約39.79秒、Docker Eは約130.26秒の重複costを削減した。coverage削減、lane統合、
 actual Fのdeterministicへの読み替えは行っていない。
+
+### Issue #476 Slice 7-D focused acceptance
+
+`test-aur-devel-route`と`test-normal-reviewed-devel-execution`に加え、AUR plan/query/preflight/preparation/runner/reducer、
+filtered/system/upgrade-all、-Qua、dry-run/unified projection/renderer、legacy source buildのaffected focused targetsを確認する。
+7-A/7-B/7-C、#475、canonical negatives、build-authority-closure、cmake-frontend-contractを維持する。
+normal link objectsで7-Bだけが#475、7-Cだけがpublisherを直接呼ぶことを確認する。
+このfocused candidate gateをSlice 8/full live/release gateの完了へ拡張しない。
