@@ -523,6 +523,43 @@ void test_launch_setup_and_fd_hygiene(
     require_outcome<BoundedProcessExited>(fd_result, "descriptor hygiene");
 }
 
+void test_retained_executable_identity(const fs::path& executable) {
+    const int executable_descriptor = open(
+        executable.c_str(), O_PATH | O_CLOEXEC | O_NOFOLLOW);
+    require(executable_descriptor >= 0,
+            "Failed to retain executable identity fixture");
+    OwnedDescriptor retained_executable(executable_descriptor);
+    const int directory_descriptor = open(
+        "/", O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+    require(directory_descriptor >= 0,
+            "Failed to open retained-executable cwd");
+    OwnedDescriptor directory(directory_descriptor);
+    const int input_descriptor = open(
+        "/dev/null", O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+    require(input_descriptor >= 0,
+            "Failed to open retained-executable stdin");
+    OwnedDescriptor input(input_descriptor);
+
+    ExplicitProcessInvocation invocation{
+        "/path/replaced/after-retention",
+        {std::string(CHILD_MARKER), "fd-closed",
+         std::to_string(executable_descriptor)},
+        {"PATH=/usr/bin:/bin", "LC_ALL=C", "LANG=C"}};
+    invocation.working_directory_fd = directory.get();
+    invocation.standard_input_fd = input.get();
+    invocation.executable_fd = executable_descriptor;
+    BoundedCapturedProcessResult result =
+        capture_bounded_explicit_process_output_raw(
+            invocation, normal_policy());
+    require(result.output == "closed\n",
+            "Retained executable descriptor leaked after execveat");
+    require(
+        require_outcome<BoundedProcessExited>(
+            result, "retained executable identity")
+                .exit_code == 0,
+        "Bounded process resolved the replaced pathname instead of the retained executable");
+}
+
 struct WorkerResult {
     int outcome_kind;
     int detail;
@@ -624,6 +661,7 @@ void run_tests(const fs::path& executable) {
     test_timeout_escalation(executable);
     test_descendant_cleanup(executable);
     test_launch_setup_and_fd_hygiene(executable, fixture.path());
+    test_retained_executable_identity(executable);
     test_signal_forwarding(executable, fixture.path());
     test_parent_death_root_ownership(executable, fixture.path());
     require_no_waitable_children();

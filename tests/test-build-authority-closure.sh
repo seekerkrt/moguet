@@ -88,6 +88,212 @@ actual_default_options=$(
 # Make may select a compiler for CMake preflight and pass external inputs, but
 # it must not retain any production/test C++ graph or compiler recipe.
 assert_not_contains "$makefile" 'legacy-cpp-build-authority'
+
+# Issue #476 store remains behind its semantic API. S6-B consumes it through
+# the publication header; normal route consumers remain disallowed below.
+provenance_store_includes=$test_root/provenance-store-includes.txt
+if grep -l -F -- \
+    '#include "devel_build_provenance_store.hpp"' \
+    "$repo_root"/source/*.cpp > "$provenance_store_includes"
+then
+    :
+else
+    include_status=$?
+    [ "$include_status" -eq 1 ] ||
+        fail "provenance production include scan failed with status $include_status"
+fi
+printf '%s\n' \
+    "$repo_root/source/devel_build_provenance_store.cpp" \
+    > "$test_root/expected-provenance-store-includes.txt"
+cmp -s \
+    "$test_root/expected-provenance-store-includes.txt" \
+    "$provenance_store_includes" ||
+    fail 'Issue #476 Slice 2 provenance store gained a production caller'
+
+# Issue #476 Slice 3 is linked into the production binary as a dormant
+# foundation. Slice 4 is its only additional production-compiled consumer;
+# normal source-build routes remain outside this authority chain.
+source_build_context_includes=$test_root/source-build-context-includes.txt
+if grep -l -F -- \
+    '#include "invocation_owned_source_build_context.hpp"' \
+    "$repo_root"/source/*.cpp > "$source_build_context_includes"
+then
+    :
+else
+    include_status=$?
+    [ "$include_status" -eq 1 ] ||
+        fail "source-build context production include scan failed with status $include_status"
+fi
+printf '%s\n' \
+    "$repo_root/source/invocation_owned_source_build_context.cpp" \
+    > "$test_root/expected-source-build-context-includes.txt"
+cmp -s \
+    "$test_root/expected-source-build-context-includes.txt" \
+    "$source_build_context_includes" ||
+    fail 'Issue #476 Slice 3 context gained a production caller'
+assert_not_contains \
+    "$repo_root/source/invocation_owned_source_build_context.cpp" \
+    'publish_devel_build_provenance'
+assert_not_contains \
+    "$repo_root/source/invocation_owned_source_build_context.cpp" \
+    'devel_build_provenance_store.hpp'
+
+# Slice 4 proves only the exact actually built inside the sealed Slice 3
+# context. Its API remains self-owned and has no normal route caller or #475
+# remote observation. The S5-A bridge, S5-B live observer and S6-B semantic
+# projector are the only downstream production consumers.
+evaluated_build_includes=$test_root/evaluated-build-includes.txt
+if grep -l -F -- \
+    '#include "evaluated_devel_source_build.hpp"' \
+    "$repo_root"/source/*.cpp > "$evaluated_build_includes"
+then
+    :
+else
+    include_status=$?
+    [ "$include_status" -eq 1 ] ||
+        fail "evaluated build production include scan failed with status $include_status"
+fi
+printf '%s\n' \
+    "$repo_root/source/devel_build_provenance_publication.cpp" \
+    "$repo_root/source/evaluated_devel_source_build.cpp" \
+    "$repo_root/source/installed_artifact_binding_observer.cpp" \
+    "$repo_root/source/source_artifact_install_trusted_transport.cpp" \
+    > "$test_root/expected-evaluated-build-includes.txt"
+cmp -s \
+    "$test_root/expected-evaluated-build-includes.txt" \
+    "$evaluated_build_includes" ||
+    fail 'Issue #476 Slice 4 gained a normal production caller'
+assert_not_contains \
+    "$repo_root/source/evaluated_devel_source_build.cpp" \
+    'publish_devel_build_provenance'
+assert_not_contains \
+    "$repo_root/source/evaluated_devel_source_build.cpp" \
+    'devel_build_provenance_store.hpp'
+assert_not_contains \
+    "$repo_root/source/evaluated_devel_source_build.cpp" \
+    'observe_git_remote_revision('
+assert_not_matches \
+    "$repo_root/source/evaluated_devel_source_build.cpp" \
+    '(^|[^A-Za-z])(sudo|pacman)([^A-Za-z]|$)'
+assert_contains \
+    "$repo_root/source/evaluated_devel_source_build.cpp" \
+    'context.makepkg_executable().descriptor_'
+assert_contains \
+    "$repo_root/source/evaluated_devel_source_build.hpp" \
+    '#include "invocation_owned_source_build_context.hpp"'
+# S5-A owner exists only in the shared transport TU. No normal route or
+# provenance store may construct/execute it, nor gain a live binding mint.
+bridge_consumers=$test_root/evaluated-transport-consumers.txt
+if grep -l -E -- \
+    'evaluated_devel_source_artifact_transport|EvaluatedDevelSourceArtifactTransport' \
+    "$repo_root"/source/*.cpp > "$bridge_consumers"
+then
+    :
+else
+    scan_status=$?
+    [ "$scan_status" -eq 1 ] || fail "S5-A consumer scan failed: $scan_status"
+fi
+printf '%s\n' "$repo_root/source/reviewed_devel_source_build_execution.cpp" "$repo_root/source/source_artifact_install_trusted_transport.cpp" \
+    > "$test_root/expected-evaluated-transport-consumers.txt"
+cmp -s "$bridge_consumers" "$test_root/expected-evaluated-transport-consumers.txt" ||
+    fail 'S5-A transport gained a normal production caller'
+assert_not_matches "$repo_root/source/source_artifact_install_trusted_transport.cpp" \
+    '(publish_devel_build_provenance|make_devel_build_provenance|devel_build_provenance_store|InstalledArtifactBinding::make|name_to_handle_at|InstalledDevelSourceBuildProof)'
+live_observer_consumers=$test_root/live-installed-observer-consumers.txt
+if grep -l -E -- '(^|[^A-Za-z0-9_])InstalledArtifactBindingObserver::observe' "$repo_root"/source/*.cpp > "$live_observer_consumers"
+then
+    :
+else
+    scan_status=$?
+    [ "$scan_status" -eq 1 ] || fail "S5-B observer scan failed: $scan_status"
+fi
+printf '%s\n' \
+    "$repo_root/source/installed_artifact_binding_observer.cpp" \
+    "$repo_root/source/source_artifact_install_trusted_transport.cpp" \
+    > "$test_root/expected-live-installed-observer-consumers.txt"
+cmp -s "$live_observer_consumers" "$test_root/expected-live-installed-observer-consumers.txt" ||
+    fail 'S5-B live observer gained an unexpected caller'
+assert_not_matches "$repo_root/source/installed_artifact_binding_observer.cpp" \
+    '(publish_devel_build_provenance|make_devel_build_provenance|devel_build_provenance_store|build_evaluated_devel_source\(|observe_git_remote_revision\()'
+assert_contains "$repo_root/source/installed_artifact_binding.hpp" \
+    '#include "installed_artifact_binding_observer_authority.hpp"'
+assert_contains "$repo_root/source/installed_package_record_observation.cpp" \
+    'name_to_handle_at(descriptor, "", handle, mount_id, AT_EMPTY_PATH)'
+# S5-C joins only the transport-owned state, never normal CLI/source routes.
+final_consumers=$test_root/installed-final-proof-consumers.txt
+if grep -l -E -- \
+    'devel_source_artifact_install|InstalledDevelSourceBuildProof|DevelSourceArtifactInstallAuthority|DevelSourceArtifactInstallResult' \
+    "$repo_root"/source/*.cpp > "$final_consumers"
+then
+    :
+else
+    scan_status=$?
+    [ "$scan_status" -eq 1 ] || fail "S5-C producer scan failed: $scan_status"
+fi
+printf '%s\n' \
+    "$repo_root/source/devel_build_provenance_publication.cpp" \
+    "$repo_root/source/devel_source_artifact_install.cpp" \
+    "$repo_root/source/source_artifact_install_trusted_transport.cpp" \
+    > "$test_root/expected-installed-final-proof-consumers.txt"
+cmp -s "$final_consumers" "$test_root/expected-installed-final-proof-consumers.txt" ||
+    fail 'S5-C final proof gained a normal production caller'
+assert_not_matches "$repo_root/source/devel_source_artifact_install.cpp" \
+    '(publish_devel_build_provenance|make_devel_build_provenance|devel_build_provenance_store|observe_git_remote_revision\(|observe_installed_package_record\()'
+assert_contains "$repo_root/source/devel_source_artifact_install.hpp" \
+    '#include "devel_source_artifact_install_authority.hpp"'
+assert_not_contains "$repo_root/cmake/MoguetSources.cmake" \
+    'tests/devel_source_artifact_install_fixture.cpp'
+# S6-B consumes only sealed S5 output; normal route/observer callers stay absent.
+publication_consumers=$test_root/provenance-publication-consumers.txt
+if grep -l -E -- 'publish_installed_devel_source_build|devel_build_provenance_publication' "$repo_root"/source/*.cpp > "$publication_consumers"
+then :
+else
+    scan_status=$?
+    [ "$scan_status" -eq 1 ] || fail "S6-B publisher scan failed: $scan_status"
+fi
+printf '%s\n' "$repo_root/source/devel_build_provenance_publication.cpp" "$repo_root/source/reviewed_devel_source_build_execution.cpp" > "$test_root/expected-publication-consumers.txt"
+cmp -s "$publication_consumers" "$test_root/expected-publication-consumers.txt" || fail 'S6-B gained a normal route caller'
+assert_not_matches "$repo_root/source/devel_build_provenance_publication.cpp" \
+    '(observe_installed|observe_git_remote_revision|InstalledArtifactBindingObserver|execute_exact|capture_process|read_xdg_generation_store|openat\(|fopen\(|\.path\()'
+assert_not_contains "$repo_root/cmake/MoguetSources.cmake" 'tests/devel_build_provenance_publication_fixture.cpp'
+# S7-B is the sole new consumer of the S7-A/#475 comparison entrances.
+for entry in observe_current_installed_artifact_binding compare_devel_git_revision observe_git_remote_revision; do
+    case $entry in
+        observe_current_installed_artifact_binding) owner=current_installed_artifact_binding_observer ;;
+        compare_devel_git_revision) owner=devel_git_revision_comparison ;;
+        observe_git_remote_revision) owner=git_remote_revision_observer ;;
+    esac
+    if grep -l -E -- "$entry" "$repo_root"/source/*.cpp > "$test_root/s7a-$entry.txt"; then :
+    else
+        scan_status=$?
+        [ "$scan_status" -eq 1 ] || fail "S7-A scan failed: $scan_status"
+    fi
+    printf '%s\n' "$repo_root/source/$owner.cpp" "$repo_root/source/devel_package_assessment.cpp" | LC_ALL=C sort > "$test_root/s7a-$entry-expected.txt"
+    cmp -s "$test_root/s7a-$entry.txt" "$test_root/s7a-$entry-expected.txt" || fail "S7-B gained an unexpected observer/comparator caller: $entry"
+done
+if grep -l -E -- '(^|[^[:alnum:]_])assess_current_devel_package[[:space:]]*\(' "$repo_root"/source/*.cpp > "$test_root/s7b-callers.txt"; then :
+else
+    scan_status=$?
+    [ "$scan_status" -eq 1 ] || fail "S7-B coordinator scan failed: $scan_status"
+fi
+printf '%s\n' "$repo_root/source/aur_devel_update.cpp" "$repo_root/source/devel_package_assessment.cpp" > "$test_root/s7b-callers-expected.txt"
+cmp -s "$test_root/s7b-callers.txt" "$test_root/s7b-callers-expected.txt" || fail 'S7-B gained a normal route caller'
+assert_not_matches "$repo_root/source/devel_package_assessment.cpp" \
+    '(publish_.*provenance|publish_reviewed|publish_xdg|execute_exact|InstalledDevelSourceBuildProof|build_evaluated_devel_source|makepkg|checkout\(|vercmp|AurVersionRelation)'
+assert_not_matches "$repo_root/source/current_installed_artifact_binding_observer.cpp" \
+    '(observe_git_remote_revision|publish_devel_build_provenance|read_devel_build_provenance|read_reviewed_source_state|execute_exact|ExactArtifactTransactionReceipt|FreshInstalledArtifactBinding)'
+assert_not_matches "$repo_root/source/devel_git_revision_comparison.cpp" \
+    '(observe_git_remote_revision|read_.*store|capture_process|vercmp|pkgver|AurVersionRelation)'
+# S7-C composes existing sealed owners; only its dedicated entrance is new.
+if grep -l -E -- '(^|[^[:alnum:]_])(prepare_reviewed_production_source_execution|execute_reviewed_devel_source_build)[[:space:]]*\(' "$repo_root"/source/*.cpp > "$test_root/s7c-callers.txt"; then :
+else
+    scan_status=$?
+    [ "$scan_status" -eq 1 ] || fail "S7-C scan failed: $scan_status"
+fi
+printf '%s\n' "$repo_root/source/reviewed_devel_source_build_execution.cpp" "$repo_root/source/reviewed_devel_source_route.cpp" > "$test_root/s7c-callers-expected.txt"
+cmp -s "$test_root/s7c-callers.txt" "$test_root/s7c-callers-expected.txt" || fail 'S7-C gained a normal route caller'
+assert_not_matches "$repo_root/source/reviewed_devel_source_build_execution.cpp" \
+    '(assess_current_devel_package|observe_git_remote_revision|parse_git_remote_revision|printsrcinfo|shared_ptr<void>|static_pointer_cast|reinterpret_cast|publish_devel_build_provenance\(|execute_separated_)'
 assert_not_contains "$makefile" 'legacy-cpp-focused-authority'
 assert_not_contains "$makefile" '-std=c++20'
 assert_not_contains "$makefile" '-Wall'
@@ -186,8 +392,8 @@ assert_contains "$repo_root/.gitignore" '/compile_commands.json'
 
 # Compare the historical Make aliases with the actual CMake focused targets.
 # This checks the frontend mapping without duplicating either inventory here.
-[ "$#" -eq 103 ] ||
-    fail "Make focused alias inventory is $#, expected 103"
+[ "$#" -eq 126 ] ||
+    fail "Make focused alias inventory is $#, expected 126"
 make_aliases=$test_root/make-focused-aliases.txt
 cmake_aliases=$test_root/cmake-focused-aliases.txt
 cmake_help=$test_root/cmake-target-help.txt
@@ -195,15 +401,15 @@ missing_aliases=$test_root/missing-focused-aliases.txt
 unexpected_aliases=$test_root/unexpected-focused-aliases.txt
 
 printf '%s\n' "$@" | LC_ALL=C sort > "$make_aliases"
-[ "$(LC_ALL=C sort -u "$make_aliases" | wc -l)" -eq 103 ] ||
+[ "$(LC_ALL=C sort -u "$make_aliases" | wc -l)" -eq 126 ] ||
     fail 'Make focused alias inventory contains duplicates'
 
 "$cmake_command" --build "$cmake_build_dir" --target help > "$cmake_help"
 sed -n \
     's/.*moguet-focus-\(test-[a-z0-9-][a-z0-9-]*\).*/\1/p' \
     "$cmake_help" | LC_ALL=C sort -u > "$cmake_aliases"
-[ "$(wc -l < "$cmake_aliases")" -eq 103 ] ||
-    fail "CMake focused target inventory is $(wc -l < "$cmake_aliases"), expected 103"
+[ "$(wc -l < "$cmake_aliases")" -eq 126 ] ||
+    fail "CMake focused target inventory is $(wc -l < "$cmake_aliases"), expected 126"
 
 LC_ALL=C comm -23 "$make_aliases" "$cmake_aliases" > "$missing_aliases"
 LC_ALL=C comm -13 "$make_aliases" "$cmake_aliases" > "$unexpected_aliases"
@@ -235,5 +441,5 @@ assert_contains "$phony_marker" 'test-cmake'
 assert_contains "$phony_marker" 'test-repository'
 
 printf '%s\n' \
-    'build-authority-closure-test: Make aliases=103, CMake targets=103, missing=0, unexpected=0'
+    'build-authority-closure-test: Make aliases=126, CMake targets=126, missing=0, unexpected=0'
 printf '%s\n' 'build-authority-closure-test: all checks passed'

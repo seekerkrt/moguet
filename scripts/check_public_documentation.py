@@ -1193,10 +1193,7 @@ def check_reviewed_source_documentation(
 
 def system_aur_update_documentation_contracts(
     repository_root: Path,
-    current_version: str | None = None,
 ) -> dict[Path, tuple[tuple[str, ...], tuple[str, ...]]]:
-    if current_version is None:
-        current_version = read_current_project_version(REPOSITORY_ROOT)
     return {
         repository_root / "README.md": (
             (
@@ -1259,18 +1256,6 @@ def system_aur_update_documentation_contracts(
             ),
             (),
         ),
-        repository_root / "RELEASE_NOTES.md": (
-            (
-                f"Moguet v{current_version} includes a behavior-changing compatibility correction",
-                f"Before v{current_version}",
-                f"Starting with v{current_version}",
-                "does not roll back the completed repository transaction",
-                "moguet -Syu --repo",
-                "saved source-build preferences strictly",
-                "behavior-changingな compatibility correction",
-            ),
-            (),
-        ),
         repository_root / "source/moguet.cpp": (
             (
                 "Upgrade official repository packages and normal installed {} packages",
@@ -1293,12 +1278,54 @@ def system_aur_update_documentation_contracts(
 
 def check_system_aur_update_documentation(
     repository_root: Path = REPOSITORY_ROOT,
-    current_version: str | None = None,
 ) -> None:
     for path, (required, forbidden) in system_aur_update_documentation_contracts(
-        repository_root, current_version
+        repository_root
     ).items():
         assert_document_contract(path, required, forbidden)
+
+
+def release_notes_section(text: str, heading: str) -> str:
+    lines = text.splitlines()
+    if lines.count(heading) != 1:
+        fail(f"RELEASE_NOTES.md must contain exactly one {heading!r}")
+    start = lines.index(heading) + 1
+    end = next(
+        (index for index in range(start, len(lines)) if lines[index].startswith("# ")),
+        len(lines),
+    )
+    return "\n".join(lines[start:end])
+
+
+def check_release_notes_documentation(
+    repository_root: Path = REPOSITORY_ROOT,
+) -> None:
+    version = read_current_project_version(repository_root)
+    notes = read_text(repository_root / "RELEASE_NOTES.md")
+    current = release_notes_section(notes, f"# Moguet v{version}")
+    for heading in ("## English", "## 日本語"):
+        if current.splitlines().count(heading) != 1:
+            fail(f"current release notes must contain exactly one {heading!r}")
+
+    # This is the release that introduced the compatibility boundary, not
+    # another authority for the current project version.
+    historical = release_notes_section(notes, "# Moguet v2.6.0")
+    normalized = " ".join(historical.split())
+    compact = normalized.replace(" ", "")
+    for fragment in (
+        "Moguet v2.6.0 includes a behavior-changing compatibility correction",
+        "Before v2.6.0",
+        "Starting with v2.6.0",
+        "does not roll back the completed repository transaction",
+        "moguet -Syu --repo",
+        "saved source-build preferences strictly",
+        "Moguet v2.6.0では",
+        "behavior-changingな compatibility correction",
+        "v2.6.0より前",
+        "v2.6.0以降",
+    ):
+        if fragment not in normalized and fragment.replace(" ", "") not in compact:
+            fail(f"v2.6.0 release notes are missing historical contract text: {fragment!r}")
 
 
 def markdown_canonical_grammar(path: Path) -> tuple[str, ...]:
@@ -1445,7 +1472,8 @@ def main() -> int:
 
     check_package_relation_documentation()
     check_reviewed_source_documentation()
-    check_system_aur_update_documentation(current_version=version)
+    check_system_aur_update_documentation()
+    check_release_notes_documentation()
     check_generated_completions(schema)
     print("public-documentation-check: all checks passed")
     return 0

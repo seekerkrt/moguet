@@ -1,8 +1,11 @@
 #include "cli_runtime_contract.hpp"
 #include "cli_routing.hpp"
 #include "runtime_diagnostic.hpp"
+#include "terminal_safe_text.hpp"
+#include "terminal_safe_text_cases.hpp"
 
 #include <array>
+#include <filesystem>
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
@@ -567,6 +570,84 @@ void test_typed_runtime_diagnostic_connection() {
         "Runtime diagnostic detail did not escape terminal controls, bidi/BOM, or invalid UTF-8");
 }
 
+void test_terminal_safe_policy_and_runtime_boundary() {
+    using terminal_safe_text_test_cases::bytes;
+
+    for(const auto& test_case : terminal_safe_text_test_cases::cases()) {
+        expect(
+            terminal_safe_text::escape_utf8(test_case.input) ==
+                test_case.expected,
+            std::string("Shared terminal-safe policy differs for ") +
+                std::string(test_case.label));
+        expect(
+            terminal_safe_runtime_diagnostic_detail(test_case.input) ==
+                test_case.expected,
+            std::string("Runtime wrapper differs for ") +
+                std::string(test_case.label));
+    }
+
+    const std::string bidi = bytes({0xe2, 0x80, 0xae});
+    const std::string bom = bytes({0xef, 0xbb, 0xbf});
+    const std::string invalid = bytes({0xff});
+    NormalizedDiagnostic<std::string> diagnostic{
+        DiagnosticClass::QueryFailure,
+        DiagnosticSeverity::Warning,
+        DiagnosticOperation::Build,
+        DiagnosticPhase::Query,
+        DiagnosticIdentity{
+            DiagnosticSourceKind::Local,
+            std::string{"repo"} + bidi,
+            std::string{"package"} + bom,
+            std::string{"base\\value"},
+            std::string{"source"} + invalid,
+            std::filesystem::path(
+                std::string{"/work/root\n"} + bytes({0x1b}) + bidi + bom)},
+        "typed-reason",
+        DiagnosticRequiredAction::RetryQuery,
+        DiagnosticBlockingDecision::BlocksCurrentOperation,
+        DiagnosticExitStatusEffect::Failure,
+        std::nullopt};
+    const std::string reason =
+        std::string{"理由 日本語\n"} + bytes({0x1b}) +
+        " literal \\x41 " + bidi + bom + invalid;
+    const RuntimeDiagnosticPresentation presentation =
+        present_runtime_diagnostic(diagnostic, reason);
+
+    expect(
+        presentation.severity == DiagnosticSeverity::Warning,
+        "Runtime terminal-safe projection changed typed severity");
+    expect(
+        presentation.message.find(
+            "Query failure: 理由 日本語\\x0A\\x1B literal \\x5Cx41 ") !=
+            std::string::npos,
+        "Runtime reason was not encoded exactly once");
+    expect(
+        presentation.message.find("repository=repo\\xE2\\x80\\xAE") !=
+                std::string::npos &&
+            presentation.message.find(
+                "package=package\\xEF\\xBB\\xBF") !=
+                std::string::npos &&
+            presentation.message.find("PackageBase=base\\x5Cvalue") !=
+                std::string::npos &&
+            presentation.message.find("source identity=source\\xFF") !=
+                std::string::npos &&
+            presentation.message.find(
+                "local root=/work/root\\x0A\\x1B\\xE2\\x80\\xAE\\xEF\\xBB\\xBF") !=
+                std::string::npos,
+        "Runtime diagnostic identity fields bypassed terminal-safe encoding");
+    expect(
+        presentation.message.find("\\x5Cx5Cx41") == std::string::npos,
+        "Runtime reason was encoded more than once");
+    expect(
+        presentation.message.find('\n') == std::string::npos &&
+            presentation.message.find('\x1b') == std::string::npos &&
+            presentation.message.find(bidi) == std::string::npos &&
+            presentation.message.find(bom) == std::string::npos &&
+            presentation.message.find(static_cast<char>(0xff)) ==
+                std::string::npos,
+        "Runtime presentation retained raw unsafe bytes");
+}
+
 } // namespace
 
 int main() {
@@ -581,6 +662,8 @@ int main() {
         std::cout << "  ok: system update runtime authority\n";
         test_typed_runtime_diagnostic_connection();
         std::cout << "  ok: typed runtime diagnostic connection\n";
+        test_terminal_safe_policy_and_runtime_boundary();
+        std::cout << "  ok: terminal-safe policy/runtime boundary\n";
         std::cout << "Runtime CLI connection tests: all checks passed\n";
         return 0;
     } catch(const std::exception& error) {

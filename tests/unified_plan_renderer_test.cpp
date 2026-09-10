@@ -8,6 +8,7 @@
 #include "stubs/local-dependency-plan/query_stub.hpp"
 #include "system_aur_update_operation.hpp"
 #include "system_source_upgrade.hpp"
+#include "terminal_safe_text_cases.hpp"
 #include "unified_plan_projection.hpp"
 #include "unified_plan_renderer.hpp"
 #include "upgrade_all_operation.hpp"
@@ -91,6 +92,19 @@ struct SystemAurUpdateUnifiedPlanProjectionTestAccess {
 namespace {
 
 namespace query_stub = local_dependency_plan_query_stub;
+
+class TerminalUnsafeErrorCategory final : public std::error_category {
+public:
+    const char* name() const noexcept override {
+        return "terminal-unsafe-fixture";
+    }
+
+    std::string message(int) const override {
+        return std::string{"system-error\n"} +
+               terminal_safe_text_test_cases::bytes({0x1b, 0xe2, 0x80, 0xae,
+                                                     0xef, 0xbb, 0xbf});
+    }
+};
 
 void expect(bool condition, const std::string& message) {
     if(!condition) throw std::runtime_error(message);
@@ -1830,6 +1844,148 @@ void test_direct_aur_update_execution_diagnostic_is_terminal_safe() {
         "direct AUR execution missing diagnostic display");
 }
 
+void test_shared_terminal_safe_corpus_and_owner_bypasses() {
+    for(const auto& test_case : terminal_safe_text_test_cases::cases()) {
+        const AurUpdateExecutionIssue issue{
+            AurUpdateExecutionReason::ProviderMetadataUnavailable,
+            "corpus-child", "corpus-base", "corpus-dependency>=1",
+            test_case.input};
+        const UnifiedPlanRenderingResult rendered = render_blocked(
+            RoutePreflightUnifiedPlanBlocker{
+                UnifiedPlanBorrowedAuthorityReference<
+                    AurUpdateExecutionIssue>(issue)});
+        expect(
+            rendered.is_complete(),
+            std::string("Unified corpus rendering is incomplete for ") +
+                std::string(test_case.label));
+        expect_contains(
+            rendered.text, "diagnostic: " + test_case.expected,
+            std::string("Unified corpus differs for ") +
+                std::string(test_case.label));
+    }
+
+    using terminal_safe_text_test_cases::bytes;
+    const std::string bidi = bytes({0xe2, 0x80, 0xae});
+    const std::string bom = bytes({0xef, 0xbb, 0xbf});
+    const std::string unsafe_path =
+        std::string{"/work/local"} + bytes({0x1b}) +
+        "escape\nnext" + bidi + bom;
+    const LocalSourceRootObservationIdentity local_identity{
+        unsafe_path,
+        LocalSourceDirectoryIdentity{
+            LocalSourceNodeType::Directory, 11, 29, 1000, 0755}};
+    const std::vector<std::string> configured_repositories = {
+        std::string{"repo-日本語"} + bidi + bom};
+    UnifiedPlanObservationInput input;
+    input.status = UnifiedPlanObservationStatus::Ready;
+    input.roots.emplace_back(
+        RootTargetIdentity{0, "local-child"}, local_identity,
+        UnifiedPlanRootRouteKind::LocalSourceBuild);
+    input.configured_repository_order.emplace(
+        std::cref(configured_repositories));
+    const UnifiedPlanObservationResult observation_result =
+        make_unified_plan_observation(std::move(input));
+    const UnifiedPlanObservation& observation = expect_valid(
+        observation_result, "terminal-safe local/repository fixture");
+    const UnifiedPlanObservationStatus status_before = observation.status();
+    const UnifiedPlanRenderingResult rendered =
+        render_unified_plan_observation(observation);
+
+    expect(
+        rendered.is_complete() &&
+            status_before == UnifiedPlanObservationStatus::Ready &&
+            observation.status() == status_before,
+        "Terminal-safe rendering changed successful plan state");
+    expect_contains(
+        rendered.text,
+        "/work/local\\x1Bescape\\x0Anext"
+        "\\xE2\\x80\\xAE\\xEF\\xBB\\xBF",
+        "Successful local path bypass");
+    expect_contains(
+        rendered.text,
+        "repo-日本語\\xE2\\x80\\xAE\\xEF\\xBB\\xBF",
+        "Configured repository order bypass");
+    expect_not_contains(
+        rendered.text, bidi,
+        "Successful plan retained a raw bidi control");
+    expect_not_contains(
+        rendered.text, bom,
+        "Successful plan retained a raw BOM");
+    expect_no_reflected_terminal_controls(
+        rendered.text, "successful local/repository output");
+
+    UpgradeAllOperationIssue nested_diagnostic_issue;
+    nested_diagnostic_issue.kind =
+        UpgradeAllOperationIssueKind::UnknownFailure;
+    nested_diagnostic_issue.phase = UpgradeAllOperationPhase::Preparation;
+    nested_diagnostic_issue.diagnostic =
+        std::string{"nested"} + bidi + bom;
+    const UnifiedPlanRenderingResult nested_diagnostic_rendered =
+        render_blocked(RoutePreflightUnifiedPlanBlocker{
+            UnifiedPlanBorrowedAuthorityReference<
+                UpgradeAllOperationIssue>(nested_diagnostic_issue)});
+    expect_contains(
+        nested_diagnostic_rendered.text,
+        "nested\\xE2\\x80\\xAE\\xEF\\xBB\\xBF",
+        "Nested diagnostic bypass");
+    expect_not_contains(
+        nested_diagnostic_rendered.text, bidi,
+        "Nested diagnostic retained a raw bidi control");
+    expect_not_contains(
+        nested_diagnostic_rendered.text, bom,
+        "Nested diagnostic retained a raw BOM");
+
+    PlanDeclaredRelationReason relation_reason =
+        package_relation_assessment_fixture::
+            confirmed_installed_conflict_reason(
+                "relation-child", "relation-base", "relation-target");
+    relation_reason.assessment.declaration = DeclaredPackageRelation(
+        "relation-child", "relation-base",
+        PackageRelationKind::Conflict,
+        std::string{"relation"} + bidi + bom,
+        std::string{"target"} + bidi, std::nullopt);
+    const AurUpdateExecutionIssue relation_issue{
+        AurUpdateExecutionReason::ConflictsOrReplacesUnresolved,
+        "relation-child", "relation-base", std::nullopt,
+        "unselected diagnostic", std::nullopt, relation_reason};
+    const UnifiedPlanRenderingResult relation_rendered = render_blocked(
+        RoutePreflightUnifiedPlanBlocker{
+            UnifiedPlanBorrowedAuthorityReference<
+                AurUpdateExecutionIssue>(relation_issue)});
+    expect_contains(
+        relation_rendered.text,
+        "relation\\xE2\\x80\\xAE\\xEF\\xBB\\xBF",
+        "Nested relation diagnostic bypass");
+    expect_not_contains(
+        relation_rendered.text, bidi,
+        "Nested relation diagnostic retained a raw bidi control");
+    expect_not_contains(
+        relation_rendered.text, bom,
+        "Nested relation diagnostic retained a raw BOM");
+
+    static const TerminalUnsafeErrorCategory error_category;
+    const LocalSourceRootFailure local_failure{
+        LocalSourceRootStage::RootInspection,
+        LocalSourceRootErrorCode::ReadFailure,
+        "/work/error", std::error_code(7, error_category)};
+    const UnifiedPlanRenderingResult error_rendered = render_blocked(
+        SourceFailureUnifiedPlanBlocker{
+            UnifiedPlanBorrowedAuthorityReference<
+                LocalSourceRootFailure>(local_failure)});
+    expect_contains(
+        error_rendered.text,
+        "system-error\\x0A\\x1B\\xE2\\x80\\xAE\\xEF\\xBB\\xBF",
+        "System error diagnostic bypass");
+    expect_not_contains(
+        error_rendered.text, bidi,
+        "System error retained a raw bidi control");
+    expect_not_contains(
+        error_rendered.text, bom,
+        "System error retained a raw BOM");
+    expect_no_reflected_terminal_controls(
+        error_rendered.text, "system error output");
+}
+
 void test_source_failure_and_route_preflight_subtypes() {
     const BuildPlanResolutionFailure build_plan_failure{
         BuildPlanResolutionFailureKind::RepositoryMetadataUnavailable,
@@ -3010,10 +3166,26 @@ void test_rendering_issue_is_isolated_from_execution_status() {
         "rendering issue changed execution status");
 }
 
+void test_git_revision_basis_is_truthful() {
+    AurUpdatePlanEntry update{"same-version-git", "1-1", InstalledPackageReason::Explicit,
+                              AurUpdateRemotePackage{"same-version-git", "same-version", "1-1", AurVersionRelation::SameAsInstalled}, AurUpdateClassification::UpToDate};
+    update.devel_assessment_origin = AurDevelAssessmentOrigin::CurrentObservation;
+    update.devel_assessment = DevelUpdateAssessment::update_available();
+    UnifiedPlanObservationInput input;
+    input.status = UnifiedPlanObservationStatus::NoOp;
+    input.root_metadata.push_back(UnifiedPlanBorrowedAuthorityReference<AurUpdatePlanEntry>(update));
+    auto observed = make_unified_plan_observation(std::move(input));
+    const auto rendered = render_unified_plan_observation(expect_valid(observed, "Git basis"));
+    expect_contains(rendered.text, "Observed update basis: same-version-git", "Git basis name");
+    expect_contains(rendered.text, "Git revision difference", "Git basis explanation");
+    expect(rendered.text.find("1-1 -> 1-1") == std::string::npos, "Git update rendered a fake version arrow");
+}
+
 } // namespace
 
 int main() {
     try {
+        test_git_revision_basis_is_truthful();
         test_ready_rendering_and_identity_boundaries();
         test_no_op_and_blocked_rendering();
         test_local_build_plan_dependency_authority();
@@ -3027,6 +3199,7 @@ int main() {
         test_untrusted_failure_text_is_terminal_safe();
         test_slice_five_failure_text_is_terminal_safe();
         test_direct_aur_update_execution_diagnostic_is_terminal_safe();
+        test_shared_terminal_safe_corpus_and_owner_bypasses();
         test_source_failure_and_route_preflight_subtypes();
         test_route_preflight_nested_typed_details();
         test_route_preflight_nested_required_field_canaries();

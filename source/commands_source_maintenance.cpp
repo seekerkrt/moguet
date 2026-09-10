@@ -834,8 +834,9 @@ int cmd_build_local(
                 std::move(accepted_metadata),
                 local_makepkg_options(config)});
 
-        execute_prepared_source_build_invocation(
+        const auto dependency_result = execute_prepared_source_build_invocation(
             std::move(dependency_invocation), config);
+        if(!dependency_result.is_success()) return dependency_result.command_exit_status();
         LocalSourceBuildResult build_result =
             execute_prepared_local_source_build(
                 std::move(local_build));
@@ -914,9 +915,9 @@ int cmd_build(
     }
 
     try {
-        build_source_target(
-            invocation.package_name,
-            invocation.source_environment, config);
+        if(!build_source_target(
+               invocation.package_name,
+               invocation.source_environment, config)) return 1;
     } catch(const ProductionSourceBuildInvocationError& error) {
         Logger::error(
             format_production_source_build_invocation_failure(error));
@@ -1293,6 +1294,17 @@ void cmd_revert(
     bool failed = false;
     std::vector<std::string> reinstall_targets;
     for(const auto& pkg : targets) {
+        // The repository decision precedes this target's preference mutation.
+        // Independent targets still continue and share the final reinstall.
+        const StrictRepositoryPackageQueryResult repository =
+            query_repository_package_strict(pkg);
+        if(const auto* failure = std::get_if<RepositoryMetadataFailure>(&repository)) {
+            Logger::error(localization::format_translated_message(
+                "Failed to inspect repository metadata for {}: {}",
+                pkg, failure->diagnostic));
+            failed = true;
+            continue;
+        }
         bool was_removed = false;
         try {
             was_removed = remove_source_preference_entry(pkg);
@@ -1310,7 +1322,7 @@ void cmd_revert(
             Logger::warn(localization::format_translated_message(
                 "{} was not marked.", pkg));
         }
-        if(is_repo_package(pkg)) {
+        if(std::holds_alternative<RepositoryPackagePresent>(repository)) {
             // TRANSLATORS: The placeholder is a package name.
             Logger::info(localization::format_translated_message(
                 "{} exists in official repos. Will reinstall binary.",

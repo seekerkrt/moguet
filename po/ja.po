@@ -1,9 +1,9 @@
 msgid ""
 msgstr ""
-"Project-Id-Version: Moguet 2.6.0\n"
+"Project-Id-Version: Moguet 2.7.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-02 09:05+0900\n"
-"PO-Revision-Date: 2026-08-03 06:53+0900\n"
+"POT-Creation-Date: 2026-09-10 05:44+0900\n"
+"PO-Revision-Date: 2026-09-09 16:53+0900\n"
 "Last-Translator: Moguet contributors\n"
 "Language-Team: Japanese\n"
 "Language: ja\n"
@@ -813,6 +813,9 @@ msgstr "{} の {} 作業項目に予期しない失敗詳細があります。"
 msgid "prior work item stopped"
 msgstr "先行する作業項目が停止しました"
 
+msgid "authoritative execution incomplete; installation and publication outcomes are retained separately"
+msgstr "検証済み経路の実行は未完了です。インストールと来歴保存の結果は個別に保持されています"
+
 #. TRANSLATORS: AUR is a runtime project identity.
 #, c++-format
 msgid "Unknown {} work-item failure kind."
@@ -930,6 +933,15 @@ msgstr "{} トランザクションの失敗詳細に試行の証拠がありま
 msgid "An unattempted {} work item unexpectedly has a production outcome."
 msgstr "未試行の{}作業項目に予期しない実行結果があります。"
 
+msgid "transaction succeeded; exact installed proof unavailable"
+msgstr "トランザクションは成功しましたが、インストール対象の厳密な証明は得られていません"
+
+msgid "transaction outcome unknown; installed artifact unverified"
+msgstr "トランザクション結果は不明です。インストールされたアーティファクトは未検証です"
+
+msgid "transaction failed; package effects unverified"
+msgstr "トランザクションは失敗しました。パッケージへの影響は未検証です"
+
 msgid "installed / updated"
 msgstr "インストール済み／更新済み"
 
@@ -1020,6 +1032,14 @@ msgstr "{} の更新メタデータを利用できません。"
 
 msgid "Installed and remote versions could not be compared."
 msgstr "インストール済みバージョンとリモートバージョンを比較できませんでした。"
+
+#. TRANSLATORS: The placeholder is the literal tool name "Git".
+#, c++-format
+msgid "Devel {} observation failed; no automatic build."
+msgstr "develの{}リビジョン観測に失敗しました。自動ビルドは行いません。"
+
+msgid "Devel source is unsupported for automatic updates."
+msgstr "このdevelソースは自動更新に対応していません。"
 
 #. TRANSLATORS: {} is the literal service name "AUR".
 #, c++-format
@@ -1802,6 +1822,11 @@ msgstr "{} 情報の一括取得で結果が返されませんでした。この
 msgid "Failed to fetch {} info: {}"
 msgstr "{} 情報を取得できませんでした: {}"
 
+#. TRANSLATORS: The placeholders are the literal tool name "Git" and a package name.
+#, c++-format
+msgid "{} revision update available: {} (package-version decision unchanged)."
+msgstr "{}リビジョンの更新があります: {}（パッケージバージョンによる判定は変更しません）。"
+
 msgid "Planned package target root attribution is inconsistent."
 msgstr "計画済みパッケージ対象のルートへの帰属に整合性がありません。"
 
@@ -2055,6 +2080,14 @@ msgstr "不明な{}更新操作状態です。"
 
 msgid "up to date"
 msgstr "最新"
+
+#. TRANSLATORS: The placeholder is the literal tool name "Git".
+#, c++-format
+msgid "devel {} observation failed"
+msgstr "develの{}観測に失敗"
+
+msgid "devel automatic update unsupported"
+msgstr "develの自動更新は未対応"
 
 msgid "devel update requires check"
 msgstr "devel更新は確認が必要"
@@ -2780,6 +2813,10 @@ msgstr "{}は大きすぎるため{}へ書き込めません。"
 msgid "Failed to write {} to {}."
 msgstr "{}を{}へ書き込めませんでした。"
 
+#, c++-format
+msgid "{}: devel update requires check; local authority is unavailable or has changed."
+msgstr "{}: devel更新は確認が必要です。ローカルの検証根拠が得られないか、変更されています。"
+
 msgid "Devel check-required update entry is inconsistent."
 msgstr "確認が必要なdevel更新項目に整合性がありません。"
 
@@ -2817,6 +2854,15 @@ msgstr "{}に外部パッケージが見つかりません: {}"
 #, c++-format
 msgid "Failed to compare versions: {} -> {}"
 msgstr "バージョンを比較できませんでした: {} -> {}"
+
+#. TRANSLATORS: The placeholders are the literal tool name "Git" and a package name.
+#, c++-format
+msgid "Devel {} observation failed: {}"
+msgstr "develの{}観測に失敗しました: {}"
+
+#, c++-format
+msgid "Devel automatic update is unsupported: {}"
+msgstr "develの自動更新は未対応です: {}"
 
 #, c++-format
 msgid "Inconsistent {} update state."
@@ -3151,6 +3197,10 @@ msgid "Removing {} from list..."
 msgstr "{}を一覧から削除しています..."
 
 #, c++-format
+msgid "Failed to inspect repository metadata for {}: {}"
+msgstr "{} のリポジトリメタデータの確認に失敗しました: {}"
+
+#, c++-format
 msgid "Unmarking source-build for {}"
 msgstr "{}のソースビルド指定を解除しています"
 
@@ -3210,6 +3260,10 @@ msgstr "{}キャッシュの削除をスキップしました。"
 msgid "{} cache is empty."
 msgstr "{}キャッシュは空です。"
 
+#, c++-format
+msgid "Foreign package inventory is unavailable; installed annotations are omitted: {}"
+msgstr "foreignパッケージ一覧を取得できないため、インストール済みの表示を省略します: {}"
+
 msgid "[installed]"
 msgstr "[インストール済み]"
 
@@ -3221,6 +3275,13 @@ msgstr "[保守担当者なし]"
 
 msgid "no"
 msgstr "いいえ"
+
+#, c++-format
+msgid "Installed state is unavailable for {}: {}"
+msgstr "{} のインストール状態を取得できません: {}"
+
+msgid "unavailable"
+msgstr "利用不可"
 
 msgid "yes"
 msgstr "はい"
@@ -3677,6 +3738,12 @@ msgstr "ビルドまたはインストールに失敗しました"
 
 msgid "cleanup failed after package transaction"
 msgstr "パッケージ処理後の後処理に失敗しました"
+
+msgid "authoritative execution incomplete; installation and publication outcomes are separate"
+msgstr "検証済み経路の実行は未完了です。インストールと来歴保存の結果は別々です"
+
+msgid "devel update requires check; explicit rebuild declined"
+msgstr "devel更新は確認が必要です。明示的な再ビルドが拒否されました"
 
 msgid "package update status unknown"
 msgstr "パッケージ更新状態が不明です"
@@ -5034,9 +5101,6 @@ msgstr "{}更新候補"
 msgid "{} update candidate has no remote package identity"
 msgstr "{}更新候補にリモートパッケージ識別情報がありません"
 
-msgid "devel package update status requires check: suffix candidate only"
-msgstr "devel packageの更新状態は確認が必要: suffix候補のみ"
-
 #. TRANSLATORS: {} is the literal service name "AUR".
 #, c++-format
 msgid "{} version comparison unavailable"
@@ -5881,9 +5945,6 @@ msgstr "完全"
 msgid "partial"
 msgstr "一部のみ"
 
-msgid "unavailable"
-msgstr "利用不可"
-
 msgid "invalid"
 msgstr "不正"
 
@@ -6511,8 +6572,8 @@ msgid "Reviewed state for {} {} remains at generation {}; build and install outc
 msgstr "確認済み状態（{} {}）は世代 {}のままです。ビルドとインストールの結果は別に報告します。"
 
 #, c++-format
-msgid "Reviewed state for {} {} was published at generation {}; build and install outcomes are reported separately."
-msgstr "確認済み状態（{} {}）を世代 {}として公開しました。ビルドとインストールの結果は別に報告します。"
+msgid "Reviewed state for {} {} was finalized as generation {}; build and install outcomes are reported separately."
+msgstr "確認済み状態（{} {}）を世代 {} として確定しました。ビルドとインストールの結果は別に報告します。"
 
 #, c++-format
 msgid "Reviewed state for {} {} already matched the accepted target at publication; generation {} was retained and no state rewrite was needed."
@@ -7118,6 +7179,12 @@ msgstr "専用アーティファクト作業領域の準備に失敗しました
 msgid "Source checkout or build preparation failed."
 msgstr "ソース取得またはビルド準備に失敗しました。"
 
+msgid "Devel update requires check. Continue with an explicit reviewed rebuild?"
+msgstr "devel更新は確認が必要です。ソース確認を伴う明示的な再ビルドを続けますか？"
+
+msgid "Devel package requires check; explicit rebuild was not accepted."
+msgstr "develパッケージは確認が必要です。明示的な再ビルドは承認されませんでした。"
+
 #, c++-format
 msgid "{} private artifact workspace preparation failed."
 msgstr "{} の専用アーティファクト作業領域を準備できませんでした。"
@@ -7236,10 +7303,6 @@ msgstr "本番用ソースビルドの作業項目に準備済みのキャッシ
 #, c++-format
 msgid "Repository exact package identity does not match the requested package {}."
 msgstr "リポジトリの正確なパッケージ識別情報が、要求されたパッケージ {} と一致しません。"
-
-#, c++-format
-msgid "Failed to inspect repository metadata for {}: {}"
-msgstr "{} のリポジトリメタデータの確認に失敗しました: {}"
 
 #, c++-format
 msgid "{} info for {} does not include {}."
@@ -9077,12 +9140,25 @@ msgstr "パッケージ関係ブロッカー: {}"
 msgid "Blockers:"
 msgstr "ブロッカー:"
 
+msgid "skipped: devel update requires check; local authority is unavailable or has changed"
+msgstr "スキップ: devel更新は確認が必要です。ローカルの検証根拠が得られないか、変更されています"
+
 msgid "Unified plan:"
 msgstr "統合プラン:"
 
 #, c++-format
 msgid "  Status: {}"
 msgstr "  状態: {}"
+
+#. TRANSLATORS: The placeholders are a package name and the literal tool name "Git". This is a revision difference, not a newer package version.
+#, c++-format
+msgid "  Observed update basis: {} — {} revision difference"
+msgstr "  観測した更新根拠: {} — {}リビジョンの差分"
+
+#. TRANSLATORS: The placeholders are a package name and the literal tool name "Git".
+#, c++-format
+msgid "  Observed devel assessment: {} — same {} revision"
+msgstr "  観測したdevel判定: {} — 同じ{}リビジョン"
 
 #, c++-format
 msgid "A system/{} aggregate status is not supported by the renderer."
@@ -9343,6 +9419,9 @@ msgstr "{}のデフォルト状態ログを段階{}で安全に使用できま�
 
 msgid "Unknown state log error code."
 msgstr "不明な状態ログエラーコードです。"
+
+#~ msgid "devel package update status requires check: suffix candidate only"
+#~ msgstr "devel packageの更新状態は確認が必要: suffix候補のみ"
 
 #, c++-format
 #~ msgid "Check registered source-build preferences after {}"

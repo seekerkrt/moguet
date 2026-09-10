@@ -16,9 +16,8 @@ std::string diagnostic_class_label(DiagnosticClass classification);
 std::string diagnostic_source_label(DiagnosticSourceKind source_kind);
 std::string diagnostic_identity_suffix(const DiagnosticIdentity& identity);
 
-// Runtime details do not carry a terminal-safety capability. Callers that
-// intentionally expose retained external/exception text must opt in at the
-// presentation boundary instead of changing every existing diagnostic.
+// Runtime details do not carry a terminal-safety capability. This wrapper is
+// the canonical presentation-only projection for opaque diagnostic text.
 std::string terminal_safe_runtime_diagnostic_detail(std::string_view value);
 
 template <typename Reason>
@@ -30,7 +29,7 @@ RuntimeDiagnosticPresentation present_runtime_diagnostic(
     return RuntimeDiagnosticPresentation{
         diagnostic.severity,
         diagnostic_class_label(diagnostic.classification) + ": " +
-            reason_message +
+            terminal_safe_runtime_diagnostic_detail(reason_message) +
             diagnostic_identity_suffix(diagnostic.identity)};
 }
 

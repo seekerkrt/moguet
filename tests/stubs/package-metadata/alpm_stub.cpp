@@ -542,6 +542,14 @@ void configure_repository_package_from_environment(
     const std::string& repository_name,
     const std::string& package_name,
     RepositoryPackageState& package_state) {
+    const char* failed_package =
+        std::getenv("MOGUET_TEST_REPOSITORY_QUERY_FAILURE_PACKAGE");
+    if(failed_package != nullptr && package_name == failed_package) {
+        package_state.lookup_mode = PackageLookupMode::Failure;
+        package_state.query_error = ALPM_ERR_DB_OPEN;
+        return;
+    }
+
     const char* state_file_path =
         std::getenv("MOGUET_TEST_REPOSITORY_METADATA_STATE_FILE");
     if(state_file_path == nullptr) return;
@@ -1443,6 +1451,13 @@ int alpm_release(alpm_handle_t* handle) {
     return 0;
 }
 
+int alpm_option_set_logcb(alpm_handle_t* handle, alpm_cb_log, void*) {
+    // The CLI metadata stub cannot attest a real installed-record lazy load.
+    // Link the dormant observer without supplying a positive live-proof path.
+    set_handle_error(handle, ALPM_ERR_WRONG_ARGS);
+    return -1;
+}
+
 alpm_errno_t alpm_errno(alpm_handle_t* handle) {
     if(handle == nullptr) return ALPM_ERR_HANDLE_NULL;
     return handle->error;
@@ -1558,6 +1573,13 @@ alpm_list_t* alpm_db_get_pkgcache(alpm_db_t* database) {
         SyncDatabaseBehavior& behavior =
             g_state.sync_database_behaviors[database->repository_name];
         ++behavior.cache_calls;
+        const char* failed_repository =
+            std::getenv("MOGUET_TEST_SYNC_CACHE_FAILURE_REPOSITORY");
+        if(failed_repository != nullptr &&
+           database->repository_name == failed_repository) {
+            set_handle_error(database->handle, ALPM_ERR_DB_OPEN);
+            return nullptr;
+        }
         if(behavior.cache_fails) {
             set_handle_error(database->handle, behavior.cache_error);
             return nullptr;
@@ -1917,6 +1939,11 @@ const char* alpm_pkg_get_arch(alpm_pkg_t* package) {
         return nullptr;
     }
     return package_state->architecture.c_str();
+}
+
+alpm_filelist_t* alpm_pkg_get_files(alpm_pkg_t* package) {
+    if(package) set_handle_error(package->handle, ALPM_ERR_PKG_INVALID);
+    return nullptr;
 }
 
 alpm_list_t* alpm_pkg_get_provides(alpm_pkg_t* package) {

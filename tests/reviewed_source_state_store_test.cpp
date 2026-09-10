@@ -10,6 +10,7 @@
 #include <iterator>
 #include <limits>
 #include <optional>
+#include <new>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -21,6 +22,27 @@
 
 #include <fcntl.h>
 #include <sys/stat.h>
+
+namespace allocation_fault {
+bool blocked = false;
+std::size_t failures = 0;
+} // namespace allocation_fault
+
+// Preserve the replacement boundary under optimized fixture compilation.
+[[gnu::noinline]] void* operator new(std::size_t size) {
+    if(allocation_fault::blocked) {
+        ++allocation_fault::failures;
+        throw std::bad_alloc();
+    }
+    if(void* memory = std::malloc(size == 0 ? 1 : size)) return memory;
+    throw std::bad_alloc();
+}
+[[gnu::noinline]] void operator delete(void* memory) noexcept {
+    std::free(memory);
+}
+[[gnu::noinline]] void operator delete(void* memory, std::size_t) noexcept {
+    std::free(memory);
+}
 
 namespace fs = std::filesystem;
 
@@ -351,7 +373,7 @@ struct ReplacingCleanupTarget {
     static void handler(const ReviewedSourceStateStoreTestRaceContext& context) {
         require(instance != nullptr, "ReplacingCleanupTarget was not armed.");
         instance->surviving_path =
-            context.package_directory / "-.moguet-reviewed-source-planted";
+            context.unit_directory / "-.moguet-reviewed-source-planted";
         write_bytes(instance->surviving_path, instance->contents, 0600);
     }
 };
@@ -371,7 +393,7 @@ struct ReplacingTemporarySource {
         instance->observed_source_device = context.source_device;
         instance->observed_source_inode = context.source_inode;
         instance->decoy_path =
-            context.package_directory / "-.moguet-reviewed-source-foreign";
+            context.unit_directory / "-.moguet-reviewed-source-foreign";
         write_bytes(instance->decoy_path, instance->contents, 0600);
         replace_path_with_new_inode(
             instance->decoy_path, instance->contents, 0600);
@@ -394,7 +416,7 @@ struct RewritingTemporarySourceInPlace {
         instance->observed_source_device = context.source_device;
         instance->observed_source_inode = context.source_inode;
         instance->decoy_path =
-            context.package_directory / "-.moguet-reviewed-source-rewrite";
+            context.unit_directory / "-.moguet-reviewed-source-rewrite";
         write_bytes(instance->decoy_path, std::string(instance->contents.size(), 'x'), 0600);
         rewrite_path_in_place_restoring_mtime(
             instance->decoy_path, instance->contents, 0600);
@@ -410,7 +432,7 @@ struct ReplacingPackageDirectory {
     static void handler(const ReviewedSourceStateStoreTestRaceContext& context) {
         require(instance != nullptr, "ReplacingPackageDirectory was not armed.");
         install_package_directory_replacement(
-            context.package_directory, instance->marker);
+            context.unit_directory, instance->marker);
     }
 };
 ReplacingPackageDirectory* ReplacingPackageDirectory::instance = nullptr;
@@ -448,7 +470,7 @@ struct PlantingManagedLeaf {
     static void handler(const ReviewedSourceStateStoreTestRaceContext& context) {
         require(instance != nullptr, "PlantingManagedLeaf was not armed.");
         write_bytes(
-            context.package_directory / instance->leaf, instance->contents,
+            context.unit_directory / instance->leaf, instance->contents,
             0600);
     }
 };
@@ -1920,7 +1942,7 @@ void test_package_directory_replacement_after_commit_is_published_uncertain() {
     ReplacingPackageDirectory::instance = nullptr;
     require(uncertain.issue ==
                 ReviewedSourceStatePostPublicationIssue::
-                    PackageDirectoryIdentityUncertain,
+                    UnitDirectoryIdentityUncertain,
             "Post-commit PackageBase replacement issue drifted.");
     const fs::path package_dir =
         reviewed_source_state_store_entry_path(first.package_base());
@@ -2979,10 +3001,58 @@ void test_post_commit_record_read_leaf_rebind_is_published_uncertain() {
 }
 #endif
 
+
+void block_reviewed_allocations(const ReviewedSourceStateStoreTestRaceContext&) {
+    allocation_fault::blocked = true;
+}
+
+void test_reviewed_resource_outcomes() {
+    for(int mode : {0, 1, 2}) {
+        StoreTestHome home;
+        const auto state = aur_state();
+        std::optional<ReviewedSourceStateStorePublishResult> result;
+        allocation_fault::failures = 0;
+        allocation_fault::blocked = mode == 0;
+        if(mode != 0) {
+            run_reviewed_source_state_store_race_once_for_test(
+                mode == 1 ? ReviewedSourceStateStoreTestRacePoint::BeforePostCommitReproof
+                          : ReviewedSourceStateStoreTestRacePoint::AfterVerifiedPublication,
+                &block_reviewed_allocations);
+        }
+        try {
+            result.emplace(publish_reviewed_source_state(state, std::nullopt));
+        } catch(...) {
+            allocation_fault::blocked = false;
+            throw;
+        }
+        const bool stayed_blocked = allocation_fault::blocked;
+        allocation_fault::blocked = false;
+        require(stayed_blocked, "Reviewed allocation guard was unexpectedly reset.");
+        if(mode == 0) {
+            require(require_arm<ReviewedSourceStateStoreFailure>(*result, "Reviewed precommit resource failure escaped.").kind ==
+                        ReviewedSourceStateStoreFailureKind::ResourceFailure,
+                    "Reviewed resource cause changed.");
+            require(!fs::exists(reviewed_source_state_store_directory()), "Reviewed entry failure created namespace.");
+        } else if(mode == 1) {
+            const auto& uncertain = require_arm<ReviewedSourceStateStorePublishedUncertain>(*result, "Reviewed committed failure was definite.");
+            require(uncertain.state == state && uncertain.failure_kind == ReviewedSourceStateStoreFailureKind::ResourceFailure &&
+                        uncertain.observed.has_value(),
+                    "Reviewed uncertain semantic/record evidence was lost.");
+        } else {
+            require(require_arm<ReviewedSourceStateStorePublished>(*result, "Reviewed wrapper lost verified success.").state == state &&
+                        allocation_fault::failures == 0,
+                    "Reviewed wrapper allocated after success.");
+        }
+        if(mode != 2) require(allocation_fault::failures == 1, "Reviewed resource result allocated again.");
+    }
+    std::cout << "reviewed semantic resource outcome matrix PASS\n";
+}
+
 } // namespace
 
 int main() {
     try {
+        test_reviewed_resource_outcomes();
         test_missing_lookup_does_not_create();
         test_first_create_is_0600_and_round_trips();
         test_successor_leaf_binds_inode_and_content_digest();

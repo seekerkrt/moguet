@@ -23,6 +23,8 @@ constexpr std::string_view SOURCE_PREFERENCE_DIRECTORY_NAME =
 constexpr std::string_view REVIEWED_SOURCE_STATE_DIRECTORY_NAME =
     "reviewed-sources";
 constexpr std::string_view REVIEWED_SOURCE_STATE_AUR_DIRECTORY_NAME = "aur";
+constexpr std::string_view DEVEL_BUILD_PROVENANCE_DIRECTORY_NAME =
+    "devel-build-provenance";
 
 struct ResolvedBaseDirectory {
     fs::path directory;
@@ -263,14 +265,14 @@ DirectoryCreationBoundary make_source_preference_creation_boundary(
         std::move(base_directory.creatable_components)};
 }
 
-DirectoryCreationBoundary make_reviewed_source_state_creation_boundary(
+DirectoryCreationBoundary make_state_store_creation_boundary(
     ResolvedBaseDirectory base_directory,
-    const std::string& application_component) {
+    const std::string& application_component,
+    const std::vector<std::string>& managed_components) {
     base_directory.creatable_components.push_back(application_component);
-    base_directory.creatable_components.push_back(
-        std::string(REVIEWED_SOURCE_STATE_DIRECTORY_NAME));
-    base_directory.creatable_components.push_back(
-        std::string(REVIEWED_SOURCE_STATE_AUR_DIRECTORY_NAME));
+    base_directory.creatable_components.insert(
+        base_directory.creatable_components.end(), managed_components.begin(),
+        managed_components.end());
     return DirectoryCreationBoundary{
         base_directory.source, std::move(base_directory.directory),
         std::move(base_directory.existing_anchor),
@@ -364,10 +366,36 @@ ReviewedSourceStatePaths resolve_reviewed_source_state(
         state_base.directory / application_component /
         std::string(REVIEWED_SOURCE_STATE_DIRECTORY_NAME) /
         std::string(REVIEWED_SOURCE_STATE_AUR_DIRECTORY_NAME);
+    const std::vector<std::string> managed_components{
+        std::string(REVIEWED_SOURCE_STATE_DIRECTORY_NAME),
+        std::string(REVIEWED_SOURCE_STATE_AUR_DIRECTORY_NAME)};
     return ReviewedSourceStatePaths{
         directory,
-        make_reviewed_source_state_creation_boundary(
-            std::move(state_base), application_component)};
+        make_state_store_creation_boundary(
+            std::move(state_base), application_component,
+            managed_components),
+        managed_components};
+}
+
+DevelBuildProvenancePaths resolve_devel_build_provenance(
+    const EnvironmentSnapshot& environment) {
+    ResolvedBaseDirectory state_base = resolve_base_directory(
+        environment.xdg_state_home, environment.home,
+        DirectoryKind::State, fs::path(".local") / "state");
+    const std::string application_component(application_identity::XDG_IDENTITY);
+    const std::vector<std::string> managed_components{
+        std::string(DEVEL_BUILD_PROVENANCE_DIRECTORY_NAME),
+        std::string(REVIEWED_SOURCE_STATE_AUR_DIRECTORY_NAME)};
+    const fs::path directory =
+        state_base.directory / application_component /
+        std::string(DEVEL_BUILD_PROVENANCE_DIRECTORY_NAME) /
+        std::string(REVIEWED_SOURCE_STATE_AUR_DIRECTORY_NAME);
+    return DevelBuildProvenancePaths{
+        directory,
+        make_state_store_creation_boundary(
+            std::move(state_base), application_component,
+            managed_components),
+        managed_components};
 }
 
 StatePaths resolve_state(const EnvironmentSnapshot& environment) {
@@ -436,6 +464,17 @@ ReviewedSourceStatePaths resolve_reviewed_source_state_process_environment() {
         .home = process_environment_value("HOME"),
     };
     return resolve_reviewed_source_state(environment);
+}
+
+DevelBuildProvenancePaths
+resolve_devel_build_provenance_process_environment() {
+    const EnvironmentSnapshot environment{
+        .xdg_config_home = std::nullopt,
+        .xdg_state_home = process_environment_value("XDG_STATE_HOME"),
+        .xdg_cache_home = std::nullopt,
+        .home = process_environment_value("HOME"),
+    };
+    return resolve_devel_build_provenance(environment);
 }
 
 StatePaths resolve_state_process_environment() {

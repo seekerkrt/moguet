@@ -745,7 +745,10 @@ UpgradeAllOperationResult make_blocked_result() {
     blocking_issue.original_preference_index = 1;
     blocking_issue.preference_package_name = "source-incomplete";
     blocking_issue.resolved_package_base = "source-incomplete-base";
-    blocking_issue.diagnostic = "fixture blocking system/source issue";
+    blocking_issue.diagnostic =
+        std::string{"fixture blocking system/source issue\nunsafe-after"} +
+        std::string{"\x1b", 1} + std::string{"\xe2\x80\xae", 3} +
+        std::string{"\xef\xbb\xbf", 3} + std::string{"\xff", 1};
     result.system_source.issues.push_back(blocking_issue);
 
     SystemSourceUpgradeDiagnostic blocking_detail;

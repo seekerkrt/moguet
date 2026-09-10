@@ -7,10 +7,13 @@
 #include <alpm.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <utility>
 
 namespace artifact_archive_metadata {
@@ -152,6 +155,48 @@ ArtifactPackageIdentity query_with_libalpm(
     authority.require_validity();
     ArtifactPackageIdentity identity =
         query_path_with_libalpm(authority.path());
+    authority.require_validity();
+    return identity;
+}
+
+RetainedDescriptorQueryAuthority::RetainedDescriptorQueryAuthority(
+    int descriptor)
+    : descriptor_(descriptor) {
+    struct stat status{};
+    if(descriptor_ < 0 || ::fstat(descriptor_, &status) != 0 ||
+       !S_ISREG(status.st_mode) || status.st_size < 0) {
+        throw_archive_query_failure();
+    }
+    device_ = static_cast<std::uintmax_t>(status.st_dev);
+    inode_ = static_cast<std::uintmax_t>(status.st_ino);
+    owner_ = static_cast<std::uintmax_t>(status.st_uid);
+    size_ = static_cast<std::uintmax_t>(status.st_size);
+}
+
+void RetainedDescriptorQueryAuthority::require_validity() const {
+    struct stat status{};
+    if(descriptor_ < 0 || ::fstat(descriptor_, &status) != 0 ||
+       !S_ISREG(status.st_mode) || status.st_size < 0 ||
+       static_cast<std::uintmax_t>(status.st_dev) != device_ ||
+       static_cast<std::uintmax_t>(status.st_ino) != inode_ ||
+       static_cast<std::uintmax_t>(status.st_uid) != owner_ ||
+       static_cast<std::uintmax_t>(status.st_size) != size_) {
+        throw_archive_query_failure();
+    }
+}
+
+std::filesystem::path
+RetainedDescriptorQueryAuthority::proc_descriptor_path() const {
+    require_validity();
+    return std::filesystem::path("/proc") / std::to_string(::getpid()) /
+           "fd" / std::to_string(descriptor_);
+}
+
+ArtifactPackageIdentity query_with_libalpm(
+    const RetainedDescriptorQueryAuthority& authority) {
+    authority.require_validity();
+    ArtifactPackageIdentity identity =
+        query_path_with_libalpm(authority.proc_descriptor_path());
     authority.require_validity();
     return identity;
 }

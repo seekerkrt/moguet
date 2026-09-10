@@ -18,6 +18,8 @@ set(MOGUET_PRODUCTION_SOURCES
     source/aur_update_operation_result.cpp
     source/aur_update_plan.cpp
     source/aur_update_query.cpp
+    source/aur_devel_update.cpp
+    source/reviewed_devel_source_route.cpp
     source/build_plan_artifact_target_projection.cpp
     source/build_plan_relation_assessment.cpp
     source/cache_authority.cpp
@@ -33,8 +35,18 @@ set(MOGUET_PRODUCTION_SOURCES
     source/commands_upgrade_all.cpp
     source/cross_source_version_lock.cpp
     source/cross_source_version_lock_observation.cpp
+    source/devel_build_provenance.cpp
+    source/devel_build_provenance_codec.cpp
+    source/devel_build_provenance_reviewed_binding.cpp
+    source/devel_build_provenance_store.cpp
+    source/devel_build_provenance_publication.cpp
+    source/devel_source_artifact_install.cpp
     source/devel_package_classification.cpp
     source/devel_update_model.cpp
+    source/current_installed_artifact_binding_observer.cpp
+    source/devel_git_revision_comparison.cpp
+    source/devel_package_assessment.cpp
+    source/reviewed_devel_source_build_execution.cpp
     source/dependency_constraint.cpp
     source/dependency_constraint_presentation.cpp
     source/dependency_plan.cpp
@@ -42,12 +54,18 @@ set(MOGUET_PRODUCTION_SOURCES
     source/dependency_spec.cpp
     source/diagnostic_projection.cpp
     source/dry_run.cpp
+    source/evaluated_devel_source_build.cpp
+    source/exact_artifact_transaction_protocol.cpp
     source/filtered_aur_update_operation.cpp
     source/git_remote_revision_observer.cpp
+    source/installed_artifact_binding.cpp
+    source/installed_artifact_binding_observer.cpp
+    source/installed_package_record_observation.cpp
     source/installed_package_relation_inventory.cpp
     source/interactive_confirmation.cpp
     source/invocation_owned_cleanup_adapter.cpp
     source/invocation_owned_cleanup_model.cpp
+    source/invocation_owned_source_build_context.cpp
     source/local_dependency_plan_projection.cpp
     source/local_package_metadata.cpp
     source/local_source_build.cpp
@@ -130,6 +148,8 @@ set(MOGUET_PRODUCTION_SOURCES
     source/user_config.cpp
     source/vcs_source_identity.cpp
     source/xdg_directory_safety.cpp
+    source/xdg_generation_store.cpp
+    source/xdg_generation_store_sha256.cpp
     source/xdg_paths.cpp
     source/xdg_state_log.cpp
 )
@@ -149,6 +169,9 @@ set(MOGUET_ALPM_RECEIPT_HELPER_SOURCES
 set(MOGUET_SOURCE_ARTIFACT_INSTALL_HELPER_SOURCES
     source/source_artifact_install_trusted_helper_main.cpp
     source/source_artifact_install_trusted_helper_state.cpp
+    source/exact_artifact_transaction_protocol.cpp
+    source/installed_package_record_observation.cpp
+    source/xdg_generation_store_sha256.cpp
     source/source_artifact_install_trusted_protocol.cpp
     source/trusted_alpm_receipt_protocol.cpp
     source/package_identifier.cpp

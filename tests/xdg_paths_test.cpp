@@ -801,6 +801,36 @@ void test_reviewed_source_state_resolver_rejects_relative_xdg_value() {
         "relative/reviewed-state-secret");
 }
 
+void test_devel_build_provenance_resolver_is_separate_and_lazy() {
+    const xdg_paths::EnvironmentSnapshot environment{
+        .xdg_config_home = "relative/config-secret",
+        .xdg_state_home = "/provenance-state/base",
+        .xdg_cache_home = "relative/cache-secret",
+        .home = "relative/unused-home",
+    };
+    const xdg_paths::DevelBuildProvenancePaths provenance =
+        xdg_paths::resolve_devel_build_provenance(environment);
+    const xdg_paths::ReviewedSourceStatePaths reviewed =
+        xdg_paths::resolve_reviewed_source_state(environment);
+
+    expect_path(
+        provenance.directory,
+        "/provenance-state/base/moguet/devel-build-provenance/aur",
+        "Devel provenance explicit directory");
+    expect_creation_boundary(
+        provenance.creation_boundary,
+        xdg_paths::DirectorySource::ExplicitXdg,
+        "/provenance-state/base", "/provenance-state/base",
+        {"moguet", "devel-build-provenance", "aur"},
+        "Devel provenance explicit creation boundary");
+    expect(
+        provenance.managed_components ==
+            std::vector<std::string>{"devel-build-provenance", "aur"},
+        "Devel provenance managed components drifted");
+    expect(provenance.directory != reviewed.directory,
+           "Devel provenance resolver reused reviewed-source namespace");
+}
+
 void test_source_preference_resolver_rejects_relative_xdg_value() {
     const xdg_paths::EnvironmentSnapshot environment{
         .xdg_config_home = "relative/source-preference-secret",
@@ -1368,6 +1398,9 @@ int main() {
         run_case(
             "reviewed-source resolver rejects relative XDG value",
             test_reviewed_source_state_resolver_rejects_relative_xdg_value);
+        run_case(
+            "devel provenance resolver is separate and lazy",
+            test_devel_build_provenance_resolver_is_separate_and_lazy);
         run_case(
             "source preference process adapter uses root context",
             test_source_preference_process_adapter_uses_root_context);

@@ -34,6 +34,7 @@ release操作は[`DEVELOPMENT.md`](DEVELOPMENT.md)を正とする。この文書
 | A: pure / unit | `test`の一部 | in-processのvalue、model、utility |
 | B: focused component | `test`の一部 | component、stubbed adapter、局所contract |
 | C: host/static/tool/filesystem integration | `test`の一部 | host tool、static contract、filesystem、packaging fixture |
+| installed fixture compile/link | `test-installed-fixture-compile`（`test-repository`にも含む） | `EXCLUDE_FROM_ALL` installed transport fixtureをhostでcompile/linkするだけのgate。runtimeとactual S5/S6 acceptanceはcontainerに限定する |
 | D: deterministic isolated full-CLI integration | `test`の一部 | isolated HOME / XDG、loopback fixture、PTY、full CLI |
 | A–D full host | `test` | host regression全体 |
 | G: release-only | `release-check-exclusive` | version、license、packaging metadata / payload、tracked Markdown |
@@ -43,6 +44,14 @@ release操作は[`DEVELOPMENT.md`](DEVELOPMENT.md)を正とする。この文書
 | F: actual provider / AUR / local | `test-container-live` | provider→AUR→localの独立containerを直列・fail-fast実行 |
 | security-specific installed ALPM receipt | `test-container-receipt` | networkなしのinstalled root helper、transaction-local hook、actual isolated Install / Upgrade / failure |
 | source-artifact installed receipt | `test-container-source-artifact-receipt` | production transport、write-sealed bytes、root-owned staging、fixed `pacman -U`、actual observation / causal evidenceとInstall / Upgrade / reinstall / downgrade / skip / failure |
+| installed binding feasibility | `test-container-installed-binding-characterization` | networkless anonymous volume上のephemeral pacman rootでInstall / Upgrade / skip / same-version reinstallとopaque local DB record generationをcharacterizeする。production publicationへは接続しない |
+| exact receipt / fresh installed binding | `test-container-exact-installed-binding` | actual Slice 4 proofとinstalled root helper、別purposeのInstall/Upgrade receipt、Post anchor、new ALPM session、raw MTREE、AT_EMPTY_PATH generation、通常userのlive mintとS5-C final proof、publicationなしをanonymous volume DBで確認。Install/Upgrade/reinstall/downgradeを実行し、host DBは共有しない |
+| devel provenance store foundation | `test-xdg-generation-store` / `test-devel-build-provenance-store` | production-disconnectedなimmutable-generation/CAS機械層と、別XDG namespaceのstrict provenance codec/storeを確認する |
+| trusted devel provenance publication | `test-devel-build-provenance-publication` / `test-devel-build-provenance-publication-result` | deterministic S4/S5 fixtureからschema v1 projection、historical binding、one-shot ownership、no-publication negatives、store fault mappingとlossless resultを確認する。6-C actual/container publication acceptanceとnormal routeを代替しない |
+| actual devel provenance publication | `test-container-devel-publication` | S5 actual laneの別modeでproduction publisherを呼ぶ。1 fresh anonymous DB volume上でInstall/Upgrade/reinstall/downgradeを順次実行し、各S5 proof・cleanup、publication Complete、store generation 1→2→3→4、raw bytes SHA-256、schema v1/27 keys、persistent model・historyを確認。installed generationは別authorityとして記録する。S5 publication-noneを維持し、このlaneを7-D normal route acceptanceの代替にしない |
+| current installed observation / pure Git comparison | `test-current-installed-artifact-binding` / `test-devel-git-revision-comparison` | transactionとは独立したfresh current bindingとtyped OID比較。S5 fresh proof/network/normal assessmentはmint・接続しない |
+| read-only devel assessment | `test-devel-package-assessment` | tip-only P/I/R exact後の#475 query、remote taxonomy、成功後のP/I/R one-time recheck、call counts。normal routeは7-D、assessmentからbuild/install/publicationを呼ばない |
+| reviewed devel execution bridge | `test-reviewed-devel-source-build-execution` | typed reviewed pinから既存S4/S5/S6、install/proof/publication/cleanupの個別結果、one-shot/lifetime。normal routeは7-Dから接続 |
 | closed cleanup candidate authority | `test-container-cleanup-authority` | production collector、mutation前baseline、actual trusted dependency Install、post-success current / policy、aggregate / classifierとinstalled positive `Eligible` |
 
 PR / mergeのcanonical host gateは`test-host-release`である。`test`と
@@ -251,3 +260,39 @@ coverage数の差をperformance gainとして数えない。
 
 hostは約39.79秒、Docker Eは約130.26秒の重複costを削減した。coverage削減、lane統合、
 actual Fのdeterministicへの読み替えは行っていない。
+
+### Issue #476 Slice 7-D focused acceptance
+
+`test-aur-devel-route`と`test-normal-reviewed-devel-execution`に加え、AUR plan/query/preflight/preparation/runner/reducer、
+filtered/system/upgrade-all、-Qua、dry-run/unified projection/renderer、legacy source buildのaffected focused targetsを確認する。
+7-A/7-B/7-C、#475、canonical negatives、build-authority-closure、cmake-frontend-contractを維持する。
+normal link objectsで7-Bだけが#475、7-Cだけがpublisherを直接呼ぶことを確認する。
+このfocused candidate gateをSlice 8/full live/release gateの完了へ拡張しない。
+
+### Issue #476 final acceptance / Slice 8
+
+final candidateでは新authorityを追加せず、[public contract / migration](contracts/devel-tracking.md)と
+Issue本文のAcceptance criteriaを1項目ずつsource/evidenceへ対応させる。実行結果はrepository外のhandoffへ保存する。
+各項目はPASS / FAIL / FOLLOW-UP・NON-BLOCKINGを区別し、blocking FAILがあればimplementation COMPLETEとしない。
+
+- `test-host-release`でfull A–D + Gをfreshに実行する。既存のS1〜S7 focused/integrated、normal route、
+  same-version、partial outcomes、dry-run/-Qua、source-build/artifact/install/reviewed-source/AUR/upgrade-all、
+  public documentation/help/manとfrontendを含める。同一candidateで包含されたfocused aliasesを重複実行する必要はない。
+- actual Git/makepkg/artifact proofとloopback HTTPS observerをdeterministic receipt/process seamと区別する。
+  normal queryのP/I/R fixtureとnormal executionのreal typed productが何を結合し、何を省略するかを記録する。
+- `test-container-exact-installed-binding`はS5-only、`test-container-devel-publication`はactual S4→S5→S6を
+  fresh anonymous DB volumeで別々に実行する。host DBは共有しない。Install/Upgrade/same-version reinstall/downgrade、
+  actual OID/artifact/binding readback、raw document SHA-256、schema v1/27 keys、predecessor/historyを保持する。
+- same-version different-artifact / identical same-second reinstallと`--needed` skipのactual gateは
+  `test-container-installed-binding-characterization`、transportのskip/failureは
+  `test-container-source-artifact-receipt`で確認する。S5/S6 positiveへskipを混ぜない。
+- current Arch E / actual provider・AUR・local Fは利用可能な安全なcontainer環境で確認し、
+  environment blockedや未実施を明記する。full public-network normal devel CLI transactionを
+  deterministic normal route、networkless transaction、既存FのPASSから推定しない。
+- fresh CMake inventory / focused aliases / descriptor ledgerとactual production objectsのcaller closureを保存する。
+  S5-A/G9=12、S5-B=11、S5-C=23、S6-B=22、S7-A=19、S7-B=17、S7-C=20のcanonical negative diagnosticsを維持する。
+  normal binary/helpersのtest macro・seam・symbol leakageなしを確認し、blind descriptor hash updateをしない。
+- `git diff --check`、candidate manifest/diff、source/build byte continuity、staged/unstaged/untrackedとHEADを記録する。
+
+このgateの完了はimplementation-sideのfinal independent audit準備であり、Issue close、merge、tag、
+releaseを行う権限やRC approval epochを代替しない。必須でない改善は理由付きfollow-upへ分離する。

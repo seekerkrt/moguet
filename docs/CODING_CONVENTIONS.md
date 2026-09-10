@@ -83,7 +83,10 @@ transaction、互換性、project stance等の設計判断は対応する正式d
 - repository rootの`.clang-format`をMoguetのC/C++ format authorityとする。repository配下で
   `clang-format --style=file`を使うとこの設定を解決し、IDE、AI agent、developerが同じ
   repository-owned設定を参照する。HOME側の個人設定はMoguetの正式authorityとして扱わない。
-- `.editorconfig`は現在repository rootに存在しない。
+- repository rootの`.editorconfig`はUTF-8、LF、final newline等の基本editor policyを定義する。
+  C/C++の具体的なformat policyは`.clang-format`をauthorityとし、`.editorconfig`では重複定義しない。
+- repository rootの`.gitattributes`はtracked textのLF normalizationを定義する。
+  binary / special fileに例外が必要になった場合は、実際のtracked contentを根拠に明示する。
 - CMakeのproject build contractは`-Wall -Wextra`を含む。新しいwarningを無視するcastやsuppressionを
   安易に追加しない。
 - C++実装を終えたら、通常のvalidationより前に次を順に実行する。

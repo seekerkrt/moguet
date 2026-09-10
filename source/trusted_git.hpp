@@ -14,6 +14,7 @@
 #include <variant>
 
 class ReviewedSourcePackageBaseLease;
+class InvocationOwnedSourceBuildContextAuthority;
 
 // Moguet-owned persistent checkoutで許可するGit operationだけを公開する。
 // Filesystem mutation authorityはValidatedCachePath側に残し、Gitへ渡すpathは
@@ -228,6 +229,15 @@ private:
         const ReviewedSourcePackageBaseLease& lease,
         const class TrustedGitPinnedCheckoutOverlayObservation&
             expected);
+    friend std::variant<
+        class TrustedGitReviewedRecipeSnapshot,
+        TrustedGitReviewFailure,
+        ReviewedSourceReviewFailure,
+        TrustedGitPinnedCheckoutFailure>
+    trusted_git_project_reviewed_recipe_snapshot(
+        const TrustedGitPinnedCheckout& checkout,
+        const ReviewedSourcePackageBaseLease& lease,
+        const class TrustedGitPinnedCheckoutOverlayObservation& expected);
 
     struct State;
 
@@ -284,6 +294,15 @@ private:
         const TrustedGitPinnedCheckout& checkout,
         const ReviewedSourcePackageBaseLease& lease,
         const TrustedGitPinnedCheckoutOverlayObservation& expected);
+    friend std::variant<
+        class TrustedGitReviewedRecipeSnapshot,
+        TrustedGitReviewFailure,
+        ReviewedSourceReviewFailure,
+        TrustedGitPinnedCheckoutFailure>
+    trusted_git_project_reviewed_recipe_snapshot(
+        const TrustedGitPinnedCheckout& checkout,
+        const ReviewedSourcePackageBaseLease& lease,
+        const TrustedGitPinnedCheckoutOverlayObservation& expected);
 
     TrustedGitPinnedCheckoutOverlayObservation(
         AurReviewedSourceReviewIdentity identity,
@@ -309,6 +328,62 @@ using TrustedGitPinnedCheckoutRevalidationResult = std::variant<
 
 using TrustedGitPinnedCheckoutOverlayObservationResult = std::variant<
     TrustedGitPinnedCheckoutOverlayObservation,
+    TrustedGitPinnedCheckoutFailure>;
+
+// Hash-verified bytes for every entry in one exact reviewed commit tree.
+// The capability is intentionally opaque outside the invocation-owned context
+// mint: callers may inspect its identity, but cannot extract/recombine raw
+// snapshot entries with another workspace.
+class TrustedGitReviewedRecipeSnapshot final {
+public:
+    TrustedGitReviewedRecipeSnapshot() = delete;
+    TrustedGitReviewedRecipeSnapshot(
+        const TrustedGitReviewedRecipeSnapshot&) = delete;
+    TrustedGitReviewedRecipeSnapshot(
+        TrustedGitReviewedRecipeSnapshot&&) noexcept = default;
+    TrustedGitReviewedRecipeSnapshot& operator=(
+        const TrustedGitReviewedRecipeSnapshot&) = delete;
+    TrustedGitReviewedRecipeSnapshot& operator=(
+        TrustedGitReviewedRecipeSnapshot&&) noexcept = default;
+    ~TrustedGitReviewedRecipeSnapshot() = default;
+
+    [[nodiscard]] const AurReviewedSourceReviewIdentity& identity()
+        const noexcept;
+    [[nodiscard]] const ReviewedSourceObjectId& git_tree_object_id()
+        const noexcept;
+    [[nodiscard]] std::size_t entry_count() const noexcept;
+
+private:
+    struct Entry {
+        ReviewedSourceFileVersion version;
+        std::string bytes;
+    };
+
+    friend class InvocationOwnedSourceBuildContextAuthority;
+    friend std::variant<
+        TrustedGitReviewedRecipeSnapshot,
+        TrustedGitReviewFailure,
+        ReviewedSourceReviewFailure,
+        TrustedGitPinnedCheckoutFailure>
+    trusted_git_project_reviewed_recipe_snapshot(
+        const TrustedGitPinnedCheckout& checkout,
+        const ReviewedSourcePackageBaseLease& lease,
+        const TrustedGitPinnedCheckoutOverlayObservation& expected);
+
+    TrustedGitReviewedRecipeSnapshot(
+        AurReviewedSourceReviewIdentity identity,
+        ReviewedSourceObjectId git_tree_object_id,
+        std::vector<Entry> entries) noexcept;
+
+    AurReviewedSourceReviewIdentity identity_;
+    ReviewedSourceObjectId git_tree_object_id_;
+    std::vector<Entry> entries_;
+};
+
+using TrustedGitReviewedRecipeSnapshotResult = std::variant<
+    TrustedGitReviewedRecipeSnapshot,
+    TrustedGitReviewFailure,
+    ReviewedSourceReviewFailure,
     TrustedGitPinnedCheckoutFailure>;
 
 // This is a mutation boundary, unlike the read-only review projection above.
@@ -342,6 +417,15 @@ observe_trusted_git_pinned_checkout_overlay(
 
 [[nodiscard]] TrustedGitPinnedCheckoutRevalidationResult
 revalidate_trusted_git_pinned_checkout_overlay(
+    const TrustedGitPinnedCheckout& checkout,
+    const ReviewedSourcePackageBaseLease& lease,
+    const TrustedGitPinnedCheckoutOverlayObservation& expected);
+
+// Reads only the exact commit/object database already sealed by #411. It does
+// not inspect worktree bytes, copy .git metadata, run makepkg, or create a
+// build workspace. The caller must retain the same lease/overlay capability.
+[[nodiscard]] TrustedGitReviewedRecipeSnapshotResult
+trusted_git_project_reviewed_recipe_snapshot(
     const TrustedGitPinnedCheckout& checkout,
     const ReviewedSourcePackageBaseLease& lease,
     const TrustedGitPinnedCheckoutOverlayObservation& expected);

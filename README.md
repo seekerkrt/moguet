@@ -49,14 +49,12 @@ a new storage direction: source-build preferences now use only the executing
 user's XDG config context, while the published v2.0.0 tag, Release, and release
 notes remain historical records.
 
-Moguet v2.6.0 is the latest release. Exact target-less `moguet -Syu` now
-performs the official repository system update followed by the normal
-installed-AUR update after repository success, while saved source-build
-preferences remain limited to the explicit source-aware `upgrade*` workflows.
-Independent devel `RequiresCheck` targets in ordinary `-Syu` are skipped
-locally instead of blocking unrelated AUR updates, while required
-`RequiresCheck` relations and explicit upgrade workflows remain strict. See
-the [v2.6.0 release](https://github.com/seekerkrt/moguet/releases/tag/v2.6.0)
+Moguet v2.7.0 is the latest release. It adds authoritative Git revision tracking
+for supported devel packages with verified build/install provenance, including
+same-version updates, and distinguishes unavailable package metadata from
+confirmed absence. The initial Git/HTTPS subset and explicit source-review
+requirements remain narrow; this is not full VCS tracking. See the
+[v2.7.0 release](https://github.com/seekerkrt/moguet/releases/tag/v2.7.0)
 for the complete user-visible changes.
 
 The canonical repository identity is Moguet on GitHub, with a GitLab mirror.
@@ -94,6 +92,16 @@ detailed plan.
   build, or install. `fetch` clones missing repositories or runs only
   `git fetch origin` for an existing clone; it does not pull, merge, reset,
   advance the working tree, build, or install.
+- Repository metadata failure is distinct from confirmed absence. Auto `-Si`
+  falls back to AUR only after confirmed absence; a failed target is reported
+  and excluded while independent targets continue. `revert` checks repository
+  metadata before deleting each preference, preserving failed targets and
+  grouping successful repository targets into the existing reinstall.
+- AUR info shows an unavailable installed state with a warning instead of
+  reporting `no`. Auto search derives `[installed]` only from a successful
+  foreign inventory; unavailable inventory produces a warning and omits the
+  annotation. These optional annotations do not change the search/info success
+  policy. AUR-only search does not query installed or repository metadata.
 - Dependency edges retain the typed requirement, source-aware candidate, and
   constraint result. `deps` continues with a warning for `Unsatisfied` or
   `Unknown`; `plan` marks the result incomplete. `Invalid` and `Conflicting`
@@ -325,9 +333,9 @@ makepkg -si
 system with `pacman -U` in the same step. This differs from `make` and
 `./moguet --help` above, which only build and inspect the development tree
 in place and install nothing. The `PKGBUILD` is the canonical production
-CMake build/install consumer and configures `BUILD_TESTING=OFF`; the 99
+CMake build/install consumer and configures `BUILD_TESTING=OFF`; the 115
 developer C++ test-ledger executables, one `EXCLUDE_FROM_ALL` installed
-transport fixture harness, and 124 CTest registrations remain in host, CI,
+transport fixture harness, and 146 CTest registrations remain in host, CI,
 and release validation. This `PKGBUILD` is a repository-provided
 packaging path, not an AUR submission; Moguet still has no published AUR
 page.
@@ -525,15 +533,32 @@ is non-zero. `upgrade-aur`, its dry-run, and the fresh AUR phase of
 and `--noconfirm` do not add a prompt or approve a rebuild.
 
 v2.5.0 does not query or compare the upstream VCS revision and does not publish
-devel build provenance. The current development tree includes the trusted
+devel build provenance. Moguet now includes the trusted
 HTTPS Git remote revision observer foundation from
 [issue #475](https://github.com/seekerkrt/moguet/issues/475), limited to
 default HEAD and exact branches with strict complete SHA-1 / SHA-256 results.
-It has no production source-authority producer or caller and is not connected
-to AUR update assessment. Installed-artifact-bound provenance and authoritative
-`UpdateAvailable` / `UpToDate` comparison remain
-[issue #476](https://github.com/seekerkrt/moguet/issues/476); users still cannot
-automatically compare VCS package revisions through the current CLI.
+The internal [issue #476](https://github.com/seekerkrt/moguet/issues/476)
+Slice 7-B coordinator compares the provenance tip with fresh installed and
+reviewed state before querying the remote, then rechecks local state before
+returning `UpdateAvailable` / `UpToDate`. Slice 7-D connects this producer to
+normal AUR updates, registered AUR updates, `-Qua`, and affected dry-run routes.
+A newer normal AUR version keeps precedence without a Git query; same/older
+versions may be refined by the validated Git assessment. Git revision differences
+are displayed separately from package-version changes.
+
+The initial authoritative execution path requires a real reviewed pin and the
+existing single-child HTTPS Git subset. It consumes S4/S5/S6 once, with no legacy
+fallback after starting. Installation success and provenance publication failure
+remain separate partial outcomes and produce a non-zero result. Registered
+`RequiresCheck` uses an explicit default-No rebuild confirmation; this does not
+replace source review. `--noconfirm` cannot supply review authority. See the
+[normal devel route contract](https://github.com/seekerkrt/moguet/blob/develop/docs/contracts/devel-normal-routes.md).
+The provenance format remains schema v1 in a separate XDG state namespace.
+Unknown/future schemas and corrupt or unsafe history fail closed; the updater does
+not repair records, adopt external history, or create a missing baseline. A baseline
+requires an explicitly reviewed supported build, an actual install, and successful
+publication. Same-version reinstalls invalidate historical provenance when the
+installed artifact binding changes. See the [devel tracking and migration contract](https://github.com/seekerkrt/moguet/blob/develop/docs/contracts/devel-tracking.md).
 
 `--aur` limits supported `-S`, `-Ss`, and `-Si` forms to AUR. `--repo`
 limits those forms to official binary repositories and is also the

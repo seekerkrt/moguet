@@ -87,12 +87,17 @@ struct StatePaths {
     DirectoryCreationBoundary creation_boundary;
 };
 
-// AUR reviewed-source snapshot store. PackageBase leaf is owned by the
-// store, not this resolver.
-struct ReviewedSourceStatePaths {
+// Resolver-owned XDG state subdirectory. The semantic resolver fixes the
+// managed components; low-level filesystem consumers must not derive them
+// from an untrusted record key.
+struct StateStorePaths {
     std::filesystem::path directory;
     DirectoryCreationBoundary creation_boundary;
+    std::vector<std::string> managed_components;
 };
+
+using ReviewedSourceStatePaths = StateStorePaths;
+using DevelBuildProvenancePaths = StateStorePaths;
 
 struct CachePaths {
     std::filesystem::path directory;
@@ -140,11 +145,20 @@ SourcePreferencePaths resolve_source_preference_process_environment();
 ReviewedSourceStatePaths resolve_reviewed_source_state(
     const EnvironmentSnapshot& environment);
 
+// Devel build provenance uses a separate state namespace from reviewed source
+// state. PackageBase leaves remain the semantic store's responsibility.
+DevelBuildProvenancePaths resolve_devel_build_provenance(
+    const EnvironmentSnapshot& environment);
+
 // Default state log専用adapter。XDG_STATE_HOME / HOMEだけをsnapshot化する。
 StatePaths resolve_state_process_environment();
 
 // Reviewed-source store専用adapter。XDG_STATE_HOME / HOMEだけをsnapshot化する。
 ReviewedSourceStatePaths resolve_reviewed_source_state_process_environment();
+
+// Devel-build provenance store adapter. Only XDG_STATE_HOME / HOME are read.
+DevelBuildProvenancePaths
+resolve_devel_build_provenance_process_environment();
 
 // Cache consumer専用adapter。XDG_CACHE_HOME / HOMEだけをsnapshot化する。
 CachePaths resolve_cache_process_environment();

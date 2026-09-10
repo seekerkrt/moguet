@@ -1,6 +1,7 @@
 #include "aur_update_query.hpp"
 
 #include "aur_rpc.hpp"
+#include "aur_devel_update.hpp"
 #include "localization.hpp"
 #include "logging.hpp"
 #include "package_metadata.hpp"
@@ -163,6 +164,13 @@ AurUpdateQueryResult query_aur_updates_for_foreign_inventory(
 
     std::vector<AurUpdatePlanInput> inputs = make_plan_inputs(
         installed_packages, aur_packages, metadata_unavailable_packages);
-    return AurUpdateQueryResult{
-        make_aur_update_plan(inputs), std::move(recoverable_failures)};
+    AurUpdateQueryResult result{make_aur_update_plan(inputs), std::move(recoverable_failures), {}};
+    result.devel_observations = refine_aur_devel_updates(result.plan);
+    for(const auto& entry : result.plan.entries) {
+        if(aur_update_basis(entry) == AurUpdateBasis::GitRevision)
+            Logger::info(localization::format_translated_message(
+                // TRANSLATORS: The placeholders are the literal tool name "Git" and a package name.
+                "{} revision update available: {} (package-version decision unchanged).", "Git", entry.installed_name));
+    }
+    return result;
 }

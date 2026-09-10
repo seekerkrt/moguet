@@ -744,6 +744,15 @@ assert_contains "fixture aggregate preparation blocked" "$stderr_file"
 assert_contains "Error: system/source issue:" "$stderr_file"
 assert_contains "fixture blocking system/source issue" "$stderr_file"
 assert_contains \
+    'fixture blocking system/source issue\x0Aunsafe-after\x1B\xE2\x80\xAE\xEF\xBB\xBF\xFF' \
+    "$stderr_file"
+raw_unsafe_payload=$(printf 'unsafe-after\033\342\200\256\357\273\277')
+raw_bidi=$(printf '\342\200\256')
+raw_bom=$(printf '\357\273\277')
+assert_not_contains "$raw_unsafe_payload" "$stderr_file"
+assert_not_contains "$raw_bidi" "$stderr_file"
+assert_not_contains "$raw_bom" "$stderr_file"
+assert_contains \
     "[ERROR] system/source issue:" \
     "$XDG_STATE_HOME/moguet/moguet.log"
 
@@ -1468,7 +1477,7 @@ assert_contains \
     "確認済みソースの結果（PackageBase issue-455-aur-updated）: 正確なupstream commit 4444444444444444444444444444444444444444 の更新レビューを受理しました。" \
     "$stdout_file"
 assert_contains \
-    "確認済み状態（PackageBase issue-455-aur-updated）を世代 31として公開しました。ビルドとインストールの結果は別に報告します。" \
+    "確認済み状態（PackageBase issue-455-aur-updated）を世代 31 として確定しました。ビルドとインストールの結果は別に報告します。" \
     "$stdout_file"
 assert_contains \
     "この実行内のeditor変更" "$stdout_file"

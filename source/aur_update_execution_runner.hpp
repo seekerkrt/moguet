@@ -22,6 +22,7 @@ enum class AurUpdateWorkItemExecutionStatus {
 enum class AurUpdateWorkItemFailureKind {
     None,
     BuildOrInstallFailed,
+    AuthoritativeExecutionIncomplete,
     CleanupFailedAfterPackageTransaction,
     UnknownException,
     PriorWorkItemStopped,
@@ -155,6 +156,7 @@ struct AurUpdateWorkItemExecutionResult {
         AurUpdateWorkItemFailureKind::PriorWorkItemStopped;
     AurUpdateWorkItemFailureDetail failure_detail;
     std::optional<std::string> diagnostic;
+    std::optional<ReviewedDevelExecutionSnapshot> devel_execution = std::nullopt;
 };
 
 struct AurUpdateSourceBuildExecutionResult {

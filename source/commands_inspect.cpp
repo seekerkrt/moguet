@@ -1475,6 +1475,8 @@ int cmd_print_pkgbuild(const PkgbuildExportInvocation& invocation) {
 
 std::string devel_requires_check_query_message(
     const AurUpdatePlanEntry& entry) {
+    if(entry.devel_assessment_origin == AurDevelAssessmentOrigin::CurrentObservation && entry.devel_assessment.requires_check_reason())
+        return localization::format_translated_message("{}: devel update requires check; local authority is unavailable or has changed.", entry.installed_name);
     if(!entry.devel_classification.has_value() ||
        entry.devel_assessment.requires_check_reason() == nullptr ||
        *entry.devel_assessment.requires_check_reason() !=
@@ -1537,8 +1539,10 @@ int cmd_query_foreign_updates() {
                     "AUR", entry.installed_name));
                 break;
             case AurUpdateEffectiveState::UpdateAvailable:
-                std::cout << entry.installed_name << " " << entry.installed_version
-                          << " -> " << entry.aur_package->version << std::endl;
+                if(aur_update_basis(entry) == AurUpdateBasis::GitRevision)
+                    std::cout << entry.installed_name << " " << entry.installed_version << " [Git revision update available]" << std::endl;
+                else
+                    std::cout << entry.installed_name << " " << entry.installed_version << " -> " << entry.aur_package->version << std::endl;
                 break;
             case AurUpdateEffectiveState::UpToDate:
                 break;
@@ -1550,6 +1554,15 @@ int cmd_query_foreign_updates() {
                     "Failed to compare versions: {} -> {}",
                     entry.installed_version,
                     entry.aur_package->version));
+                break;
+            case AurUpdateEffectiveState::Unknown:
+                Logger::error(localization::format_translated_message(
+                    // TRANSLATORS: The placeholders are the literal tool name "Git" and a package name.
+                    "Devel {} observation failed: {}", "Git", entry.installed_name));
+                query_result.recoverable_failures.push_back({{entry.installed_name}, "Devel Git observation failed"});
+                break;
+            case AurUpdateEffectiveState::Unsupported:
+                Logger::warn(localization::format_translated_message("Devel automatic update is unsupported: {}", entry.installed_name));
                 break;
             case AurUpdateEffectiveState::Inconsistent:
                 throw std::logic_error(localization::format_translated_message(

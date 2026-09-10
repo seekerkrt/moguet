@@ -2302,6 +2302,29 @@ TrustedGitPinnedCheckoutOverlayObservation::
       filesystem_manifest_(std::move(filesystem_manifest)) {
 }
 
+TrustedGitReviewedRecipeSnapshot::TrustedGitReviewedRecipeSnapshot(
+    AurReviewedSourceReviewIdentity identity,
+    ReviewedSourceObjectId git_tree_object_id,
+    std::vector<Entry> entries) noexcept
+    : identity_(std::move(identity)),
+      git_tree_object_id_(std::move(git_tree_object_id)),
+      entries_(std::move(entries)) {
+}
+
+const AurReviewedSourceReviewIdentity&
+TrustedGitReviewedRecipeSnapshot::identity() const noexcept {
+    return identity_;
+}
+
+const ReviewedSourceObjectId&
+TrustedGitReviewedRecipeSnapshot::git_tree_object_id() const noexcept {
+    return git_tree_object_id_;
+}
+
+std::size_t TrustedGitReviewedRecipeSnapshot::entry_count() const noexcept {
+    return entries_.size();
+}
+
 TrustedGitPinnedCheckoutResult trusted_git_materialize_pinned_checkout(
     const ValidatedCachePath& checkout,
     AurReviewedSourceReviewIdentity identity,
@@ -2466,6 +2489,301 @@ revalidate_trusted_git_pinned_checkout_overlay(
             TrustedGitPinnedCheckoutStage::OverlayRevalidation);
     }
     return TrustedGitPinnedCheckoutRevalidated{};
+}
+
+TrustedGitReviewedRecipeSnapshotResult
+trusted_git_project_reviewed_recipe_snapshot(
+    const TrustedGitPinnedCheckout& checkout,
+    const ReviewedSourcePackageBaseLease& lease,
+    const TrustedGitPinnedCheckoutOverlayObservation& expected) {
+    if(!checkout.valid() || !lease.valid() ||
+       checkout.identity() != expected.identity_ ||
+       checkout.checkout_device() != expected.checkout_device_ ||
+       checkout.checkout_inode() != expected.checkout_inode_ ||
+       checkout.checkout_device() != lease.device() ||
+       checkout.checkout_inode() != lease.inode()) {
+        return pinned_checkout_failure(
+            TrustedGitPinnedCheckoutFailureReason::InvalidCapability,
+            TrustedGitPinnedCheckoutStage::OverlayRevalidation);
+    }
+
+    TrustedGitPinnedCheckoutRevalidationResult initial_revalidation =
+        revalidate_trusted_git_pinned_checkout_overlay(
+            checkout, lease, expected);
+    if(auto* failure = std::get_if<TrustedGitPinnedCheckoutFailure>(
+           &initial_revalidation)) {
+        return std::move(*failure);
+    }
+
+    const TrustedGitPinnedCheckout::State& state = checkout.require_state();
+    const AurReviewedSourceReviewIdentity& identity = state.identity;
+    const std::string& target_oid =
+        require_known_commit(identity.target_revision());
+    const LocalGitConfiguration configuration =
+        inspect_review_checkout_configuration(state.checkout);
+    require_expected_remote(configuration, identity.canonical_git_remote());
+    if(configuration.object_format != identity.git_object_format() ||
+       expected.tree_.format() != configuration.object_format) {
+        return review_failure(
+            TrustedGitReviewFailureReason::ObjectFormatMismatch,
+            TrustedGitReviewStage::TargetValidation);
+    }
+
+    ExactTargetCommitValidationResult target_validation =
+        validate_exact_target_commit(
+            state.checkout, identity.canonical_git_remote(),
+            identity.target_revision(), configuration.object_format,
+            TrustedGitReviewStage::TargetValidation);
+    if(auto* failure =
+           std::get_if<TrustedGitReviewFailure>(&target_validation)) {
+        return std::move(*failure);
+    }
+
+    const PersistentCheckoutReviewOverrides initial_overrides =
+        observe_persistent_checkout_review_overrides(state.checkout);
+    if(initial_overrides.has_attributes) {
+        return review_failure(
+            TrustedGitReviewFailureReason::LocalAttributeOverride,
+            TrustedGitReviewStage::AttributeGuard);
+    }
+    if(initial_overrides.has_grafts) {
+        return review_failure(
+            TrustedGitReviewFailureReason::LocalHistoryOverride,
+            TrustedGitReviewStage::HistoryGuard);
+    }
+
+    CapturedCommandResult captured_tree = capture_review_git(
+        state.checkout, identity.canonical_git_remote(),
+        {"rev-parse", "--verify", target_oid + "^{tree}"},
+        "git rev-parse --verify <reviewed-commit>^{tree}",
+        MAX_COMMIT_OID_OUTPUT);
+    if(captured_tree.stdout_capture_limit_exceeded) {
+        return capture_limit_failure(
+            TrustedGitReviewStage::TargetTree,
+            MAX_COMMIT_OID_OUTPUT);
+    }
+    if(captured_tree.exit_code != 0) {
+        return command_failure(
+            TrustedGitReviewStage::TargetTree,
+            captured_tree.exit_code);
+    }
+    if(captured_tree.output.empty() || captured_tree.output.back() != '\n' ||
+       captured_tree.output.find('\n') != captured_tree.output.size() - 1) {
+        return review_failure(
+            TrustedGitReviewFailureReason::MalformedMachineOutput,
+            TrustedGitReviewStage::TargetTree);
+    }
+    ReviewedSourceObjectId exact_tree = [&captured_tree]() {
+        std::string object_id = captured_tree.output;
+        object_id.pop_back();
+        return ReviewedSourceObjectId::make(std::move(object_id));
+    }();
+    if(exact_tree != expected.tree_) {
+        return review_failure(
+            TrustedGitReviewFailureReason::InconsistentMachineOutput,
+            TrustedGitReviewStage::TargetTree);
+    }
+
+    const std::size_t stream_limit = review_machine_stream_limit();
+    CapturedCommandResult captured_metadata = capture_review_git(
+        state.checkout, identity.canonical_git_remote(),
+        {"ls-tree", "-r", "-z", "--full-tree", "--no-abbrev",
+         "--format=%(objectmode)%x00%(objecttype)%x00%(objectname)%x00%(objectsize)",
+         target_oid, "--"},
+        "git ls-tree -r -z --full-tree <reviewed-commit> metadata",
+        stream_limit);
+    if(captured_metadata.stdout_capture_limit_exceeded) {
+        return capture_limit_failure(
+            TrustedGitReviewStage::TargetTree, stream_limit);
+    }
+    if(captured_metadata.exit_code != 0) {
+        return command_failure(
+            TrustedGitReviewStage::TargetTree,
+            captured_metadata.exit_code);
+    }
+    CapturedCommandResult captured_paths = capture_review_git(
+        state.checkout, identity.canonical_git_remote(),
+        {"ls-tree", "-r", "-z", "--full-tree", "--name-only",
+         target_oid, "--"},
+        "git ls-tree -r -z --full-tree <reviewed-commit> paths",
+        stream_limit);
+    if(captured_paths.stdout_capture_limit_exceeded) {
+        return capture_limit_failure(
+            TrustedGitReviewStage::TargetTree, stream_limit);
+    }
+    if(captured_paths.exit_code != 0) {
+        return command_failure(
+            TrustedGitReviewStage::TargetTree,
+            captured_paths.exit_code);
+    }
+    ReviewedSourceTreeParseResult parsed_inventory =
+        parse_reviewed_source_tree_output(
+            captured_metadata.output, captured_paths.output,
+            configuration.object_format,
+            ReviewedSourceMachineStream::TargetTree);
+    if(auto* failure = std::get_if<ReviewedSourceProjectionFailure>(
+           &parsed_inventory)) {
+        return map_projection_failure(*failure);
+    }
+    ReviewedSourceTreeInventory inventory =
+        std::get<ReviewedSourceTreeInventory>(
+            std::move(parsed_inventory));
+    if(inventory.entries.size() > REVIEWED_SOURCE_REVIEW_ENTRY_LIMIT) {
+        return ReviewedSourceReviewFailure{
+            ReviewedSourceReviewFailureReason::ResourceLimitExceeded,
+            ReviewedSourceReviewResourceKind::ReviewEntries,
+            0, 0, 0, inventory.entries.size(),
+            REVIEWED_SOURCE_REVIEW_ENTRY_LIMIT};
+    }
+
+    std::vector<ReviewedSourceBlobRequest> requests;
+    requests.reserve(inventory.entries.size());
+    std::uintmax_t aggregate_blob_size = 0;
+    for(const ReviewedSourceFileVersion& entry : inventory.entries) {
+        if(entry.mode() == ReviewedSourceFileMode::Gitlink) continue;
+        if(!entry.blob_size().has_value()) {
+            return review_failure(
+                TrustedGitReviewFailureReason::InconsistentMachineOutput,
+                TrustedGitReviewStage::TargetTree);
+        }
+        const std::uintmax_t blob_size = *entry.blob_size();
+        if(blob_size > REVIEWED_SOURCE_SINGLE_BLOB_LIMIT) {
+            TrustedGitReviewFailure failure = review_failure(
+                TrustedGitReviewFailureReason::SingleBlobSizeLimitExceeded,
+                TrustedGitReviewStage::ResourcePreflight);
+            failure.observed = blob_size;
+            failure.limit = REVIEWED_SOURCE_SINGLE_BLOB_LIMIT;
+            return failure;
+        }
+        if(blob_size > REVIEWED_SOURCE_AGGREGATE_BLOB_LIMIT -
+                           aggregate_blob_size) {
+            TrustedGitReviewFailure failure = review_failure(
+                TrustedGitReviewFailureReason::AggregateBlobSizeLimitExceeded,
+                TrustedGitReviewStage::ResourcePreflight);
+            failure.observed = aggregate_blob_size + blob_size;
+            failure.limit = REVIEWED_SOURCE_AGGREGATE_BLOB_LIMIT;
+            return failure;
+        }
+        aggregate_blob_size += blob_size;
+        requests.push_back(
+            ReviewedSourceBlobRequest{entry.object_id(), blob_size});
+    }
+
+    std::vector<ReviewedSourceRawBlob> blobs;
+    blobs.reserve(requests.size());
+    std::size_t request_offset = 0;
+    while(request_offset < requests.size()) {
+        std::vector<ReviewedSourceBlobRequest> batch;
+        std::string input;
+        std::uintmax_t payload_size = 0;
+        while(request_offset < requests.size()) {
+            const ReviewedSourceBlobRequest& request =
+                requests[request_offset];
+            const std::size_t input_record_size =
+                request.object_id.value().size() + 1;
+            const bool input_would_exceed =
+                input_record_size > REVIEW_BLOB_BATCH_INPUT_LIMIT -
+                                        input.size();
+            const bool payload_would_exceed =
+                request.expected_size > REVIEW_BLOB_BATCH_PAYLOAD_LIMIT -
+                                            payload_size;
+            if(!batch.empty() &&
+               (input_would_exceed || payload_would_exceed)) {
+                break;
+            }
+            if(input_would_exceed || payload_would_exceed) {
+                TrustedGitReviewFailure failure = review_failure(
+                    TrustedGitReviewFailureReason::SingleBlobSizeLimitExceeded,
+                    TrustedGitReviewStage::BlobRead);
+                failure.observed = request.expected_size;
+                failure.limit = REVIEW_BLOB_BATCH_PAYLOAD_LIMIT;
+                return failure;
+            }
+            batch.push_back(request);
+            input += request.object_id.value();
+            input.push_back('\0');
+            payload_size += request.expected_size;
+            ++request_offset;
+        }
+
+        ReviewedSourceBlobBatchSizeResult capture_size =
+            reviewed_source_blob_batch_capture_size(batch);
+        if(auto* failure = std::get_if<ReviewedSourceReviewFailure>(
+               &capture_size)) {
+            return std::move(*failure);
+        }
+        std::optional<OwnedFileDescriptor> input_pipe =
+            make_standard_input_pipe(input);
+        if(!input_pipe.has_value() || !input_pipe->valid()) {
+            return command_failure(
+                TrustedGitReviewStage::BlobRead, 127);
+        }
+        const std::size_t output_limit =
+            std::get<std::size_t>(capture_size);
+        CapturedCommandResult captured = capture_review_git(
+            state.checkout, identity.canonical_git_remote(),
+            {"cat-file",
+             "--batch=%(objectname) %(objecttype) %(objectsize)",
+             "-Z"},
+            "git cat-file --batch=<reviewed-recipe-blobs> -Z",
+            output_limit, std::nullopt, input_pipe->get());
+        if(captured.stdout_capture_limit_exceeded) {
+            return capture_limit_failure(
+                TrustedGitReviewStage::BlobRead, output_limit);
+        }
+        if(captured.exit_code != 0) {
+            return command_failure(
+                TrustedGitReviewStage::BlobRead, captured.exit_code);
+        }
+        ReviewedSourceBlobBatchParseResult parsed =
+            parse_reviewed_source_blob_batch_output(
+                batch, captured.output);
+        if(auto* failure = std::get_if<ReviewedSourceReviewFailure>(
+               &parsed)) {
+            return std::move(*failure);
+        }
+        std::vector<ReviewedSourceRawBlob> parsed_blobs =
+            std::get<std::vector<ReviewedSourceRawBlob>>(
+                std::move(parsed));
+        blobs.insert(
+            blobs.end(),
+            std::make_move_iterator(parsed_blobs.begin()),
+            std::make_move_iterator(parsed_blobs.end()));
+    }
+
+    std::vector<TrustedGitReviewedRecipeSnapshot::Entry> entries;
+    entries.reserve(inventory.entries.size());
+    std::size_t blob_index = 0;
+    for(ReviewedSourceFileVersion& version : inventory.entries) {
+        std::string bytes;
+        if(version.mode() != ReviewedSourceFileMode::Gitlink) {
+            if(blob_index >= blobs.size() ||
+               blobs[blob_index].object_id != version.object_id()) {
+                return review_failure(
+                    TrustedGitReviewFailureReason::InconsistentMachineOutput,
+                    TrustedGitReviewStage::CrossStream);
+            }
+            bytes = std::move(blobs[blob_index].bytes);
+            ++blob_index;
+        }
+        entries.push_back(TrustedGitReviewedRecipeSnapshot::Entry{
+            std::move(version), std::move(bytes)});
+    }
+    if(blob_index != blobs.size()) {
+        return review_failure(
+            TrustedGitReviewFailureReason::InconsistentMachineOutput,
+            TrustedGitReviewStage::CrossStream);
+    }
+
+    TrustedGitPinnedCheckoutRevalidationResult final_revalidation =
+        revalidate_trusted_git_pinned_checkout_overlay(
+            checkout, lease, expected);
+    if(auto* failure = std::get_if<TrustedGitPinnedCheckoutFailure>(
+           &final_revalidation)) {
+        return std::move(*failure);
+    }
+    return TrustedGitReviewedRecipeSnapshot(
+        identity, std::move(exact_tree), std::move(entries));
 }
 
 std::string trusted_git_remote_origin_url(

@@ -635,13 +635,28 @@ void stop_for_repository_provider_transaction_failure(
 
 void map_source_execution_result(
     RegisteredSourceUpgradeResult& result,
-    const SourceBuildExecutionResult& execution) {
-    result.production_outcome = execution.production_outcome;
+    SourceBuildExecutionResult execution) {
+    result.production_outcome = std::move(execution.production_outcome);
     result.diagnostic = execution.diagnostic.empty()
                             ? std::nullopt
-                            : std::optional<std::string>(execution.diagnostic);
+                            : std::optional<std::string>(std::move(execution.diagnostic));
     result.cleanup_diagnostic = std::nullopt;
+    result.devel_execution = std::move(execution.devel_execution);
+    result.devel_update_query = execution.devel_update_query;
+    result.devel_rebuild_confirmation = execution.devel_rebuild_confirmation;
     switch(execution.status) {
+        case SourceBuildExecutionStatus::DevelRequiresCheckSkipped:
+            result.status = RegisteredSourceUpgradeStatus::Incomplete;
+            result.failure_kind = RegisteredSourceUpgradeFailureKind::DevelRequiresCheckSkipped;
+            result.package_state_change = PackageStateChange::NoChange;
+            return;
+        case SourceBuildExecutionStatus::AuthoritativeIncomplete:
+            result.status = RegisteredSourceUpgradeStatus::Incomplete;
+            result.failure_kind = RegisteredSourceUpgradeFailureKind::AuthoritativeExecutionIncomplete;
+            result.package_state_change = !result.devel_execution ? PackageStateChange::NoChange : result.devel_execution->operation == DevelSourceArtifactInstallOperation::Succeeded  ? PackageStateChange::Changed
+                                                                                               : result.devel_execution->operation == DevelSourceArtifactInstallOperation::NotAttempted ? PackageStateChange::NoChange
+                                                                                                                                                                                        : PackageStateChange::Unknown;
+            return;
         case SourceBuildExecutionStatus::Installed:
             result.status = RegisteredSourceUpgradeStatus::Updated;
             result.failure_kind = RegisteredSourceUpgradeFailureKind::None;
@@ -2374,7 +2389,13 @@ SystemSourceUpgradeResult execute_prepared_system_source_upgrade(
                             work_item,
                             state.source_invocation->database_paths,
                             config);
-                    map_source_execution_result(source_result, execution);
+                    map_source_execution_result(source_result, std::move(execution));
+                    if(source_result.failure_kind == RegisteredSourceUpgradeFailureKind::AuthoritativeExecutionIncomplete) {
+                        add_source_diagnostic(source_result.diagnostic.value_or("Authoritative execution incomplete; installation and publication outcomes are retained."), true);
+                        result.status = SystemSourceUpgradeStatus::StoppedOnSourceFailure;
+                        result.stopped_phase = SystemSourceUpgradePhase::RegisteredSource;
+                        return result;
+                    }
                     if(execution.status ==
                            SourceBuildExecutionStatus::
                                UpdateStatusUnknownSkipped &&

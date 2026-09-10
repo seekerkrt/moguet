@@ -140,7 +140,7 @@ std::string publication_line(
     switch(*provenance.publication_status) {
         case ReviewedSourcePublicationStatus::Published:
             return localization::format_translated_message(
-                "Reviewed state for {} {} was published at generation {}; build and install outcomes are reported separately.",
+                "Reviewed state for {} {} was finalized as generation {}; build and install outcomes are reported separately.",
                 PACKAGE_BASE_FIELD, package_base, generation);
         case ReviewedSourcePublicationStatus::AlreadyPublishedSameTarget:
             return localization::format_translated_message(

@@ -26,6 +26,7 @@ class AlreadyReviewedSourceCheckout;
 class ReviewedSourceEditorBoundary;
 class ReviewedSourceEditorOverlayProof;
 class PinnedReviewedSourceBuild;
+class InvocationOwnedSourceBuildContextAuthority;
 struct ReviewedSourcePinnedCheckoutFailure;
 struct ReviewedSourcePublicationConflict;
 struct ReviewedSourcePublicationUncertain;
@@ -532,6 +533,7 @@ public:
         const std::string& display_command = {}) const;
 
 private:
+    friend class InvocationOwnedSourceBuildContextAuthority;
     friend ReviewedSourcePublicationResult
     publish_accepted_reviewed_source_checkout(
         AcceptedReviewedSourceCheckout target);
@@ -562,6 +564,10 @@ private:
         ReviewedSourceEditorOverlayProof editor_overlay);
 
     [[nodiscard]] const State& require_state() const;
+    [[nodiscard]] TrustedGitReviewedRecipeSnapshotResult
+    project_reviewed_recipe_snapshot() const;
+    [[nodiscard]] TrustedGitPinnedCheckoutRevalidationResult
+    revalidate_reviewed_recipe_source() const;
 
     std::unique_ptr<State> state_;
 };

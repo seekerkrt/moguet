@@ -10,6 +10,7 @@
 #include "package_relation_presentation.hpp"
 #include "system_source_upgrade.hpp"
 #include "system_aur_update_operation.hpp"
+#include "terminal_safe_text.hpp"
 #include "unified_plan_projection.hpp"
 #include "upgrade_all_operation.hpp"
 
@@ -69,7 +70,7 @@ std::string required_string_display(
     UnifiedPlanRenderingSection section, std::size_t item_index,
     std::optional<std::size_t> detail_index,
     std::string diagnostic) {
-    if(!value.empty()) return value;
+    if(!value.empty()) return terminal_safe_text_display(value);
     return unavailable_display(
         state, section, item_index, detail_index, std::move(diagnostic));
 }
@@ -77,7 +78,7 @@ std::string required_string_display(
 std::string optional_string_display(
     const std::optional<std::string>& value) {
     return value.has_value() && !value->empty()
-               ? value.value()
+               ? terminal_safe_text_display(value.value())
                : localization::translate_message("not observed");
 }
 
@@ -737,7 +738,9 @@ void render_configured_repositories(
     for(std::size_t index = 0;
         index < repositories->configured_order().size(); ++index) {
         state.output << "  " << index + 1 << ". "
-                     << repositories->configured_order()[index] << '\n';
+                     << terminal_safe_text_display(
+                            repositories->configured_order()[index])
+                     << '\n';
     }
 }
 
@@ -865,9 +868,10 @@ void render_build_plan_dependencies(
         relation_index < plan.relation_assessments.size(); ++relation_index) {
         state.output << localization::format_translated_message(
                             "       {}. {}", relation_index + 1,
-                            package_relation_assessment_diagnostic_display(
-                                plan.relation_assessments
-                                    [relation_index]))
+                            terminal_safe_text_display(
+                                package_relation_assessment_diagnostic_display(
+                                    plan.relation_assessments
+                                        [relation_index])))
                      << '\n';
     }
 }
@@ -937,7 +941,8 @@ void render_local_dependency_details(
             if(edge.provided_specification.has_value()) {
                 state.output << localization::format_translated_message(
                                     "          Provided capability: {}",
-                                    edge.provided_specification.value())
+                                    terminal_safe_text_display(
+                                        edge.provided_specification.value()))
                              << '\n';
             }
             if(edge.resolved_candidate.has_value()) {
@@ -1153,7 +1158,8 @@ std::string build_unit_identity_display(
                     source.canonical_source_identity_key.has_value() &&
                             !source.canonical_source_identity_key
                                  ->empty()
-                        ? source.canonical_source_identity_key.value()
+                        ? terminal_safe_text_display(
+                              source.canonical_source_identity_key.value())
                         : unavailable_display(
                               state, section, item_index,
                               detail_index,
@@ -1687,12 +1693,12 @@ std::string repository_source_failure_reason_display(
                     "{}; specification: {}",
                     dependency_constraint_parse_failure_kind_display(
                         detail.kind, blocker_index, state),
-                    terminal_safe_text_display(required_string_display(
+                    required_string_display(
                         detail.raw_specification, state,
                         UnifiedPlanRenderingSection::Blockers,
                         blocker_index, std::nullopt,
                         localization::translate_message(
-                            "A repository source failure is missing its constraint specification."))));
+                            "A repository source failure is missing its constraint specification.")));
             }
         },
         reason);
@@ -1827,12 +1833,12 @@ std::string local_source_metadata_evaluation_blocker_display(
         "local metadata evaluation required ({}); source: {}; stale reasons: {}",
         local_source_metadata_state_display(
             blocker.detail.get().state(), blocker_index, state),
-        terminal_safe_text_display(required_string_display(
+        required_string_display(
             blocker.source_root.canonical_path.generic_string(),
             state, UnifiedPlanRenderingSection::Blockers,
             blocker_index, std::nullopt,
             localization::translate_message(
-                "A local metadata blocker is missing its source identity."))),
+                "A local metadata blocker is missing its source identity.")),
         stale_reasons.empty()
             ? localization::translate_message("None")
             : join_display_values(stale_reasons));
@@ -1977,7 +1983,8 @@ std::string source_failure_detail_display(
                         ? localization::format_translated_message(
                               "{} ({})",
                               detail.system_error->value(),
-                              detail.system_error->message())
+                              terminal_safe_text_display(
+                                  detail.system_error->message()))
                         : localization::translate_message(
                               "not observed"));
             } else {
@@ -2713,13 +2720,13 @@ std::string root_package_preparation_detail_display(
                 return localization::format_translated_message(
                     "{}; diagnostic: {}",
                     "AurRootPackageSearchFailure",
-                    terminal_safe_text_display(required_string_display(
+                    required_string_display(
                         typed_detail.diagnostic, state,
                         UnifiedPlanRenderingSection::Blockers,
                         blocker_index, detail_index,
                         localization::format_translated_message(
                             "An {} root search failure is missing its diagnostic.",
-                            "AUR"))));
+                            "AUR")));
             } else if constexpr(std::is_same_v<
                                     Detail,
                                     InvalidRootPackageSearchSnapshot>) {
@@ -3000,6 +3007,10 @@ std::string aur_update_execution_reason_display(
             return "AurUpdateExecutionReason::UpToDate";
         case AurUpdateExecutionReason::DevelRequiresCheck:
             return "AurUpdateExecutionReason::DevelRequiresCheck";
+        case AurUpdateExecutionReason::DevelObservationUnknown:
+            return "AurUpdateExecutionReason::DevelObservationUnknown";
+        case AurUpdateExecutionReason::DevelUnsupported:
+            return "AurUpdateExecutionReason::DevelUnsupported";
         case AurUpdateExecutionReason::RequiredDevelTargetRequiresCheck:
             return "AurUpdateExecutionReason::RequiredDevelTargetRequiresCheck";
         case AurUpdateExecutionReason::NonAurForeign:
@@ -3113,8 +3124,10 @@ std::string route_system_error_display(
         return localization::translate_message("not observed");
     }
     return localization::format_translated_message(
-        "{}:{} ({})", system_error->category().name(),
-        system_error->value(), system_error->message());
+        "{}:{} ({})",
+        terminal_safe_text_display(system_error->category().name()),
+        system_error->value(),
+        terminal_safe_text_display(system_error->message()));
 }
 
 std::string source_preference_failure_kind_display(
@@ -3251,12 +3264,12 @@ std::string source_preference_failure_display(
         source_preference_failure_kind_display(
             failure.kind, blocker_index, state),
         path, system_error, file_type,
-        terminal_safe_text_display(required_string_display(
+        required_string_display(
             failure.diagnostic, state,
             UnifiedPlanRenderingSection::Blockers, blocker_index,
             std::nullopt,
             localization::translate_message(
-                "A source preference failure is missing its diagnostic."))));
+                "A source preference failure is missing its diagnostic.")));
 }
 
 std::string sync_install_preparation_issue_kind_display(
@@ -3417,12 +3430,12 @@ std::string package_metadata_failure_display(
         "{}; code: {}; diagnostic: {}", "PackageMetadataFailure",
         package_metadata_error_code_display(
             failure.code, blocker_index, state),
-        terminal_safe_text_display(required_string_display(
+        required_string_display(
             failure.diagnostic, state,
             UnifiedPlanRenderingSection::Blockers, blocker_index,
             std::nullopt,
             localization::translate_message(
-                "A package metadata failure is missing its diagnostic."))));
+                "A package metadata failure is missing its diagnostic.")));
 }
 
 std::string xdg_directory_kind_display(
@@ -3815,13 +3828,13 @@ std::string aur_update_preparation_issue_display(
         nested_details.empty()
             ? localization::translate_message("None")
             : join_display_values(nested_details),
-        terminal_safe_text_display(required_string_display(
+        required_string_display(
             issue.diagnostic, state,
             UnifiedPlanRenderingSection::Blockers, blocker_index,
             std::nullopt,
             localization::format_translated_message(
                 "An {} source preparation issue is missing its diagnostic.",
-                "AUR"))));
+                "AUR")));
 }
 
 std::string filtered_aur_observation_issue_kind_display(
@@ -3938,8 +3951,9 @@ std::string route_preflight_blocker_display(
                         optional_string_display(
                             detail.dependency_specification),
                         artifact_projection,
-                        package_relation_assessment_diagnostic_display(
-                            detail.relation_reason->assessment));
+                        terminal_safe_text_display(
+                            package_relation_assessment_diagnostic_display(
+                                detail.relation_reason->assessment)));
                 }
                 return localization::format_translated_message(
                     "{} route preflight failure ({}); package: {}; {}: {}; dependency: {}; artifact projection: {}; diagnostic: {}",
@@ -3974,13 +3988,13 @@ std::string route_preflight_blocker_display(
                     optional_string_display(detail.package_name),
                     "PackageBase",
                     optional_string_display(detail.package_base),
-                    terminal_safe_text_display(required_string_display(
+                    required_string_display(
                         detail.diagnostic, state,
                         UnifiedPlanRenderingSection::Blockers,
                         blocker_index, std::nullopt,
                         localization::format_translated_message(
                             "A filtered {} observation issue is missing its diagnostic.",
-                            "AUR"))));
+                            "AUR")));
             } else if constexpr(std::is_same_v<
                                     Reference,
                                     UnifiedPlanBorrowedAuthorityReference<
@@ -4089,13 +4103,13 @@ std::string route_preflight_blocker_display(
                               "not observed");
                 const std::string package =
                     detail.preference_package_name.has_value()
-                        ? terminal_safe_text_display(required_string_display(
+                        ? required_string_display(
                               detail.preference_package_name.value(),
                               state,
                               UnifiedPlanRenderingSection::Blockers,
                               blocker_index, std::nullopt,
                               localization::translate_message(
-                                  "A system/source issue has an empty affected package identity.")))
+                                  "A system/source issue has an empty affected package identity."))
                     : requires_source_identity
                         ? unavailable_display(
                               state,
@@ -4130,12 +4144,12 @@ std::string route_preflight_blocker_display(
                     nested_details.empty()
                         ? localization::translate_message("None")
                         : join_display_values(nested_details),
-                    terminal_safe_text_display(required_string_display(
+                    required_string_display(
                         detail.diagnostic, state,
                         UnifiedPlanRenderingSection::Blockers,
                         blocker_index, std::nullopt,
                         localization::translate_message(
-                            "A system/source issue is missing its diagnostic."))));
+                            "A system/source issue is missing its diagnostic.")));
             } else {
                 std::vector<std::string> nested_details;
                 if(detail.package_metadata_failure.has_value()) {
@@ -4571,8 +4585,9 @@ std::string blocker_display(
                     typed_blocker.detail.assessment;
                 return localization::format_translated_message(
                     "package relation blocker: {}",
-                    package_relation_assessment_diagnostic_display(
-                        assessment));
+                    terminal_safe_text_display(
+                        package_relation_assessment_diagnostic_display(
+                            assessment)));
             } else if constexpr(std::is_same_v<
                                     Blocker,
                                     LocalDependencyPlanUnifiedPlanBlocker>) {
@@ -4637,119 +4652,10 @@ void render_blockers(
     }
 }
 
-void append_escaped_byte(std::string& display, unsigned char byte) {
-    static constexpr char HEX_DIGITS[] = "0123456789ABCDEF";
-    display += "\\x";
-    display.push_back(HEX_DIGITS[(byte >> 4) & 0x0f]);
-    display.push_back(HEX_DIGITS[byte & 0x0f]);
-}
-
-bool is_utf8_continuation_byte(unsigned char byte) noexcept {
-    return byte >= 0x80 && byte <= 0xbf;
-}
-
-bool decode_terminal_utf8_code_point(
-    std::string_view value, std::size_t offset,
-    char32_t& code_point, std::size_t& length) noexcept {
-    const auto byte_at = [&value](std::size_t index) {
-        return static_cast<unsigned char>(value[index]);
-    };
-
-    const unsigned char first = byte_at(offset);
-    if(first <= 0x7f) {
-        code_point = first;
-        length = 1;
-        return true;
-    }
-    if(first >= 0xc2 && first <= 0xdf) {
-        if(offset + 1 >= value.size()) return false;
-        const unsigned char second = byte_at(offset + 1);
-        if(!is_utf8_continuation_byte(second)) return false;
-        code_point =
-            (static_cast<char32_t>(first & 0x1f) << 6) |
-            static_cast<char32_t>(second & 0x3f);
-        length = 2;
-        return true;
-    }
-    if(first >= 0xe0 && first <= 0xef) {
-        if(offset + 2 >= value.size()) return false;
-        const unsigned char second = byte_at(offset + 1);
-        const unsigned char third = byte_at(offset + 2);
-        const bool valid_second =
-            first == 0xe0 ? second >= 0xa0 && second <= 0xbf
-            : first == 0xed
-                ? second >= 0x80 && second <= 0x9f
-                : is_utf8_continuation_byte(second);
-        if(!valid_second || !is_utf8_continuation_byte(third)) return false;
-        code_point =
-            (static_cast<char32_t>(first & 0x0f) << 12) |
-            (static_cast<char32_t>(second & 0x3f) << 6) |
-            static_cast<char32_t>(third & 0x3f);
-        length = 3;
-        return true;
-    }
-    if(first >= 0xf0 && first <= 0xf4) {
-        if(offset + 3 >= value.size()) return false;
-        const unsigned char second = byte_at(offset + 1);
-        const unsigned char third = byte_at(offset + 2);
-        const unsigned char fourth = byte_at(offset + 3);
-        const bool valid_second =
-            first == 0xf0 ? second >= 0x90 && second <= 0xbf
-            : first == 0xf4
-                ? second >= 0x80 && second <= 0x8f
-                : is_utf8_continuation_byte(second);
-        if(!valid_second || !is_utf8_continuation_byte(third) ||
-           !is_utf8_continuation_byte(fourth)) {
-            return false;
-        }
-        code_point =
-            (static_cast<char32_t>(first & 0x07) << 18) |
-            (static_cast<char32_t>(second & 0x3f) << 12) |
-            (static_cast<char32_t>(third & 0x3f) << 6) |
-            static_cast<char32_t>(fourth & 0x3f);
-        length = 4;
-        return true;
-    }
-    return false;
-}
-
-bool is_terminal_safe_code_point(char32_t code_point) noexcept {
-    return code_point >= 0x20 &&
-           !(code_point >= 0x7f && code_point <= 0x9f) &&
-           code_point != 0x2028 && code_point != 0x2029;
-}
-
 // Human-readable payloads retain valid printable UTF-8, while every terminal
-// control, line separator, invalid byte, and escape introducer stays visible.
+// control, bidi control, BOM, invalid byte, and escape introducer stays visible.
 std::string terminal_safe_text_display(std::string_view value) {
-    std::string display;
-    display.reserve(value.size());
-    std::size_t offset = 0;
-    while(offset < value.size()) {
-        char32_t code_point = 0;
-        std::size_t length = 0;
-        if(!decode_terminal_utf8_code_point(
-               value, offset, code_point, length)) {
-            append_escaped_byte(
-                display,
-                static_cast<unsigned char>(value[offset++]));
-            continue;
-        }
-        const bool is_unambiguous_safe_text =
-            is_terminal_safe_code_point(code_point) &&
-            code_point != static_cast<char32_t>('\\');
-        if(is_unambiguous_safe_text) {
-            display.append(value.substr(offset, length));
-        } else {
-            for(std::size_t index = 0; index < length; ++index) {
-                append_escaped_byte(
-                    display,
-                    static_cast<unsigned char>(value[offset + index]));
-            }
-        }
-        offset += length;
-    }
-    return display;
+    return terminal_safe_text::escape_utf8(value);
 }
 
 // Legacy snapshot fields remain opaque because their surrounding display
@@ -4757,6 +4663,10 @@ std::string terminal_safe_text_display(std::string_view value) {
 std::string invalid_snapshot_raw_value_display(std::string_view value) {
     std::string display;
     display.reserve(value.size());
+    const auto append = [&display](std::string_view segment) {
+        display.append(segment);
+        return true;
+    };
     for(const unsigned char byte : value) {
         const bool is_safe_identity_byte =
             (byte >= '0' && byte <= '9') ||
@@ -4767,12 +4677,16 @@ std::string invalid_snapshot_raw_value_display(std::string_view value) {
             display.push_back(static_cast<char>(byte));
             continue;
         }
-        append_escaped_byte(display, byte);
+        const bool completed =
+            terminal_safe_text::append_escaped_byte(byte, append);
+        (void)completed;
     }
     return display;
 }
 
-std::string independent_requires_check_attention_message() {
+std::string independent_requires_check_attention_message(DevelRequiresCheckReason reason) {
+    if(reason != DevelRequiresCheckReason::SuffixCandidateOnly)
+        return localization::translate_message("skipped: devel update requires check; local authority is unavailable or has changed");
     return localization::translate_message(
         "skipped: devel update requires check: suffix candidate only; not automatically updated because authoritative build provenance is unavailable");
 }
@@ -4789,6 +4703,20 @@ UnifiedPlanRenderingResult render_unified_plan_observation(
                             observation.status(), state))
                  << '\n';
     render_roots(observation, state);
+    for(const auto& metadata : observation.root_metadata()) {
+        if(const auto* update = std::get_if<UnifiedPlanBorrowedAuthorityReference<AurUpdatePlanEntry>>(&metadata);
+           update && aur_update_basis(update->get()) == AurUpdateBasis::GitRevision) {
+            state.output << localization::format_translated_message(
+                                // TRANSLATORS: The placeholders are a package name and the literal tool name "Git". This is a revision difference, not a newer package version.
+                                "  Observed update basis: {} — {} revision difference", terminal_safe_text_display(update->get().installed_name), "Git")
+                         << '\n';
+        } else if(update && update->get().devel_assessment_origin == AurDevelAssessmentOrigin::CurrentObservation && update->get().devel_assessment.state() == DevelUpdateAssessmentState::UpToDate) {
+            state.output << localization::format_translated_message(
+                                // TRANSLATORS: The placeholders are a package name and the literal tool name "Git".
+                                "  Observed devel assessment: {} — same {} revision", terminal_safe_text_display(update->get().installed_name), "Git")
+                         << '\n';
+        }
+    }
     render_phases(observation, state);
     render_configured_repositories(observation, state);
     render_dependencies(observation, state);
@@ -4998,8 +4926,7 @@ UnifiedPlanRenderingResult render_system_aur_update_unified_plan(
                 projection.requires_check_attentions()[index];
             const bool is_supported =
                 projection.mode() == SystemAurUpdateUnifiedPlanMode::Auto &&
-                attention.reason ==
-                    DevelRequiresCheckReason::SuffixCandidateOnly &&
+                is_known_devel_requires_check_reason(attention.reason) &&
                 attention.skip_kind ==
                     AurUpdateExecutionSkipKind::
                         IndependentDevelRequiresCheck &&
@@ -5030,7 +4957,7 @@ UnifiedPlanRenderingResult render_system_aur_update_unified_plan(
                          << invalid_snapshot_raw_value_display(
                                 attention.package_base)
                          << "): "
-                         << independent_requires_check_attention_message()
+                         << independent_requires_check_attention_message(attention.reason)
                          << '\n';
         }
     }

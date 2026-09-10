@@ -10,10 +10,35 @@ macro(_moguet_add_direct_ctest test_name target_name)
     )
 endmacro()
 
+moguet_add_ctest(
+    NAME cpp.reviewed_devel_source_build_execution
+    TARGETS reviewed-devel-source-build-execution-test
+    COMMAND "$<TARGET_FILE:reviewed-devel-source-build-execution-test>" --reviewed-devel-execution
+    WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+)
+set_tests_properties(cpp.reviewed_devel_source_build_execution PROPERTIES TIMEOUT 480)
+moguet_add_ctest(NAME cpp.normal_reviewed_devel_execution TARGETS normal-reviewed-devel-execution-test COMMAND python3 "${PROJECT_SOURCE_DIR}/tests/run-with-pty.py" --timeout 480 -- "$<TARGET_FILE:normal-reviewed-devel-execution-test>" --normal-reviewed-devel-execution WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}")
+set_tests_properties(cpp.normal_reviewed_devel_execution PROPERTIES TIMEOUT 480)
+moguet_add_ctest(NAME cpp.aur_devel_route TARGETS aur-devel-route-test COMMAND "$<TARGET_FILE:aur-devel-route-test>" --normal-route WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}")
+_moguet_add_direct_ctest(cpp.devel_package_assessment devel-package-assessment-test)
+_moguet_add_direct_ctest(cpp.current_installed_artifact_binding current-installed-artifact-binding-test)
+_moguet_add_direct_ctest(cpp.devel_git_revision_comparison devel-git-revision-comparison-test)
+_moguet_add_direct_ctest(cpp.exact_artifact_transaction_protocol exact-artifact-transaction-protocol-test)
+_moguet_add_direct_ctest(cpp.installed_package_record_observation installed-package-record-observation-test)
+moguet_add_ctest(
+    NAME cpp.exact_artifact_transaction_receipt
+    TARGETS source-artifact-install-trusted-transport-test
+    COMMAND "$<TARGET_FILE:source-artifact-install-trusted-transport-test>" --exact-receipt
+)
+
 # Focused executables with no runtime arguments or environment overrides.
 _moguet_add_direct_ctest(cpp.interactive_confirmation interactive-confirmation-test)
 _moguet_add_direct_ctest(cpp.xdg_paths xdg-paths-test)
 _moguet_add_direct_ctest(cpp.xdg_directory_safety xdg-directory-safety-test)
+_moguet_add_direct_ctest(
+    cpp.xdg_generation_store
+    xdg-generation-store-test
+)
 _moguet_add_direct_ctest(cpp.xdg_state_log xdg-state-log-test)
 _moguet_add_direct_ctest(cpp.trusted_cache trusted-cache-test)
 _moguet_add_direct_ctest(cpp.provider_selection provider-selection-test)
@@ -35,6 +60,18 @@ _moguet_add_direct_ctest(cpp.package_identifier package-identifier-test)
 _moguet_add_direct_ctest(
     cpp.source_package_identity
     source-package-identity-test
+)
+_moguet_add_direct_ctest(
+    cpp.installed_artifact_binding
+    installed-artifact-binding-test
+)
+_moguet_add_direct_ctest(
+    cpp.devel_build_provenance
+    devel-build-provenance-test
+)
+_moguet_add_direct_ctest(
+    cpp.devel_build_provenance_store
+    devel-build-provenance-store-test
 )
 _moguet_add_direct_ctest(
     cpp.git_remote_revision_observer
@@ -59,6 +96,10 @@ _moguet_add_direct_ctest(
 _moguet_add_direct_ctest(
     cpp.source_package_compatibility
     source-package-compatibility-test
+)
+_moguet_add_direct_ctest(
+    cpp.makepkg_devel_phase_characterization
+    makepkg-devel-phase-characterization-test
 )
 _moguet_add_direct_ctest(
     cpp.invocation_owned_cleanup_model
@@ -87,6 +128,51 @@ _moguet_add_direct_ctest(
 _moguet_add_direct_ctest(
     cpp.reviewed_source_pinned_build
     reviewed-source-pinned-build-test
+)
+_moguet_add_direct_ctest(
+    cpp.invocation_owned_source_build_context
+    invocation-owned-source-build-context-test
+)
+_moguet_add_direct_ctest(
+    cpp.evaluated_devel_source_artifact_transport
+    evaluated-devel-source-artifact-transport-test
+)
+set_tests_properties(cpp.evaluated_devel_source_artifact_transport PROPERTIES TIMEOUT 240)
+moguet_add_ctest(
+    NAME cpp.exact_installed_binding
+    TARGETS evaluated-devel-source-artifact-transport-test
+    COMMAND "$<TARGET_FILE:evaluated-devel-source-artifact-transport-test>" --exact-installed-binding
+)
+set_tests_properties(cpp.exact_installed_binding PROPERTIES TIMEOUT 480)
+# S5-C consumes the existing S5-B fixture output, without duplicating its matrix.
+foreach(_moguet_s5c IN ITEMS installed-devel-source-build-proof devel-source-artifact-install-result)
+    string(REPLACE "-" "_" _moguet_s5c_name "${_moguet_s5c}")
+    moguet_add_ctest(
+        NAME cpp.${_moguet_s5c_name}
+        TARGETS evaluated-devel-source-artifact-transport-test
+        COMMAND "$<TARGET_FILE:evaluated-devel-source-artifact-transport-test>" --${_moguet_s5c}
+    )
+    set_tests_properties(cpp.${_moguet_s5c_name} PROPERTIES TIMEOUT 480)
+endforeach()
+
+# S6-B composes real S4/S5 fixture output with the production publisher.
+foreach(_moguet_s6b IN ITEMS devel-build-provenance-publication devel-build-provenance-publication-result)
+    string(REPLACE "-" "_" _moguet_s6b_name "${_moguet_s6b}")
+    moguet_add_ctest(
+        NAME cpp.${_moguet_s6b_name}
+        TARGETS evaluated-devel-source-artifact-transport-test
+        COMMAND "$<TARGET_FILE:evaluated-devel-source-artifact-transport-test>" --${_moguet_s6b}
+    )
+    set_tests_properties(cpp.${_moguet_s6b_name} PROPERTIES TIMEOUT 480)
+endforeach()
+
+_moguet_add_direct_ctest(
+    cpp.evaluated_devel_source_build
+    evaluated-devel-source-build-test
+)
+set_tests_properties(
+    cpp.evaluated_devel_source_build
+    PROPERTIES TIMEOUT 180
 )
 _moguet_add_direct_ctest(
     cpp.reviewed_source_projection

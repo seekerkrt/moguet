@@ -1,0 +1,13 @@
+pkgname=moguet-source-receipt-single
+pkgver=2
+pkgrel=1
+pkgdesc='Moguet source-artifact receipt v2 different-bytes fixture'
+arch=('any')
+license=('GPL')
+
+package() {
+    install -Dm644 /dev/null \
+        "$pkgdir/usr/share/moguet-source-receipt/single"
+    printf '%s\n' 'different same-version artifact' > \
+        "$pkgdir/usr/share/moguet-source-receipt/different"
+}

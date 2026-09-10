@@ -7,7 +7,8 @@ USER root:root
 
 RUN install -d -o moguet-validation -g moguet-validation -m 0755 \
         /home/moguet-validation/work/moguet-receipt \
-        /home/moguet-validation/receipt-packages
+        /home/moguet-validation/receipt-packages \
+        /home/moguet-validation/receipt-packages-alternate
 
 WORKDIR /home/moguet-validation/work/moguet-receipt
 
@@ -31,6 +32,7 @@ RUN cmake -S . -B build/cmake-receipt-testing \
         -DMOGUET_INSTALL_INTERNAL_EXECUTABLE_DIRECTORY=/usr/libexec/moguet \
     && cmake --build build/cmake-receipt-testing \
         --target moguet-source-artifact-install-installed-fixture \
+                 evaluated-devel-source-artifact-transport-test \
         --parallel 8
 
 RUN for fixture in \
@@ -47,6 +49,15 @@ RUN for fixture in \
                 makepkg --nodeps --noconfirm \
         ) || exit $?; \
     done
+
+# Same package identity/version as source-v2, but different package bytes.
+# A separate destination preserves both artifacts for the Slice 1 reinstall
+# characterization without changing the existing receipt fixture inventory.
+RUN ( \
+        cd containers/arch-receipt-validation/fixtures/source-v2-different \
+        && PKGDEST=/home/moguet-validation/receipt-packages-alternate \
+            makepkg --nodeps --noconfirm \
+    )
 
 USER root:root
 

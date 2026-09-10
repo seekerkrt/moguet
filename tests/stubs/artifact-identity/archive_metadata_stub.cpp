@@ -89,4 +89,30 @@ ArtifactPackageIdentity query_with_test_stub(
     return parse_artifact_package_identity(result.output);
 }
 
+#ifndef MOGUET_ENABLE_REAL_RETAINED_DESCRIPTOR_ARCHIVE_QUERY
+RetainedDescriptorQueryAuthority::RetainedDescriptorQueryAuthority(
+    int descriptor)
+    : descriptor_(descriptor) {
+    throw std::logic_error(
+        "Slice 4 retained-descriptor archive query reached a legacy stubbed route.");
+}
+
+void RetainedDescriptorQueryAuthority::require_validity() const {
+    throw std::logic_error(
+        "Slice 4 retained-descriptor archive query reached a legacy stubbed route.");
+}
+
+std::filesystem::path
+RetainedDescriptorQueryAuthority::proc_descriptor_path() const {
+    throw std::logic_error(
+        "Slice 4 retained-descriptor archive query reached a legacy stubbed route.");
+}
+
+ArtifactPackageIdentity query_with_libalpm(
+    const RetainedDescriptorQueryAuthority&) {
+    throw std::logic_error(
+        "Slice 4 retained-descriptor archive query reached a legacy stubbed route.");
+}
+#endif
+
 } // namespace artifact_archive_metadata

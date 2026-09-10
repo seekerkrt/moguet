@@ -316,7 +316,7 @@ assert_exact_line \
     "Reviewed-source outcome for PackageBase updated-pkg: initial full review accepted for exact upstream commit 2222222222222222222222222222222222222222." \
     "$stdout_file"
 assert_exact_line \
-    "Reviewed state for PackageBase updated-pkg was published at generation 1; build and install outcomes are reported separately." \
+    "Reviewed state for PackageBase updated-pkg was finalized as generation 1; build and install outcomes are reported separately." \
     "$stdout_file"
 assert_exact_line \
     "Build input for PackageBase updated-pkg includes an invocation-local editor overlay on reviewed upstream commit 2222222222222222222222222222222222222222; it is not the exact reviewed commit tree." \
@@ -414,7 +414,7 @@ assert_contains \
     "Reviewed-source outcome for PackageBase tx-suite: update review accepted" \
     "$stdout_file"
 assert_exact_line \
-    "Reviewed state for PackageBase tx-suite was published at generation 11; build and install outcomes are reported separately." \
+    "Reviewed state for PackageBase tx-suite was finalized as generation 11; build and install outcomes are reported separately." \
     "$stdout_file"
 assert_exact_line \
     "tx-main: failed: package transaction failed (exit code 73)" "$stdout_file"
@@ -520,7 +520,7 @@ assert_contains \
     "Reviewed-source outcome for PackageBase reviewed-build-pkg: update review accepted" \
     "$stdout_file"
 assert_exact_line \
-    "Reviewed state for PackageBase reviewed-build-pkg was published at generation 12; build and install outcomes are reported separately." \
+    "Reviewed state for PackageBase reviewed-build-pkg was finalized as generation 12; build and install outcomes are reported separately." \
     "$stdout_file"
 assert_exact_line \
     "reviewed-build-pkg: failed: source build failure" "$stdout_file"

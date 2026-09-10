@@ -2,11 +2,8 @@
 
 #include "dependency_provider.hpp"
 #include "package_identifier.hpp"
-#include "process.hpp"
-#include "shell_words.hpp"
 
 #include <cstdlib>
-#include <set>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -14,32 +11,28 @@
 
 namespace {
 
-std::string trim(const std::string& value) {
-    std::size_t first = value.find_first_not_of(" \t\n\r");
-    if(first == std::string::npos) return "";
-    std::size_t last = value.find_last_not_of(" \t\n\r");
-    return value.substr(first, last - first + 1);
+// Explicit fixture membership is independent of subprocess exit status.
+bool fixture_contains_package(const char* variable, const std::string& package_name) {
+    const char* names = std::getenv(variable);
+    if(names == nullptr) return false;
+    std::istringstream stream(names);
+    std::string name;
+    while(stream >> name) {
+        if(name == package_name) return true;
+    }
+    return false;
 }
 
 } // namespace
 
-bool is_installed_package(const std::string& package_name) {
-    if(package_name.empty()) return false;
-    return command_status(
-               "pacman -Q " + shell_words::quote(package_name) +
-               " > /dev/null 2>&1") == 0;
-}
-
-bool is_repo_package(const std::string& package_name) {
-    require_valid_package_name(package_name);
-    return command_status(
-               "pacman -Si " + shell_words::quote(package_name) +
-               " > /dev/null 2>&1") == 0;
-}
-
 StrictRepositoryPackageQueryResult query_repository_package_strict(
     const std::string& package_name) {
-    if(is_repo_package(package_name)) {
+    if(fixture_contains_package("MOGUET_TEST_INSPECTION_REPOSITORY_FAILURE_PACKAGES", package_name)) {
+        return RepositoryMetadataFailure{
+            RepositoryMetadataFailureKind::SyncDatabaseUnavailable,
+            std::nullopt, "inspection repository metadata failure"};
+    }
+    if(fixture_contains_package("MOGUET_TEST_PACMAN_REPO_PACKAGES", package_name)) {
         return RepositoryPackagePresent{
             "test", 0, package_name, package_name,
             ObservedVersion::available(
@@ -67,7 +60,7 @@ InstalledExactPackageObservationResult query_installed_exact_package_strict(
                 PackageMetadataErrorCode::QueryFailed,
                 "installed database query failure"}};
     }
-    if(is_installed_package(package_name)) {
+    if(fixture_contains_package("MOGUET_TEST_PACMAN_INSTALLED_PACKAGES", package_name)) {
         return InstalledExactPackage{
             package_name,
             ObservedVersion::unknown(
@@ -138,32 +131,4 @@ StrictRepositoryProvidersQueryResult query_repository_providers_strict(
     const std::string& dependency_name) {
     return RepositoryProviderQuerySnapshot{
         repository_provider_candidates(dependency_name), {}};
-}
-
-std::vector<InstalledPackage> get_foreign_packages() {
-    std::vector<InstalledPackage> packages;
-    std::string output = exec_command("pacman -Qm 2>/dev/null");
-    if(output.empty()) return packages;
-
-    std::stringstream output_stream(output);
-    std::string line;
-    while(std::getline(output_stream, line)) {
-        line = trim(line);
-        if(line.empty()) continue;
-
-        std::stringstream line_stream(line);
-        InstalledPackage package;
-        if(line_stream >> package.name >> package.version) {
-            require_valid_package_name(package.name);
-            packages.push_back(std::move(package));
-        }
-    }
-    return packages;
-}
-
-std::set<std::string> get_foreign_package_names() {
-    std::set<std::string> names;
-    for(const auto& package : get_foreign_packages())
-        names.insert(package.name);
-    return names;
 }

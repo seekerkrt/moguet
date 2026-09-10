@@ -315,6 +315,7 @@ RemoteAurCleanupCandidateCollector::
                 // cleanup authority to this raw fallback transaction.
                 return execute_prepared_package_base_artifact_install(
                     install, options);
+            case SourceArtifactInstallTrustedExecutionStatus::ArtifactSealingFailed:
             case SourceArtifactInstallTrustedExecutionStatus::PrepareFailed:
             case SourceArtifactInstallTrustedExecutionStatus::PacmanFailed:
             case SourceArtifactInstallTrustedExecutionStatus::AbortFailed:

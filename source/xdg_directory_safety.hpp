@@ -18,7 +18,7 @@ struct StateLogDirectoryAccess;
 
 struct TrustedCacheDirectoryAccess;
 struct SourcePreferenceDirectoryAccess;
-struct ReviewedSourceStateDirectoryAccess;
+struct XdgGenerationStoreDirectoryAccess;
 
 namespace xdg_directory_safety {
 
@@ -104,6 +104,7 @@ class PreparedDirectory final {
     std::uintmax_t filesystem_owner_ = 0;
     std::uintmax_t permissions_ = 0;
     std::size_t created_component_count_ = 0;
+    std::size_t managed_component_count_ = 0;
     std::vector<RetainedDirectoryIdentity> retained_lineage_;
 
     PreparedDirectory(
@@ -114,6 +115,7 @@ class PreparedDirectory final {
         std::uintmax_t owner, std::uintmax_t filesystem_owner,
         std::uintmax_t permissions,
         std::size_t created_component_count,
+        std::size_t managed_component_count,
         std::vector<RetainedDirectoryIdentity> retained_lineage) noexcept;
 
     friend PreparedDirectory prepare_directory(
@@ -125,15 +127,15 @@ class PreparedDirectory final {
     friend PreparedDirectory prepare_directory(
         const xdg_paths::SourcePreferencePaths& paths);
     friend PreparedDirectory prepare_directory(
-        const xdg_paths::ReviewedSourceStatePaths& paths);
+        const xdg_paths::StateStorePaths& paths);
     friend std::optional<PreparedDirectory> open_existing_directory(
-        const xdg_paths::ReviewedSourceStatePaths& paths);
+        const xdg_paths::StateStorePaths& paths);
 
     friend struct DirectorySafetyAccess;
     friend struct xdg_state_log::StateLogDirectoryAccess;
     friend struct ::TrustedCacheDirectoryAccess;
     friend struct ::SourcePreferenceDirectoryAccess;
-    friend struct ::ReviewedSourceStateDirectoryAccess;
+    friend struct ::XdgGenerationStoreDirectoryAccess;
 
 public:
     PreparedDirectory(const PreparedDirectory&) = delete;
@@ -171,7 +173,20 @@ public:
     }
 
     void require_unchanged_identity() const;
+
+    // Publication-only durability of the resolver-owned entries: sync their
+    // containing directories, from the final parent back to the stable anchor.
+    // Existing residue is included. Opens only "." relative to retained FDs;
+    // never traverses diagnostic paths or syncs ancestors above the anchor.
+    // Identity failures throw PreparationError; synchronization I/O errors are
+    // returned. Merely preparing/reading a directory does not call this method.
+    [[nodiscard]] std::optional<std::error_code> synchronize_managed_parent_entries() const;
 };
+
+#if defined(MOGUET_TEST_XDG_DIRECTORY_SAFETY_HOOKS) || defined(MOGUET_ENABLE_XDG_GENERATION_STORE_TEST_HOOKS)
+using ManagedParentSyncTestHook = std::optional<std::error_code> (*)(int descriptor);
+void set_managed_parent_sync_hook_for_test(ManagedParentSyncTestHook hook);
+#endif
 
 // Explicit XDGではbase directoryをexisting anchorとして要求し、application
 // componentだけを作成する。HOME fallbackではHOMEをexisting anchorとし、
@@ -193,11 +208,12 @@ PreparedDirectory prepare_directory(
 std::optional<PreparedDirectory> open_existing_directory(
     const xdg_paths::SourcePreferencePaths& paths);
 
-// Reviewed-source AUR store directory。lookupはcreateせず、missingはnullopt。
+// Resolver-owned XDG state-store directory. Lookup does not create it;
+// missing is represented only by nullopt.
 PreparedDirectory prepare_directory(
-    const xdg_paths::ReviewedSourceStatePaths& paths);
+    const xdg_paths::StateStorePaths& paths);
 std::optional<PreparedDirectory> open_existing_directory(
-    const xdg_paths::ReviewedSourceStatePaths& paths);
+    const xdg_paths::StateStorePaths& paths);
 
 #ifdef MOGUET_TEST_XDG_DIRECTORY_SAFETY_HOOKS
 enum class DirectorySafetyTestEvent {
@@ -250,10 +266,10 @@ std::optional<PreparedDirectory> open_existing_directory_for_test(
     const xdg_paths::SourcePreferencePaths& paths,
     const DirectorySafetyTestOverrides& overrides);
 PreparedDirectory prepare_directory_for_test(
-    const xdg_paths::ReviewedSourceStatePaths& paths,
+    const xdg_paths::StateStorePaths& paths,
     const DirectorySafetyTestOverrides& overrides);
 std::optional<PreparedDirectory> open_existing_directory_for_test(
-    const xdg_paths::ReviewedSourceStatePaths& paths,
+    const xdg_paths::StateStorePaths& paths,
     const DirectorySafetyTestOverrides& overrides);
 #endif
 

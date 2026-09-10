@@ -11,7 +11,6 @@
 namespace local_dependency_plan_query_stub {
 
 enum class RepositoryQueryKind {
-    LegacyPackage,
     StrictPackage,
     StrictProviders
 };

@@ -327,6 +327,19 @@ bool has_embedded_nul(const std::string& value) noexcept {
     return value.find('\0') != std::string::npos;
 }
 
+int duplicate_executable_descriptor_for_exec(
+    const ExplicitProcessInvocation& invocation) noexcept {
+    if(!invocation.executable_fd.has_value()) return -1;
+    int descriptor;
+    do {
+        // LANDMINE: an execveat(AT_EMPTY_PATH) target may be a shebang
+        // script. A CLOEXEC descriptor makes the interpreter hand-off fail
+        // with ENOENT, so only the child receives this non-CLOEXEC duplicate.
+        descriptor = fcntl(*invocation.executable_fd, F_DUPFD, 3);
+    } while(descriptor == -1 && errno == EINTR);
+    return descriptor;
+}
+
 [[noreturn]] void exec_explicit_process_child(
     const ExplicitProcessInvocation& invocation,
     std::vector<char*>& argument_vector,
@@ -346,6 +359,14 @@ bool has_embedded_nul(const std::string& value) noexcept {
 
     if(invocation.working_directory_fd.has_value() &&
        fchdir(*invocation.working_directory_fd) == -1) {
+        _exit(127);
+    }
+
+    // Preserve the retained executable before stdio can overwrite an alias
+    // (or close a shared stdin FD). Only this child-local FD may be executed.
+    const int executable_descriptor =
+        duplicate_executable_descriptor_for_exec(invocation);
+    if(invocation.executable_fd.has_value() && executable_descriptor < 0) {
         _exit(127);
     }
 
@@ -405,9 +426,16 @@ bool has_embedded_nul(const std::string& value) noexcept {
         }
     }
 
-    execve(
-        invocation.executable.c_str(), argument_vector.data(),
-        environment_vector.data());
+    if(executable_descriptor >= 0) {
+        static_cast<void>(syscall(
+            SYS_execveat, executable_descriptor, "",
+            argument_vector.data(), environment_vector.data(),
+            AT_EMPTY_PATH));
+    } else {
+        execve(
+            invocation.executable.c_str(), argument_vector.data(),
+            environment_vector.data());
+    }
     _exit(127);
 }
 
@@ -443,6 +471,37 @@ bool close_descriptors_except(int preserved_descriptor) noexcept {
     return true;
 }
 
+bool close_descriptors_except(
+    int first_preserved_descriptor,
+    int second_preserved_descriptor) noexcept {
+    if(first_preserved_descriptor == second_preserved_descriptor) {
+        return close_descriptors_except(first_preserved_descriptor);
+    }
+    if(first_preserved_descriptor < 3 || second_preserved_descriptor < 3) {
+        return false;
+    }
+    const int lower = std::min(
+        first_preserved_descriptor, second_preserved_descriptor);
+    const int upper = std::max(
+        first_preserved_descriptor, second_preserved_descriptor);
+    if(lower > 3 &&
+       !close_descriptor_range(3U, static_cast<unsigned int>(lower - 1))) {
+        return false;
+    }
+    if(lower < INT_MAX && lower + 1 < upper &&
+       !close_descriptor_range(
+           static_cast<unsigned int>(lower + 1),
+           static_cast<unsigned int>(upper - 1))) {
+        return false;
+    }
+    if(upper < INT_MAX &&
+       !close_descriptor_range(
+           static_cast<unsigned int>(upper + 1), UINT_MAX)) {
+        return false;
+    }
+    return true;
+}
+
 [[noreturn]] void supervise_explicit_process_lifetime(
     const ExplicitProcessInvocation& invocation,
     std::vector<char*>& argument_vector,
@@ -457,8 +516,12 @@ bool close_descriptors_except(int preserved_descriptor) noexcept {
         supervisor_guard =
             fcntl(guard_descriptor, F_DUPFD_CLOEXEC, 3);
     } while(supervisor_guard == -1 && errno == EINTR);
-    if(supervisor_guard == -1 ||
-       !close_descriptors_except(supervisor_guard) ||
+    const bool descriptors_closed =
+        invocation.executable_fd.has_value()
+            ? close_descriptors_except(
+                  supervisor_guard, *invocation.executable_fd)
+            : close_descriptors_except(supervisor_guard);
+    if(supervisor_guard == -1 || !descriptors_closed ||
        prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) == -1) {
         _exit(127);
     }
@@ -586,7 +649,9 @@ bool is_valid_bounded_invocation(
             return false;
         }
     }
-    return fcntl(*invocation.working_directory_fd, F_GETFD) != -1 &&
+    return (!invocation.executable_fd.has_value() ||
+            fcntl(*invocation.executable_fd, F_GETFD) != -1) &&
+           fcntl(*invocation.working_directory_fd, F_GETFD) != -1 &&
            fcntl(*invocation.standard_input_fd, F_GETFD) != -1;
 }
 
@@ -710,6 +775,15 @@ void bind_bounded_child_descriptor(
         exec_status_descriptor,
         BoundedProcessLaunchStage::WorkingDirectory);
 
+    // Stdio binding must not change the object behind executable_fd.
+    const int executable_descriptor =
+        duplicate_executable_descriptor_for_exec(invocation);
+    if(invocation.executable_fd.has_value() && executable_descriptor < 0) {
+        report_bounded_child_failure(
+            exec_status_descriptor,
+            BoundedProcessLaunchStage::DescriptorHygiene, errno);
+    }
+
     bind_bounded_child_descriptor(
         *invocation.standard_input_fd, STDIN_FILENO,
         exec_status_descriptor, BoundedProcessLaunchStage::StandardInput);
@@ -730,15 +804,27 @@ void bind_bounded_child_descriptor(
             BoundedProcessLaunchStage::StandardError);
     }
 
-    if(!close_descriptors_except(exec_status_descriptor)) {
+    const bool descriptors_closed =
+        executable_descriptor >= 0
+            ? close_descriptors_except(
+                  exec_status_descriptor, executable_descriptor)
+            : close_descriptors_except(exec_status_descriptor);
+    if(!descriptors_closed) {
         report_bounded_child_failure(
             exec_status_descriptor,
             BoundedProcessLaunchStage::DescriptorHygiene, errno);
     }
 
-    execve(
-        invocation.executable.c_str(), argument_vector.data(),
-        environment_vector.data());
+    if(executable_descriptor >= 0) {
+        static_cast<void>(syscall(
+            SYS_execveat, executable_descriptor, "",
+            argument_vector.data(), environment_vector.data(),
+            AT_EMPTY_PATH));
+    } else {
+        execve(
+            invocation.executable.c_str(), argument_vector.data(),
+            environment_vector.data());
+    }
     report_bounded_child_failure(
         exec_status_descriptor, BoundedProcessLaunchStage::Execve, errno);
 }
@@ -1378,6 +1464,10 @@ CapturedCommandResult execute_explicit_process(
     }
     if(invocation.executable.empty() ||
        has_embedded_nul(invocation.executable)) {
+        return CapturedCommandResult{};
+    }
+    if(invocation.executable_fd.has_value() &&
+       fcntl(*invocation.executable_fd, F_GETFD) == -1) {
         return CapturedCommandResult{};
     }
     for(const std::string& argument : invocation.arguments) {

@@ -16,7 +16,6 @@
 namespace dependency_plan_repository_query_stub {
 
 void reset_query_counts();
-std::size_t legacy_repo_package_query_count();
 std::size_t sync_database_package_query_count();
 std::size_t strict_repo_provider_query_count();
 
@@ -2240,6 +2239,14 @@ void test_selection_enabled_metadata_failure_boundary() {
         },
         "strict repository exact metadata failure");
 
+    // No selector must use the same strict repository boundary. The AUR
+    // stub rejects an unexpected legacy info call for this dependency.
+    expect_exception(
+        [&recursive_root]() {
+            static_cast<void>(resolve_recursive_dependencies(recursive_root));
+        },
+        "strict repository exact metadata failure");
+
     AurPackageInfo selected_provider_recursive_root;
     selected_provider_recursive_root.Name =
         "selection-enabled-selected-provider-recursive-root";
@@ -3003,9 +3010,6 @@ void test_preflight_repository_query_boundary() {
             PackageRole::RuntimeDependency)
                 .kind == DependencyKind::Repo,
         "Strict resolver lost an exact repository dependency");
-    expect(
-        dependency_plan_repository_query_stub::legacy_repo_package_query_count() == 0,
-        "Strict resolver called the legacy pacman repository query");
     expect(
         dependency_plan_repository_query_stub::sync_database_package_query_count() == 1,
         "Strict resolver did not use the sync database package query");

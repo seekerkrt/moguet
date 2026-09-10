@@ -1,6 +1,12 @@
 #include "artifact_workspace.hpp"
+#include "devel_build_provenance_codec.hpp"
+#include "devel_build_provenance_reviewed_binding.hpp"
+#include "evaluated_devel_source_build.hpp"
+#include "invocation_owned_source_build_context.hpp"
 #include "reviewed_source_pinned_build.hpp"
 
+#include <cstdint>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 
@@ -44,6 +50,74 @@ static_assert(!std::is_constructible_v<
 static_assert(!std::is_constructible_v<
               ReviewedSourceEditorOverlayProof,
               std::filesystem::path>);
+static_assert(!std::is_default_constructible_v<
+              ReviewedSourceStateRecordBinding>);
+static_assert(!std::is_constructible_v<
+              ReviewedSourceStateRecordGeneration,
+              std::uint64_t>);
+static_assert(!std::is_default_constructible_v<
+              DevelBuildProvenancePersistentDecoderAccess>);
+static_assert(!std::is_default_constructible_v<
+              InvocationOwnedSourceBuildContext>);
+static_assert(!std::is_copy_constructible_v<
+              InvocationOwnedSourceBuildContext>);
+static_assert(std::is_move_constructible_v<
+              InvocationOwnedSourceBuildContext>);
+static_assert(!std::is_constructible_v<
+              InvocationOwnedSourceBuildContext,
+              PackageBaseIdentity,
+              AurRecipeRevision,
+              std::filesystem::path,
+              std::filesystem::path,
+              std::filesystem::path,
+              std::filesystem::path>);
+static_assert(std::is_invocable_v<
+              decltype(create_invocation_owned_source_build_context),
+              PinnedReviewedSourceBuild>);
+static_assert(!std::is_invocable_v<
+              decltype(create_invocation_owned_source_build_context),
+              PackageBaseIdentity,
+              AurRecipeRevision,
+              std::filesystem::path>);
+static_assert(!std::is_default_constructible_v<
+              ReviewedRecipeSnapshotIdentity>);
+static_assert(!std::is_default_constructible_v<
+              InvocationOwnedMakepkgEnvironment>);
+static_assert(!std::is_default_constructible_v<
+              EvaluatedDevelSourceBuildProof>);
+static_assert(!std::is_copy_constructible_v<
+              EvaluatedDevelSourceBuildProof>);
+static_assert(!std::is_constructible_v<
+              EvaluatedDevelSourceBuildProof,
+              PackageBaseIdentity,
+              std::string,
+              std::filesystem::path>);
+static_assert(!std::is_default_constructible_v<
+              EvaluatedDevelSourceProjection>);
+static_assert(!std::is_constructible_v<
+              EvaluatedDevelSourceProjection,
+              VcsSourceIdentity,
+              std::size_t,
+              std::size_t>);
+static_assert(!std::is_default_constructible_v<
+              FreshDevelPackageArtifact>);
+static_assert(!std::is_constructible_v<
+              FreshDevelPackageArtifact,
+              std::filesystem::path>);
+static_assert(!std::is_constructible_v<
+              EvaluatedDevelSourceBuildProof,
+              InvocationOwnedSourceBuildContext,
+              EvaluatedDevelSourceProjection,
+              ActualBuiltGitRevision,
+              FreshDevelPackageArtifact>);
+static_assert(!std::is_constructible_v<
+              InstalledArtifactBinding,
+              PackageChildIdentity,
+              PackageVersionIdentity,
+              InstalledPackageArchitectureIdentity,
+              AlpmMtreeSha256Digest,
+              InstalledDatabaseRecordSha256Digest,
+              InstalledPackageRecordGeneration>);
 
 #if defined(MOGUET_FORGE_LIFECYCLE_EXPECTED)
 class ReviewedSourceLifecycleAuthority final {
@@ -151,6 +225,84 @@ struct ReviewedSourceEditorOverlayAccess {
             std::move(pre_editor), std::move(post_editor));
     }
 };
+#elif defined(MOGUET_FORGE_PROVENANCE_REVIEWED_GENERATION)
+ReviewedSourceStateRecordGeneration forge_reviewed_generation() {
+    return ReviewedSourceStateRecordGeneration(1);
+}
+#elif defined(MOGUET_FORGE_PROVENANCE_REVIEWED_BINDING)
+ReviewedSourceStateRecordBinding forge_reviewed_binding(
+    PackageBaseIdentity package_base,
+    AurRecipeRevision revision,
+    ReviewedSourceStateRecordGeneration generation,
+    ReviewedSourceStateDocumentSha256Digest digest) {
+    return ReviewedSourceStateRecordBinding(
+        std::move(package_base), std::move(revision),
+        std::move(generation), std::move(digest));
+}
+#elif defined(MOGUET_FORGE_PROVENANCE_REVIEWED_BINDING_AUTHORITY)
+ReviewedSourceStateRecordBinding forge_reviewed_binding_authority(
+    PackageBaseIdentity package_base,
+    AurRecipeRevision revision,
+    ReviewedSourceStateDocumentSha256Digest digest) {
+    return ReviewedSourceStateRecordBindingAuthority::make(
+        std::move(package_base), std::move(revision), 1,
+        std::move(digest));
+}
+#elif defined(MOGUET_FORGE_INSTALLED_ARTIFACT_BINDING)
+InstalledArtifactBinding forge_installed_binding(
+    PackageChildIdentity package,
+    PackageVersionIdentity version,
+    InstalledPackageArchitectureIdentity architecture,
+    AlpmMtreeSha256Digest mtree,
+    InstalledDatabaseRecordSha256Digest database,
+    InstalledPackageRecordGeneration generation) {
+    return InstalledArtifactBinding::make(
+        std::move(package), std::move(version), std::move(architecture),
+        std::move(mtree), std::move(database), std::move(generation));
+}
+#elif defined(MOGUET_FORGE_PROVENANCE_PERSISTENT_DECODER)
+DevelBuildProvenanceDocument forge_persistent_decoder(
+    std::string_view document) {
+    return DevelBuildProvenancePersistentDecoderAccess::decode_document(
+        document);
+}
+#elif defined(MOGUET_FORGE_INVOCATION_SOURCE_BUILD_CONTEXT)
+InvocationOwnedSourceBuildContext forge_invocation_source_build_context() {
+    return InvocationOwnedSourceBuildContext(nullptr);
+}
+#elif defined(MOGUET_FORGE_REVIEWED_RECIPE_SNAPSHOT_IDENTITY)
+ReviewedRecipeSnapshotIdentity forge_reviewed_recipe_snapshot_identity(
+    ReviewedSourceStateRecordBinding binding,
+    ReviewedSourceObjectId tree) {
+    return ReviewedRecipeSnapshotIdentity(
+        std::move(binding), std::move(tree), 1);
+}
+#elif defined(MOGUET_FORGE_INVOCATION_MAKEPKG_ENVIRONMENT)
+InvocationOwnedMakepkgEnvironment forge_invocation_makepkg_environment(
+    SourceBuildEnvironment environment) {
+    return InvocationOwnedMakepkgEnvironment(
+        std::move(environment), SourceEnvironmentEmptyValuePolicy::Forward,
+        std::make_shared<const int>(0));
+}
+#elif defined(MOGUET_FORGE_EVALUATED_DEVEL_SOURCE_PROJECTION)
+EvaluatedDevelSourceProjection forge_evaluated_source_projection(
+    VcsSourceIdentity source) {
+    return EvaluatedDevelSourceProjection(
+        std::move(source), 1, 0);
+}
+#elif defined(MOGUET_FORGE_FRESH_DEVEL_PACKAGE_ARTIFACT)
+FreshDevelPackageArtifact forge_fresh_devel_package_artifact(
+    PackageChildIdentity package,
+    BuiltPackageArtifactEvidence evidence,
+    std::filesystem::path path) {
+    return FreshDevelPackageArtifact(
+        std::move(package), std::move(evidence), std::move(path),
+        "artifact.pkg.tar.zst", -1, 1, 2, 3, 4);
+}
+#elif defined(MOGUET_FORGE_EVALUATED_DEVEL_SOURCE_BUILD_PROOF)
+EvaluatedDevelSourceBuildProof forge_evaluated_source_build_proof() {
+    return EvaluatedDevelSourceBuildProof(nullptr);
+}
 #else
 int reviewed_source_authority_negative_fixture_baseline() {
     return 0;

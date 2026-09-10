@@ -1,4 +1,5 @@
 #include "reviewed_source_presentation.hpp"
+#include "terminal_safe_text_cases.hpp"
 
 #include <cstdint>
 #include <initializer_list>
@@ -513,6 +514,63 @@ void test_terminal_safe_content_encoding() {
     require_contains(
         long_output, long_line,
         "Exact-limit long safe line was not preserved");
+}
+
+ReviewedSourceReviewEntry full_text_entry(
+    std::string path,
+    std::string content) {
+    const std::size_t content_size = content.size();
+    return entry(
+        ReviewedSourceAdded{
+            version(
+                std::move(path), ReviewedSourceFileMode::Regular,
+                SHA1_A, content_size),
+            ReviewedSourceTextChange{1, 0}},
+        ReviewedSourceReviewRepresentation::CompleteFullText,
+        ReviewedSourceReviewReadiness::Complete, std::nullopt,
+        one_line_observation(std::move(content), false));
+}
+
+void test_shared_terminal_safe_content_corpus() {
+    for(const auto& test_case : terminal_safe_text_test_cases::cases()) {
+        // NUL content is withheld by the reviewed-source model and LF is a
+        // structural line boundary, so neither can enter a verified line.
+        if(test_case.input.find('\0') != std::string::npos ||
+           test_case.input.find('\n') != std::string::npos) {
+            continue;
+        }
+        const std::string output = render_success(update_review(
+            {full_text_entry("corpus", test_case.input)}));
+        require_contains(
+            output, "    +" + test_case.expected + "\n",
+            std::string("Reviewed-source corpus differs for ") +
+                std::string(test_case.label));
+    }
+
+    using terminal_safe_text_test_cases::bytes;
+    std::string patch_content = "patch-";
+    patch_content += bytes(
+        {0xe2, 0x80, 0xae, 0xef, 0xbb, 0xbf, 0xff});
+    const ReviewedSourceReviewEntry modified = entry(
+        ReviewedSourceModified{
+            version(
+                "patch-corpus", ReviewedSourceFileMode::Regular,
+                SHA1_A, 4),
+            version(
+                "patch-corpus", ReviewedSourceFileMode::Regular,
+                SHA1_B, patch_content.size() + 1),
+            ReviewedSourceTextChange{1, 1}},
+        ReviewedSourceReviewRepresentation::CompleteTextPatch,
+        ReviewedSourceReviewReadiness::Complete,
+        one_line_observation("old"),
+        one_line_observation(patch_content),
+        one_line_patch(SHA1_A, SHA1_B, "old", patch_content));
+    const std::string patch_output =
+        render_success(update_review({modified}));
+    require_contains(
+        patch_output,
+        "    +patch-\\xE2\\x80\\xAE\\xEF\\xBB\\xBF\\xFF\n",
+        "Reviewed-source patch did not use the canonical policy");
 }
 
 void test_representation_and_readiness_diagnostics() {
@@ -1068,12 +1126,73 @@ void test_rendered_output_resource_contract() {
                 render_reviewed_source_presentation_with_limit_for_test(
                     verified_small, small_text.size() - 1)),
             "Custom one-over render published a truncated success");
+
+    using terminal_safe_text_test_cases::bytes;
+    const ReviewedSourceMaterializedReview three_byte_review =
+        update_review(
+            {full_text_entry("safe-prefix", "safe"),
+             full_text_entry(
+                 "unsafe-three-byte",
+                 std::string{"before"} +
+                     bytes({0xe2, 0x80, 0xae}) + "after")});
+    const std::string three_byte_output =
+        render_success(three_byte_review);
+    const std::size_t three_byte_offset =
+        three_byte_output.find("\\xE2\\x80\\xAE");
+    require(
+        three_byte_offset != std::string::npos,
+        "Three-byte expansion fixture was not escaped");
+    const std::uintmax_t three_byte_limit = three_byte_offset + 4;
+    const ReviewedSourcePresentationResult three_byte_limited =
+        render_reviewed_source_presentation_with_limit_for_test(
+            seal_for_render(three_byte_review), three_byte_limit);
+    const auto& three_byte_failure =
+        require_arm<ReviewedSourcePresentationFailure>(
+            three_byte_limited,
+            "Three-byte escape expansion crossed the limit with partial success");
+    require(
+        three_byte_failure.reason ==
+                ReviewedSourcePresentationFailureReason::
+                    RenderedOutputLimitExceeded &&
+            three_byte_failure.entry_index == 1 &&
+            three_byte_failure.observed == three_byte_limit + 4 &&
+            three_byte_failure.limit == three_byte_limit,
+        "Three-byte escape expansion failure attribution drifted");
+
+    const ReviewedSourceMaterializedReview four_byte_review =
+        update_review({full_text_entry(
+            "unsafe-four-byte",
+            std::string{"before"} +
+                bytes({0xf4, 0x90, 0x80, 0x80}) + "after")});
+    const std::string four_byte_output = render_success(four_byte_review);
+    const std::size_t four_byte_offset =
+        four_byte_output.find("\\xF4\\x90\\x80\\x80");
+    require(
+        four_byte_offset != std::string::npos,
+        "Invalid four-byte expansion fixture was not escaped");
+    const std::uintmax_t four_byte_limit = four_byte_offset + 4;
+    const ReviewedSourcePresentationResult four_byte_limited =
+        render_reviewed_source_presentation_with_limit_for_test(
+            seal_for_render(four_byte_review), four_byte_limit);
+    const auto& four_byte_failure =
+        require_arm<ReviewedSourcePresentationFailure>(
+            four_byte_limited,
+            "Invalid four-byte escape expansion crossed the limit with partial success");
+    require(
+        four_byte_failure.reason ==
+                ReviewedSourcePresentationFailureReason::
+                    RenderedOutputLimitExceeded &&
+            four_byte_failure.entry_index == 0 &&
+            four_byte_failure.observed == four_byte_limit + 4 &&
+            four_byte_failure.limit == four_byte_limit,
+        "Invalid four-byte escape expansion failure attribution drifted");
 }
 
 void run_tests() {
     test_change_types_and_sha1_metadata();
     test_sha256_metadata_and_patch();
     test_terminal_safe_content_encoding();
+    test_shared_terminal_safe_content_corpus();
     test_representation_and_readiness_diagnostics();
     test_path_and_emphasis_policy();
     test_classification_crossing_priority();

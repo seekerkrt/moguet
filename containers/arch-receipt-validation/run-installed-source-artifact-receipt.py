@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 
 import fcntl
+import hashlib
 import os
 import pathlib
 import stat
@@ -113,6 +114,8 @@ def prepare(
                 architecture,
                 str(path.stat().st_size),
                 "0",
+                hashlib.sha256(path.read_bytes()).hexdigest(),
+                "-",
             ]
         )
         paths.append(path)
@@ -139,7 +142,7 @@ def prepare(
     )
     lines = parse_fixed_response(
         result.stdout,
-        "MOGUET-SOURCE-ARTIFACT-PREPARE-RESPONSE\t1",
+        "MOGUET-SOURCE-ARTIFACT-PREPARE-RESPONSE\t2",
         transaction_token,
     )
     hook_lines = [line.removeprefix("HOOKDIR\t") for line in lines if line.startswith("HOOKDIR\t")]
@@ -168,7 +171,7 @@ def consume(transaction_token: str) -> tuple[str, list[str]]:
     require(result.returncode == 0, f"consume failed: {result.stderr.strip()}")
     lines = parse_fixed_response(
         result.stdout,
-        "MOGUET-SOURCE-ARTIFACT-RECEIPT\t1",
+        "MOGUET-SOURCE-ARTIFACT-RECEIPT\t2",
         transaction_token,
     )
     states = [line.removeprefix("STATE\t") for line in lines if line.startswith("STATE\t")]
@@ -198,12 +201,9 @@ def run_transaction(
 ) -> tuple[str, list[str]] | None:
     prepared = prepare(transaction_token, artifacts, needed=needed)
     require(prepared is not None, "valid prepare returned no state")
-    hook_directory, staged_paths = prepared
-    command = ["/usr/bin/pacman", "-U"]
-    if needed:
-        command.append("--needed")
-    command.extend(["--asdeps", "--noconfirm", "--hookdir", hook_directory, "--"])
-    command.extend(staged_paths)
+    # The privileged helper owns final identity reproof and the adjacent
+    # archive/signature pathname handoff; this fixture must not bypass it.
+    command = [HELPER, "execute", transaction_token]
     result = subprocess.run(
         command,
         stdout=subprocess.DEVNULL,
@@ -489,17 +489,20 @@ def main() -> None:
     require(status == "Missing" and evidence == "Missing" and causal == "Absent" and not installs, "downgrade became Install")
     require(package_version("moguet-source-receipt-single") == "1-1", "downgrade did not execute")
 
-    status, evidence, causal, installs, _ = run_production_transport(
+    status, evidence, causal, installs, pacman_status = run_production_transport(
         "installed-invocation", 4, single_v1[0], needed=True
     )
-    require(status == "Missing" and evidence == "Missing" and causal == "Absent" and not installs, "--needed skip became Install")
+    # No transaction means no trusted hook-phase observation. A numeric zero
+    # alone must not manufacture a package-manager outcome or an Install.
+    require(status == "OutcomeUnknown" and evidence == "Incomplete" and causal == "Absent" and not installs and pacman_status is None, "--needed skip became Install or a known unobserved outcome")
 
     status, evidence, causal, installs, pacman_status = run_production_transport(
         "installed-invocation",
         5,
         (0, "moguet-source-receipt-failure", "1-1", "moguet-source-receipt-failure", "any", failure),
     )
-    require(status == "PacmanFailed" and evidence == "Missing" and causal == "Absent" and not installs and pacman_status not in (None, 0), "failed transaction became causal Install")
+    # Missing dependency stops this fixture before PreTransaction hooks.
+    require(status == "OutcomeUnknown" and evidence == "Incomplete" and causal == "Absent" and not installs and pacman_status is None, "pre-hook failure became a known pacman result")
     require(package_version("moguet-source-receipt-failure") is None, "failed transaction installed its target")
 
     replay_token = token("b")
@@ -511,7 +514,7 @@ def main() -> None:
     descriptor = sealed_stream([v1])
     try:
         duplicate = subprocess.run(
-            [HELPER, "prepare", replay_token, "moguet-source-receipt-single", "AsDependency", "0", "1", "--", "0", "moguet-source-receipt-single", "1-1", "moguet-source-receipt-single", "any", str(v1.stat().st_size), "0"],
+            [HELPER, "prepare", replay_token, "moguet-source-receipt-single", "AsDependency", "0", "1", "--", "0", "moguet-source-receipt-single", "1-1", "moguet-source-receipt-single", "any", str(v1.stat().st_size), "0", hashlib.sha256(v1.read_bytes()).hexdigest(), "-"],
             stdin=descriptor,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,

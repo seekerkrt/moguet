@@ -466,6 +466,8 @@ ProductionSourceBuildWorkItem make_direct_source_build_work_item(
 std::optional<ArtifactInstallExecutionOutcome> flatten_source_build_result(
     const SourceBuildExecutionResult& result) {
     switch(result.status) {
+        case SourceBuildExecutionStatus::DevelRequiresCheckSkipped:
+        case SourceBuildExecutionStatus::AuthoritativeIncomplete: return std::nullopt;
         case SourceBuildExecutionStatus::Installed:
             return ArtifactInstallExecutionOutcome::Installed;
         case SourceBuildExecutionStatus::SkippedAsNeeded:
@@ -604,6 +606,10 @@ bool ProductionSourceBuildInvocationResult::is_success() const noexcept {
             return work_item.status ==
                    ProductionSourceBuildWorkItemStatus::Succeeded;
         });
+}
+
+int ProductionSourceBuildInvocationResult::command_exit_status() const noexcept {
+    return is_success() ? 0 : 1;
 }
 
 ProductionSourceBuildInvocationError::
@@ -1520,7 +1526,7 @@ ResolvedSourceBuildIdentity make_repository_source_build_identity(
         ResolvedRepositorySourceBuildIdentity{package}};
 }
 
-void build_source_target(
+bool build_source_target(
     const std::string& package_name,
     const SourceBuildEnvironment& custom_environment,
     const AppConfig& config) {
@@ -1536,12 +1542,12 @@ void build_source_target(
     PreparedRemoteSourceBuild prepared = std::move(
         std::get<PreparedRemoteSourceBuild>(preparation));
     if(prepared.source.source_kind() == SourceBuildSourceKind::Aur) {
-        static_cast<void>(collect_remote_aur_cleanup_candidates(
-            std::move(prepared), config));
-        return;
+        const auto collected = collect_remote_aur_cleanup_candidates(std::move(prepared), config);
+        return collected.invocation_result().is_success();
     }
-    execute_prepared_source_build_invocation(
-        std::move(prepared.invocation), config);
+    return execute_prepared_source_build_invocation(
+               std::move(prepared.invocation), config)
+        .is_success();
 }
 
 RemoteSourceBuildPreparation prepare_remote_source_build(
@@ -1682,7 +1688,7 @@ ProductionSourceBuildWorkItem prepare_smart_source_build_work_item(
         select_provider);
 }
 
-PackageBaseSourceBuildExecutionResult
+SourceBuildPackageBaseExecutionResult
 execute_prepared_package_base_source_build_work_item_typed(
     const ProductionSourceBuildWorkItem& work_item,
     const PacmanDatabasePaths& database_paths,
@@ -1718,6 +1724,7 @@ execute_prepared_package_base_source_build_work_item_typed(
         database_paths, config);
 }
 
+#ifndef MOGUET_ENABLE_SOURCE_INVOCATION_EXECUTION_TEST_HOOKS
 namespace {
 
 PackageBaseSourceBuildExecutionResult
@@ -1754,6 +1761,7 @@ execute_prepared_package_base_source_build_work_item_with_cleanup(
 }
 
 } // namespace
+#endif
 
 SourceBuildPreparationOutcome
 prepare_package_base_source_build_work_item_typed(
@@ -1789,9 +1797,9 @@ execute_prepared_package_base_source_build_work_item_typed(
     const PacmanDatabasePaths& database_paths,
     const AppConfig& config) {
     require_registered_repository_package_base_work_item(work_item, config);
-    return execute_prepared_source_build_package_base_typed(
+    return std::get<PackageBaseSourceBuildExecutionResult>(execute_prepared_source_build_package_base_typed(
         work_item.request, work_item.required_targets,
-        std::move(prepared), database_paths, config);
+        std::move(prepared), database_paths, config));
 }
 
 SourceBuildExecutionResult execute_prepared_source_build_work_item_typed(
@@ -1853,7 +1861,36 @@ execute_prepared_source_build_work_item(
             work_item, database_paths, config));
 }
 
+#ifdef MOGUET_ENABLE_SOURCE_INVOCATION_EXECUTION_TEST_HOOKS
 namespace {
+SourceInvocationExecutionTestHooks g_invocation_execution_hooks;
+}
+void set_source_invocation_execution_test_hooks(SourceInvocationExecutionTestHooks hooks) {
+    g_invocation_execution_hooks = std::move(hooks);
+}
+#endif
+
+namespace {
+
+// Retain the terminal owner before any fallible display copy. A returned partial
+// is not an exception: it must never enter the exception-only aggregate helper.
+bool retain_authoritative_execution(ProductionSourceBuildWorkItemOutcome& outcome,
+                                    ReviewedDevelExecutionSnapshot execution,
+                                    bool partial) noexcept {
+    static_assert(std::is_nothrow_move_constructible_v<ReviewedDevelExecutionSnapshot>);
+    outcome.devel_execution.emplace(std::move(execution));
+    try {
+        outcome.production_outcome = outcome.devel_execution->production_outcome;
+    } catch(...) {
+        outcome.devel_execution->projection_failed = true;
+        outcome.devel_execution->complete = false;
+        partial = true;
+    }
+    partial = partial || !outcome.devel_execution->complete;
+    outcome.status = partial ? ProductionSourceBuildWorkItemStatus::AuthoritativePartial
+                             : ProductionSourceBuildWorkItemStatus::Succeeded;
+    return partial;
+}
 
 ProductionSourceBuildInvocationResult
 execute_prepared_source_build_invocation_impl(
@@ -1868,6 +1905,10 @@ execute_prepared_source_build_invocation_impl(
         outcome.package_base = work_item.request.checkout_name;
         aggregate.work_items.push_back(std::move(outcome));
     }
+#ifdef MOGUET_ENABLE_SOURCE_INVOCATION_EXECUTION_TEST_HOOKS
+    // Isolated fixture owns dispatch; no host cache/provider transaction.
+    SelectedRepositoryProviderTransactionResult provider_transaction;
+#else
     activate_production_source_build_cache(invocation);
     SelectedRepositoryProviderTransactionResult provider_transaction =
         collector == nullptr
@@ -1875,6 +1916,7 @@ execute_prepared_source_build_invocation_impl(
                   invocation, config)
             : collector->execute_selected_repository_provider_transaction(
                   config);
+#endif
     if(!provider_transaction.is_success()) {
         const std::string diagnostic =
             provider_transaction.diagnostic.value_or(
@@ -1914,15 +1956,19 @@ execute_prepared_source_build_invocation_impl(
         if(work_item.artifact_lifecycle_intent ==
            ArtifactLifecycleIntent::PackageBaseSet) {
             try {
-                PackageBaseSourceBuildExecutionResult result =
-                    collector != nullptr &&
-                            collector->should_use_trusted_source_artifact_install(
-                                index)
-                        ? execute_prepared_package_base_source_build_work_item_with_cleanup(
-                              work_item, invocation.database_paths, config,
-                              *collector, index)
-                        : execute_prepared_package_base_source_build_work_item_typed(
-                              work_item, invocation.database_paths, config);
+                SourceBuildPackageBaseExecutionResult execution =
+#ifdef MOGUET_ENABLE_SOURCE_INVOCATION_EXECUTION_TEST_HOOKS
+                    g_invocation_execution_hooks.package_base(work_item, invocation.database_paths, config);
+#else
+                    collector != nullptr && collector->should_use_trusted_source_artifact_install(index)
+                        ? execute_prepared_package_base_source_build_work_item_with_cleanup(work_item, invocation.database_paths, config, *collector, index)
+                        : execute_prepared_package_base_source_build_work_item_typed(work_item, invocation.database_paths, config);
+#endif
+                if(auto* devel = std::get_if<ReviewedDevelExecutionSnapshot>(&execution)) {
+                    if(retain_authoritative_execution(work_item_outcome, std::move(*devel), false)) return aggregate;
+                    continue;
+                }
+                auto result = std::get<PackageBaseSourceBuildExecutionResult>(std::move(execution));
                 work_item_outcome.status =
                     ProductionSourceBuildWorkItemStatus::Succeeded;
                 work_item_outcome.production_outcome =
@@ -1931,6 +1977,8 @@ execute_prepared_source_build_invocation_impl(
                     result.package_base(),
                     result.production_outcome());
                 present_package_base_result(work_item, result);
+            } catch(const ProductionSourceBuildInvocationError&) {
+                throw;
             } catch(const SeparatedPackageBaseSourceBuildCleanupError& error) {
                 // Transaction完了済みのchild outcomeを失わず表示し、
                 // callerがcleanup failureを成功と扱わないようaggregateへ保持する。
@@ -2014,16 +2062,23 @@ execute_prepared_source_build_invocation_impl(
         } else {
             try {
                 SourceBuildExecutionResult result =
-                    execute_prepared_source_build_work_item_typed(
-                        work_item, invocation.database_paths,
-                        config);
-                work_item_outcome.status =
-                    ProductionSourceBuildWorkItemStatus::Succeeded;
-                work_item_outcome.production_outcome =
-                    result.production_outcome;
+#ifdef MOGUET_ENABLE_SOURCE_INVOCATION_EXECUTION_TEST_HOOKS
+                    g_invocation_execution_hooks.singular(work_item, invocation.database_paths, config);
+#else
+                    execute_prepared_source_build_work_item_typed(work_item, invocation.database_paths, config);
+#endif
+                work_item_outcome.devel_update_query = std::move(result.devel_update_query);
+                if(result.devel_execution) {
+                    if(retain_authoritative_execution(work_item_outcome, std::move(*result.devel_execution), result.status == SourceBuildExecutionStatus::AuthoritativeIncomplete)) return aggregate;
+                    continue;
+                }
+                work_item_outcome.status = ProductionSourceBuildWorkItemStatus::Succeeded;
+                work_item_outcome.production_outcome = result.production_outcome;
                 present_production_source_build_outcome(
                     work_item.request.checkout_name,
                     result.production_outcome);
+            } catch(const ProductionSourceBuildInvocationError&) {
+                throw;
             } catch(const SeparatedSourceBuildPhaseError& error) {
                 present_production_source_build_outcome(
                     work_item.request.checkout_name,

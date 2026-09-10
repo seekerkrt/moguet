@@ -2,6 +2,7 @@
 
 #include "app_config.hpp"
 #include "aur_update_query.hpp"
+#include "aur_devel_update.hpp"
 #include "cli_authority.hpp"
 #include "cli_parser.hpp"
 #include "cli_routing.hpp"
@@ -245,10 +246,11 @@ int run_upgrade_dry_run(const AppConfig& config) {
                         localization::translate_message(
                             "System/source upgrade preflight has no projection authority."));
                 }
+                const auto registered = observe_registered_aur_devel_updates(*view);
                 return render_dry_run_projection(
                     project_system_source_upgrade_unified_plan(
                         SystemSourceUpgradeUnifiedPlanProjectionInput{
-                            std::cref(*view)}));
+                            std::cref(*view), &registered}));
             } else {
                 return render_dry_run_projection(
                     project_system_source_upgrade_unified_plan(
@@ -306,8 +308,9 @@ int run_upgrade_all_dry_run(
     }
     PreparedUpgradeAllAurPreflight aur_preflight =
         prepare_upgrade_all_aur_preflight(*snapshot, config);
+    const auto registered = observe_registered_aur_devel_updates(authority->system_source());
     return render_dry_run_projection(project_upgrade_all_unified_plan(
-        *authority, aur_preflight));
+        *authority, aur_preflight, &registered));
 }
 
 } // namespace

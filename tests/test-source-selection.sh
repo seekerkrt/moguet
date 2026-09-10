@@ -517,14 +517,15 @@ prepare_preference_store
 revert_src_path=$preference_dir/official-a
 printf 'CFLAGS=-Oexisting\n' > "$revert_src_path"
 chmod 600 "$revert_src_path"
-export MOGUET_TEST_PACMAN_REPO_PACKAGES=official-a
+write_repository_package official-a
 run_ok revert official-a
 assert_contains "Unmarking source-build for official-a" "$output_file"
 assert_contains "official-a exists in official repos. Will reinstall binary." "$output_file"
 assert_contains "Reinstalling binaries: 'official-a'" "$output_file"
-assert_command_at 1 "pacman -Si official-a"
-assert_command_at 2 "sudo pacman -S official-a"
-assert_command_count 2
+assert_command_at 1 "pacman-conf --verbose RootDir DBPath"
+assert_command_at 2 "pacman-conf --repo-list"
+assert_command_at 3 "sudo pacman -S official-a"
+assert_command_count 3
 if [ -e "$revert_src_path" ] || [ -L "$revert_src_path" ]; then
     echo "revert did not remove the canonical entry" >&2
     exit 1
@@ -1177,6 +1178,7 @@ assert_request_log_empty
 
 setup_case auto-info-official
 export MOGUET_TEST_PACMAN_REPO_PACKAGES=filesystem
+write_repository_package filesystem
 run_ok -Si filesystem
 assert_command "pacman -Si filesystem"
 assert_request_log_empty
@@ -1189,7 +1191,8 @@ assert_request_log_empty
 
 setup_case auto-info-aur-fallback
 run_ok -Si clean-root
-assert_command "pacman -Si clean-root"
+assert_command "pacman-conf --repo-list"
+assert_command_absent "pacman -Si clean-root"
 assert_contains "Name            : clean-root" "$output_file"
 assert_request_log_nonempty
 

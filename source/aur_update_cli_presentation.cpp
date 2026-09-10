@@ -209,6 +209,8 @@ std::string failure_detail_summary(
                     "NotAttempted", "AUR"));
             }
             return localization::translate_message("prior work item stopped");
+        case AurUpdateWorkItemFailureKind::AuthoritativeExecutionIncomplete:
+            return localization::translate_message("authoritative execution incomplete; installation and publication outcomes are retained separately");
         case AurUpdateWorkItemFailureKind::BuildOrInstallFailed:
             break;
         default:
@@ -326,7 +328,7 @@ bool failure_kind_matches_work_item(
         case AurUpdateWorkItemExecutionStatus::NoChange:
             return kind == AurUpdateWorkItemFailureKind::None;
         case AurUpdateWorkItemExecutionStatus::Failed:
-            return kind == AurUpdateWorkItemFailureKind::BuildOrInstallFailed ||
+            return kind == AurUpdateWorkItemFailureKind::AuthoritativeExecutionIncomplete || kind == AurUpdateWorkItemFailureKind::BuildOrInstallFailed ||
                    kind == AurUpdateWorkItemFailureKind::UnknownException;
         case AurUpdateWorkItemExecutionStatus::UpdatedCleanupFailed:
         case AurUpdateWorkItemExecutionStatus::NoChangeCleanupFailed:
@@ -416,7 +418,10 @@ void require_coherent_work_item(
            child.required_package_name.empty() ||
            child.required_package_name != work_item.plan_package_names[index] ||
            !is_known_install_reason(child.desired_install_reason) ||
-           !child_status_matches_work_item(work_item.status, child.status)) {
+           (!child_status_matches_work_item(work_item.status, child.status) &&
+            !(work_item.devel_execution && work_item.status == AurUpdateWorkItemExecutionStatus::Failed &&
+              work_item.devel_execution->operation == DevelSourceArtifactInstallOperation::Succeeded &&
+              work_item.devel_execution->proof == DevelSourceArtifactInstallProof::Complete && child.status == AurUpdateChildExecutionStatus::Installed))) {
             throw std::logic_error(localization::format_translated_message(
                 // TRANSLATORS: AUR is a runtime project identity.
                 "{} child presentation snapshot is incoherent.", "AUR"));
@@ -570,6 +575,12 @@ bool is_ordinary_singular_success(
 std::string child_outcome_label(
     const AurUpdateWorkItemExecutionResult& work_item,
     AurUpdateChildExecutionStatus status) {
+    if(status == AurUpdateChildExecutionStatus::NotAttempted && work_item.devel_execution) {
+        const auto operation = work_item.devel_execution->operation;
+        if(operation == DevelSourceArtifactInstallOperation::Succeeded) return localization::translate_message("transaction succeeded; exact installed proof unavailable");
+        if(operation == DevelSourceArtifactInstallOperation::OutcomeUnknown) return localization::translate_message("transaction outcome unknown; installed artifact unverified");
+        if(operation == DevelSourceArtifactInstallOperation::Failed) return localization::translate_message("transaction failed; package effects unverified");
+    }
     switch(status) {
         case AurUpdateChildExecutionStatus::Installed:
             return localization::translate_message("installed / updated");
@@ -618,6 +629,8 @@ bool should_print_failure(AurUpdateWorkItemFailureKind kind) {
         case AurUpdateWorkItemFailureKind::None:
         case AurUpdateWorkItemFailureKind::PriorWorkItemStopped:
             return false;
+        case AurUpdateWorkItemFailureKind::AuthoritativeExecutionIncomplete:
+            return true;
         case AurUpdateWorkItemFailureKind::BuildOrInstallFailed:
         case AurUpdateWorkItemFailureKind::CleanupFailedAfterPackageTransaction:
         case AurUpdateWorkItemFailureKind::UnknownException:

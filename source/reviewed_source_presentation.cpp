@@ -1,6 +1,7 @@
 #include "reviewed_source_presentation.hpp"
 
 #include "localization.hpp"
+#include "terminal_safe_text.hpp"
 
 #include <limits>
 #include <optional>
@@ -90,131 +91,15 @@ private:
     std::optional<ReviewedSourcePresentationFailure> failure_;
 };
 
-void append_escaped_byte(
-    RenderState& state,
-    unsigned char byte,
-    std::size_t entry_index) {
-    constexpr char HEX[] = "0123456789ABCDEF";
-    const char escaped[4]{
-        '\\', 'x', HEX[(byte >> 4) & 0x0f], HEX[byte & 0x0f]};
-    state.append(std::string_view(escaped, sizeof(escaped)), entry_index);
-}
-
-bool is_utf8_continuation_byte(unsigned char byte) noexcept {
-    return byte >= 0x80 && byte <= 0xbf;
-}
-
-bool decode_utf8_code_point(
-    std::string_view value,
-    std::size_t offset,
-    char32_t& code_point,
-    std::size_t& length) noexcept {
-    const auto byte_at = [&value](std::size_t index) {
-        return static_cast<unsigned char>(value[index]);
-    };
-
-    const unsigned char first = byte_at(offset);
-    if(first <= 0x7f) {
-        code_point = first;
-        length = 1;
-        return true;
-    }
-    if(first >= 0xc2 && first <= 0xdf) {
-        if(offset + 1 >= value.size()) return false;
-        const unsigned char second = byte_at(offset + 1);
-        if(!is_utf8_continuation_byte(second)) return false;
-        code_point =
-            (static_cast<char32_t>(first & 0x1f) << 6) |
-            static_cast<char32_t>(second & 0x3f);
-        length = 2;
-        return true;
-    }
-    if(first >= 0xe0 && first <= 0xef) {
-        if(offset + 2 >= value.size()) return false;
-        const unsigned char second = byte_at(offset + 1);
-        const unsigned char third = byte_at(offset + 2);
-        const bool valid_second =
-            first == 0xe0 ? second >= 0xa0 && second <= 0xbf
-            : first == 0xed
-                ? second >= 0x80 && second <= 0x9f
-                : is_utf8_continuation_byte(second);
-        if(!valid_second || !is_utf8_continuation_byte(third)) return false;
-        code_point =
-            (static_cast<char32_t>(first & 0x0f) << 12) |
-            (static_cast<char32_t>(second & 0x3f) << 6) |
-            static_cast<char32_t>(third & 0x3f);
-        length = 3;
-        return true;
-    }
-    if(first >= 0xf0 && first <= 0xf4) {
-        if(offset + 3 >= value.size()) return false;
-        const unsigned char second = byte_at(offset + 1);
-        const unsigned char third = byte_at(offset + 2);
-        const unsigned char fourth = byte_at(offset + 3);
-        const bool valid_second =
-            first == 0xf0 ? second >= 0x90 && second <= 0xbf
-            : first == 0xf4
-                ? second >= 0x80 && second <= 0x8f
-                : is_utf8_continuation_byte(second);
-        if(!valid_second || !is_utf8_continuation_byte(third) ||
-           !is_utf8_continuation_byte(fourth)) {
-            return false;
-        }
-        code_point =
-            (static_cast<char32_t>(first & 0x07) << 18) |
-            (static_cast<char32_t>(second & 0x3f) << 12) |
-            (static_cast<char32_t>(third & 0x3f) << 6) |
-            static_cast<char32_t>(fourth & 0x3f);
-        length = 4;
-        return true;
-    }
-    return false;
-}
-
-bool is_bidi_control(char32_t code_point) noexcept {
-    return code_point == 0x061c || code_point == 0x200e ||
-           code_point == 0x200f ||
-           (code_point >= 0x202a && code_point <= 0x202e) ||
-           (code_point >= 0x2066 && code_point <= 0x2069);
-}
-
-bool is_terminal_safe_code_point(char32_t code_point) noexcept {
-    return code_point >= 0x20 &&
-           !(code_point >= 0x7f && code_point <= 0x9f) &&
-           code_point != static_cast<char32_t>('\\') &&
-           code_point != 0x2028 && code_point != 0x2029 &&
-           code_point != 0xfeff && !is_bidi_control(code_point);
-}
-
 void append_safe_content(
     RenderState& state,
     std::string_view bytes,
     std::size_t entry_index) {
-    std::size_t offset = 0;
-    while(offset < bytes.size() && !state.failed()) {
-        char32_t code_point = 0;
-        std::size_t length = 0;
-        if(!decode_utf8_code_point(bytes, offset, code_point, length)) {
-            append_escaped_byte(
-                state,
-                static_cast<unsigned char>(bytes[offset]),
-                entry_index);
-            ++offset;
-            continue;
-        }
-        if(is_terminal_safe_code_point(code_point)) {
-            state.append(bytes.substr(offset, length), entry_index);
-        } else {
-            for(std::size_t index = 0;
-                index < length && !state.failed(); ++index) {
-                append_escaped_byte(
-                    state,
-                    static_cast<unsigned char>(bytes[offset + index]),
-                    entry_index);
-            }
-        }
-        offset += length;
-    }
+    const bool completed = terminal_safe_text::append_escaped_utf8(
+        bytes, [&state, entry_index](std::string_view segment) {
+            return state.append(segment, entry_index);
+        });
+    (void)completed;
 }
 
 std::optional<std::string> object_format_display(

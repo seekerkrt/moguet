@@ -212,6 +212,10 @@ std::string source_failure_label(
         case RegisteredSourceUpgradeFailureKind::
             CleanupFailedAfterPackageTransaction:
             return localization::translate_message("cleanup failed after package transaction");
+        case RegisteredSourceUpgradeFailureKind::AuthoritativeExecutionIncomplete:
+            return localization::translate_message("authoritative execution incomplete; installation and publication outcomes are separate");
+        case RegisteredSourceUpgradeFailureKind::DevelRequiresCheckSkipped:
+            return localization::translate_message("devel update requires check; explicit rebuild declined");
         case RegisteredSourceUpgradeFailureKind::UpdateStatusUnknownSkipped:
             return localization::translate_message("package update status unknown");
         case RegisteredSourceUpgradeFailureKind::PriorPhaseStopped:
@@ -1589,36 +1593,45 @@ void print_system_issues_and_diagnostics(
         const bool has_package = issue.preference_package_name.has_value();
         const bool has_metadata = issue.package_metadata_failure.has_value();
         const bool has_diagnostic = !issue.diagnostic.empty();
+        const std::string package_display =
+            has_package
+                ? terminal_safe_runtime_diagnostic_detail(
+                      *issue.preference_package_name)
+                : std::string{};
+        const std::string diagnostic_display =
+            has_diagnostic
+                ? terminal_safe_runtime_diagnostic_detail(issue.diagnostic)
+                : std::string{};
         std::string message;
         if(has_package && has_metadata && has_diagnostic) {
             message = localization::format_translated_message(
                 "system/source issue: {} ({}, {}): {} [{}]: {}", kind,
-                impact, phase, *issue.preference_package_name,
+                impact, phase, package_display,
                 package_metadata_error_label(
                     issue.package_metadata_failure->code),
-                issue.diagnostic);
+                diagnostic_display);
         } else if(has_package && has_metadata) {
             message = localization::format_translated_message(
                 "system/source issue: {} ({}, {}): {} [{}]", kind,
-                impact, phase, *issue.preference_package_name,
+                impact, phase, package_display,
                 package_metadata_error_label(
                     issue.package_metadata_failure->code));
         } else if(has_package && has_diagnostic) {
             message = localization::format_translated_message(
                 "system/source issue: {} ({}, {}): {}: {}", kind,
-                impact, phase, *issue.preference_package_name,
-                issue.diagnostic);
+                impact, phase, package_display,
+                diagnostic_display);
         } else if(has_metadata && has_diagnostic) {
             message = localization::format_translated_message(
                 "system/source issue: {} ({}, {}) [{}]: {}", kind,
                 impact, phase,
                 package_metadata_error_label(
                     issue.package_metadata_failure->code),
-                issue.diagnostic);
+                diagnostic_display);
         } else if(has_package) {
             message = localization::format_translated_message(
                 "system/source issue: {} ({}, {}): {}", kind, impact,
-                phase, *issue.preference_package_name);
+                phase, package_display);
         } else if(has_metadata) {
             message = localization::format_translated_message(
                 "system/source issue: {} ({}, {}) [{}]", kind, impact,
@@ -1628,7 +1641,7 @@ void print_system_issues_and_diagnostics(
         } else if(has_diagnostic) {
             message = localization::format_translated_message(
                 "system/source issue: {} ({}, {}): {}", kind, impact,
-                phase, issue.diagnostic);
+                phase, diagnostic_display);
         } else {
             message = localization::format_translated_message(
                 "system/source issue: {} ({}, {})", kind, impact, phase);

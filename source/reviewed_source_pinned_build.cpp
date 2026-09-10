@@ -849,6 +849,34 @@ void PinnedReviewedSourceBuild::require_unchanged_checkout_identity() const {
         require_state().checkout);
 }
 
+TrustedGitReviewedRecipeSnapshotResult
+PinnedReviewedSourceBuild::project_reviewed_recipe_snapshot() const {
+    const ReviewedSourceEditorOverlayProof::State& overlay =
+        require_state().editor_overlay.require_state();
+    return std::visit(
+        [&overlay](const auto& checkout) {
+            const auto& checkout_state = checkout.require_state();
+            return trusted_git_project_reviewed_recipe_snapshot(
+                checkout_state.checkout, checkout_state.lease,
+                overlay.post_editor);
+        },
+        require_state().checkout);
+}
+
+TrustedGitPinnedCheckoutRevalidationResult
+PinnedReviewedSourceBuild::revalidate_reviewed_recipe_source() const {
+    const ReviewedSourceEditorOverlayProof::State& overlay =
+        require_state().editor_overlay.require_state();
+    return std::visit(
+        [&overlay](const auto& checkout) {
+            const auto& checkout_state = checkout.require_state();
+            return revalidate_trusted_git_pinned_checkout_overlay(
+                checkout_state.checkout, checkout_state.lease,
+                overlay.post_editor);
+        },
+        require_state().checkout);
+}
+
 int PinnedReviewedSourceBuild::run_guarded_command(
     const std::string& command,
     const std::string& display_command) const {

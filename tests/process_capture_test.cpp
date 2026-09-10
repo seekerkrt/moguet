@@ -394,6 +394,66 @@ void test_explicit_process_launch_outcome(
         "invalid pre-launch invocation did not remain NotStarted");
 }
 
+void test_explicit_retained_executable_identity(
+    const fs::path& executable_path) {
+    const int executable_descriptor = open(
+        executable_path.c_str(), O_PATH | O_CLOEXEC | O_NOFOLLOW);
+    require(executable_descriptor >= 0,
+            "Failed to retain explicit executable identity");
+    ExplicitProcessInvocation invocation{
+        "/path/replaced/after-retention",
+        {std::string(CHILD_MARKER), "final-lf"},
+        {}};
+    invocation.executable_fd = executable_descriptor;
+    CapturedCommandResult result =
+        capture_explicit_process_output_raw(invocation);
+    require(close(executable_descriptor) == 0,
+            "Explicit process closed the caller-owned executable descriptor");
+    require_result(
+        "explicit retained executable identity", result, "line\n", 0);
+}
+
+void test_retained_executable_stdio_aliases() {
+    for(const bool bounded : {false, true}) {
+        for(const int executable_slot : {0, 1, 2, 3}) {
+            for(const bool aliases_stdin : {false, true}) {
+                // Isolate the fixture's stdio mutation from the test runner.
+                const pid_t child = fork();
+                require(child >= 0, "Failed to fork retained FD alias fixture");
+                if(child == 0) {
+                    const int retained = open("/usr/bin/false", O_RDONLY | O_CLOEXEC);
+                    const int input = open("/usr/bin/true", O_RDONLY | O_CLOEXEC);
+                    const int cwd = open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+                    if(retained < 0 || input < 0 || cwd < 0) _exit(70);
+                    const int slot = executable_slot == 3 ? retained : executable_slot;
+                    if(dup2(retained, slot) < 0) _exit(71);
+                    ExplicitProcessInvocation invocation{
+                        "/usr/bin/true", {}, {"PATH=/usr/bin:/bin"}, 4096};
+                    invocation.executable_fd = slot;
+                    invocation.standard_input_fd = aliases_stdin ? slot : input;
+                    invocation.working_directory_fd = cwd;
+                    if(bounded) {
+                        invocation.stdout_capture_limit.reset();
+                        const auto result = capture_bounded_explicit_process_output_raw(
+                            invocation, BoundedProcessPolicy{
+                                            std::chrono::seconds(5), std::chrono::milliseconds(100), 4096, true});
+                        const auto* exited = std::get_if<BoundedProcessExited>(&result.outcome);
+                        _exit(exited != nullptr && exited->exit_code == 1 ? 0 : 72);
+                    }
+                    const auto result = capture_explicit_process_output_raw(invocation, true);
+                    _exit(result.exit_code == 1 ? 0 : 73);
+                }
+                int status = 0;
+                require(waitpid(child, &status, 0) == child && WIFEXITED(status) &&
+                            WEXITSTATUS(status) == 0,
+                        "Retained /usr/bin/false was replaced by stdio binding: bounded=" +
+                            std::to_string(bounded) + " fd=" + std::to_string(executable_slot) +
+                            " stdin_alias=" + std::to_string(aliases_stdin));
+            }
+        }
+    }
+}
+
 void run_tests(const fs::path& executable_path) {
     test_raw_chunk_boundaries(executable_path);
     test_raw_byte_preservation(executable_path);
@@ -404,6 +464,8 @@ void run_tests(const fs::path& executable_path) {
     test_explicit_working_directory_descriptor(executable_path);
     test_explicit_standard_input_descriptor(executable_path);
     test_explicit_process_launch_outcome(executable_path);
+    test_explicit_retained_executable_identity(executable_path);
+    test_retained_executable_stdio_aliases();
 }
 
 } // namespace

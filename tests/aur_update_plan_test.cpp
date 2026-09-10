@@ -508,10 +508,35 @@ void run_case(const std::string& name, Callable callable) {
     std::cout << "  ok: " << name << '\n';
 }
 
+void test_authoritative_devel_effective_matrix() {
+    using S = DevelUpdateAssessmentState;
+    using E = AurUpdateEffectiveState;
+    const std::vector<std::pair<DevelUpdateAssessment, E>> cases{
+        {DevelUpdateAssessment::not_applicable(), E::UpToDate},
+        {DevelUpdateAssessment::up_to_date(), E::UpToDate},
+        {DevelUpdateAssessment::update_available(), E::UpdateAvailable},
+        {DevelUpdateAssessment::requires_check(DevelRequiresCheckReason::ProvenanceMissing), E::RequiresCheck},
+        {DevelUpdateAssessment::unknown(DevelUnknownReason::RemoteObservationFailed), E::Unknown},
+        {DevelUpdateAssessment::unsupported(DevelUnsupportedReason::UnsupportedVcs), E::Unsupported}};
+    for(const auto relation : {AurVersionRelation::SameAsInstalled, AurVersionRelation::OlderThanInstalled, AurVersionRelation::NewerThanInstalled}) {
+        for(const auto& [assessment, expected] : cases) {
+            auto entry = classify_aur_update(AurUpdatePlanInput{"matrix-git", "1", InstalledPackageReason::Explicit, AurUpdateRemotePackage{"matrix-git", "matrix", "1", relation}});
+            entry.devel_assessment_origin = AurDevelAssessmentOrigin::CurrentObservation;
+            entry.devel_assessment = assessment;
+            const bool version = relation == AurVersionRelation::NewerThanInstalled;
+            expect(project_aur_update_effective_state(entry) == (version ? E::UpdateAvailable : expected), "authoritative/RPC precedence mismatch");
+            expect(aur_update_basis(entry) == (version ? std::optional{AurUpdateBasis::Version} : assessment.state() == S::UpdateAvailable ? std::optional{AurUpdateBasis::GitRevision}
+                                                                                                                                           : std::nullopt),
+                   "basis lost");
+        }
+    }
+}
+
 } // namespace
 
 int main() {
     try {
+        test_authoritative_devel_effective_matrix();
         run_case(
             "newer remote version is update available",
             test_newer_remote_version_is_update_available);

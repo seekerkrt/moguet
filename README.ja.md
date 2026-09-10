@@ -44,13 +44,11 @@ Moguet v2.0.1は、採用済みXDG storage契約のうちsource-preference部分
 preferenceは実行user自身のXDG config contextだけを使い、公開済みv2.0.0のtag、Release、
 release noteは歴史的記録のまま変更しません。
 
-Moguet v2.6.0は最新releaseです。exact target-less `moguet -Syu`はofficial repository
-system updateを実行し、その成功後にnormal installed-AUR updateを続けます。saved
-source-build preferenceは明示的なsource-aware `upgrade*` workflowだけに限定したままです。
-通常の`-Syu`ではindependent devel `RequiresCheck` targetを局所的にskipし、unrelatedな
-AUR updateをblockしません。一方、required `RequiresCheck` relationと明示的なupgrade
-workflowはstrictなままです。利用者から見える変更の全体は
-[v2.6.0 release](https://github.com/seekerkrt/moguet/releases/tag/v2.6.0)を参照してください。
+Moguet v2.7.0は最新releaseです。検証済みbuild/install provenanceを持つ対応devel packageに、
+同versionでの更新を含むauthoritativeなGit revision trackingを追加し、package metadataの取得不能と
+確認済みの不在を区別します。初期Git/HTTPS subsetと明示的なsource reviewの要件は限定的であり、
+full VCS trackingではありません。利用者から見える変更の全体は
+[v2.7.0 release](https://github.com/seekerkrt/moguet/releases/tag/v2.7.0)を参照してください。
 
 canonical repository identityはGitHub上のMoguetで、GitLab mirrorを持ちます。Moguet
 packageは`jpacker` command aliasを提供しません。AUR publicationは将来の別判断であり、
@@ -79,6 +77,14 @@ fail-closedで停止します。v2.xは、Moguetのsource-aware入口、安全�
 - `deps`と`plan`は調査・表示だけを行い、clone、build、installしません。`fetch`は
   未取得repositoryをcloneし、既存cloneでは`git fetch origin`だけを実行します。
   pull、merge、reset、working tree更新、build、installは行いません。
+- repository metadataの取得失敗と、確認済みの不在は区別します。Auto `-Si`は不在を
+  確認できた場合だけAURへfallbackし、取得失敗targetをdiagnostic付きで除外して独立targetを
+  続行します。`revert`は対象ごとのmetadata確認をpreference削除前に行い、失敗targetの
+  preferenceを保持し、成功したrepository targetを既存のgrouped reinstallへ渡します。
+- AUR infoはinstalled stateを取得できない場合、`no`ではなく取得不能表示とwarningを出します。
+  Auto searchの`[installed]`は成功したforeign inventoryへの所属だけで付け、取得不能時は
+  warningとともにannotationを省略します。これらのoptional表示だけではsearch / infoの
+  成功規則を変更しません。AurOnly searchはinstalled / repository metadataをqueryしません。
 - dependency edgeはtyped requirement、source-aware candidate、constraint resultを保持します。
   `deps`は`Unsatisfied` / `Unknown`をwarning付きで継続し、`plan`はincompleteとして表示します。
   `Invalid` / `Conflicting`はfail-closedです。`fetch`、build、install、upgrade、local buildは
@@ -279,8 +285,8 @@ makepkg -si
 `makepkg -si`は、そのtag付きreleaseをbuildし、同じ操作で`pacman -U`によってlive
 systemへinstallします。これは、development treeをその場でbuild・確認するだけで
 何もinstallしない、上記の`make`や`./moguet --help`とは異なります。`PKGBUILD`はcanonicalな
-production CMake build / install consumerとして`BUILD_TESTING=OFF`を指定し、99個のdeveloper
-C++ test-ledger executable、1個の`EXCLUDE_FROM_ALL` installed transport fixture harness、124件のCTest
+production CMake build / install consumerとして`BUILD_TESTING=OFF`を指定し、115個のdeveloper
+C++ test-ledger executable、1個の`EXCLUDE_FROM_ALL` installed transport fixture harness、146件のCTest
 registrationはhost / CI / release validation側で扱います。
 この`PKGBUILD`は
 repository同梱のpackaging経路であり、AUR submissionではありません。Moguetはまだ
@@ -462,13 +468,26 @@ unrelatedなnormal AUR updateを継続してaggregate successを許します。u
 blocker semanticsを維持します。non-TTYや`--noconfirm`でもpromptを追加せずrebuildを承認しません。
 
 v2.5.0ではupstream VCS revisionのquery / 比較やdevel build provenanceのpublicationを
-行いません。current development treeには
+行いません。現在のMoguetには
 [Issue #475](https://github.com/seekerkrt/moguet/issues/475)のtrusted HTTPS Git remote revision
 observer foundationが入り、default HEAD / exact branchとcompleteなSHA-1 / SHA-256 resultだけへ
-限定されています。ただしproduction source-authority producer / callerはなく、AUR update assessmentへ
-未接続です。installed artifactへ束縛したprovenanceとauthoritativeな`UpdateAvailable` / `UpToDate`
-比較は引き続き[Issue #476](https://github.com/seekerkrt/moguet/issues/476)の責務であり、current CLIから
-VCS package revisionを自動比較することはまだできません。
+限定されています。[Issue #476](https://github.com/seekerkrt/moguet/issues/476) Slice 7-Bのinternal coordinatorは、
+provenance tipとfresh installed / reviewed stateを照合した後だけremoteを観測し、local stateを再確認してから
+`UpdateAvailable` / `UpToDate`を返します。Slice 7-Dではnormal AUR update、registered AUR update、
+`-Qua`、対応するdry-runをこのproducerへ接続します。normal AUR versionが新しい場合はGit queryなしで
+既存のversion authorityを優先し、same/olderの場合だけvalidated Git assessmentで補完します。
+Git revision差分はpackage version変更と区別して表示します。
+
+initial authoritative executionは実際のreviewed pinと既存のsingle-child HTTPS Git subsetを要求し、
+S4/S5/S6を一度だけconsumeします。開始後にlegacyへfallbackしません。install成功とprovenance publication失敗は
+別のpartial outcomeとして保持し、non-zeroにします。registered RequiresCheckはdefault-Noの明示rebuild確認へ進みますが、
+それがsource reviewを代替することはありません。`--noconfirm`からreview authorityを作りません。
+詳細は[normal devel route contract](https://github.com/seekerkrt/moguet/blob/develop/docs/contracts/devel-normal-routes.md)を参照してください。
+provenanceは別XDG state namespaceのschema v1を維持します。unknown/future schema、corrupt/unsafe historyは
+fail closedとし、updaterはrecord修復、external history adoption、missing baselineの自動生成を行いません。
+baselineには明示的にreviewした対応build、実install、publication成功が必要です。同version reinstallでも
+installed artifact bindingが変わればhistorical provenanceは無効です。詳細は
+[devel tracking / migration contract](https://github.com/seekerkrt/moguet/blob/develop/docs/contracts/devel-tracking.md)を参照してください。
 
 `--aur`は対応する`-S`、`-Ss`、`-Si`をAURへ限定します。`--repo`はこれらのformを
 official binary repositoryへ限定し、exact target-less `-Syu`ではrepository-only selectorに

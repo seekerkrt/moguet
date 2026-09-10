@@ -161,6 +161,19 @@ state observation、plan constructionとcompletenessとexecution readiness、sev
 exit-status effectはそれぞれ独立したdimensionである。successful-unverifiedはrequired actionを
 伴うsuccessとして保持し、failureへ丸めない。`Unknown`も`NoOp`へ丸めない。
 
+### Terminal-safe human-readable presentation
+
+unified plan、runtime diagnostic、reviewed-source contentのterminal-facingなopaque textは、共通の
+terminal-safe UTF-8 policyを使う。通常のvalid Unicodeは元のUTF-8のまま表示する一方、invalid
+UTF-8、C0 / C1 / DEL、backslash、U+2028 / U+2029、Unicode bidi control、U+FEFFは、元byteを
+uppercase `\xHH`として可視化する。U+FEFFを削除・正規化したり、invalid UTF-8をreplacement
+characterへ置換したりしない。
+
+これはhuman-readable presentationのsecurity hardeningであり、JSON等のmachine-readable schemaを
+追加・変更するものではない。escape後のtextをpackage identity、path operation、comparison、
+dependency / source判断、subprocess argument、exit statusのauthorityへ逆流させない。localizedな
+program-owned textもcontrol-flow authorityにはしない。
+
 <a id="compat-interactive-confirmation"></a>
 ## Interactive confirmation compatibility
 
@@ -179,7 +192,13 @@ normal AUR `UpdateAvailable`はdevel assessmentより優先し、suffix候補や
 
 `RequiresCheck`はautomatic update / rebuild candidateへ昇格しない。`upgrade-aur`はcurrent all-target contractに従い、1件でもあればoperation全体をAUR mutation前にblockする。dry-runは同じ状態を`Blocked`とnon-zeroへ投影し、`upgrade-all`はsystem、registered source、fresh foreign inventoryまでの完了済みphaseを保持したままfresh AUR phaseをblockする。non-TTYと`--noconfirm`はmanual rebuild promptやimplicit approvalを追加しない。query、recursive plan、provider selection、conflicts / replaces metadata、preparationを全targetについて確認してからexecutionへ進み、blocking targetが1件でもあればcache作成、git checkout、makepkg、`pacman -U`、sudoを開始しない。
 
-v2.5.0のconservative connectionはupstream VCS revisionをquery / 比較せず、`.SRCINFO` / PKGBUILDをproduction detection authorityとして評価せず、devel build provenanceやbaselineを保存しない。current development treeにはIssue #475のtrusted Git remote read-only observer foundationがあるが、production authority producer / callerを持たず、このAUR update routeへ未接続である。installed artifactへ束縛したprovenanceとauthoritative `UpdateAvailable` / `UpToDate`比較はIssue #476のfollow-up contractであり、v2.5.0またはcurrent CLIがfull VCS update trackingを実装済みであるとは扱わない。
+v2.5.0のconservative connectionはupstream VCS revisionをquery / 比較せず、provenanceを保存しない。
+現在のMoguetはIssue #476のinstalled provenanceとP/I/R revalidationを持ち、7-Bだけが#475を呼ぶ。
+normal AUR updateとregistered AUR updateは7-Dからassessmentを使い、GitRevision candidateのexecutionは
+reviewed pinから7-C→S4→S5→S6を通す。initial subsetはnon-split、one child/artifact、no overlay、one floating
+HTTPS Git、default HEAD/exact branch、architecture-independent sourceに限定する。
+full VCS trackingの主張ではない。public contract・identity invariants・schema v1の
+no-auto-migration policyは[devel tracking contract](contracts/devel-tracking.md)を参照する。
 
 official repository package、AURに存在しないforeign package、source preferenceだけで選ばれるpackageはautomatic AUR update対象にしない。
 
@@ -197,10 +216,10 @@ zero-I/Oとする。`upgrade-aur`と`upgrade-all`は`BlockOperation` + Strictの
 <a id="compat-git-remote-revision-observer"></a>
 ## Trusted Git remote revision observer foundation compatibility
 
-Issue #475のobserverはproduction buildへ含まれるinternal foundationだが、current CLI、AUR update
-assessment、build / install lifecycleへ接続していない。raw `ParsedSourceEntry` /
+Issue #475のobserverはproduction buildへ含まれるinternal read-only componentであり、7-B assessmentだけが呼ぶ。raw `ParsedSourceEntry` /
 `ParsedSrcinfoSourceMetadata`、bare VCS identity、suffix classificationをnetwork authorityへ昇格せず、
-future #476 producerが作るauthority-approved source capabilityだけをrequest前段として要求する。
+#476 Slice 7-B coordinatorがP/I/R local gates後に作るauthority-approved source capabilityだけをrequest前段として要求する。
+normal CLI/AUR update routeは7-Dからこのassessmentへ接続する。observer自身はbuild/install/publicationを呼ばない。
 
 current supported subsetはGit、HTTPS、default HEAD、exact branch、canonical lowercase SHA-1 40 hex / SHA-256
 64 hexである。HTTP、SSH、file / local path、`git://`、ext、tag / annotated tag / peeling、fixed commit、
@@ -286,7 +305,7 @@ PackageBaseはclone / fetch / build repositoryの単位であり、package name�
 | --- | --- | --- |
 | common source-aware identity | package child、PackageBase、source、revision、release、architectureを別fieldで保持するinternal foundation。既存routeを置換せず、incomplete evidenceをcomplete identityへ推測しない | [source-aware package identity](contracts/source-package-identity.md) |
 | reviewed AUR source state | AUR PackageBaseごとにexplicit accept済みexact revisionを保持し、previous reviewed revisionからexact targetまでをreviewする。skipではstateを進めず、accepted targetだけをpinned build authorityにする | [reviewed AUR source state](contracts/reviewed-source-state.md) |
-| trusted Git remote revision observer | authority-approved sourceだけを受けるHTTPS Git read-only observer foundation。default HEAD / exact branchとstrict SHA-1 / SHA-256 resultに限定し、production update comparisonへ未接続 | [trusted Git remote revision observer](contracts/git-remote-revision-observer.md) |
+| trusted Git remote revision observer | authority-approved sourceだけを受けるHTTPS Git read-only observer foundation。default HEAD / exact branchとstrict SHA-1 / SHA-256 resultに限定し、7-B coordinatorだけがproduction comparisonに使用 | [trusted Git remote revision observer](contracts/git-remote-revision-observer.md) |
 | PackageBase / child selection | PackageBase単位でbuildするが、installするのはsource-build upper projectionが要求しmetadata identityで選択したchildだけ。sibling / debugは暗黙installしない | [PackageBase / required-child selection](contracts/packagebase-child-selection.md) |
 | separated source-build `--rmdeps` | source-buildではownershipを証明できないためmutation前に拒否。pacman-onlyではMoguetが消費するが作用させず、pacmanへ転送しない | [source-build `--rmdeps`](contracts/source-build-rmdeps.md) |
 | XDG cache cutover | trusted root、filesystem identity、symlink、root escape、legacy cache非変更を守る。implementation moduleは固定しない | [XDG cache safety](contracts/xdg-cache-safety.md) |
@@ -482,6 +501,22 @@ pacman pass-throughである。AurOnlyはinvalidであり、`-Syu --aur`をAUR-o
 
 `--aur`と`--repo`の同時指定はconflictとして、pacman、sudo、AUR RPC、git、makepkg、cache mutationより前に停止する。scope外のoperationでselectorを認識した場合も黙って無視しない。selectorはpacman option value待ち、`--`後のopaque operand、`--` markerより優先されず、通常位置のtokenだけを消費する。
 
+## Package metadata compatibility probes
+
+repository packageの分類はtyped exact metadataを使用し、confirmed `NotFound`だけをAUR fallback条件とする。
+Auto `-Si`はmetadata failure対象をdiagnostic付きで失敗扱いにし、AURへ照会せず、後段pacman operandからも除外する。
+独立targetの表示とqualified target、option value、operand順序、refresh barrierは維持する。
+
+`revert`は対象ごとにrepository metadataを確認してからsource preferenceを削除する。metadata failure対象は
+preferenceを保持し、binary reinstallへ含めず、最終non-zeroにする。独立成功targetの継続、grouped reinstall、
+preference削除failure時の継続、pacman failureの診断優先順位を維持し、rollbackは追加しない。
+
+AUR infoのinstalled表示はtyped local metadataを使い、成功時のyes / noを維持する。取得不能時は
+`unavailable`とwarningを表示する。Auto searchの`[installed]`は正常なforeign inventoryへの所属だけで付け、
+正常0件では省略する。inventory failureではpartial resultを採用せず、取得不能のwarningとともにannotationを省略する。
+これらはoptional presentationであり、そのfailureだけではsearch / info本体の成功規則を変更しない。
+AurOnly searchはこのmetadata queryを開始しない。表示用の継続policyをplanning / executionのabsence判定へ流用しない。
+
 ## pacman由来 operationのpass-through
 
 MoguetがAUR / source-buildへ介入しない場合、次のoperationは基本的にpacmanへ委譲する。
@@ -548,3 +583,15 @@ RepoOnly `-Syu --repo`ではcompatible pacman pass-throughの一部としてrepo
 ## Out of scope
 
 この方針はpacman完全互換、provider choiceの永続化、arbitrary multiple-outputの全自動install、debug package default install、conflicts / replacesの自動解決、dependency solver強化、pacman database write、package verificationの独自再実装を宣言しない。詳細なproduction safety contractは[`docs/contracts/`](contracts/README.md)と[`DECISIONS.md`](DECISIONS.md)へ分離している。
+
+## Authoritative devel update routes (#476 Slice 7-D)
+
+normal AUR RPC version-newerを優先し、same/olderだけを7-Bのtip-only P/I/R + remote assessmentで補完する。
+GitRevision updateはpackage version増加と別basisであり、-Qua/unified planは架空のversion arrowを作らない。
+ordinary -Syuのindependent RequiresCheck skip、required re-entry block、strict AUR routeのnonzeroを維持する。
+Unknownはremote observation failureとしてbuildせず、RequiresCheckとは別reasonを保持する。
+registered AUR OnlyIfUpdatedは共通coreをversion-only shortcutより先に使い、RequiresCheckはdefault-Noの明示rebuild確認を要求する。
+dry-runは同じcurrent read-only producerを使い、source/build/transaction/publicationを実行しない。
+actual prior-phase後のfuture stateと同一とは主張しない。explicit reviewed buildだけが7-Cからbaselineをbootstrapできる。
+詳細は[normal devel routes](contracts/devel-normal-routes.md)、identity・schema/migration・compatibility matrixは
+[devel tracking](contracts/devel-tracking.md)を正とする。この対応範囲と安全境界を現行契約とする。

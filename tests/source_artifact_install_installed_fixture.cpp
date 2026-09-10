@@ -71,6 +71,8 @@ std::string status_name(SourceArtifactInstallTrustedExecutionStatus status) {
             return "Missing";
         case SourceArtifactInstallTrustedExecutionStatus::Complete:
             return "Complete";
+        case SourceArtifactInstallTrustedExecutionStatus::ArtifactSealingFailed:
+            return "ArtifactSealingFailed";
         case SourceArtifactInstallTrustedExecutionStatus::OutcomeUnknown:
             return "OutcomeUnknown";
     }
@@ -589,7 +591,7 @@ execute_source_build_package_base_with_cleanup_authority(
         work_item_index);
 }
 
-PackageBaseSourceBuildExecutionResult
+SourceBuildPackageBaseExecutionResult
 execute_source_build_package_base_typed(
     const SourceBuildRequest& request,
     const std::vector<RequiredPackageArtifactTarget>& required_targets,

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "reviewed_source_state.hpp"
+#include "xdg_generation_store.hpp"
 #include "xdg_paths.hpp"
 
 #include <cstdint>
@@ -69,35 +70,10 @@
 // - named unlink is never used as cleanup
 
 inline constexpr std::size_t reviewed_source_state_store_max_record_bytes =
-    65536;
+    xdg_generation_store_default_max_record_bytes;
 
-struct ReviewedSourceStateRecordIdentity {
-    std::uintmax_t device = 0;
-    std::uintmax_t inode = 0;
-    std::uintmax_t owner = 0;
-    std::uintmax_t mode = 0;
-    // POLICY(#411): an authoritative record is reachable through exactly one
-    // name. Keeping the observed link count in the identity is what lets a
-    // proof token and a CAS guard state that, instead of leaving it to a ctime
-    // side effect no filesystem is required to make distinguishable.
-    std::uintmax_t link_count = 0;
-    std::intmax_t size = 0;
-    std::intmax_t modification_time_seconds = 0;
-    std::intmax_t modification_time_nanoseconds = 0;
-    std::intmax_t status_change_time_seconds = 0;
-    std::intmax_t status_change_time_nanoseconds = 0;
-
-    bool operator==(const ReviewedSourceStateRecordIdentity&) const = default;
-};
-
-struct ReviewedSourceStateObservedRecord {
-    std::uint64_t generation = 0;
-    std::string leaf_name;
-    ReviewedSourceStateRecordIdentity identity;
-    std::string raw_contents;
-
-    bool operator==(const ReviewedSourceStateObservedRecord&) const = default;
-};
+using ReviewedSourceStateRecordIdentity = XdgGenerationRecordIdentity;
+using ReviewedSourceStateObservedRecord = XdgGenerationObservedRecord;
 
 struct ReviewedSourceStateStoreRead {
     ReviewedSourceStateObservation observation;
@@ -113,47 +89,10 @@ struct ReviewedSourceStateStorePublished {
     bool operator==(const ReviewedSourceStateStorePublished&) const = default;
 };
 
-enum class ReviewedSourceStateStoreFailureKind {
-    AuthorityUnavailable,
-    DirectoryPreparationFailed,
-    DirectoryUnavailable,
-    UnsupportedFileType,
-    OwnershipMismatch,
-    UnsafePermissions,
-    MultipleHardLinks,
-    OpenFailed,
-    LockFailed,
-    ReadFailed,
-    WriteFailed,
-    SyncFailed,
-    RenameFailed,
-    CloseFailed,
-    ConcurrentReplacement,
-    FutureSchemaOverwriteRefused,
-    RecordTooLarge,
-};
-
-struct ReviewedSourceStateStoreFailure {
-    ReviewedSourceStateStoreFailureKind kind;
-    std::filesystem::path entry_path;
-    std::optional<std::error_code> system_error;
-    std::optional<std::filesystem::file_type> observed_file_type;
-    std::optional<std::filesystem::path> leftover_artifact;
-
-    bool operator==(const ReviewedSourceStateStoreFailure&) const = default;
-};
-
-enum class ReviewedSourceStatePostPublicationIssue {
-    DirectorySyncUncertain,
-    PublishedIdentityUncertain,
-    DirectoryCloseFailed,
-    LineageRevalidationFailed,
-    PredecessorObservationUncertain,
-    PackageDirectoryIdentityUncertain,
-    // The successor was linked, but the complete chain could not be reproven
-    // afterwards. The record exists and may or may not be the authority.
-    AuthoritativeHistoryUncertain,
-};
+using ReviewedSourceStateStoreFailureKind = XdgGenerationStoreFailureKind;
+using ReviewedSourceStateStoreFailure = XdgGenerationStoreFailure;
+using ReviewedSourceStatePostPublicationIssue =
+    XdgGenerationPostPublicationIssue;
 
 struct ReviewedSourceStateStorePublishedUncertain {
     ReviewedSourceState state;
@@ -168,26 +107,10 @@ struct ReviewedSourceStateStorePublishedUncertain {
         default;
 };
 
-enum class ReviewedSourceStateStoreHistoryIssue {
-    ForkDetected,
-    OrphanSuccessor,
-    ChainGap,
-    MissingOriginWithArtifacts,
-    UnrecognizedManagedEntry,
-    FutureOwnedArtifact,
-    HigherGenerationUnreachable,
-};
-
-struct ReviewedSourceStateStoreUnsafeHistory {
-    ReviewedSourceStateStoreHistoryIssue issue;
-    std::filesystem::path package_path;
-    std::vector<std::string> observed_leaves;
-    std::optional<std::uint64_t> matching_generation;
-    std::optional<std::uint64_t> highest_generation;
-
-    bool operator==(const ReviewedSourceStateStoreUnsafeHistory&) const =
-        default;
-};
+using ReviewedSourceStateStoreHistoryIssue =
+    XdgGenerationStoreHistoryIssue;
+using ReviewedSourceStateStoreUnsafeHistory =
+    XdgGenerationStoreUnsafeHistory;
 
 using ReviewedSourceStateStoreReadResult = std::variant<
     ReviewedSourceStateStoreRead,
@@ -240,55 +163,14 @@ ReviewedSourceStateStorePublishResult publish_reviewed_source_state(
         expected_observed);
 
 #ifdef MOGUET_ENABLE_REVIEWED_SOURCE_STATE_STORE_TEST_HOOKS
-enum class ReviewedSourceStateStoreTestFailurePoint {
-    Status,
-    Open,
-    Read,
-    Write,
-    Sync,
-    DirectorySync,
-    Rename,
-    Lock,
-    PostCommitVerify,
-    PostCommitPredecessorStatus,
-    PostCommitPredecessorRead,
-};
-
-enum class ReviewedSourceStateStoreTestRacePoint {
-    BeforePublication,
-    AtPublicationBoundary,
-    // Between the pre-commit authority reproof and linkat. Mutations injected
-    // here are only observable to the post-commit reproof.
-    AfterAuthorityProof,
-    AfterPublication,
-    BeforeCleanup,
-    // Lookup: after the chain proof read and closed every ancestor, before the
-    // boundary reproof and the final lineage revalidation.
-    AfterReadAuthorityProof,
-    // Inside a record read: the bytes are already in hand and the post-read
-    // descriptor status and named-leaf proofs have not run yet. This is the
-    // only window in which a security status change or a leaf-to-inode rebind
-    // can hide behind the bytes already read. record_path names the record, and
-    // a handler that is not interested in it can re-arm this point for the next
-    // record the same reproof reads.
-    AfterRecordContentsRead,
-};
-
-struct ReviewedSourceStateStoreTestRaceContext {
-    std::filesystem::path package_directory;
-    std::filesystem::path publication_path;
-    std::string publication_leaf;
-    std::optional<std::filesystem::path> current_path;
-    std::string temporary_leaf;
-    std::uint64_t next_generation = 0;
-    std::uintmax_t source_device = 0;
-    std::uintmax_t source_inode = 0;
-    // Only AfterRecordContentsRead fills this in.
-    std::optional<std::filesystem::path> record_path = std::nullopt;
-};
-
-using ReviewedSourceStateStoreTestRaceHandler = void (*)(
-    const ReviewedSourceStateStoreTestRaceContext& context);
+using ReviewedSourceStateStoreTestFailurePoint =
+    XdgGenerationStoreTestFailurePoint;
+using ReviewedSourceStateStoreTestRacePoint =
+    XdgGenerationStoreTestRacePoint;
+using ReviewedSourceStateStoreTestRaceContext =
+    XdgGenerationStoreTestRaceContext;
+using ReviewedSourceStateStoreTestRaceHandler =
+    XdgGenerationStoreTestRaceHandler;
 
 void fail_next_reviewed_source_state_store_operation_for_test(
     ReviewedSourceStateStoreTestFailurePoint failure_point);

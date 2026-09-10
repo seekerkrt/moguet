@@ -33,6 +33,11 @@ struct ExplicitProcessInvocation {
     // executed mutator tree. An unexpected long-lived descendant therefore
     // retains the guard fail-closed until that descendant terminates.
     std::optional<int> parent_independent_lifetime_guard_fd = std::nullopt;
+    // Optional borrowed executable descriptor. When present, the child uses
+    // Linux execveat(AT_EMPTY_PATH) so a caller-retained filesystem identity
+    // remains the executed object instead of being resolved again by path.
+    // `executable` remains argv[0] and the display identity.
+    std::optional<int> executable_fd = std::nullopt;
 };
 
 enum class ExplicitProcessExecutionStatus {

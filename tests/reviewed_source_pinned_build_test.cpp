@@ -1,4 +1,5 @@
 #include "process.hpp"
+#include "devel_build_provenance_reviewed_binding.hpp"
 #include "reviewed_source_pinned_build.hpp"
 #include "reviewed_source_review.hpp"
 #include "trusted_cache.hpp"
@@ -585,12 +586,55 @@ void test_exact_oid_checkout_and_definite_publication() {
                 pinned.checkout_path() == fixture.repository(),
             "Pinned build lost checkout/publication identity");
 
+    ReviewedSourceStateRecordBindingResult binding_result =
+        derive_reviewed_source_state_record_binding(pinned);
+    const auto* binding =
+        std::get_if<ReviewedSourceStateRecordBinding>(&binding_result);
+    require(binding != nullptr &&
+                binding->package_base() == identity.package_base() &&
+                binding->reviewed_recipe_revision().value() ==
+                    identity.target_revision() &&
+                binding->generation().value() == 1 &&
+                binding->document_digest().value() ==
+                    xdg_generation_store_raw_contents_sha256(
+                        pinned.published_record().raw_contents),
+            "#411 pinned capability did not derive an exact record binding");
+    const ReviewedSourceStateRecordBinding retained_binding = *binding;
+
     PinnedReviewedSourceBuild moved(std::move(pinned));
     require(!pinned.valid() && moved.valid(),
             "Pinned build move did not transfer one-shot authority");
     ReviewedSourceStateStoreReadResult after =
         read_reviewed_source_state(identity.package_base());
-    static_cast<void>(read_loaded(after, identity.target_revision()));
+    const ReviewedSourceStateStoreRead& current =
+        read_loaded(after, identity.target_revision());
+    require(
+        std::holds_alternative<ReviewedSourceStateRecordBindingMatch>(
+            compare_reviewed_source_state_record_binding(
+                retained_binding, current)),
+        "derived #411 binding could not be reproven against current state");
+    ReviewedSourceStateStoreRead wrong_generation = current;
+    ++wrong_generation.observed->generation;
+    require(
+        require_arm<ReviewedSourceStateRecordBindingMismatch>(
+            compare_reviewed_source_state_record_binding(
+                retained_binding, wrong_generation),
+            "#411 generation drift was accepted")
+                .reason ==
+            ReviewedSourceStateRecordBindingMismatchReason::
+                ReviewedStateGenerationMismatch,
+        "#411 generation drift returned the wrong mismatch");
+    ReviewedSourceStateStoreRead wrong_document = current;
+    wrong_document.observed->raw_contents += "# changed\n";
+    require(
+        require_arm<ReviewedSourceStateRecordBindingMismatch>(
+            compare_reviewed_source_state_record_binding(
+                retained_binding, wrong_document),
+            "#411 raw document drift was accepted")
+                .reason ==
+            ReviewedSourceStateRecordBindingMismatchReason::
+                ReviewedStateDocumentDigestMismatch,
+        "#411 raw document drift returned the wrong mismatch");
     // Simulated later build failure: destroying build authority must not roll
     // back a successfully published reviewed revision.
 }
@@ -936,6 +980,16 @@ void test_editor_overlay_is_explicit_build_provenance() {
                 identity.target_revision() &&
             fixture.read_file("PKGBUILD").find("pkgver=edited") != std::string::npos,
         "Editor overlay was reported as an exact commit tree");
+    const ReviewedSourceStateRecordBindingResult overlay_binding =
+        derive_reviewed_source_state_record_binding(pinned);
+    const auto& binding_failure =
+        require_arm<ReviewedSourceStateRecordBindingFailure>(
+            overlay_binding,
+            "editor overlay minted provenance reviewed-state authority");
+    require(binding_failure.reason ==
+                ReviewedSourceStateRecordBindingFailureReason::
+                    EditorOverlayPresent,
+            "editor overlay binding rejection kind drifted");
 }
 
 void test_noop_editor_seals_no_overlay() {

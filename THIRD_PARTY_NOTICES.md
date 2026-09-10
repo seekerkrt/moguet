@@ -73,7 +73,7 @@ Every entry below is a separately installed program invoked through command-line
 | `makepkg` | Build and install source packages; Arch `pacman` package | Separate process; not linked | No |
 | `vercmp` | Compare Arch package versions; Arch `pacman` package | Separate process; not linked | No |
 | `git` | Clone, inspect, fetch, diff, and update source repositories | Separate process; not linked | No |
-| `bsdtar` | Read repository metadata from pacman sync databases; Arch `libarchive` package | Separate process; not linked | No |
+| `bsdtar` | Read repository metadata from pacman sync databases and exact package-archive members; Arch `libarchive` package | Separate process; not linked | No |
 | `sudo` | Enter the privilege boundary for privileged pacman operations | Separate process; not linked | No |
 | `/bin/sh` | Execute constructed command lines. `printf` is used as a shell builtin on the audited system | Separate shell process; not linked | No |
 | User-selected editor (default `nano`) | Review PKGBUILD, install scripts, and preference files; selected by the user or configuration | Separate process; no specific editor implementation is linked | No |

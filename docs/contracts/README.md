@@ -13,6 +13,17 @@ contractの規範上の正本は各文書の日本語本文である。英語利
 | [Source-aware package identity](source-package-identity.md) | #355 | source、PackageBase、package child、revision、release、architectureの分離とread-only projection |
 | [Reviewed AUR source state](reviewed-source-state.md) | #411 | PackageBase単位のexact reviewed revision、explicit acceptance、CAS publication、pinned build、legacy migration |
 | [Trusted Git remote revision observer](git-remote-revision-observer.md) | #475 | authority-approved request、HTTPS-only Git observation、bounded process、strict SHA-1 / SHA-256 result、mutation-free boundary |
+| [Installed devel Git tracking](devel-tracking.md) | #476 S8 | authority chain、identity invariants、schema/migration、compatibility、final acceptance |
+| [Devel build provenance store foundation](devel-build-provenance-store.md) | #476 | 別XDG namespace、exact #411 binding、strict schema、immutable-generation CAS |
+| [Evaluated devel source build proof](evaluated-devel-source-build-proof.md) | #476 | reviewed/evaluated source、actual makepkg Git workspace、dynamic version、fresh artifactのactual build proof |
+| [Trusted source artifact transport sealing](trusted-source-artifact-transport.md) | #485 / #476 | trusted-root threat model、exact archive/signature digest、staged generation、privileged final reproofとpathname handoff |
+| [Exact transaction receipt and fresh installed binding](exact-installed-artifact-binding.md) | #476 S5-B | cleanup/exact purpose分離、Install/Upgrade hook receipt、Post anchor、fresh descriptor-bound local DB、opaque generation、live mint |
+| [Installed devel source build proof / Slice 5 result](installed-devel-source-build-proof.md) | #476 S5-C | closed final producer、same-lineage correlation、N=1、lossless operation/receipt/proof/cleanup、non-publication |
+| [Trusted devel provenance publication](devel-build-provenance-publication.md) | #476 S6-B | sealed S5 resultのone-shot historical publication、lossless outcome、7-C専用publisher |
+| [Current installed artifact observation / pure Git comparison](current-installed-artifact-observation.md) | #476 S7-A | fresh current bindingとtyped pure OID比較、transaction/network/normal routeから独立 |
+| [Read-only devel package assessment](devel-package-assessment.md) | #476 S7-B | tip-only P/I/R local authority、#475 remote observation、one-time post-check、normal query接続 |
+| [Normal authoritative devel routes](devel-normal-routes.md) | #476 S7-D | RPC/Git precedence、normal assessment/execution、registered/dry-run/-Qua |
+| [Reviewed devel source execution bridge](reviewed-devel-source-build-execution.md) | #476 S7-C | typed pinからS4→S5→S6、lossless live result、legacy分離、normal reviewed owner接続 |
 | [PackageBase build / required-child selection](packagebase-child-selection.md) | #268 | PackageBase build unitとrequired child install selectionの分離 |
 | [separated source-build `--rmdeps`](source-build-rmdeps.md) | #269 / #404 | current source-buildのfail-closed、pacman-only no-op、future causal ownership / interaction boundary |
 | [XDG cache cutover safety](xdg-cache-safety.md) | #305 | cache filesystem identityとlegacy cache非変更 |
