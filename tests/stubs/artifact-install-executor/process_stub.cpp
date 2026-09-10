@@ -5,6 +5,13 @@
 #include <fstream>
 #include <stdexcept>
 #include <utility>
+#include <map>
+#include <sstream>
+#include <vector>
+#include <wordexp.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include "shell_words.hpp"
 
 namespace {
 
@@ -27,6 +34,7 @@ struct ProcessStubState {
     std::size_t run_calls = 0;
     std::string last_captured_command;
     std::string last_run_command;
+    std::map<std::string, std::pair<std::string, std::string>> queried_archives;
     const char* expectation_failure = nullptr;
     void (*capture_hook)() = nullptr;
     void (*run_hook)() = nullptr;
@@ -56,6 +64,64 @@ ProcessStubState& process_stub_state() {
     // POLICY: fixed diagnosticだけを保持し、package-controlled commandをerrorへ埋め込まない。
     state.expectation_failure = diagnostic;
     throw std::logic_error(diagnostic);
+}
+
+std::vector<std::string> words(const std::string& command) {
+    wordexp_t expansion{};
+    if(wordexp(command.c_str(), &expansion, WRDE_NOCMD) != 0)
+        throw std::logic_error("Invalid quoted test command.");
+    std::vector<std::string> result;
+    for(std::size_t i = 0; i < expansion.we_wordc; ++i)
+        result.emplace_back(expansion.we_wordv[i]);
+    wordfree(&expansion);
+    return result;
+}
+
+// Legacy expectations still describe the selected paths/options. Decode the
+// real helper argv and its sealed input to compare that semantic intent, rather
+// than teaching every source-build fixture a random token and FD number.
+std::string legacy_transaction_projection(ProcessStubState& state, const std::string& command) {
+    const auto prefix = shell_words::join({"/usr/bin/sudo", "--", MOGUET_SOURCE_ARTIFACT_INSTALL_HELPER_PATH, "install-legacy"}) + " ";
+    if(!command.starts_with(prefix)) return command;
+    const auto args = words(command);
+    if(args.size() < 21 || args[0] != "/usr/bin/sudo" || args[1] != "--" ||
+       args[2] != MOGUET_SOURCE_ARTIFACT_INSTALL_HELPER_PATH || args[11] != "--" || (args.size() - 12) % 9 != 0)
+        throw std::logic_error("Invalid legacy helper argv.");
+    const std::string input_path = "/proc/" + args[4] + "/fd/" + args[5];
+    const int input = open(input_path.c_str(), O_RDONLY | O_CLOEXEC);
+    if(input < 0) throw std::logic_error("Missing legacy sealed input.");
+    const int seals = fcntl(input, F_GET_SEALS);
+    close(input);
+    if((seals & (F_SEAL_WRITE | F_SEAL_GROW | F_SEAL_SHRINK | F_SEAL_SEAL)) !=
+       (F_SEAL_WRITE | F_SEAL_GROW | F_SEAL_SHRINK | F_SEAL_SEAL))
+        throw std::logic_error("Mutable legacy input.");
+    std::ifstream bytes(input_path, std::ios::binary);
+    std::vector<std::string> projected{"sudo", "pacman", "-U"};
+    if(args[10] == "1") projected.emplace_back("--noconfirm");
+    if(args[9] == "1") projected.emplace_back("--needed");
+    if(args[8] == "AsExplicit")
+        projected.emplace_back("--asexplicit");
+    else if(args[8] == "AsDependency")
+        projected.emplace_back("--asdeps");
+    else if(args[8] != "PreserveExistingReason")
+        throw std::logic_error("Unknown legacy reason.");
+    projected.emplace_back("--");
+    for(std::size_t i = 12; i < args.size(); i += 9) {
+        const auto& [path, version] = state.queried_archives.at(args[i + 1]);
+        if(version != args[i + 2]) throw std::logic_error("Legacy metadata drift.");
+        projected.push_back(path);
+        for(int part = 0; part < 2; ++part) {
+            const auto size = std::stoull(args[i + 5 + part]);
+            if(size == 0) continue;
+            std::ifstream original(path + (part ? ".sig" : ""), std::ios::binary);
+            const std::string expected{std::istreambuf_iterator<char>(original), {}};
+            std::string actual(size, '\0');
+            bytes.read(actual.data(), size);
+            if(!bytes || actual != expected) throw std::logic_error("Legacy bytes differ from the selected fixture.");
+        }
+    }
+    if(bytes.peek() != std::char_traits<char>::eof()) throw std::logic_error("Unselected legacy bytes transmitted.");
+    return shell_words::join(projected);
 }
 
 } // namespace
@@ -145,6 +211,12 @@ CapturedCommandResult capture_command_output_raw(const char* command) {
 
     ExpectedProcessCall expectation = std::move(state.expected_calls.front());
     state.expected_calls.pop_front();
+    if(state.last_captured_command.starts_with("LC_ALL=C " + shell_words::join({"pacman", "-Qp"}) + " ")) {
+        const auto query = words(state.last_captured_command);
+        std::istringstream identity(expectation.capture_result.output);
+        std::string name, version, extra;
+        if((identity >> name >> version) && !(identity >> extra)) state.queried_archives[name] = {query.back(), version};
+    }
     if(state.capture_hook != nullptr) state.capture_hook();
     return std::move(expectation.capture_result);
 }
@@ -152,7 +224,7 @@ CapturedCommandResult capture_command_output_raw(const char* command) {
 int run_command(const std::string& command) {
     ProcessStubState& state = process_stub_state();
     ++state.run_calls;
-    state.last_run_command = command;
+    state.last_run_command = legacy_transaction_projection(state, command);
 
     if(state.expected_calls.empty() ||
        state.expected_calls.front().kind != ExpectedProcessKind::Run) {

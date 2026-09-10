@@ -67,6 +67,26 @@ int main(int argc, char* argv[]) {
         static_cast<void>(close(runtime_fd));
         runtime_fd = -1;
         switch(invocation->command) {
+            case SourceArtifactInstallTrustedHelperCommand::InstallLegacy: {
+                // Only canonical /proc/PID/fd/FD is accepted by the parser.
+                // Open once, then require write seals, exact size and digests;
+                // this never reopens the original workspace pathname. stdin
+                // remains the caller's terminal/pipe for pacman's confirmation.
+                const int input = open(invocation->legacy_input_path.c_str(), O_RDONLY | O_CLOEXEC | O_NONBLOCK);
+                if(input < 0) throw std::runtime_error("unable to open sealed legacy artifact input");
+                SourceArtifactInstallRootPrepareRequest request{
+                    invocation->transaction_token, invocation->package_base,
+                    invocation->directive, invocation->needed, invocation->no_confirm,
+                    invocation->artifacts, SourceArtifactInstallTrustedPurpose::LegacyArtifactInstall};
+                try {
+                    const int result = store.install_legacy(request, input);
+                    close(input);
+                    return result;
+                } catch(...) {
+                    close(input);
+                    throw;
+                }
+            }
             case SourceArtifactInstallTrustedHelperCommand::Prepare:
             case SourceArtifactInstallTrustedHelperCommand::PrepareExact: {
                 SourceArtifactInstallRootPrepareRequest request{

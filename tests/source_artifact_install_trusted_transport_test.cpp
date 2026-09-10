@@ -42,6 +42,7 @@
 #include <vector>
 
 #include <fcntl.h>
+#include <wordexp.h>
 #include <linux/memfd.h>
 
 static_assert(
@@ -1277,7 +1278,9 @@ class PreparedInstallFixture final {
 public:
     PreparedInstallFixture(
         const fs::path& archive,
-        bool needed = false, bool with_signature = false) {
+        bool needed = false, bool with_signature = false, DesiredInstallReason desired = DesiredInstallReason::Dependency,
+        const PacmanDatabasePaths& database_paths = PacmanDatabasePaths{"/", "/var/lib/pacman"},
+        const std::string& signature_bytes = "retained diagnostic signature\n") {
         workspace_ = std::make_unique<ArtifactWorkspace>(
             create_artifact_workspace(prepare_private_trusted_cache_root(
                 prepare_test_trusted_cache_root())));
@@ -1286,7 +1289,7 @@ public:
         ExpectedPackageArtifactSet expected =
             validate_makepkg_packagelist_output_set(*workspace_, output);
         fs::copy_file(archive, target);
-        if(with_signature) write_fixture_bytes(target.string() + ".sig", "retained diagnostic signature\n");
+        if(with_signature) write_fixture_bytes(target.string() + ".sig", signature_bytes);
         ValidatedPackageArtifactSet artifacts =
             validate_post_build_package_artifacts(
                 std::move(*workspace_), expected);
@@ -1298,9 +1301,9 @@ public:
                 "moguet-source-transport-base",
                 {{"moguet-source-transport-base",
                   "moguet-source-transport-test",
-                  DesiredInstallReason::Dependency}},
+                  desired}},
                 ArtifactInstallPreparationOptions{needed, false},
-                PacmanDatabasePaths{"/", "/var/lib/pacman"});
+                database_paths);
         if(!prepared.is_prepared() || prepared.prepared() == nullptr) {
             throw std::runtime_error("failed to prepare transport fixture");
         }
@@ -1323,7 +1326,7 @@ public:
                   expected_identity(
                       selected[0].identity,
                       "moguet-source-transport-base"),
-                  DesiredInstallReason::Dependency,
+                  desired,
                   {PackageRole::BuildDependency},
                   {root}}}});
     }
@@ -2309,11 +2312,180 @@ void test_exact_receipt_helper_matrix() {
     std::cout << "S5-B exact operation helper protocol/publication/purpose matrix PASS\n";
 }
 
+// The legacy command gateway is replaced only in this isolated host test.
+// No branch can fall through to real sudo/pacman.
+std::function<int(const SourceArtifactInstallTrustedHelperInvocation&)> g_legacy_gateway;
+int run_command(const std::string& command) {
+    wordexp_t expansion{};
+    expect(wordexp(command.c_str(), &expansion, WRDE_NOCMD) == 0, "legacy argv decoding failed");
+    std::vector<std::string> args;
+    for(std::size_t i = 0; i < expansion.we_wordc; ++i)
+        args.emplace_back(expansion.we_wordv[i]);
+    wordfree(&expansion);
+    expect(args.size() > 3 && args[0] == "/usr/bin/sudo" && args[1] == "--" &&
+               args[2] == MOGUET_SOURCE_ARTIFACT_INSTALL_HELPER_PATH,
+           "legacy fixed helper changed");
+    const auto parsed = parse_source_artifact_install_trusted_helper_arguments({args.begin() + 3, args.end()});
+    const auto* invocation = std::get_if<SourceArtifactInstallTrustedHelperInvocation>(&parsed);
+    expect(invocation && invocation->command == SourceArtifactInstallTrustedHelperCommand::InstallLegacy && g_legacy_gateway,
+           "unexpected real legacy process invocation");
+    return g_legacy_gateway(*invocation);
+}
+
+void test_legacy_content_binding() {
+    TemporaryDirectory database("moguet-legacy-empty-db");
+    fs::create_directory(database.path() / "local");
+    const PacmanDatabasePaths database_paths{"/", database.path().string()};
+    ActualArchiveFixture archives;
+    const auto archive = archives.create_archive("moguet-source-transport-test", "1-1", "moguet-source-transport-base", "any", true);
+    const auto replacement = archives.create_archive("moguet-source-transport-evil", "1-1", "moguet-source-transport-base", "any", true);
+    const auto original_bytes = read_fixture_bytes(archive);
+    auto mutated_bytes = read_fixture_bytes(replacement);
+    expect(original_bytes.size() == mutated_bytes.size(), "real archive mutation must retain size");
+    std::size_t calls = 0;
+    g_legacy_gateway = [&](const auto&) { ++calls; return 0; };
+    for(bool payload_only : {false, true}) {
+        PreparedInstallFixture fixture(archive, false, false, DesiredInstallReason::Dependency, database_paths);
+        const auto path = fixture.install().workspace_path() / archive.filename();
+        struct stat before{}, after{};
+        expect(stat(path.c_str(), &before) == 0, "legacy original stat failed");
+        write_fixture_bytes(path, payload_only ? change_only_tar_header(original_bytes) : mutated_bytes);
+        expect(stat(path.c_str(), &after) == 0 && before.st_ino == after.st_ino && before.st_size == after.st_size,
+               "real archive mutation changed inode/size");
+        expect_failure([&] { static_cast<void>(execute_prepared_package_base_artifact_install(fixture.install(), {})); },
+                       "same-inode real archive returned Installed");
+    }
+    expect(calls == 0, "same-inode mutation reached the gateway");
+
+    // Mutate the workspace after the final client proof. The helper must read
+    // the originally inspected sealed bytes, including the detached signature.
+    for(const auto reason : {DesiredInstallReason::Explicit, DesiredInstallReason::Dependency}) {
+        PreparedInstallFixture fixture(archive, true, true, reason, database_paths);
+        TemporaryDirectory runtime("moguet-legacy-content-binding");
+        auto store = open_source_store(runtime);
+        const auto original_path = fixture.install().workspace_path() / archive.filename();
+        const auto marker = runtime.path() / "transaction-input";
+        g_legacy_gateway = [&](const auto& invocation) {
+            ++calls;
+            expect(invocation.needed && invocation.no_confirm, "legacy needed/noconfirm drift");
+            write_fixture_bytes(original_path, mutated_bytes);
+            write_fixture_bytes(original_path.string() + ".sig", "mutated signature");
+            OwnedDescriptor input(open(invocation.legacy_input_path.c_str(), O_RDWR | O_CLOEXEC));
+            expect(input.get() >= 0 && pwrite(input.get(), "x", 1, 0) == -1 && errno == EPERM, "legacy transport was not sealed");
+            SourceArtifactInstallRootPrepareRequest request{invocation.transaction_token, invocation.package_base,
+                                                            invocation.directive, invocation.needed, invocation.no_confirm, invocation.artifacts,
+                                                            SourceArtifactInstallTrustedPurpose::LegacyArtifactInstall};
+            set_source_artifact_install_trusted_exec_test_hook([&](const auto& args) {
+                expect(std::find(args.begin(), args.end(), "--hookdir") == args.end() &&
+                           std::find(args.begin(), args.end(), "--needed") != args.end() &&
+                           std::find(args.begin(), args.end(), "--noconfirm") != args.end(),
+                       "legacy pacman options changed");
+                const auto stage = runtime.path() / "moguet/source-artifact-installs/active" /
+                                   invocation.transaction_token / "artifacts" / fs::path(args.back()).filename();
+                expect(read_fixture_bytes(stage) == original_bytes, "late pathname mutation reached transaction bytes");
+                expect(read_fixture_bytes(stage.string() + ".sig") == "retained diagnostic signature\n", "signature snapshot drift");
+                write_fixture_bytes(marker, read_fixture_bytes(stage));
+                return 0; // Includes no-hook --needed no-op success.
+            });
+            return store.install_legacy(request, input.get());
+        };
+        const auto result = execute_prepared_package_base_artifact_install(fixture.install(), {true});
+        expect(result.is_success() && result.selected_artifacts()[0].identity.package_name == "moguet-source-transport-test" &&
+                   read_fixture_bytes(marker) == original_bytes,
+               "legacy success did not describe the actual immutable input");
+        expect_failure([&] { static_cast<void>(execute_prepared_package_base_artifact_install(fixture.install(), {})); }, "legacy replay succeeded");
+    }
+    {
+        PreparedInstallFixture fixture(archive, false, true, DesiredInstallReason::Dependency, database_paths, "");
+        TemporaryDirectory runtime("moguet-legacy-empty-signature");
+        auto store = open_source_store(runtime);
+        const auto marker = runtime.path() / "empty-signature-observed";
+        g_legacy_gateway = [&](const auto& invocation) {
+            OwnedDescriptor input(open(invocation.legacy_input_path.c_str(), O_RDONLY | O_CLOEXEC));
+            SourceArtifactInstallRootPrepareRequest request{invocation.transaction_token, invocation.package_base,
+                                                            invocation.directive, invocation.needed, invocation.no_confirm, invocation.artifacts,
+                                                            SourceArtifactInstallTrustedPurpose::LegacyArtifactInstall};
+            expect(request.artifacts[0].signature_size == 0 && request.artifacts[0].signature_sha256 == xdg_generation_store_raw_contents_sha256(""),
+                   "empty detached signature was flattened to absence");
+            auto cleanup = request;
+            cleanup.purpose = SourceArtifactInstallTrustedPurpose::CleanupInstallOnly;
+            cleanup.artifacts[0].package_base = "moguet-source-transport-base";
+            cleanup.artifacts[0].architecture = "any";
+            expect(!is_valid_source_artifact_install_root_request(cleanup), "empty signature widened receipt protocol");
+            set_source_artifact_install_trusted_exec_test_hook([&](const auto& args) {
+                const auto signature = runtime.path() / "moguet/source-artifact-installs/active" / invocation.transaction_token /
+                                       "artifacts" / (fs::path(args.back()).filename().string() + ".sig");
+                expect(fs::is_regular_file(signature) && fs::file_size(signature) == 0, "empty .sig did not reach pacman");
+                write_fixture_bytes(marker, "present");
+                return 0;
+            });
+            return store.install_legacy(request, input.get());
+        };
+        expect(execute_prepared_package_base_artifact_install(fixture.install(), {}).is_success() && fs::exists(marker),
+               "legacy empty signature policy changed");
+    }
+    // Root final-reproof negatives run as the current UID below an isolated
+    // runtime root. The exec seam is mandatory and only writes a test marker.
+    for(int fault : {0, 1, 2, 3, 4}) {
+        TemporaryDirectory runtime("moguet-legacy-negative");
+        auto store = open_source_store(runtime);
+        auto request = root_request(transaction_token('b'), archive);
+        request.purpose = SourceArtifactInstallTrustedPurpose::LegacyArtifactInstall;
+        request.artifacts[0].package_base = "-";
+        request.artifacts[0].architecture = "-";
+        request.directive = SourceArtifactInstallTrustedDirective::AsExplicit;
+        const auto signature_path = runtime.path() / "input.sig";
+        write_fixture_bytes(signature_path, "signature fixture");
+        request.artifacts[0].signature_size = fs::file_size(signature_path);
+        request.artifacts[0].signature_sha256 = xdg_generation_store_raw_contents_sha256("signature fixture");
+        auto input = sealed_input_from_files({archive, signature_path});
+        const auto marker = runtime.path() / "launched";
+        const auto stage = runtime.path() / "moguet/source-artifact-installs/active" / request.transaction_token / "artifacts/artifact-0.pkg.tar.zst";
+        const auto serialized = serialize_source_artifact_install_root_prepared_state(request);
+        expect(std::get<SourceArtifactInstallRootPrepareRequest>(parse_source_artifact_install_root_prepared_state(serialized)) == request,
+               "legacy purpose did not round trip");
+        auto downgraded = serialized;
+        downgraded.replace(0, downgraded.find('\n'), "MOGUET-SOURCE-ARTIFACT-PREPARED\t2");
+        expect(std::holds_alternative<SourceArtifactInstallTrustedProtocolFailure>(parse_source_artifact_install_root_prepared_state(downgraded)),
+               "legacy state was accepted as cleanup receipt authority");
+        set_source_artifact_install_trusted_exec_test_hook([&](const auto& args) {
+            expect(std::find(args.begin(), args.end(), "--asexplicit") != args.end(), "explicit reason lost at root boundary");
+            write_fixture_bytes(marker, "launched");
+            return 23;
+        });
+        set_source_artifact_install_trusted_state_test_hook([&](auto event, int, const auto&) {
+            if(event != SourceArtifactInstallTrustedStateTestEvent::BeforeFinalReproof) return;
+            if(fault == 0) write_fixture_bytes(stage, change_only_tar_header(original_bytes));
+            if(fault == 1) {
+                fs::rename(stage, runtime.path() / "original-stage");
+                write_fixture_bytes(stage, original_bytes);
+            }
+            if(fault == 2) write_fixture_bytes(stage.string() + ".sig", "signature mutated");
+        });
+        if(fault == 3) {
+            request.artifacts[0].archive_sha256 = std::string(64, '0');
+            expect_failure([&] { static_cast<void>(store.install_legacy(request, input.get())); }, "wrong saved digest accepted");
+        } else {
+            const int status = store.install_legacy(request, input.get());
+            expect(status == (fault == 4 ? 23 : 125), "legacy refusal/package exit was reported as success");
+        }
+        expect(fs::exists(marker) == (fault == 4), "invalid legacy stage reached pacman gateway");
+        set_source_artifact_install_trusted_state_test_hook({});
+    }
+    g_legacy_gateway = {};
+    set_source_artifact_install_trusted_exec_test_hook([](const auto&) { return 0; });
+    std::cout << "F-537-02 legacy same-inode / payload-only / late reopen / signature / needed / replay PASS\n";
+}
+
 int main(int argc, char* argv[]) {
     try {
         if(argc > 1 && std::string(argv[1]) == "--lease-exec-child") return lease_exec_child(argc, argv);
         if(argc > 1 && std::string(argv[1]) == "--package-manager-phase-child") return package_manager_phase_child(argc, argv);
         TemporaryCacheHome cache_home;
+        if(argc == 2 && std::string(argv[1]) == "--legacy-content-binding") {
+            test_legacy_content_binding();
+            return 0;
+        }
         set_source_artifact_install_trusted_exec_test_hook([](const auto&) { return 0; });
         if(argc == 2) {
             const std::string mode = argv[1];
@@ -2348,6 +2520,7 @@ int main(int argc, char* argv[]) {
         test_exact_receipt_helper_matrix();
         test_lifetime_races();
         test_state_staging_receipt_replay_and_owner_isolation();
+        test_legacy_content_binding();
         test_sealing_state_regressions();
         test_sealing_protocol_regressions();
         ActualArchiveFixture archives;

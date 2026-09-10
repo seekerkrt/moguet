@@ -5602,12 +5602,6 @@ msgstr "準備済み{}成果物インストール用ワークスペースは後�
 msgid "Prepared {} artifact install workspace was already cleaned."
 msgstr "準備済み{}成果物インストール用ワークスペースはすでに後処理済みです。"
 
-#. TRANSLATORS: The placeholder is the literal Arch field name
-#. "PackageBase".
-#, c++-format
-msgid "Prepared {} artifact install has an unknown transaction directive."
-msgstr "準備済み{}成果物のインストールに不明なパッケージ処理指示があります。"
-
 #. TRANSLATORS: {} is the literal command "pacman -U".
 #, c++-format
 msgid "The {} transaction execution threw an exception."
@@ -9419,6 +9413,10 @@ msgstr "{}のデフォルト状態ログを段階{}で安全に使用できま�
 
 msgid "Unknown state log error code."
 msgstr "不明な状態ログエラーコードです。"
+
+#, c++-format
+#~ msgid "Prepared {} artifact install has an unknown transaction directive."
+#~ msgstr "準備済み{}成果物のインストールに不明なパッケージ処理指示があります。"
 
 #~ msgid "devel package update status requires check: suffix candidate only"
 #~ msgstr "devel packageの更新状態は確認が必要: suffix候補のみ"

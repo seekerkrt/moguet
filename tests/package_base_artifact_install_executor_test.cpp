@@ -20,6 +20,8 @@
 #include <vector>
 
 #include <unistd.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 using PackageBaseArtifactInstallPreparationFactory =
     PackageBaseArtifactInstallPreparationResult (*)(
@@ -1580,6 +1582,29 @@ void restore_regular_file(
 }
 
 void test_executor_revalidation() {
+    for(int mutated_part : {0, 1, 2}) {
+        ArtifactSetFixture fixture({"selected.pkg.tar.zst", "unselected.pkg.tar.zst"}, {0});
+        reset_stubs();
+        expect_identity_queries(fixture, {{"selected", "1-1"}, {"unselected", "1-1"}});
+        metadata_stub::enqueue_local_package_query_absent("selected");
+        auto result = prepare_fixture(fixture, {target("selected", DesiredInstallReason::Explicit)});
+        auto& prepared = expect_prepared(result, "same-inode preparation");
+        const auto path = mutated_part == 2 ? signature_path(fixture.path_at(0)) : fixture.path_at(mutated_part);
+        struct stat before{}, after{};
+        expect(stat(path.c_str(), &before) == 0, "Cannot stat original fixture");
+        write_file(path, std::string(before.st_size, 'x'));
+        const timespec times[] = {before.st_atim, before.st_mtim};
+        expect(utimensat(AT_FDCWD, path.c_str(), times, 0) == 0, "Cannot restore fixture mtime");
+        expect(stat(path.c_str(), &after) == 0 && before.st_ino == after.st_ino && before.st_size == after.st_size,
+               "Mutation regression did not retain inode and size");
+        static_cast<void>(expect_runtime_error([&] {
+            static_cast<void>(execute_prepared_package_base_artifact_install(prepared, {}));
+        },
+                                               "same-inode content mutation"));
+        expect(process_stub::run_command_call_count() == 0, "Mutated content produced a transaction or Installed result");
+        prepared.cleanup_workspace();
+    }
+
     {
         ArtifactSetFixture fixture(
             {"artifact-one.pkg.tar.zst",

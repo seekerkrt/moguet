@@ -147,7 +147,7 @@ void QueryAuthority::require_validity() const {
 const std::filesystem::path& QueryAuthority::path() const {
     require_validity();
     return artifact_ != nullptr ? artifact_->path()
-                                : artifacts_->path_at(artifact_index_);
+                                : artifacts_->metadata_path_at(artifact_index_);
 }
 
 ArtifactPackageIdentity query_with_libalpm(
