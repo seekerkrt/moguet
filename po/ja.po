@@ -1,6 +1,6 @@
 msgid ""
 msgstr ""
-"Project-Id-Version: Moguet 2.6.0\n"
+"Project-Id-Version: Moguet 2.7.0\n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2026-09-10 05:44+0900\n"
 "PO-Revision-Date: 2026-09-09 16:53+0900\n"

@@ -15,6 +15,7 @@ sys.path.insert(0, str(REPOSITORY_ROOT / "scripts"))
 
 from check_public_documentation import (  # noqa: E402
     assert_semantic_text_contract,
+    check_release_notes_documentation,
     check_reviewed_source_documentation,
     check_system_aur_update_documentation,
     exact_man_public_surface,
@@ -151,6 +152,99 @@ def expect_system_aur_update_documentation_rejected(
                 return
             fail(f"{label} returned unexpected status {error.code!r}")
     fail(f"{label} unexpectedly passed")
+
+
+def check_release_notes_regressions() -> int:
+    # Independent historical fixture: these dates must not follow VERSION.
+    historical = """# Moguet v2.6.0
+## English
+Moguet v2.6.0 includes a behavior-changing compatibility correction.
+Before v2.6.0, -Syu was repository-only.
+Starting with v2.6.0, it also updates normal installed AUR packages.
+A later failure does not roll back the completed repository transaction.
+Use moguet -Syu --repo for repository-only behavior.
+Explicit upgrade workflows check saved source-build preferences strictly.
+## 日本語
+Moguet v2.6.0ではbehavior-changingな compatibility correctionを行います。
+v2.6.0より前はrepository-only、v2.6.0以降はnormal installed AURも更新します。
+"""
+    current = "# Moguet v2.7.0\n\n## English\nCurrent scope.\n\n## 日本語\n今回のscope。\n\n"
+    notes = current + historical
+    cases = (
+        ("2.7.0 retains 2.6.0 history", "2.7.0\n", notes, None),
+        (
+            "next release follows fixture VERSION",
+            "2.8.0\n",
+            notes.replace("# Moguet v2.7.0", "# Moguet v2.8.0"),
+            None,
+        ),
+        ("missing current release", "2.7.0\n", historical, "exactly one '# Moguet v2.7.0'"),
+        ("duplicate current release", "2.7.0\n", notes + current, "exactly one '# Moguet v2.7.0'"),
+        ("wrong VERSION", "2.8.0\n", notes, "exactly one '# Moguet v2.8.0'"),
+        (
+            "missing current English section",
+            "2.7.0\n",
+            replace_once(notes, "## English\nCurrent scope.", "Current scope."),
+            "current release notes must contain exactly one '## English'",
+        ),
+        (
+            "historical Japanese does not replace current Japanese",
+            "2.7.0\n",
+            replace_once(notes, "## 日本語\n今回のscope。", "今回のscope。"),
+            "current release notes must contain exactly one '## 日本語'",
+        ),
+        (
+            "missing historical section",
+            "2.7.0\n",
+            current,
+            "exactly one '# Moguet v2.6.0'",
+        ),
+        (
+            "missing historical assertion",
+            "2.7.0\n",
+            replace_once(notes, "Before v2.6.0", "Previously"),
+            "missing historical contract text: 'Before v2.6.0'",
+        ),
+        (
+            "wrong historical introduction version",
+            "2.7.0\n",
+            replace_once(notes, "Starting with v2.6.0", "Starting with v2.7.0"),
+            "missing historical contract text: 'Starting with v2.6.0'",
+        ),
+        (
+            "current text cannot satisfy missing historical assertion",
+            "2.7.0\n",
+            current + "Before v2.6.0\n\n" + historical.replace("Before v2.6.0", "Previously"),
+            "missing historical contract text: 'Before v2.6.0'",
+        ),
+        (
+            "wrong Japanese historical version",
+            "2.7.0\n",
+            replace_once(notes, "v2.6.0以降", "v2.7.0以降"),
+            "missing historical contract text: 'v2.6.0以降'",
+        ),
+    )
+    for label, version, text, expected_diagnostic in cases:
+        with tempfile.TemporaryDirectory(prefix="moguet-release-doc-checker-") as directory:
+            fixture_root = Path(directory)
+            (fixture_root / "VERSION").write_text(version, encoding="utf-8")
+            (fixture_root / "RELEASE_NOTES.md").write_text(text, encoding="utf-8")
+            diagnostic = io.StringIO()
+            try:
+                with redirect_stderr(diagnostic):
+                    check_release_notes_documentation(fixture_root)
+            except SystemExit as error:
+                if (
+                    error.code != 1
+                    or expected_diagnostic is None
+                    or expected_diagnostic not in diagnostic.getvalue()
+                ):
+                    fail(f"{label}: unexpected failure: {diagnostic.getvalue()}")
+            else:
+                if expected_diagnostic is not None:
+                    fail(f"{label} unexpectedly passed")
+            print(f"  ok: {label}")
+    return len(cases)
 
 
 def expect_runtime_help_rejected(
@@ -393,6 +487,7 @@ def main() -> int:
         + len(reviewed_source_mutations)
         + len(runtime_help_mutations)
         + len(system_aur_mutations)
+        + check_release_notes_regressions()
         + 3
     )
     print(

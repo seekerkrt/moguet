@@ -3,7 +3,7 @@
 ## 位置づけ
 
 Issue #476で完成したauthority chainと、そのpublic compatibility / migration境界をまとめる。
-current development treeの契約であり、v2.7.0のrelease、merge、Issue closeを宣言するものではない。
+Moguet v2.7.0で導入するauthoritative devel trackingの対応範囲と安全境界を定める。
 各producerの詳細は下記の既存contractを正とし、新しいproof、store、transaction semanticsを定義しない。
 
 ## Authority chain
