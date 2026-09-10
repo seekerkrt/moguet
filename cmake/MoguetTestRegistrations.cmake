@@ -862,6 +862,8 @@ moguet_add_ctest(
         "-DMOGUET_NEGATIVE_COMPILE_CONFIGURATION_FLAGS_FILE=${_moguet_negative_compile_configuration_flags_file}"
         "-DMOGUET_NEGATIVE_COMPILE_PROJECT_OPTIONS_FILE=${_moguet_negative_compile_project_options_file}"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/MoguetNegativeCompile.cmake"
+    # Negative compile validation matches English compiler diagnostics.
+    ENVIRONMENT "LC_ALL=C" "LANG=C" "LANGUAGE="
 )
 
 unset(_moguet_negative_compile_state_dir)
