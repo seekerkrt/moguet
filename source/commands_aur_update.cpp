@@ -2,6 +2,7 @@
 
 #include "app_config.hpp"
 #include "aur_update_cli_presentation.hpp"
+#include "aur_update_execution_preflight.hpp"
 #include "filtered_aur_update_operation.hpp"
 #include "localization.hpp"
 #include "logging.hpp"
@@ -353,6 +354,10 @@ std::string independent_requires_check_attention_message(
     if(reason == DevelRequiresCheckReason::SuffixCandidateOnly) {
         return localization::translate_message(
             "skipped: devel update requires check: suffix candidate only; not automatically updated because authoritative build provenance is unavailable");
+    }
+    if(is_known_devel_requires_check_reason(reason)) {
+        return localization::translate_message(
+            "skipped: devel update requires check; local authority is unavailable or has changed");
     }
     throw std::logic_error(localization::translate_message(
         "Unknown devel RequiresCheck attention reason."));
