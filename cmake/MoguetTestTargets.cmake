@@ -1962,6 +1962,9 @@ set(
     _moguet_package_base_artifact_install_executor_test_sources
     tests/package_base_artifact_install_executor_test.cpp
     source/package_base_artifact_install_executor.cpp
+    source/source_artifact_install_trusted_protocol.cpp
+    source/trusted_alpm_receipt_protocol.cpp
+    source/xdg_generation_store_sha256.cpp
     source/package_base_artifact_install_plan.cpp
     source/artifact_install_executor.cpp
     source/artifact_install_plan.cpp
@@ -2035,6 +2038,9 @@ set(
     tests/separated_package_base_source_build_test.cpp
     source/separated_package_base_source_build.cpp
     source/package_base_artifact_install_executor.cpp
+    source/source_artifact_install_trusted_protocol.cpp
+    source/trusted_alpm_receipt_protocol.cpp
+    source/xdg_generation_store_sha256.cpp
     source/package_base_artifact_install_plan.cpp
     source/artifact_install_executor.cpp
     source/artifact_install_plan.cpp
@@ -2127,6 +2133,7 @@ moguet_add_cpp_test(
         source/separated_source_build.cpp
         source/separated_package_base_source_build.cpp
         source/package_base_artifact_install_executor.cpp
+        source/source_artifact_install_trusted_protocol.cpp
         source/package_base_artifact_install_plan.cpp
         source/artifact_install_executor.cpp
         source/artifact_install_plan.cpp
@@ -3380,8 +3387,8 @@ set(
     makepkg-assignment-precedence-test=b1ae0849c07c840e51e8a7efa162e25b4ae0274906fd6312cee9d408abc62f9b
     multiple-artifact-identity-test=532347d6fdd00683d2643d0146e121a9d720220d6476bf7ffd0eba1483a0c67f
     package-base-artifact-install-plan-test=3ae8cc0e6669c85e6e8fa57e29d993557a800bbbe7a48d8df7ffc3d288ecf78d
-    package-base-artifact-install-executor-test=0b8ae002f03cb940bdef4c5796ec015c44a6fb5e294adaebbbae3732c8cf6815
-    separated-package-base-source-build-test=3ad351a6f86c2d4ec237618edc91273b03c11b9adbabf982599e1d36d38af0b6
+    package-base-artifact-install-executor-test=c01ef053342615b9ec87e10ff7fe364736c286ffaad7e5f2f2fb2ea4e01ade8a
+    separated-package-base-source-build-test=b98ca040a91bf28ce08efed7785c48679bd82ee3a4a3f090a22ed5cabafa98b6
     upgrade-all-plan-test=9b1db5100580d34a133ec9627cf6fa92928c06ffbb862c92c74225f8e964f740
     system-source-upgrade-test=b824cbe833e2939297ccb58df1f01d7476cb1a3a051e10416682673ca3ede148
     aur-update-execution-preflight-test=167eca6cef76a54712dd3281a015d38e406ae9fde1a264919d69b115a743cfd3

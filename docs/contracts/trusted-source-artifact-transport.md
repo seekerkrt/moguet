@@ -54,6 +54,10 @@ actual receiptとfresh bindingを別component outputへ保持する。S5-Cのclo
 consumption pointは維持する。
 
 既存のPreparedPackageBaseArtifactInstallが保持するdescriptorからarchive SHA-256を取得する。
+このcapabilityはprepareのmetadata query前にarchive / signatureをwrite-sealed snapshotへ固定する。
+transportはそのsnapshot descriptorを使用し、元workspaceのnamed / retained identityとbytesも実行前に照合する。
+通常legacy installの専用purposeは[PackageBase contract](packagebase-child-selection.md)に従い、
+ここで定めるcleanup / exact receipt、positive hook evidence、OutcomeUnknownの判定を変更しない。
 copy前のfile identityをcopy完了まで再確認し、write-sealed memfdからroot helperへ転送する。
 hash implementationはSlice 4も使う既存XDG generation-store SHA-256であり、
 共有実装を独立translation unitへ移した。algorithmとbyte semanticsは変更しない。

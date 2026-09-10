@@ -167,6 +167,7 @@ set(MOGUET_ALPM_RECEIPT_HELPER_SOURCES
 # namespace. Only the token/name validators are shared with the existing
 # selected-provider receipt protocol.
 set(MOGUET_SOURCE_ARTIFACT_INSTALL_HELPER_SOURCES
+    source/shell_words.cpp
     source/source_artifact_install_trusted_helper_main.cpp
     source/source_artifact_install_trusted_helper_state.cpp
     source/exact_artifact_transaction_protocol.cpp
