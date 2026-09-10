@@ -1145,6 +1145,7 @@ std::optional<std::string> read_srcinfo_version(const fs::path& pkg_dir) {
 
     std::string pkgver;
     std::string pkgrel;
+    std::string epoch;
     std::string line;
     while(std::getline(file, line)) {
         std::string trimmed = trim(line);
@@ -1152,10 +1153,21 @@ std::optional<std::string> read_srcinfo_version(const fs::path& pkg_dir) {
             pkgver = trim(trimmed.substr(trimmed.find('=') + 1));
         } else if(trimmed.starts_with("pkgrel =")) {
             pkgrel = trim(trimmed.substr(trimmed.find('=') + 1));
+        } else if(trimmed.starts_with("epoch =")) {
+            if(!epoch.empty()) return std::nullopt;
+            epoch = trim(trimmed.substr(trimmed.find('=') + 1));
+            if(epoch.empty() ||
+               epoch.find_first_not_of("0123456789") != std::string::npos) {
+                return std::nullopt;
+            }
         }
     }
 
     if(pkgver.empty() || pkgrel.empty()) return std::nullopt;
+    // Match makepkg's full version: only a positive epoch adds a prefix.
+    if(epoch.find_first_not_of('0') != std::string::npos) {
+        return epoch + ":" + pkgver + "-" + pkgrel;
+    }
     return pkgver + "-" + pkgrel;
 }
 

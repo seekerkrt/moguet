@@ -789,6 +789,9 @@ write_upgrade_srcinfo() {
         printf 'pkgbase = clean-root\n'
         printf 'pkgver = %s\n' "$srcinfo_version"
         printf 'pkgrel = %s\n' "$srcinfo_release"
+        if [ "$#" -ge 4 ]; then
+            printf 'epoch = %s\n' "$4"
+        fi
         printf 'pkgname = clean-root\n'
     } > "$srcinfo_file"
 }
@@ -2673,6 +2676,37 @@ argv-begin
 arg[0]=<-sc>
 arg[1]=<--noconfirm>
 arg[2]=<PKGDEST=<owned>>
+argv-end'
+assert_request_log_empty
+
+# F-537-01: positive epochを含むsource/post-installedの同一versionでも、
+# system前から更新済みなら#215のsource preference再適用へ進む。
+setup_upgrade_transition_case \
+    f537-01-positive-epoch-rebuild-after-official-binary-replacement \
+    1:1.0-1 1:2.0-1 enabled "$official_source_url"
+write_upgrade_srcinfo "$initial_srcinfo" 1.0 1 1
+write_upgrade_srcinfo "$remote_srcinfo" 2.0 1 1
+cp "$initial_srcinfo" "$checkout_dir/.SRCINFO"
+export MOGUET_TEST_PACMAN_REPO_PACKAGES=$upgrade_package
+assert_file_equals "$installed_version_before" "$installed_version_state"
+run_upgrade_ok --noedit --nodiff --noconfirm upgrade
+assert_file_equals "$installed_version_after" "$installed_version_state"
+assert_file_equals "$remote_srcinfo" "$checkout_dir/.SRCINFO"
+assert_contains "Loading custom build flags from $preference_dir/$upgrade_package." "$output_file"
+assert_contains "$upgrade_package was updated by the system transaction (1:1.0-1 -> 1:2.0-1); rebuilding the preferred source package." "$output_file"
+assert_not_contains "$upgrade_package is up to date (1:2.0-1). Skipping." "$output_file"
+assert_command "sudo pacman -Syu --noconfirm"
+assert_single_package_metadata_snapshots_around_syu "$upgrade_package"
+assert_command "vercmp 1:2.0-1 1:2.0-1"
+assert_command_count "makepkg -sc --noconfirm" 1
+assert_separated_source_commands 1
+assert_command_occurrence_before "alpm release" 3 "git fetch origin" 1
+assert_command_occurrence_before "git fetch origin" 1 "git reset --hard origin/main" 1
+assert_command_occurrence_before "git reset --hard origin/main" 1 "vercmp 1:2.0-1 1:2.0-1" 1
+assert_command_occurrence_before "vercmp 1:2.0-1 1:2.0-1" 1 "makepkg --packagelist" 1
+assert_argv_log "$vercmp_argv_log" 'argv-begin
+arg[0]=<1:2.0-1>
+arg[1]=<1:2.0-1>
 argv-end'
 assert_request_log_empty
 
