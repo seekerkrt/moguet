@@ -352,9 +352,9 @@ std::string PreparedPackageBaseArtifactInstall::legacy_install_command(
 #ifdef MOGUET_ENABLE_CLI_INSTALL_TEST_ADAPTER
     // CLI fixtures use the real process owner. An absent adapter must never
     // fall through to the fixed privileged command in this test profile.
-#ifdef MOGUET_LEGACY_INSTALL_TEST_ADAPTER_PATH
+#ifdef MOGUET_TEST_LEGACY_INSTALL_ADAPTER_PATH
     std::vector<std::string> adapter{
-        "/usr/bin/python3", "-I", MOGUET_LEGACY_INSTALL_TEST_ADAPTER_PATH,
+        "/usr/bin/python3", "-I", MOGUET_TEST_LEGACY_INSTALL_ADAPTER_PATH,
         MOGUET_SOURCE_ARTIFACT_INSTALL_HELPER_PATH, shell_words::join(arguments)};
     for(const auto index : indices)
         adapter.push_back(artifacts_.records_.at(index).path.string());
