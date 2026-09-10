@@ -52,6 +52,8 @@ moguet_add_cpp_test(
     DEFINITIONS
         MOGUET_ENABLE_ARTIFACT_IDENTITY_TEST_HOOKS
         MOGUET_ENABLE_TEST_OVERRIDES
+        MOGUET_ENABLE_CLI_INSTALL_TEST_ADAPTER
+        "MOGUET_LEGACY_INSTALL_TEST_ADAPTER_PATH=\"${CMAKE_CURRENT_SOURCE_DIR}/tests/legacy-install-test-adapter.py\""
         MOGUET_ENABLE_TEST_CONFIG_PATH
         MOGUET_ENABLE_SYSTEM_AUR_UPDATE_PRESENTATION_TEST_HOOKS
     INCLUDE_DIRECTORIES
@@ -90,6 +92,8 @@ moguet_add_cpp_test(
     DEFINITIONS
         MOGUET_ENABLE_ARTIFACT_IDENTITY_TEST_HOOKS
         MOGUET_ENABLE_TEST_OVERRIDES
+        MOGUET_ENABLE_CLI_INSTALL_TEST_ADAPTER
+        "MOGUET_LEGACY_INSTALL_TEST_ADAPTER_PATH=\"${CMAKE_CURRENT_SOURCE_DIR}/tests/legacy-install-test-adapter.py\""
         MOGUET_ENABLE_TEST_CONFIG_PATH
         "MOGUET_LOCALE_DIRECTORY=\"${CMAKE_CURRENT_BINARY_DIR}/locale\""
     INCLUDE_DIRECTORIES
@@ -127,6 +131,8 @@ moguet_add_cpp_test(
     DEFINITIONS
         MOGUET_ENABLE_ARTIFACT_IDENTITY_TEST_HOOKS
         MOGUET_ENABLE_TEST_OVERRIDES
+        MOGUET_ENABLE_CLI_INSTALL_TEST_ADAPTER
+        "MOGUET_LEGACY_INSTALL_TEST_ADAPTER_PATH=\"${CMAKE_CURRENT_SOURCE_DIR}/tests/legacy-install-test-adapter.py\""
         MOGUET_ENABLE_TEST_CONFIG_PATH
     INCLUDE_DIRECTORIES
         "${_moguet_test_source_include_dir}"
@@ -163,6 +169,8 @@ moguet_add_cpp_test(
     DEFINITIONS
         MOGUET_ENABLE_ARTIFACT_IDENTITY_TEST_HOOKS
         MOGUET_ENABLE_TEST_OVERRIDES
+        MOGUET_ENABLE_CLI_INSTALL_TEST_ADAPTER
+        "MOGUET_LEGACY_INSTALL_TEST_ADAPTER_PATH=\"${CMAKE_CURRENT_SOURCE_DIR}/tests/legacy-install-test-adapter.py\""
         "MOGUET_LOCALE_DIRECTORY=\"${CMAKE_CURRENT_BINARY_DIR}/locale\""
     INCLUDE_DIRECTORIES
         "${_moguet_test_source_include_dir}"
@@ -192,6 +200,8 @@ moguet_add_cpp_test(
     DEFINITIONS
         MOGUET_ENABLE_ARTIFACT_IDENTITY_TEST_HOOKS
         MOGUET_ENABLE_TEST_OVERRIDES
+        MOGUET_ENABLE_CLI_INSTALL_TEST_ADAPTER
+        "MOGUET_LEGACY_INSTALL_TEST_ADAPTER_PATH=\"${CMAKE_CURRENT_SOURCE_DIR}/tests/legacy-install-test-adapter.py\""
     INCLUDE_DIRECTORIES "${_moguet_test_source_include_dir}"
 )
 
@@ -206,6 +216,8 @@ moguet_add_cpp_test(
         "MOGUET_LOCALE_DIRECTORY=\"${CMAKE_CURRENT_BINARY_DIR}/locale\""
         MOGUET_ENABLE_ARTIFACT_IDENTITY_TEST_HOOKS
         MOGUET_ENABLE_TEST_OVERRIDES
+        MOGUET_ENABLE_CLI_INSTALL_TEST_ADAPTER
+        "MOGUET_LEGACY_INSTALL_TEST_ADAPTER_PATH=\"${CMAKE_CURRENT_SOURCE_DIR}/tests/legacy-install-test-adapter.py\""
     INCLUDE_DIRECTORIES "${_moguet_test_source_include_dir}"
 )
 
@@ -219,6 +231,8 @@ moguet_add_cpp_test(
     DEFINITIONS
         MOGUET_ENABLE_ARTIFACT_IDENTITY_TEST_HOOKS
         MOGUET_ENABLE_TEST_OVERRIDES
+        MOGUET_ENABLE_CLI_INSTALL_TEST_ADAPTER
+        "MOGUET_LEGACY_INSTALL_TEST_ADAPTER_PATH=\"${CMAKE_CURRENT_SOURCE_DIR}/tests/legacy-install-test-adapter.py\""
         MOGUET_ENABLE_TEST_CONFIG_PATH
         MOGUET_ENABLE_APP_CONFIG_TEST_HOOKS
     INCLUDE_DIRECTORIES "${_moguet_test_source_include_dir}"
@@ -248,6 +262,8 @@ moguet_add_cpp_test(
     DEFINITIONS
         MOGUET_ENABLE_ARTIFACT_IDENTITY_TEST_HOOKS
         MOGUET_ENABLE_TEST_OVERRIDES
+        MOGUET_ENABLE_CLI_INSTALL_TEST_ADAPTER
+        "MOGUET_LEGACY_INSTALL_TEST_ADAPTER_PATH=\"${CMAKE_CURRENT_SOURCE_DIR}/tests/legacy-install-test-adapter.py\""
         MOGUET_ENABLE_AUR_RPC_TEST_HOOKS
     INCLUDE_DIRECTORIES
         "${_moguet_test_source_include_dir}"
@@ -284,6 +300,8 @@ moguet_add_cpp_test(
     DEFINITIONS
         MOGUET_ENABLE_ARTIFACT_IDENTITY_TEST_HOOKS
         MOGUET_ENABLE_TEST_OVERRIDES
+        MOGUET_ENABLE_CLI_INSTALL_TEST_ADAPTER
+        "MOGUET_LEGACY_INSTALL_TEST_ADAPTER_PATH=\"${CMAKE_CURRENT_SOURCE_DIR}/tests/legacy-install-test-adapter.py\""
     INCLUDE_DIRECTORIES
         "${_moguet_test_source_include_dir}"
         "${_moguet_test_alpm_stub_include_dir}"
@@ -315,6 +333,8 @@ moguet_add_cpp_test(
     DEFINITIONS
         MOGUET_ENABLE_ARTIFACT_IDENTITY_TEST_HOOKS
         MOGUET_ENABLE_TEST_OVERRIDES
+        MOGUET_ENABLE_CLI_INSTALL_TEST_ADAPTER
+        "MOGUET_LEGACY_INSTALL_TEST_ADAPTER_PATH=\"${CMAKE_CURRENT_SOURCE_DIR}/tests/legacy-install-test-adapter.py\""
         MOGUET_ENABLE_TEST_CONFIG_PATH
         MOGUET_ENABLE_APP_CONFIG_TEST_HOOKS
     INCLUDE_DIRECTORIES
@@ -3363,16 +3383,16 @@ set(
 set(
     MOGUET_EXPECTED_CPP_TEST_FIREWALL_DESCRIPTORS
     evaluated-devel-source-build-test=cff7745dfcc751074ea8a8eabbd5d130d899c2ed9a03f8dc5241f6b1904cc9d0
-    moguet-aur-update-command-test=26ea39604f2f62a9dbd7091167eb58356895333690a856792336c7cc92f67b3c
-    moguet-upgrade-all-command-test=0bdca602927693bf135221976d0878b1927193519120d1f197c3c3098a8fc9a0
-    moguet-commands-sync-test=11571597ee1c6dbc3331eff41cd069b31583ed977e18c8e74e68263ab5363a52
-    moguet-commands-inspect-test=667d66f9ef757d2ee8f8acb15452a2e1f12105d8fe5b9c828f129cb0cc0077d3
-    moguet-test=af53ac442e769ffab37aa7c631044cae02a2a79560f123ad2eb72f4d8d45bf2b
-    moguet-cli-localization-test=8d77bcf0c4a0ca8ec10b1474d37f8c63bff873001be2ba9157d5e86db2b81200
-    moguet-app-config-test=b3a51781487a9e9fdde207675308e28fe2eefa54781451149d1f319fbd32d97e
-    moguet-aur-rpc-validation-test=645ea7ea8a486810c3db616895bd4dc41f69a5ace9baa7f7af55e65bcaddf436
-    moguet-source-install-characterization-test=cd4ee728433e0fdf737fe9007a2d152194f419961fab76def83b928de5889cac
-    moguet-upgrade-baseline-metadata-test=599f8a8fd6a7cb78918c535311f9f9d213b3f4c7045da0a1247bbb8ee2bea779
+    moguet-aur-update-command-test=4831b05e55d62cb27ee3945d108e4574b563d481345c192fe44925d25c0843ed
+    moguet-upgrade-all-command-test=9f5bba3916dfd2dfb809728bf2e8a50e70553786f03386623cd987853c970dd8
+    moguet-commands-sync-test=4f281e5b90cd9d99d3cc93544459c33fb8f617e2e3c0acea8133032115561079
+    moguet-commands-inspect-test=7790e93d76df83bdc1c25f2771e7be8f8bb47405d7a8547f6dc3b14edfa586f6
+    moguet-test=4a65640cc64cbaca74432d254807e3f976138185d5fe7eaf603d5719edcecf46
+    moguet-cli-localization-test=905c2a2a7fdbe2252066879d3a85339a46ccd45b14bd9ad8486523ec4294ad10
+    moguet-app-config-test=079c2c1326345e4a64951b926af671903323675a2952646e9a52e5d7f23be4e1
+    moguet-aur-rpc-validation-test=25ad4a163070baba2118644c1008d9e9efff1757c633b5378bb7b72d1390160b
+    moguet-source-install-characterization-test=ccb187b9de52d7db24221e1bc47d1fc58b5d2b12b8cff5542de05e5eb5184f93
+    moguet-upgrade-baseline-metadata-test=9a67c7dd5014f6557d08af5b8bd03d97cd50967816fc4556a2670e771d415a6e
     root-package-candidate-test=bc4881c4212cc8ec327f28e438da00eedc8001f1fd6ee37a4973b213dc569935
     root-package-search-test=3d25f595a9b09c454e955e3fc3743f11acb41b2acdc3346b2f93c551df454f1e
     root-package-selection-test=b7083b4a777249db33772e0b704e2eb80f0748a75019e53c48ba13cfc87df4c0
