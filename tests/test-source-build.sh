@@ -149,6 +149,9 @@ write_srcinfo() {
         printf 'pkgbase = clean-root\n'
         printf 'pkgver = %s\n' "$version"
         printf 'pkgrel = %s\n' "$release"
+        if [ "$#" -ge 3 ]; then
+            printf 'epoch = %s\n' "$3"
+        fi
     } > "$checkout_dir/.SRCINFO"
 }
 
@@ -675,6 +678,88 @@ assert_command_absent "pacman -Q clean-root"
 assert_contains "clean-root is up to date (1.0-1). Skipping." "$output_file"
 assert_command_prefix_absent "makepkg "
 assert_command_prefix_absent "moguet-test-editor "
+
+# F-537-01: use real vercmp for epoch ordering and preserve zero-epoch output.
+setup_case update-zero-epoch
+prepare_upgrade_case
+write_srcinfo 1.0 1 0
+run_upgrade_ok --noedit --nodiff --noconfirm upgrade
+assert_command "vercmp 1.0-1 1.0-1"
+assert_contains "clean-root is up to date (1.0-1). Skipping." "$output_file"
+assert_command_prefix_absent "makepkg "
+
+setup_case update-positive-epoch-newer
+prepare_upgrade_case
+write_srcinfo 0.9 1.2 1
+run_upgrade_ok --noedit --nodiff --noconfirm upgrade
+assert_command "vercmp 1:0.9-1.2 1.0-1"
+assert_command_count "makepkg -sc --noconfirm" 1
+
+for installed_epoch in 1 2; do
+    setup_case "update-positive-epoch-not-newer-$installed_epoch"
+    prepare_upgrade_case
+    printf 'clean-root %s:1.0-1\n' "$installed_epoch" > "$package_metadata_state"
+    write_srcinfo 1.0 1 1
+    run_upgrade_ok --noedit --nodiff --noconfirm upgrade
+    assert_command "vercmp 1:1.0-1 $installed_epoch:1.0-1"
+    assert_contains "clean-root is up to date ($installed_epoch:1.0-1). Skipping." "$output_file"
+    assert_command_prefix_absent "makepkg "
+done
+
+# An invalid epoch must not become a usable version or authorize a build.
+for invalid_epoch in '' -1 1a 1.2 '1 2' '1;false'; do
+    setup_case "update-invalid-epoch-$invalid_epoch"
+    prepare_upgrade_case
+    write_srcinfo 2.0 1 "$invalid_epoch"
+    run_upgrade_ok --noedit --nodiff --noconfirm upgrade
+    assert_contains "Unable to determine update status from .SRCINFO for clean-root." "$output_file"
+    assert_contains "Skipping clean-root: update status is unknown and --noconfirm is set." "$output_file"
+    assert_command_prefix_absent "vercmp "
+    assert_command_prefix_absent "makepkg "
+done
+
+setup_case update-duplicate-epoch
+prepare_upgrade_case
+write_srcinfo 2.0 1 1
+printf 'epoch = 2\n' >> "$checkout_dir/.SRCINFO"
+run_upgrade_ok --noedit --nodiff --noconfirm upgrade
+assert_contains "Skipping clean-root: update status is unknown and --noconfirm is set." "$output_file"
+assert_command_prefix_absent "vercmp "
+assert_command_prefix_absent "makepkg "
+
+for missing_version_field in pkgver pkgrel; do
+    setup_case "update-positive-epoch-missing-$missing_version_field"
+    prepare_upgrade_case
+    case "$missing_version_field" in
+        pkgver) write_srcinfo '' 1 1 ;;
+        pkgrel) write_srcinfo 2.0 '' 1 ;;
+    esac
+    run_upgrade_ok --noedit --nodiff --noconfirm upgrade
+    assert_contains "Skipping clean-root: update status is unknown and --noconfirm is set." "$output_file"
+    assert_command_prefix_absent "vercmp "
+    assert_command_prefix_absent "makepkg "
+done
+
+for unsafe_srcinfo_kind in symlink writable directory; do
+    setup_case "update-positive-epoch-unsafe-$unsafe_srcinfo_kind"
+    prepare_upgrade_case
+    write_srcinfo 2.0 1 1
+    case "$unsafe_srcinfo_kind" in
+        symlink)
+            mv "$checkout_dir/.SRCINFO" "$case_dir/unsafe.SRCINFO"
+            ln -s "$case_dir/unsafe.SRCINFO" "$checkout_dir/.SRCINFO"
+            ;;
+        writable) chmod 0666 "$checkout_dir/.SRCINFO" ;;
+        directory)
+            mv "$checkout_dir/.SRCINFO" "$case_dir/unsafe.SRCINFO"
+            mkdir "$checkout_dir/.SRCINFO"
+            ;;
+    esac
+    run_upgrade_ok --noedit --nodiff --noconfirm upgrade
+    assert_contains "Skipping clean-root: update status is unknown and --noconfirm is set." "$output_file"
+    assert_command_prefix_absent "vercmp "
+    assert_command_prefix_absent "makepkg "
+done
 
 setup_case update-unknown-noconfirm
 prepare_upgrade_case
