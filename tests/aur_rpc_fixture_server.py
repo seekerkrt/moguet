@@ -67,6 +67,7 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         query = parse_qs(parsed.query)
         sequenced_results = None
+        body_override = None
 
         if "/v5/search/" in parsed.path:
             dependency = unquote(parsed.path.rsplit("/", 1)[-1])
@@ -81,8 +82,13 @@ class Handler(BaseHTTPRequestHandler):
         else:
             names = query.get("arg[]", [])
             response_type = "multiinfo"
-            response_status = 200
             requested_name = names[0] if len(names) == 1 else None
+            response_status = fixture.get("info_status_overrides", {}).get(
+                requested_name, 200
+            )
+            body_override = fixture.get("info_body_overrides", {}).get(
+                requested_name
+            )
             response_override = fixture.get("info_response_overrides", {}).get(
                 requested_name
             )
@@ -106,6 +112,8 @@ class Handler(BaseHTTPRequestHandler):
         }
         response = apply_response_override(response, response_override)
         body = json.dumps(response).encode("utf-8")
+        if body_override is not None:
+            body = body_override.encode("utf-8")
         self.send_response(response_status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))

@@ -539,10 +539,7 @@ std::vector<AurPackageInfo> parse_aur_rpc_package_results(
     return packages;
 }
 
-const json& strict_aur_rpc_results_array(
-    const json& response, const std::string& context,
-    const std::string& expected_response_type,
-    std::optional<std::size_t> maximum_result_count) {
+void require_no_aur_rpc_error(const json& response, const std::string& context) {
     auto error = response.find("error");
     if(error != response.end()) {
         if(!error->is_string()) {
@@ -557,7 +554,13 @@ const json& strict_aur_rpc_results_array(
                 "{} {} response validation failed for {}: field {} reported {}",
                 "AUR", "RPC", context, "error", error->dump()));
     }
+}
 
+const json& strict_aur_rpc_results_array(
+    const json& response, const std::string& context,
+    const std::string& expected_response_type,
+    std::optional<std::size_t> maximum_result_count) {
+    require_no_aur_rpc_error(response, context);
     long long version = required_json_integer(response, "version", context);
     if(version != AUR_RPC_PROTOCOL_VERSION) {
         throw_aur_rpc_validation_error(
@@ -625,7 +628,14 @@ std::vector<AurPackageInfo> parse_strict_aur_rpc_package_results(
 std::optional<AurPackageInfo> parse_single_aur_info_response(
     const std::string& response, const std::string& pkg_name) {
     std::string context = aur_rpc_info_context(pkg_name);
-    std::vector<AurPackageInfo> results = parse_aur_rpc_package_results(response, context);
+    json parsed = parse_aur_rpc_response(response, context);
+    require_no_aur_rpc_error(parsed, context);
+    const json& entries = aur_rpc_results_array(parsed, context);
+    std::vector<AurPackageInfo> results;
+    results.reserve(entries.size());
+    for(size_t i = 0; i < entries.size(); ++i) {
+        results.push_back(parse_aur_rpc_package_info(entries[i], context, i));
+    }
     if(results.empty()) return std::nullopt;
     if(results.size() != 1) {
         throw_aur_rpc_validation_error(
@@ -826,12 +836,14 @@ std::vector<std::string> AurClient::search_names_by_provides_strict(
 std::optional<AurPackageInfo> AurClient::info(const std::string& pkg_name) {
     CurlHandle handle;
     char* escaped = curl_easy_escape(handle.get(), pkg_name.c_str(), static_cast<int>(pkg_name.length()));
-    if(!escaped) return std::nullopt;
+    if(!escaped) {
+        throw std::runtime_error(localization::format_translated_message(
+            "Failed to encode {} package name: {}", "AUR", pkg_name));
+    }
     std::string url = aur_rpc_info_url() + escaped;
     curl_free(escaped);
 
-    std::string response = get_url(url);
-    if(response.empty()) return std::nullopt;
+    std::string response = get_url_strict(url);
 
     return parse_single_aur_info_response(response, pkg_name);
 }
