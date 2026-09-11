@@ -1356,7 +1356,7 @@ void cmd_revert(
 int cmd_clean(const AppConfig& config) {
     // POLICY(#175,#305): new Moguet XDG cache rootだけをadoptし、全targetの
     // descriptor-relative preflight capabilityをpacman/promptより前に構築する。
-    // 同じmove-only capabilityをconsumeまで保持し、original inodeをpinする。
+    // 同じmove-only capabilityをconsumeまで保持し、opaque generationを再検証する。
     ValidatedCacheRoot cache = prepare_process_cache_root();
     PreparedCacheCleanup cleanup =
         preflight_cache_cleanup(cache);

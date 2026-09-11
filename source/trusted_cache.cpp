@@ -900,19 +900,33 @@ OwnedFileDescriptor open_validated_child_directory(
     return opened;
 }
 
+enum class RemovalHandleQueryMode {
+    FileIdentity,
+    Standard,
+};
+
+struct RemovalGeneration {
+    RemovalHandleQueryMode query_mode = RemovalHandleQueryMode::FileIdentity;
+    int mount_id = 0;
+    int handle_type = 0;
+    // The vector length is the exact returned handle length, without padding.
+    std::vector<unsigned char> bytes;
+
+    bool operator==(const RemovalGeneration&) const = default;
+};
+
 struct RemovalNode {
     std::string name;
     struct stat status{};
-    // Pin the preflighted inode until the plan is destroyed. This descriptor
-    // is identity evidence only; mutation always rebuilds the named lineage.
-    OwnedFileDescriptor retained_descriptor;
+    // Unlike a stat tuple, the filesystem handle distinguishes inode reuse
+    // after a preflight FD closes. It never authorizes handle-relative removal.
+    RemovalGeneration generation;
     std::vector<RemovalNode> children;
 };
 
 struct RemovalPlan {
     ValidatedCachePath target;
     RemovalNode root;
-    OwnedFileDescriptor cooperative_lease;
 };
 
 std::vector<std::string> directory_entry_names(
@@ -992,97 +1006,67 @@ std::vector<std::string> directory_entry_names(
     return names;
 }
 
-RemovalNode preflight_removal_node(
-    int parent_descriptor, const std::string& name,
-    std::uintmax_t root_device, std::uintmax_t root_owner,
-    TrustedCacheStage stage) {
-    struct stat status{};
-    if(fstatat(
-           parent_descriptor, name.c_str(), &status,
-           AT_SYMLINK_NOFOLLOW) != 0) {
-        const int metadata_error = errno;
-        throw_cache_error(
-            stage,
-            metadata_error == ENOENT
-                ? TrustedCacheErrorCode::ConcurrentReplacement
-                : (is_permission_error(metadata_error)
-                       ? TrustedCacheErrorCode::PermissionDenied
-                       : TrustedCacheErrorCode::MetadataFailure),
-            metadata_error);
+RemovalGeneration observe_removal_generation(
+    int descriptor, TrustedCacheStage stage,
+    std::optional<RemovalHandleQueryMode> expected_mode = std::nullopt) {
+    RemovalHandleQueryMode mode =
+        expected_mode.value_or(RemovalHandleQueryMode::FileIdentity);
+    const auto query = [&](struct file_handle* handle, int* mount_id) {
+        const int flags = AT_EMPTY_PATH |
+                          (mode == RemovalHandleQueryMode::FileIdentity
+                               ? AT_HANDLE_FID
+                               : 0);
+        return name_to_handle_at(descriptor, "", handle, mount_id, flags);
+    };
+    struct file_handle sizing{};
+    int mount_id = 0;
+    int probe_result = query(&sizing, &mount_id);
+    int probe_error = probe_result < 0 ? errno : 0;
+    // Only the initial zero-sized FID probe may negotiate the older API.
+    // Revalidation uses the sealed mode, even if another mode would succeed.
+    if(!expected_mode.has_value() && probe_result < 0 &&
+       probe_error == EINVAL) {
+        mode = RemovalHandleQueryMode::Standard;
+        sizing = {};
+        probe_result = query(&sizing, &mount_id);
+        probe_error = probe_result < 0 ? errno : 0;
     }
-    require_safe_removal_node_status(
-        status, root_owner, root_device, stage);
-
-    const int retained_descriptor = open_removal_node_without_mount_crossing(
-        parent_descriptor, name);
-    if(retained_descriptor < 0) {
-        const int open_error = errno;
-        throw_cache_error(
-            stage,
-            open_error == ENOENT || open_error == ELOOP ||
-                    open_error == ENOTDIR
-                ? TrustedCacheErrorCode::ConcurrentReplacement
-                : (open_error == EXDEV
-                       ? TrustedCacheErrorCode::ChildEscape
-                       : (is_permission_error(open_error)
-                              ? TrustedCacheErrorCode::PermissionDenied
-                              : TrustedCacheErrorCode::MetadataFailure)),
-            open_error);
-    }
-    OwnedFileDescriptor retained(retained_descriptor);
-    struct stat retained_status{};
-    if(fstat(retained.get(), &retained_status) != 0) {
-        const int metadata_error = errno;
-        throw_cache_error(
-            stage,
-            is_permission_error(metadata_error)
-                ? TrustedCacheErrorCode::PermissionDenied
-                : TrustedCacheErrorCode::MetadataFailure,
-            metadata_error);
-    }
-    if(!same_identity_and_type(status, retained_status) ||
-       status_owner(status) != status_owner(retained_status) ||
-       status_permissions(status) != status_permissions(retained_status)) {
-        throw_cache_error(stage, TrustedCacheErrorCode::ConcurrentReplacement);
-    }
-    require_safe_removal_node_status(
-        retained_status, root_owner, root_device, stage);
-
-    RemovalNode node{name, status, std::move(retained), {}};
-    if(!S_ISDIR(status.st_mode)) return node;
-
-    const int child_descriptor =
-        open_child_directory_without_mount_crossing(
-            parent_descriptor, name);
-    if(child_descriptor < 0) {
-        const int open_error = errno;
-        throw_cache_error(
-            stage,
-            child_directory_open_error_code(open_error),
-            open_error);
-    }
-    OwnedFileDescriptor opened_child(child_descriptor);
-    struct stat opened_status{};
-    if(fstat(opened_child.get(), &opened_status) != 0) {
-        const int metadata_error = errno;
+    if(probe_result < 0 && probe_error != EOVERFLOW) {
         throw_cache_error(stage, TrustedCacheErrorCode::MetadataFailure,
-                          metadata_error);
+                          probe_error);
     }
-    if(!same_identity_and_type(status, opened_status) ||
-       status_owner(status) != status_owner(opened_status) ||
-       status_permissions(status) != status_permissions(opened_status)) {
+    if(probe_result != -1 || sizing.handle_bytes == 0 ||
+       sizing.handle_bytes > MAX_HANDLE_SZ) {
+        throw_cache_error(stage, TrustedCacheErrorCode::MetadataFailure);
+    }
+    const unsigned int requested = sizing.handle_bytes;
+    // calloc provides aligned storage for the C flexible-array object.
+    // Never truncate an unsupported handle or fall back to stat/full-tree pins.
+    std::unique_ptr<struct file_handle, decltype(&std::free)> handle(
+        static_cast<struct file_handle*>(
+            std::calloc(1, sizeof(struct file_handle) + requested)),
+        &std::free);
+    if(!handle) throw std::bad_alloc();
+    handle->handle_bytes = requested;
+    int observed_mount_id = 0;
+    if(query(handle.get(), &observed_mount_id) != 0) {
+        const int handle_error = errno;
+        throw_cache_error(stage, TrustedCacheErrorCode::MetadataFailure,
+                          handle_error);
+    }
+    // FILEID_INVALID (255) cannot represent a successful filesystem handle.
+    constexpr int INVALID_FILE_HANDLE_TYPE = 255;
+    if(handle->handle_bytes != requested || handle->handle_type <= 0 ||
+       handle->handle_type == INVALID_FILE_HANDLE_TYPE) {
+        throw_cache_error(stage, TrustedCacheErrorCode::MetadataFailure);
+    }
+    if(observed_mount_id != mount_id) {
         throw_cache_error(stage, TrustedCacheErrorCode::ConcurrentReplacement);
     }
-    require_safe_removal_node_status(
-        opened_status, root_owner, root_device, stage);
-
-    for(const std::string& child_name :
-        directory_entry_names(opened_child.get(), stage)) {
-        node.children.push_back(preflight_removal_node(
-            opened_child.get(), child_name, root_device, root_owner,
-            stage));
-    }
-    return node;
+    return RemovalGeneration{
+        mode, mount_id, handle->handle_type,
+        std::vector<unsigned char>(
+            handle->f_handle, handle->f_handle + requested)};
 }
 
 void require_expected_removal_node_status(
@@ -1107,15 +1091,10 @@ void require_expected_removal_node_status(
     }
 }
 
-struct stat retained_removal_node_status(
-    const RemovalNode& node, std::uintmax_t root_device,
-    std::uintmax_t root_owner, TrustedCacheStage stage) {
-    struct stat retained_status{};
-    if(node.retained_descriptor.get() < 0 ||
-       fstat(node.retained_descriptor.get(), &retained_status) != 0) {
-        const int metadata_error = node.retained_descriptor.get() < 0
-                                       ? EBADF
-                                       : errno;
+struct stat removal_descriptor_status(int descriptor, TrustedCacheStage stage) {
+    struct stat status{};
+    if(fstat(descriptor, &status) != 0) {
+        const int metadata_error = errno;
         throw_cache_error(
             stage,
             is_permission_error(metadata_error)
@@ -1123,17 +1102,22 @@ struct stat retained_removal_node_status(
                 : TrustedCacheErrorCode::MetadataFailure,
             metadata_error);
     }
-    require_expected_removal_node_status(
-        node, retained_status, root_device, root_owner, stage);
-    return retained_status;
+    return status;
 }
 
 void require_named_removal_node_identity(
-    int parent_descriptor, const RemovalNode& node,
+    int parent_descriptor, const RemovalNode& node, int opened_descriptor,
     std::uintmax_t root_device, std::uintmax_t root_owner,
     TrustedCacheStage stage) {
-    const struct stat retained_status = retained_removal_node_status(
-        node, root_device, root_owner, stage);
+    const struct stat opened_status =
+        removal_descriptor_status(opened_descriptor, stage);
+    require_expected_removal_node_status(
+        node, opened_status, root_device, root_owner, stage);
+    if(observe_removal_generation(
+           opened_descriptor, stage, node.generation.query_mode) !=
+       node.generation) {
+        throw_cache_error(stage, TrustedCacheErrorCode::ConcurrentReplacement);
+    }
     struct stat named_status{};
     if(fstatat(
            parent_descriptor, node.name.c_str(), &named_status,
@@ -1150,61 +1134,123 @@ void require_named_removal_node_identity(
     }
     require_expected_removal_node_status(
         node, named_status, root_device, root_owner, stage);
-    if(!same_identity_and_type(retained_status, named_status) ||
-       status_owner(retained_status) != status_owner(named_status) ||
-       status_permissions(retained_status) !=
-           status_permissions(named_status)) {
+    if(!same_identity_and_type(opened_status, named_status) ||
+       status_owner(opened_status) != status_owner(named_status) ||
+       status_permissions(opened_status) != status_permissions(named_status)) {
         throw_cache_error(stage, TrustedCacheErrorCode::ConcurrentReplacement);
     }
+}
+
+OwnedFileDescriptor open_verified_removal_node(
+    int parent_descriptor, const RemovalNode& node,
+    std::uintmax_t root_device, std::uintmax_t root_owner,
+    TrustedCacheStage stage, bool directory_reader = false) {
+    const int descriptor =
+        directory_reader
+            ? open_child_directory_without_mount_crossing(
+                  parent_descriptor, node.name)
+            : open_removal_node_without_mount_crossing(
+                  parent_descriptor, node.name);
+    if(descriptor < 0) {
+        const int open_error = errno;
+        throw_cache_error(
+            stage,
+            open_error == ELOOP
+                ? TrustedCacheErrorCode::ConcurrentReplacement
+                : child_directory_open_error_code(open_error),
+            open_error);
+    }
+    OwnedFileDescriptor opened(descriptor);
+    require_named_removal_node_identity(
+        parent_descriptor, node, opened.get(), root_device, root_owner, stage);
+    return opened;
+}
+
+void require_removal_directory_inventory(
+    int descriptor, const RemovalNode& node, TrustedCacheStage stage) {
+    std::vector<std::string> expected_names;
+    expected_names.reserve(node.children.size());
+    for(const RemovalNode& child : node.children) {
+        expected_names.push_back(child.name);
+    }
+    if(directory_entry_names(descriptor, stage) != expected_names) {
+        throw_cache_error(stage, TrustedCacheErrorCode::ConcurrentReplacement);
+    }
+}
+
+RemovalNode preflight_removal_node(
+    int parent_descriptor, const std::string& name,
+    std::uintmax_t root_device, std::uintmax_t root_owner,
+    TrustedCacheStage stage) {
+    RemovalNode node;
+    node.name = name;
+    {
+        if(fstatat(
+               parent_descriptor, name.c_str(), &node.status,
+               AT_SYMLINK_NOFOLLOW) != 0) {
+            const int metadata_error = errno;
+            throw_cache_error(
+                stage,
+                metadata_error == ENOENT
+                    ? TrustedCacheErrorCode::ConcurrentReplacement
+                    : (is_permission_error(metadata_error)
+                           ? TrustedCacheErrorCode::PermissionDenied
+                           : TrustedCacheErrorCode::MetadataFailure),
+                metadata_error);
+        }
+        require_safe_removal_node_status(
+            node.status, root_owner, root_device, stage);
+        const int descriptor = open_removal_node_without_mount_crossing(
+            parent_descriptor, name);
+        if(descriptor < 0) {
+            const int open_error = errno;
+            throw_cache_error(
+                stage,
+                open_error == ELOOP
+                    ? TrustedCacheErrorCode::ConcurrentReplacement
+                    : child_directory_open_error_code(open_error),
+                open_error);
+        }
+        OwnedFileDescriptor pin(descriptor);
+        require_expected_removal_node_status(
+            node, removal_descriptor_status(pin.get(), stage),
+            root_device, root_owner, stage);
+        node.generation = observe_removal_generation(pin.get(), stage);
+        require_named_removal_node_identity(
+            parent_descriptor, node, pin.get(), root_device, root_owner, stage);
+    }
+    // The initial pin ends before descending. Only one directory reader per
+    // recursive frame remains live; the returned tree contains no node FDs.
+    if(!S_ISDIR(node.status.st_mode)) return node;
+    OwnedFileDescriptor directory = open_verified_removal_node(
+        parent_descriptor, node, root_device, root_owner, stage, true);
+    for(const std::string& child_name :
+        directory_entry_names(directory.get(), stage)) {
+        node.children.push_back(preflight_removal_node(
+            directory.get(), child_name, root_device, root_owner, stage));
+    }
+    require_named_removal_node_identity(
+        parent_descriptor, node, directory.get(), root_device, root_owner, stage);
+    require_removal_directory_inventory(directory.get(), node, stage);
+    return node;
 }
 
 void revalidate_removal_node(
     int parent_descriptor, const RemovalNode& node,
     std::uintmax_t root_device, std::uintmax_t root_owner,
     TrustedCacheStage stage) {
-    require_named_removal_node_identity(
-        parent_descriptor, node, root_device, root_owner, stage);
-    if(!S_ISDIR(node.status.st_mode)) return;
-
-    const int descriptor = open_child_directory_without_mount_crossing(
-        parent_descriptor, node.name);
-    if(descriptor < 0) {
-        const int open_error = errno;
-        throw_cache_error(
-            stage,
-            open_error == ENOENT || open_error == ELOOP ||
-                    open_error == ENOTDIR
-                ? TrustedCacheErrorCode::ConcurrentReplacement
-                : child_directory_open_error_code(open_error),
-            open_error);
-    }
-    OwnedFileDescriptor opened(descriptor);
-    struct stat opened_status{};
-    if(fstat(opened.get(), &opened_status) != 0) {
-        const int metadata_error = errno;
-        throw_cache_error(
-            stage,
-            is_permission_error(metadata_error)
-                ? TrustedCacheErrorCode::PermissionDenied
-                : TrustedCacheErrorCode::MetadataFailure,
-            metadata_error);
-    }
-    require_expected_removal_node_status(
-        node, opened_status, root_device, root_owner, stage);
-    const std::vector<std::string> current_names =
-        directory_entry_names(opened.get(), stage);
-    std::vector<std::string> expected_names;
-    expected_names.reserve(node.children.size());
-    for(const RemovalNode& child : node.children) {
-        expected_names.push_back(child.name);
-    }
-    if(current_names != expected_names) {
-        throw_cache_error(stage, TrustedCacheErrorCode::ConcurrentReplacement);
-    }
+    const bool is_directory = S_ISDIR(node.status.st_mode);
+    OwnedFileDescriptor opened = open_verified_removal_node(
+        parent_descriptor, node, root_device, root_owner, stage, is_directory);
+    if(!is_directory) return;
+    require_removal_directory_inventory(opened.get(), node, stage);
     for(const RemovalNode& child : node.children) {
         revalidate_removal_node(
             opened.get(), child, root_device, root_owner, stage);
     }
+    require_named_removal_node_identity(
+        parent_descriptor, node, opened.get(), root_device, root_owner, stage);
+    require_removal_directory_inventory(opened.get(), node, stage);
 }
 
 using RemovalDirectoryLineage = std::vector<const RemovalNode*>;
@@ -1217,41 +1263,13 @@ OwnedFileDescriptor open_removal_parent_lineage(
     const auto& root_state = require_root_state(root, stage);
     OwnedFileDescriptor current = duplicate_descriptor(
         root_state->directory_descriptor, stage);
-
     for(const RemovalNode* ancestor : lineage) {
         if(ancestor == nullptr || !S_ISDIR(ancestor->status.st_mode)) {
             throw_cache_error(stage, TrustedCacheErrorCode::InvalidBoundary);
         }
-        require_named_removal_node_identity(
+        current = open_verified_removal_node(
             current.get(), *ancestor, root_state->device,
-            root_state->owner, stage);
-        const int descriptor = open_child_directory_without_mount_crossing(
-            current.get(), ancestor->name);
-        if(descriptor < 0) {
-            const int open_error = errno;
-            throw_cache_error(
-                stage,
-                open_error == ENOENT || open_error == ELOOP ||
-                        open_error == ENOTDIR
-                    ? TrustedCacheErrorCode::ConcurrentReplacement
-                    : child_directory_open_error_code(open_error),
-                open_error);
-        }
-        OwnedFileDescriptor opened(descriptor);
-        struct stat opened_status{};
-        if(fstat(opened.get(), &opened_status) != 0) {
-            const int metadata_error = errno;
-            throw_cache_error(
-                stage,
-                is_permission_error(metadata_error)
-                    ? TrustedCacheErrorCode::PermissionDenied
-                    : TrustedCacheErrorCode::MetadataFailure,
-                metadata_error);
-        }
-        require_expected_removal_node_status(
-            *ancestor, opened_status, root_state->device,
-            root_state->owner, stage);
-        current = std::move(opened);
+            root_state->owner, stage, true);
     }
     return current;
 }
@@ -1262,13 +1280,16 @@ void remove_removal_node(
     notify_removal_test_hook(lineage.size());
     const auto& root_state = require_root_state(
         root, TrustedCacheStage::RecursiveRemoval);
-    OwnedFileDescriptor parent = open_removal_parent_lineage(
-        root, lineage, TrustedCacheStage::RecursiveRemoval);
-    revalidate_removal_node(
-        parent.get(), node, root_state->device, root_state->owner,
-        TrustedCacheStage::RecursiveRemoval);
+    {
+        OwnedFileDescriptor parent = open_removal_parent_lineage(
+            root, lineage, TrustedCacheStage::RecursiveRemoval);
+        revalidate_removal_node(
+            parent.get(), node, root_state->device, root_state->owner,
+            TrustedCacheStage::RecursiveRemoval);
+    }
 
-    if(S_ISDIR(node.status.st_mode)) {
+    const bool is_directory = S_ISDIR(node.status.st_mode);
+    if(is_directory) {
         lineage.push_back(&node);
         try {
             for(const RemovalNode& child : node.children) {
@@ -1279,47 +1300,38 @@ void remove_removal_node(
             throw;
         }
         lineage.pop_back();
-
-        // The retained FD pins the preflighted inode but is never destructive
-        // authority. Rebuild the named lineage from the trusted root so an
-        // original moved outside the cache is not followed and deleted.
-        parent = open_removal_parent_lineage(
-            root, lineage, TrustedCacheStage::RecursiveRemoval);
-        require_named_removal_node_identity(
-            parent.get(), node, root_state->device, root_state->owner,
-            TrustedCacheStage::RecursiveRemoval);
-        // Linux has no atomic compare-and-unlink operation. The checks above
-        // fail closed for observed replacement, but cannot exclude a hostile
-        // same-euid mutation between this point and unlinkat().
-        if(unlinkat(parent.get(), node.name.c_str(), AT_REMOVEDIR) != 0) {
-            const int removal_error = errno;
-            throw_cache_error(
-                TrustedCacheStage::RecursiveRemoval,
-                removal_error == ENOTEMPTY || removal_error == ENOENT
-                    ? TrustedCacheErrorCode::ConcurrentReplacement
-                    : (is_permission_error(removal_error)
-                           ? TrustedCacheErrorCode::PermissionDenied
-                           : TrustedCacheErrorCode::RemovalFailure),
-                removal_error);
-        }
-        return;
     }
 
-    // Regular/symlink leaves use the same root-relative authority. Their
-    // retained O_PATH descriptors pin identity only and never authorize
-    // deletion through a lineage that has moved outside the cache.
-    parent = open_removal_parent_lineage(
+    // Generation evidence identifies the original, but only the freshly
+    // rebuilt named lineage authorizes deletion. Never find a moved original
+    // via its opaque handle. Keep this local pin through unlinkat().
+    OwnedFileDescriptor parent = open_removal_parent_lineage(
         root, lineage, TrustedCacheStage::RecursiveRemoval);
-    require_named_removal_node_identity(
+    OwnedFileDescriptor pin = open_verified_removal_node(
         parent.get(), node, root_state->device, root_state->owner,
         TrustedCacheStage::RecursiveRemoval);
-    // As above, replacement observable before this final syscall is refused;
-    // atomic compare-and-unlink against a same-euid adversary is unavailable.
-    if(unlinkat(parent.get(), node.name.c_str(), 0) != 0) {
+    if(is_directory) {
+        OwnedFileDescriptor directory = open_verified_removal_node(
+            parent.get(), node, root_state->device, root_state->owner,
+            TrustedCacheStage::RecursiveRemoval, true);
+        if(!directory_entry_names(
+                directory.get(), TrustedCacheStage::RecursiveRemoval)
+                .empty()) {
+            throw_cache_error(TrustedCacheStage::RecursiveRemoval,
+                              TrustedCacheErrorCode::ConcurrentReplacement);
+        }
+    }
+    require_named_removal_node_identity(
+        parent.get(), node, pin.get(), root_state->device, root_state->owner,
+        TrustedCacheStage::RecursiveRemoval);
+    // Linux has no atomic compare-and-unlink operation. Observed replacement
+    // fails closed; hostile same-euid mutation after this check remains possible.
+    if(unlinkat(
+           parent.get(), node.name.c_str(), is_directory ? AT_REMOVEDIR : 0) != 0) {
         const int removal_error = errno;
         throw_cache_error(
             TrustedCacheStage::RecursiveRemoval,
-            removal_error == ENOENT
+            removal_error == ENOENT || (is_directory && removal_error == ENOTEMPTY)
                 ? TrustedCacheErrorCode::ConcurrentReplacement
                 : (is_permission_error(removal_error)
                        ? TrustedCacheErrorCode::PermissionDenied
@@ -1328,9 +1340,75 @@ void remove_removal_node(
     }
 }
 
+OwnedFileDescriptor acquire_removal_lease(
+    const ValidatedCachePath& target, TrustedCacheStage stage,
+    const RemovalNode* expected = nullptr) {
+    if(!target.is_directory()) return OwnedFileDescriptor{};
+    const auto& root_state = require_root_state(
+        TrustedCacheAccess::root(target), stage);
+    require_root_unchanged(TrustedCacheAccess::root(target), stage);
+    const int descriptor = open_child_directory_without_mount_crossing(
+        root_state->directory_descriptor, TrustedCacheAccess::leaf(target));
+    if(descriptor < 0) {
+        const int open_error = errno;
+        throw_cache_error(
+            stage,
+            open_error == ELOOP
+                ? TrustedCacheErrorCode::ConcurrentReplacement
+                : child_directory_open_error_code(open_error),
+            open_error);
+    }
+    OwnedFileDescriptor lease(descriptor);
+    int lock_result;
+    do {
+        lock_result = flock(lease.get(), LOCK_EX | LOCK_NB);
+    } while(lock_result != 0 && errno == EINTR);
+    if(lock_result != 0) {
+        const int lock_error = errno;
+        throw_cache_error(
+            stage,
+            lock_error == EWOULDBLOCK || lock_error == EAGAIN
+                ? TrustedCacheErrorCode::ConcurrentReplacement
+                : (is_permission_error(lock_error)
+                       ? TrustedCacheErrorCode::PermissionDenied
+                       : TrustedCacheErrorCode::MetadataFailure),
+            lock_error);
+    }
+    struct stat named_status{};
+    if(fstatat(root_state->directory_descriptor,
+               TrustedCacheAccess::leaf(target).c_str(), &named_status,
+               AT_SYMLINK_NOFOLLOW) != 0) {
+        const int metadata_error = errno;
+        throw_cache_error(
+            stage,
+            metadata_error == ENOENT
+                ? TrustedCacheErrorCode::ConcurrentReplacement
+                : (is_permission_error(metadata_error)
+                       ? TrustedCacheErrorCode::PermissionDenied
+                       : TrustedCacheErrorCode::MetadataFailure),
+            metadata_error);
+    }
+    const struct stat status = removal_descriptor_status(lease.get(), stage);
+    if(!same_identity(status, target.device(), target.inode()) ||
+       !same_identity_and_type(status, named_status) ||
+       status_owner(status) != status_owner(named_status) ||
+       status_permissions(status) != status_permissions(named_status)) {
+        throw_cache_error(stage, TrustedCacheErrorCode::ConcurrentReplacement);
+    }
+    require_safe_direct_child_status(
+        status, root_state->owner, root_state->device, stage);
+    require_safe_direct_child_status(
+        named_status, root_state->owner, root_state->device, stage);
+    if(expected != nullptr) {
+        require_named_removal_node_identity(
+            root_state->directory_descriptor, *expected, lease.get(),
+            root_state->device, root_state->owner, stage);
+    }
+    return lease;
+}
+
 RemovalPlan make_removal_plan(
-    const ValidatedCachePath& expected, TrustedCacheStage stage,
-    bool acquire_cooperative_lease = false) {
+    const ValidatedCachePath& expected, TrustedCacheStage stage) {
     if(!expected.exists()) {
         throw_cache_error(stage, TrustedCacheErrorCode::ConcurrentReplacement);
     }
@@ -1342,49 +1420,6 @@ RemovalPlan make_removal_plan(
     require_same_cache_path_identity(expected, current, stage);
     const auto& root_state = require_root_state(
         TrustedCacheAccess::root(expected), stage);
-    OwnedFileDescriptor cooperative_lease;
-    if(acquire_cooperative_lease && current.is_directory()) {
-        const int lease_descriptor =
-            open_child_directory_without_mount_crossing(
-                root_state->directory_descriptor,
-                TrustedCacheAccess::leaf(expected));
-        if(lease_descriptor < 0) {
-            const int open_error = errno;
-            throw_cache_error(
-                stage,
-                open_error == ENOENT || open_error == ELOOP ||
-                        open_error == ENOTDIR
-                    ? TrustedCacheErrorCode::ConcurrentReplacement
-                    : (is_permission_error(open_error)
-                           ? TrustedCacheErrorCode::PermissionDenied
-                           : TrustedCacheErrorCode::MetadataFailure),
-                open_error);
-        }
-        cooperative_lease = OwnedFileDescriptor(lease_descriptor);
-        int lock_result;
-        do {
-            lock_result = flock(
-                cooperative_lease.get(), LOCK_EX | LOCK_NB);
-        } while(lock_result != 0 && errno == EINTR);
-        if(lock_result != 0) {
-            const int lock_error = errno;
-            throw_cache_error(
-                stage,
-                lock_error == EWOULDBLOCK || lock_error == EAGAIN
-                    ? TrustedCacheErrorCode::ConcurrentReplacement
-                    : (is_permission_error(lock_error)
-                           ? TrustedCacheErrorCode::PermissionDenied
-                           : TrustedCacheErrorCode::MetadataFailure),
-                lock_error);
-        }
-        struct stat lease_status{};
-        if(fstat(cooperative_lease.get(), &lease_status) != 0 ||
-           !same_identity(
-               lease_status, current.device(), current.inode())) {
-            throw_cache_error(
-                stage, TrustedCacheErrorCode::ConcurrentReplacement);
-        }
-    }
     RemovalNode root_node = preflight_removal_node(
         root_state->directory_descriptor,
         TrustedCacheAccess::leaf(expected), root_state->device,
@@ -1392,9 +1427,7 @@ RemovalPlan make_removal_plan(
     if(!same_identity(root_node.status, expected.device(), expected.inode())) {
         throw_cache_error(stage, TrustedCacheErrorCode::ConcurrentReplacement);
     }
-    return RemovalPlan{
-        expected, std::move(root_node),
-        std::move(cooperative_lease)};
+    return RemovalPlan{expected, std::move(root_node)};
 }
 
 void require_cleanup_root_lineage(
@@ -2098,9 +2131,21 @@ PreparedCacheCleanup preflight_cache_cleanup(
         for(const std::string& name : names) {
             ValidatedCachePath target = inspect_cache_child(
                 root, name, CachePathRequirement::Existing);
-            plans.push_back(make_removal_plan(
-                target, TrustedCacheStage::CleanupPreflight, true));
+            // Cooperate with existing PackageBase writers for this subtree,
+            // without retaining one lease per target across pacman/prompt.
+            OwnedFileDescriptor lease = acquire_removal_lease(
+                target, TrustedCacheStage::CleanupPreflight);
+            RemovalPlan plan = make_removal_plan(
+                target, TrustedCacheStage::CleanupPreflight);
+            if(lease.get() >= 0) {
+                require_named_removal_node_identity(
+                    state->directory_descriptor, plan.root, lease.get(),
+                    state->device, state->owner,
+                    TrustedCacheStage::CleanupPreflight);
+            }
+            plans.push_back(std::move(plan));
         }
+        root.require_unchanged_identity();
         return PreparedCacheCleanup(std::make_unique<PreparedCacheCleanup::State>(
             root, std::move(plans)));
     } catch(const TrustedCacheError& error) {
@@ -2120,6 +2165,8 @@ void remove_preflighted_cache_paths(PreparedCacheCleanup cleanup) {
             cleanup.state_->root, cleanup.state_->plans);
         cleanup.state_->root.require_unchanged_identity();
         for(const RemovalPlan& plan : cleanup.state_->plans) {
+            OwnedFileDescriptor lease = acquire_removal_lease(
+                plan.target, TrustedCacheStage::CleanupPreflight, &plan.root);
             const auto& state = require_root_state(
                 TrustedCacheAccess::root(plan.target),
                 TrustedCacheStage::CleanupPreflight);
@@ -2127,11 +2174,17 @@ void remove_preflighted_cache_paths(PreparedCacheCleanup cleanup) {
                 state->directory_descriptor, plan.root, state->device,
                 state->owner, TrustedCacheStage::CleanupPreflight);
         }
+        cleanup.state_->root.require_unchanged_identity();
     } catch(const TrustedCacheError& error) {
         throw_cleanup_preflight_failure(error);
     }
 
+    // All targets passed read-only revalidation before the first unlink.
+    // A later busy target stops the operation as partial failure; its subtree
+    // is never mutated without the same lease used by cooperative writers.
     for(const RemovalPlan& plan : cleanup.state_->plans) {
+        OwnedFileDescriptor lease = acquire_removal_lease(
+            plan.target, TrustedCacheStage::RecursiveRemoval, &plan.root);
         RemovalDirectoryLineage lineage;
         remove_removal_node(
             TrustedCacheAccess::root(plan.target), plan.root, lineage);

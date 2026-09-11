@@ -443,6 +443,13 @@ cacheのdestructive operationはtrusted root内へ限定し、symlink / root esc
 
 このsectionはuser-visibleな安全要約であり、filesystem identity、rollback、implementation proportionalityの正本は[XDG cache safety contract](contracts/xdg-cache-safety.md)である。
 
+v2.8.0では、trusted cache recursive cleanupの作業FDをentry総数ではなくtree depthに応じた量へ制限する。
+preflightからconsumeまでのfilesystem object generationを安全に証明できないtargetは、filesystem / kernelの
+capability不足も含めて拒否する。従来の小さいcacheでの成功を、当該runtimeでの継続的なcleanup対応とは扱わない。
+全targetの事前検証とpacman / confirmationの順序は維持する。cooperative leaseは対象subtreeの検証・削除中に
+保持し、全targetをcommand終了まで予約しない。途中で対象がbusyになった場合もskipせずincomplete / non-zeroで停止し、
+既に削除したcacheは復元しない。
+
 <a id="compat-source-preference-xdg"></a>
 ## Source-build preference authority compatibility
 
