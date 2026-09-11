@@ -44,11 +44,11 @@ Moguet v2.0.1は、採用済みXDG storage契約のうちsource-preference部分
 preferenceは実行user自身のXDG config contextだけを使い、公開済みv2.0.0のtag、Release、
 release noteは歴史的記録のまま変更しません。
 
-Moguet v2.7.0は最新releaseです。検証済みbuild/install provenanceを持つ対応devel packageに、
-同versionでの更新を含むauthoritativeなGit revision trackingを追加し、package metadataの取得不能と
-確認済みの不在を区別します。初期Git/HTTPS subsetと明示的なsource reviewの要件は限定的であり、
-full VCS trackingではありません。利用者から見える変更の全体は
-[v2.7.0 release](https://github.com/seekerkrt/moguet/releases/tag/v2.7.0)を参照してください。
+Moguet v2.7.1は最新maintenance releaseです。v2.7.0を基礎に、legacy artifactのcontent
+bindingを強化し、source update checkで`.SRCINFO`のepochを反映し、AUR infoのquery failureと
+confirmed absenceを区別します。また、既知のdevel `RequiresCheck` stateを安全に表示します。
+利用者から見える変更の全体は
+[v2.7.1 release](https://github.com/seekerkrt/moguet/releases/tag/v2.7.1)を参照してください。
 
 canonical repository identityはGitHub上のMoguetで、GitLab mirrorを持ちます。Moguet
 packageは`jpacker` command aliasを提供しません。AUR publicationは将来の別判断であり、

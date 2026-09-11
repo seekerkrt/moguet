@@ -1,3 +1,92 @@
+# Moguet v2.7.1
+
+This tracked file is the source of truth for release bodies. The English and
+Japanese sections for each release describe the same scope.
+
+## English
+
+Moguet v2.7.1 is a maintenance release for v2.7.0. It fixes issues found by
+post-release use and audit without widening Moguet's supported workflows.
+
+### Correctness and diagnostics
+
+- Known devel `RequiresCheck` reasons no longer fall through to an unexpected
+  `logic_error` during ordinary presentation. The suffix-only diagnostic stays
+  specialized, other known reasons use the existing generic attention message,
+  and genuinely unknown enum values remain hard failures.
+- Source update checks now include a positive `.SRCINFO` `epoch` in the full
+  package version. This prevents source-preference update decisions from
+  ignoring an epoch that changes Arch package version ordering.
+- AUR single-package `info` now distinguishes query, transport, configuration,
+  HTTP, and empty-response failures from a confirmed missing package. Query
+  failures are no longer presented as `AUR package not found`.
+
+### Legacy artifact installation hardening
+
+- Legacy artifact installation now binds metadata inspection and installation
+  to invocation-owned sealed archive content instead of trusting a later reopen
+  of the original workspace pathname.
+- Archive and signature bytes are snapshotted before metadata inspection, the
+  original retained object is revalidated, and the trusted helper consumes the
+  verified sealed content through private staging.
+- The associated CLI validation path is isolated from real `sudo`, helper, and
+  `pacman` execution and fails closed if its test adapter is unavailable.
+
+### Validation fixes
+
+- Negative compile checks now run their target compiler under a stable C locale,
+  avoiding locale-dependent diagnostic matching.
+- The reviewed-devel PTY harness now has explicit no-input behavior and a
+  bounded inner/outer timeout hierarchy, preventing accidental indefinite input
+  waits during release validation.
+
+### Post-release audit
+
+- The v2.7 post-release audit in #537 is complete. Its confirmed v2.7.1 blocker
+  findings are fixed in this release.
+- Remaining non-blocking follow-ups are tracked separately in #545 and #546.
+  The unresolved `vercmp` product-impact investigation remains in #547 and is
+  not treated as a confirmed v2.7.1 blocker.
+
+## 日本語
+
+Moguet v2.7.1はv2.7.0向けのmaintenance releaseです。対応workflowを拡大せず、
+release後の実利用と監査で確認した不具合・安全境界を修正します。
+
+### Correctnessとdiagnostic
+
+- 既知のdevel `RequiresCheck` reasonが通常presentationでunexpected `logic_error`へ
+  落ちないよう修正しました。suffix-only用の専用diagnosticは維持し、その他の既知reasonは
+  既存generic attention messageを使います。未知enum valueは引き続きhard failureです。
+- source update checkでpositiveな`.SRCINFO` `epoch`をfull package versionへ含めます。
+  Arch package version orderingへ影響するepochをsource-preference更新判定が無視しません。
+- AUR single-package `info`でquery / transport / configuration / HTTP /
+  empty-response failureとconfirmed missing packageを区別します。query failureを
+  `AUR package not found`として表示しません。
+
+### Legacy artifact installのhardening
+
+- legacy artifact installでは、元workspace pathnameを後から再openして信頼せず、
+  metadata inspectionとinstallをinvocation-ownedなsealed archive contentへ束縛します。
+- metadata inspection前にarchive/signature bytesをsnapshotし、元のretained objectを
+  再検証したうえで、trusted helperは検証済みsealed contentをprivate staging経由で使います。
+- 関連CLI validationはreal `sudo` / helper / `pacman`へ到達しないtest adapterへ隔離し、
+  adapterが利用不能ならfail closedします。
+
+### Validation fix
+
+- negative compile checkのtarget compilerをstable C localeで実行し、
+  diagnostic matchingがlocaleへ依存しないようにしました。
+- reviewed-devel PTY harnessへ明示的なno-input behaviorとinner / outer timeout階層を追加し、
+  release validation中の意図しないinput待ちをboundedにしました。
+
+### Post-release audit
+
+- #537 のv2.7 post-release auditは完了し、v2.7.1 blockerとして確定したfindingは
+  このreleaseで修正済みです。
+- 残るnon-blocking follow-upは #545 / #546 で追跡します。
+  `vercmp`の製品影響が未確定な調査は #547 で継続し、confirmedなv2.7.1 blockerとは扱いません。
+
 # Moguet v2.7.0
 
 This tracked file is the source of truth for release bodies. The English and
