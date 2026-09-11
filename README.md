@@ -49,12 +49,11 @@ a new storage direction: source-build preferences now use only the executing
 user's XDG config context, while the published v2.0.0 tag, Release, and release
 notes remain historical records.
 
-Moguet v2.7.0 is the latest release. It adds authoritative Git revision tracking
-for supported devel packages with verified build/install provenance, including
-same-version updates, and distinguishes unavailable package metadata from
-confirmed absence. The initial Git/HTTPS subset and explicit source-review
-requirements remain narrow; this is not full VCS tracking. See the
-[v2.7.0 release](https://github.com/seekerkrt/moguet/releases/tag/v2.7.0)
+Moguet v2.7.1 is the latest maintenance release. It hardens v2.7.0 by
+strengthening legacy artifact content binding, honoring `.SRCINFO` epoch values
+during source update checks, distinguishing AUR info query failures from
+confirmed absence, and safely presenting known devel `RequiresCheck` states.
+See the [v2.7.1 release](https://github.com/seekerkrt/moguet/releases/tag/v2.7.1)
 for the complete user-visible changes.
 
 The canonical repository identity is Moguet on GitHub, with a GitLab mirror.

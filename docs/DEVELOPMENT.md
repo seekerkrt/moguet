@@ -465,14 +465,10 @@ ccache / mold parityは必要なreleaseでの追加validationであり、上記d
         README.ja.md \
         RELEASE_NOTES.md \
         docs/DEVELOPMENT.md \
-        docs/COMPATIBILITY.md \
-        docs/contracts/devel-tracking.md \
         man/moguet.1 \
         man/ja/moguet.1 \
         po/moguet.pot \
-        po/ja.po \
-        scripts/check_public_documentation.py \
-        tests/test-public-documentation-checker.py
+        po/ja.po
 
     git diff --cached --name-only | LC_ALL=C sort
     git status --short
@@ -481,26 +477,25 @@ ccache / mold parityは必要なreleaseでの追加validationであり、上記d
 
     gh pr create --base main --head release/vX.Y.Z
 
-上記の`git add`は、v2.7.0 release preparationでstage対象とする13 pathsを1件ずつ明示した
-current release用のexact path setです。`git add .`や代表pathだけのpartial listへ置き換えません。commit前に
-cached path一覧をこのreleaseのactual diffと再照合し、release scopeのunstaged / untracked pathや
+上記の`git add`は、v2.7.1 release preparationでstage対象とする9 pathsを1件ずつ明示した
+current release用のexact path setです。`git add .`や代表pathだけのpartial listへ置き換えません。
+commit前にcached path一覧をactual diffと再照合し、release scopeのunstaged / untracked pathや
 unrelatedなstaged pathがないことを確認します。
 
 root `VERSION`、README EN/JA、`RELEASE_NOTES.md`、generated man EN/JA、gettext metadataを同期します。
-`docs/COMPATIBILITY.md`と`docs/contracts/devel-tracking.md`は、実装時のdevelopment-candidate表現だけを
-release後にも成立するcontract表現へ整理します。既存のdevel / metadata failure semanticsは変更しません。
-`docs/DEVELOPMENT.md`自身は今回のexact path setとその理由を保持します。
-`scripts/check_public_documentation.py`はroot `VERSION`由来のcurrent release sectionと、v2.6.0で導入した
-historical `-Syu` compatibility boundaryを別々に検証します。対応regressionは
-`tests/test-public-documentation-checker.py`へ含めます。過去releaseの導入versionをcurrent VERSIONへ
-読み替えたり、current versionのmanual duplicate authorityを追加したりしません。
+`docs/DEVELOPMENT.md`自身は今回のexact path setとその理由を保持します。v2.7.1はv2.7.0の
+maintenance PATCHであり、`docs/COMPATIBILITY.md`や`docs/contracts/devel-tracking.md`に
+development-candidateからreleased contractへの新しい状態遷移はありません。
+
+`scripts/check_public_documentation.py`はroot `VERSION`からcurrent release sectionを動的に求め、
+`tests/test-public-documentation-checker.py`のversion文字列はその動作を検証する独立fixtureです。
+そのため今回のrelease versionを複製する変更は行いません。過去releaseの導入versionも書き換えません。
 
 `PKGBUILD`はroot `VERSION`を動的に読み、published tagへprojectするためcontent changeはありません。
 man templateは`@VERSION@`と既存の`September 2026`を維持するため変更しません。
 `po/POTFILES.in`はsource extraction inventory変更なし、completionはversion independentです。
 Make / CMake、production source、container Dockerfile / runner、fixture package metadata、その他testsには
-今回のrelease metadata preparationによる変更contractがないため、current listへ含めません。
-旧CMake inventory件数の整理はnon-blocking follow-upとして、このrelease-prep差分へ混ぜません。
+release metadata preparationによる変更contractがないため、current listへ含めません。
 v2.1.0固有の履歴は下記の`v2.1.0 post-release closure`として別に扱います。将来のreleaseでは、このlistを
 流用せず、そのreleaseで監査済みのexact path setへ置き換えます。
 
