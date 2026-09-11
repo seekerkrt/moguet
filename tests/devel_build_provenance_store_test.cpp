@@ -420,6 +420,50 @@ void test_store_read_publish_cas_and_namespaces() {
             "provenance publication created the #411 namespace");
 }
 
+void test_device_renumbering_preserves_provenance_and_publication() {
+    StoreHome home;
+    const PackageBaseIdentity package_base = aur_package_base();
+    const DevelBuildProvenance first_value = provenance(package_base);
+    const auto first = require_arm<DevelBuildProvenanceStorePublished>(
+        publish_devel_build_provenance(first_value, std::nullopt),
+        "device-renumber provenance seed failed");
+    auto legacy_identity = first.observed.identity;
+    legacy_identity.device ^= 1;
+    const std::string leaf = xdg_generation_store_successor_leaf(
+        2, legacy_identity, first.observed.raw_contents);
+    const DevelBuildProvenance second_value = provenance(package_base, std::string(SHA1_OTHER));
+    const std::string bytes = encode_devel_build_provenance(second_value);
+    const fs::path successor_path = devel_build_provenance_store_entry_path(package_base) / leaf;
+    write_bytes(successor_path, bytes, 0600);
+    const auto loaded = require_arm<DevelBuildProvenanceStoreLoaded>(
+        read_devel_build_provenance(package_base),
+        "device-only predecessor mismatch was unsafe provenance history");
+    require(loaded.provenance == second_value && loaded.observed.generation == 2 &&
+                loaded.observed.leaf_name == leaf && loaded.observed.raw_contents == bytes,
+            "device-renumber provenance read lost semantic state or observed bytes");
+    struct stat status{};
+    require(::lstat(successor_path.c_str(), &status) == 0,
+            "device-renumber provenance status failed");
+    require(loaded.observed.identity.device == static_cast<std::uintmax_t>(status.st_dev) &&
+                loaded.observed.identity.inode == static_cast<std::uintmax_t>(status.st_ino) &&
+                loaded.observed.identity.device != legacy_identity.device,
+            "device-renumber provenance token lost the live filesystem identity");
+
+    const auto third = require_arm<DevelBuildProvenanceStorePublished>(
+        publish_devel_build_provenance(second_value, loaded.observed),
+        "fresh provenance CAS could not extend device-renumbered history");
+    require(third.observed.generation == 3 && third.provenance == second_value,
+            "device-renumber provenance publication changed same-payload CAS semantics");
+    const auto current = require_arm<DevelBuildProvenanceStoreLoaded>(
+        read_devel_build_provenance(package_base),
+        "extended device-renumber provenance history was not Loaded");
+    require(current.observed == third.observed && current.provenance == second_value,
+            "extended device-renumber provenance history lost the published state");
+    require(fs::exists(successor_path), "provenance publication renamed the legacy successor");
+    require(!fs::exists(xdg_paths::resolve_reviewed_source_state_process_environment().directory),
+            "device-renumber provenance publication created reviewed-source state");
+}
+
 void test_invalid_mismatch_and_future_are_not_missing_or_rebound() {
     const auto prepare_origin = [](StoreHome& home) {
         static_cast<void>(home);
@@ -637,6 +681,7 @@ int main() {
         test_publication_resource_boundary();
         test_codec_roundtrip_and_strict_failures();
         test_store_read_publish_cas_and_namespaces();
+        test_device_renumbering_preserves_provenance_and_publication();
         test_invalid_mismatch_and_future_are_not_missing_or_rebound();
         test_unsafe_files_and_published_uncertainty();
         test_authority_unavailable_is_not_missing();

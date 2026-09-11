@@ -161,6 +161,143 @@ void test_publish_replace_and_stale_cas() {
             "stale writer rolled back the newer generation");
 }
 
+void test_device_renumbering_preserves_history_and_fresh_publication() {
+    StoreFixture fixture;
+    require_arm<XdgGenerationStorePublished>(
+        publish_xdg_generation_store(
+            fixture.configuration, "schema=1\nvalue=a\n", std::nullopt),
+        "device-renumber seed publication failed");
+    const auto first = require_arm<XdgGenerationStoreLoaded>(
+        read_xdg_generation_store(fixture.configuration),
+        "device-renumber predecessor was not loaded");
+    auto legacy_identity = first.observed.identity;
+    legacy_identity.device ^= 1;
+    const std::string leaf = xdg_generation_store_successor_leaf(
+        2, legacy_identity, first.observed.raw_contents);
+    const std::string second_bytes = "schema=1\nvalue=b\n";
+    write_bytes(fixture.unit_path() / leaf, second_bytes, 0600);
+
+    const auto second = require_arm<XdgGenerationStoreLoaded>(
+        read_xdg_generation_store(fixture.configuration),
+        "device-only predecessor mismatch broke the persistent chain");
+    require(second.observed.generation == 2 &&
+                second.observed.leaf_name == leaf &&
+                second.observed.raw_contents == second_bytes,
+            "device-renumber lookup lost the legacy successor");
+    struct stat status{};
+    require(::lstat((fixture.unit_path() / leaf).c_str(), &status) == 0,
+            "device-renumber successor status failed");
+    const XdgGenerationRecordIdentity current_identity{
+        static_cast<std::uintmax_t>(status.st_dev),
+        static_cast<std::uintmax_t>(status.st_ino),
+        static_cast<std::uintmax_t>(status.st_uid),
+        static_cast<std::uintmax_t>(status.st_mode & 07777),
+        static_cast<std::uintmax_t>(status.st_nlink),
+        static_cast<std::intmax_t>(status.st_size),
+        static_cast<std::intmax_t>(status.st_mtim.tv_sec),
+        static_cast<std::intmax_t>(status.st_mtim.tv_nsec),
+        static_cast<std::intmax_t>(status.st_ctim.tv_sec),
+        static_cast<std::intmax_t>(status.st_ctim.tv_nsec)};
+    require(second.observed.identity == current_identity &&
+                second.observed.identity.device != legacy_identity.device,
+            "legacy predecessor metadata replaced the live successor identity");
+
+    const auto third = require_arm<XdgGenerationStorePublished>(
+        publish_xdg_generation_store(
+            fixture.configuration, "schema=1\nvalue=c\n", second.observed),
+        "fresh CAS could not extend device-renumbered history");
+    require(third.observed.generation == 3,
+            "device-renumbered history did not advance to generation 3");
+    require(require_arm<XdgGenerationStoreLoaded>(
+                read_xdg_generation_store(fixture.configuration),
+                "extended device-renumbered history was not loaded")
+                    .observed == third.observed,
+            "extended device-renumbered history lost the fresh token");
+    require(fs::exists(fixture.unit_path() / leaf),
+            "publication renamed or removed the legacy successor");
+}
+
+void test_predecessor_binding_rejects_non_device_changes() {
+    enum class Mismatch { Inode,
+                          CtimeSeconds,
+                          CtimeNanoseconds,
+                          Digest };
+    const std::pair<Mismatch, std::string_view> cases[] = {
+        {Mismatch::Inode, "wrong predecessor inode"},
+        {Mismatch::CtimeSeconds, "wrong predecessor ctime seconds"},
+        {Mismatch::CtimeNanoseconds, "wrong predecessor ctime nanoseconds"},
+        {Mismatch::Digest, "wrong predecessor digest"}};
+    for(const bool should_renumber : {false, true}) {
+        for(const auto& [mismatch, label] : cases) {
+            StoreFixture fixture;
+            const auto first = require_arm<XdgGenerationStorePublished>(
+                publish_xdg_generation_store(
+                    fixture.configuration, "schema=1\nvalue=a\n", std::nullopt),
+                "predecessor-binding seed failed");
+            auto identity = first.observed.identity;
+            if(should_renumber) identity.device ^= 1;
+            std::string predecessor_bytes = first.observed.raw_contents;
+            switch(mismatch) {
+                case Mismatch::Inode: identity.inode ^= 1; break;
+                case Mismatch::CtimeSeconds: identity.status_change_time_seconds ^= 1; break;
+                case Mismatch::CtimeNanoseconds: identity.status_change_time_nanoseconds ^= 1; break;
+                case Mismatch::Digest: predecessor_bytes += "# different raw bytes\n"; break;
+            }
+            const std::string leaf = xdg_generation_store_successor_leaf(
+                2, identity, predecessor_bytes);
+            write_bytes(fixture.unit_path() / leaf, "schema=1\nvalue=b\n", 0600);
+            const auto unsafe = require_arm<XdgGenerationStoreUnsafeHistory>(
+                read_xdg_generation_store(fixture.configuration), label);
+            require(unsafe.issue == XdgGenerationStoreHistoryIssue::HigherGenerationUnreachable &&
+                        unsafe.matching_generation == 1 && unsafe.highest_generation == 2,
+                    label);
+        }
+    }
+}
+
+void test_device_only_same_generation_fork_is_unsafe() {
+    StoreFixture fixture;
+    const auto first = require_arm<XdgGenerationStorePublished>(
+        publish_xdg_generation_store(
+            fixture.configuration, "schema=1\nvalue=a\n", std::nullopt),
+        "device-only fork seed failed");
+    const std::string current_leaf = xdg_generation_store_successor_leaf(
+        2, first.observed.identity, first.observed.raw_contents);
+    auto legacy_identity = first.observed.identity;
+    legacy_identity.device ^= 1;
+    const std::string legacy_leaf = xdg_generation_store_successor_leaf(
+        2, legacy_identity, first.observed.raw_contents);
+    require(current_leaf != legacy_leaf, "successor format dropped the device field");
+    write_bytes(fixture.unit_path() / current_leaf, "schema=1\nvalue=b\n", 0600);
+    write_bytes(fixture.unit_path() / legacy_leaf, "schema=1\nvalue=b\n", 0600);
+    const auto unsafe = require_arm<XdgGenerationStoreUnsafeHistory>(
+        read_xdg_generation_store(fixture.configuration),
+        "device-only fork was accepted as one generation");
+    require(unsafe.issue == XdgGenerationStoreHistoryIssue::ForkDetected,
+            "device-only fork was not ForkDetected");
+}
+
+void test_device_only_stale_observation_is_rejected() {
+    StoreFixture fixture;
+    const auto first = require_arm<XdgGenerationStorePublished>(
+        publish_xdg_generation_store(
+            fixture.configuration, "schema=1\nvalue=a\n", std::nullopt),
+        "device-only CAS seed failed");
+    auto stale = first.observed;
+    stale.identity.device ^= 1;
+    const auto failure = require_arm<XdgGenerationStoreFailure>(
+        publish_xdg_generation_store(
+            fixture.configuration, "schema=1\nvalue=b\n", stale),
+        "device-only stale observation bypassed live CAS");
+    require(failure.kind == XdgGenerationStoreFailureKind::ConcurrentReplacement,
+            "device-only stale observation was not ConcurrentReplacement");
+    require(require_arm<XdgGenerationStoreLoaded>(
+                read_xdg_generation_store(fixture.configuration),
+                "device-only CAS refusal damaged the history")
+                    .observed == first.observed,
+            "device-only CAS refusal published a successor");
+}
+
 void test_bounds_and_precommit_cleanup() {
     StoreFixture exact(32);
     const std::string exact_bytes(32, 'x');
@@ -599,6 +736,10 @@ int main() {
         test_managed_namespace_durability();
         test_read_missing_does_not_create();
         test_publish_replace_and_stale_cas();
+        test_device_renumbering_preserves_history_and_fresh_publication();
+        test_predecessor_binding_rejects_non_device_changes();
+        test_device_only_same_generation_fork_is_unsafe();
+        test_device_only_stale_observation_is_rejected();
         test_bounds_and_precommit_cleanup();
         test_future_and_unsafe_history();
         test_file_safety_and_nofollow();

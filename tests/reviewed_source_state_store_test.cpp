@@ -1812,6 +1812,54 @@ void test_matching_predecessor_binding_is_accepted_and_consistent() {
             "Accepting the matching binding mutated the origin.");
 }
 
+void test_device_renumbering_preserves_reviewed_source_identity() {
+    const std::string remote = "https://aur.archlinux.org/google-chrome.git";
+    const ReviewedSourceState first = aur_state("google-chrome", remote);
+    const ReviewedSourceState successors[] = {
+        aur_state("google-chrome", remote, std::string(SHA1_B)),
+        aur_state("other-base", remote, std::string(SHA1_B)),
+        aur_state("google-chrome", "https://aur.archlinux.org/other-base.git", std::string(SHA1_B))};
+    for(const ReviewedSourceState& successor : successors) {
+        StoreTestHome home;
+        const auto published = require_arm<ReviewedSourceStateStorePublished>(
+            publish_reviewed_source_state(first, std::nullopt),
+            "Device-renumber reviewed-source seed failed.");
+        auto legacy_identity = published.observed.identity;
+        legacy_identity.device ^= 1;
+        const std::string leaf = reviewed_source_state_store_successor_leaf(
+            2, legacy_identity, published.observed.raw_contents);
+        const fs::path successor_path =
+            reviewed_source_state_store_entry_path(first.package_base()) / leaf;
+        const std::string bytes = encode_reviewed_source_state(successor);
+        write_bytes(successor_path, bytes, 0600);
+
+        const auto read = require_arm<ReviewedSourceStateStoreRead>(
+            read_reviewed_source_state(first.package_base()),
+            "Device-only predecessor mismatch was unsafe reviewed history.");
+        require(read.observed.has_value() && read.observed->generation == 2 &&
+                    read.observed->leaf_name == leaf && read.observed->raw_contents == bytes &&
+                    read.observed->identity == record_identity_of(successor_path),
+                "Device-renumber reviewed-source observation lost the current record.");
+        if(successor.package_base() == first.package_base()) {
+            require(require_arm<ReviewedSourceStateLoaded>(
+                        read.observation, "Device-renumber reviewed source was not Loaded.")
+                            .state == successor,
+                    "Device-renumber reviewed source changed the reviewed revision.");
+        } else {
+            const auto& mismatch = require_arm<ReviewedSourceStateSourceMismatch>(
+                read.observation, "Device renumbering promoted mismatched reviewed source to Loaded.");
+            const auto expected_reason = successor.package_base().package_base() != first.package_base().package_base()
+                                             ? ReviewedSourceStateMismatchReason::PackageBaseMismatch
+                                             : ReviewedSourceStateMismatchReason::CanonicalGitRemoteMismatch;
+            require(mismatch.reasons == std::vector{expected_reason},
+                    "Device-renumber reviewed-source mismatch reason drifted.");
+        }
+        require(read_bytes(origin_path(first.package_base())) == published.observed.raw_contents &&
+                    read_bytes(successor_path) == bytes,
+                "Device-renumber reviewed-source lookup rewrote the history.");
+    }
+}
+
 void test_same_generation_fork_is_fail_closed() {
     StoreTestHome home;
     const ReviewedSourceState first = aur_state();
@@ -3085,6 +3133,7 @@ int main() {
         test_ancestor_generation2_inode_replace_is_fail_closed();
         test_stale_branch_restore_does_not_reactivate();
         test_matching_predecessor_binding_is_accepted_and_consistent();
+        test_device_renumbering_preserves_reviewed_source_identity();
         test_same_generation_fork_is_fail_closed();
         test_future_orphan_successor_is_fail_closed();
         test_package_directory_replacement_before_commit_is_not_published();
