@@ -28,6 +28,26 @@ cache rootはXDG user cache authorityへ切り替える。legacy cacheを正本�
 
 このcontractが固定するのは上記の安全契約であり、現在のmodule、type、capability plumbing、trusted Git policy、removal planningを恒久的architectureとして固定するものではない。現在のproject規模に対してcostが不釣り合いになった場合、安全契約を維持したまま、より小さく比例したarchitectureへ統合、縮小、置換してよい。その簡素化は安全契約の撤回ではない。
 
+### Bounded recursive cleanup（v2.8.0 / #550）
+
+trusted cacheのrecursive cleanup planはentry総数に比例する同時open descriptorを必要としない。
+root authorityの保持に加え、tree depthに応じた作業descriptorだけで検証・削除する。
+preflightからconsumeまで同じfilesystem object generationであることを安全に証明できない対象は
+fail closedとする。単なるdevice / inode / timestamp / content一致をgeneration証明の代用にせず、
+証明不能時に全treeのdescriptor保持へ戻らない。このruntime capability要件はv2.8.0のminor変更であり、
+従来の小さいcacheで成功したfilesystem / runtimeでも、新しいgeneration証明を提供できなければ拒否し得る。
+
+全targetのinitial preflightをpacman clean / confirmationより前に完了し、consume時にも全targetを
+read-onlyに再検証してから初めてMoguet cacheの削除を開始する。失敗した旧planを現在のtreeで
+作り直して削除を続けない。generationはidentity evidenceであり、destructive authorityは
+trusted rootから再構築したnamed lineageのままとする。外へ移動したoriginalを追跡して削除しない。
+
+top-level directoryについては、既存PackageBase writerと同じcooperative leaseを対象ごとに取得する。
+initial preflightとconsume時の全体再検証では各subtreeの検証中、mutationではそのsubtreeの
+直前再検証開始から削除完了まで連続して保持する。pacman / confirmationを跨ぐ全targetの予約や
+transactional all-or-nothingは保証しない。busy targetは削除せず、その時点で停止する。
+mutation開始後のlease failure等は、先行対象の削除を復元せずincomplete / non-zeroとして扱う。
+
 ## Non-scope / implementationを固定しない範囲
 
 - legacy cacheの自動migration、dual-read / dual-write、削除。
