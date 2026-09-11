@@ -15,7 +15,7 @@ TIMEOUT_SECONDS = 20
 
 def usage() -> None:
     print(
-        f"usage: {sys.argv[0]} [--timeout SECONDS] -- command [argument ...]",
+        f"usage: {sys.argv[0]} [--no-input] [--timeout SECONDS] -- command [argument ...]",
         file=sys.stderr,
     )
 
@@ -41,9 +41,15 @@ def terminate_child(pid: int) -> None:
 
 def main() -> int:
     timeout_seconds = TIMEOUT_SECONDS
+    no_input = False
 
     argument_index = 1
     while argument_index < len(sys.argv) and sys.argv[argument_index] != "--":
+        if sys.argv[argument_index] == "--no-input":
+            no_input = True
+            argument_index += 1
+            continue
+
         if sys.argv[argument_index] != "--timeout":
             usage()
             return 2
@@ -69,7 +75,8 @@ def main() -> int:
         usage()
         return 2
 
-    input_bytes = sys.stdin.buffer.read()
+    # Input-free consumers must not wait for the parent's stdin to reach EOF.
+    input_bytes = b"" if no_input else sys.stdin.buffer.read()
     command = sys.argv[argument_index + 1:]
     pid, master_descriptor = pty.fork()
     if pid == 0:

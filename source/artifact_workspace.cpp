@@ -4,6 +4,7 @@
 #include "logging.hpp"
 #include "package_identifier.hpp"
 #include "shell_words.hpp"
+#include "source_artifact_install_trusted_protocol.hpp"
 
 #include <algorithm>
 #include <array>
@@ -14,6 +15,7 @@
 #include <exception>
 #include <fcntl.h>
 #include <linux/openat2.h>
+#include <linux/memfd.h>
 #include <map>
 #include <memory>
 #include <optional>
@@ -216,6 +218,72 @@ public:
         return std::exchange(descriptor_, -1);
     }
 };
+
+// A snapshot is queried only after sealing. Even an ABA write while copying
+// cannot change the bytes libalpm and the privileged installer will consume.
+constexpr int INSTALL_CONTENT_SEALS = F_SEAL_WRITE | F_SEAL_GROW | F_SEAL_SHRINK | F_SEAL_SEAL;
+
+OwnedFileDescriptor create_install_memfd() {
+    const int descriptor = static_cast<int>(syscall(SYS_memfd_create,
+                                                    "moguet-install-content", MFD_CLOEXEC | MFD_ALLOW_SEALING));
+    if(descriptor < 0) throw std::runtime_error("Unable to create immutable artifact input.");
+    return OwnedFileDescriptor(descriptor);
+}
+
+std::uint64_t copy_install_bytes(int source, int destination, std::uint64_t maximum_bytes = SOURCE_ARTIFACT_INSTALL_MAXIMUM_ARTIFACT_BYTES) {
+    struct stat metadata{};
+    if(fstat(source, &metadata) != 0 || !S_ISREG(metadata.st_mode) || metadata.st_size < 0 ||
+       static_cast<std::uint64_t>(metadata.st_size) > maximum_bytes)
+        throw std::runtime_error("Invalid artifact content descriptor.");
+    std::array<char, 65536> buffer{};
+    off_t offset = 0;
+    while(offset < metadata.st_size) {
+        const auto count = pread(source, buffer.data(),
+                                 std::min<off_t>(buffer.size(), metadata.st_size - offset), offset);
+        if(count < 0 && errno == EINTR) continue;
+        if(count <= 0) throw std::runtime_error("Unable to read artifact content.");
+        ssize_t written = 0;
+        while(written < count) {
+            const auto amount = write(destination, buffer.data() + written, count - written);
+            if(amount < 0 && errno == EINTR) continue;
+            if(amount <= 0) throw std::runtime_error("Unable to copy artifact content.");
+            written += amount;
+        }
+        offset += count;
+    }
+    return static_cast<std::uint64_t>(metadata.st_size);
+}
+
+void seal_install_content(int descriptor) {
+    if(fcntl(descriptor, F_ADD_SEALS, INSTALL_CONTENT_SEALS) != 0 ||
+       fcntl(descriptor, F_GET_SEALS) != INSTALL_CONTENT_SEALS)
+        throw std::runtime_error("Unable to seal artifact content.");
+}
+
+void require_same_install_content(int source, int snapshot) {
+    struct stat current{}, saved{};
+    if(snapshot < 0 || fcntl(snapshot, F_GET_SEALS) != INSTALL_CONTENT_SEALS ||
+       fstat(source, &current) != 0 || fstat(snapshot, &saved) != 0 || current.st_size != saved.st_size)
+        throw std::runtime_error("Prepared artifact content changed.");
+    std::array<char, 65536> original{}, frozen{};
+    off_t offset = 0;
+    while(offset < saved.st_size) {
+        const auto count = std::min<off_t>(original.size(), saved.st_size - offset);
+        ssize_t first;
+        do {
+            first = pread(source, original.data(), count, offset);
+        } while(first < 0 && errno == EINTR);
+        ssize_t second;
+        do {
+            second = pread(snapshot, frozen.data(), count, offset);
+        } while(second < 0 && errno == EINTR);
+        if(first != count || second != count || !std::equal(original.begin(), original.begin() + count, frozen.begin()))
+            throw std::runtime_error("Prepared artifact content changed.");
+        offset += count;
+    }
+    if(fstat(source, &current) != 0 || current.st_size != saved.st_size)
+        throw std::runtime_error("Prepared artifact content changed.");
+}
 
 // command間でpathnameを再解決せず、prepare時に開いたcheckout inodeへchdirする。
 // named pathとのidentity照合はcallerが前後で行う。
@@ -2184,12 +2252,17 @@ ValidatedPackageArtifactSet::Record::Record(Record&& other) noexcept
       signature_descriptor(std::exchange(other.signature_descriptor, -1)),
       signature_device(other.signature_device),
       signature_inode(other.signature_inode),
-      signature_owner(other.signature_owner) {
+      signature_owner(other.signature_owner),
+      sealed_artifact_descriptor(std::exchange(other.sealed_artifact_descriptor, -1)),
+      sealed_signature_descriptor(std::exchange(other.sealed_signature_descriptor, -1)),
+      metadata_path(std::move(other.metadata_path)) {
 }
 
 ValidatedPackageArtifactSet::Record::~Record() noexcept {
     if(artifact_descriptor >= 0) close(artifact_descriptor);
     if(signature_descriptor >= 0) close(signature_descriptor);
+    if(sealed_artifact_descriptor >= 0) close(sealed_artifact_descriptor);
+    if(sealed_signature_descriptor >= 0) close(sealed_signature_descriptor);
 }
 
 ValidatedPackageArtifactSet::ValidatedPackageArtifactSet(
@@ -2202,8 +2275,86 @@ ValidatedPackageArtifactSet::ValidatedPackageArtifactSet(
     ValidatedPackageArtifactSet&& other) noexcept
     : workspace_(std::move(other.workspace_)),
       records_(std::move(other.records_)),
+      install_input_descriptor_(std::exchange(other.install_input_descriptor_, -1)),
       ownership_state_(std::exchange(
           other.ownership_state_, OwnershipState::Inactive)) {
+}
+
+ValidatedPackageArtifactSet::~ValidatedPackageArtifactSet() noexcept {
+    if(install_input_descriptor_ >= 0) close(install_input_descriptor_);
+}
+
+void ValidatedPackageArtifactSet::bind_install_content() {
+    require_validity();
+    std::uint64_t total = 0;
+    for(const auto& record : records_) {
+        for(const auto descriptor : {record.artifact_descriptor, record.signature_descriptor}) {
+            if(descriptor < 0) continue;
+            struct stat metadata{};
+            if(fstat(descriptor, &metadata) != 0 || metadata.st_size < 0 ||
+               static_cast<std::uint64_t>(metadata.st_size) > SOURCE_ARTIFACT_INSTALL_MAXIMUM_TRANSACTION_BYTES - total)
+                throw std::runtime_error("Artifact content snapshot exceeds the transport limit.");
+            total += metadata.st_size;
+        }
+    }
+    std::uint64_t remaining = SOURCE_ARTIFACT_INSTALL_MAXIMUM_TRANSACTION_BYTES;
+    for(auto& record : records_) {
+        if(record.sealed_artifact_descriptor >= 0) {
+            for(const auto descriptor : {record.sealed_artifact_descriptor, record.sealed_signature_descriptor}) {
+                if(descriptor < 0) continue;
+                struct stat saved{};
+                if(fstat(descriptor, &saved) != 0 || saved.st_size < 0 || static_cast<std::uint64_t>(saved.st_size) > remaining)
+                    throw std::runtime_error("Artifact content snapshot exceeds the transport limit.");
+                remaining -= saved.st_size;
+            }
+            continue;
+        }
+        auto archive = create_install_memfd();
+        remaining -= copy_install_bytes(record.artifact_descriptor, archive.get(),
+                                        std::min(remaining, SOURCE_ARTIFACT_INSTALL_MAXIMUM_ARTIFACT_BYTES));
+        seal_install_content(archive.get());
+        auto signature = record.has_signature ? create_install_memfd() : OwnedFileDescriptor();
+        if(record.has_signature) {
+            remaining -= copy_install_bytes(record.signature_descriptor, signature.get(),
+                                            std::min(remaining, SOURCE_ARTIFACT_INSTALL_MAXIMUM_SIGNATURE_BYTES));
+            seal_install_content(signature.get());
+        }
+        record.metadata_path = "/proc/self/fd/" + std::to_string(archive.get());
+        record.sealed_artifact_descriptor = archive.release();
+        record.sealed_signature_descriptor = signature.release();
+    }
+    require_install_content();
+}
+
+void ValidatedPackageArtifactSet::require_install_content() const {
+    require_validity();
+    for(const auto& record : records_) {
+        require_same_install_content(record.artifact_descriptor, record.sealed_artifact_descriptor);
+        if(record.has_signature)
+            require_same_install_content(record.signature_descriptor, record.sealed_signature_descriptor);
+    }
+    require_validity();
+}
+
+const fs::path& ValidatedPackageArtifactSet::metadata_path_at(std::size_t index) const {
+    require_validity();
+    const auto& record = records_.at(index);
+    return record.sealed_artifact_descriptor >= 0 ? record.metadata_path : record.path;
+}
+
+int ValidatedPackageArtifactSet::create_install_input(const std::vector<std::size_t>& indices) {
+    require_install_content();
+    auto input = create_install_memfd();
+    for(const auto index : indices) {
+        const auto& record = records_.at(index);
+        copy_install_bytes(record.sealed_artifact_descriptor, input.get());
+        if(record.has_signature) copy_install_bytes(record.sealed_signature_descriptor, input.get());
+    }
+    seal_install_content(input.get());
+    require_install_content();
+    if(install_input_descriptor_ >= 0) close(install_input_descriptor_);
+    install_input_descriptor_ = input.release();
+    return install_input_descriptor_;
 }
 
 void ValidatedPackageArtifactSet::require_active() const {
@@ -2439,6 +2590,7 @@ void ValidatedPackageArtifactSet::cleanup_workspace() {
         // ここからvalidated artifact capabilityは失効させるが、workspace
         // ownershipはdiagnostic retentionとcleanup retryのため保持する。
         records_.clear();
+        if(install_input_descriptor_ >= 0) close(std::exchange(install_input_descriptor_, -1));
         ownership_state_ = OwnershipState::WorkspaceCleanupPending;
 #ifdef MOGUET_ENABLE_ARTIFACT_WORKSPACE_TEST_HOOKS
         notify_multiple_artifact_cleanup_for_test(

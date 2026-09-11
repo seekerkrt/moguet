@@ -26,6 +26,7 @@ inline constexpr std::size_t
 enum class SourceArtifactInstallTrustedHelperCommand {
     Prepare,
     PrepareExact,
+    InstallLegacy,
     Execute,
     ExecutionStatus,
     ObserveExecution,
@@ -39,14 +40,18 @@ enum class SourceArtifactInstallTrustedHelperCommand {
 
 // The legacy route remains Install-only cleanup evidence. A distinct prepared
 // protocol and fixed helper entry select the installed-binding purpose.
+// LegacyArtifactInstall is an ordinary synchronous install with no receipt
+// authority; its core name/version plus exact bytes preserve legacy selection.
 enum class SourceArtifactInstallTrustedPurpose {
     CleanupInstallOnly,
     ExactInstalledBinding,
+    LegacyArtifactInstall,
 };
 
 enum class SourceArtifactInstallTrustedDirective {
     PreserveExistingReason,
     AsDependency,
+    AsExplicit,
 };
 
 enum class SourceArtifactInstallTrustedProtocolIssueKind {
@@ -127,6 +132,8 @@ struct SourceArtifactInstallRootArtifactExpectation {
     // Exact bytes from the retained descriptor, verified again against the
     // sealed input and privileged stage. Signature identity is independent.
     std::string archive_sha256;
+    // Legacy alone can retain an empty present .sig via SHA-256(empty);
+    // size 0 with "-" remains absence. Receipt purposes keep the old contract.
     std::string signature_sha256;
     std::string raw_mtree_sha256 = "-";
 
@@ -157,6 +164,7 @@ struct SourceArtifactInstallTrustedHelperInvocation {
         SourceArtifactInstallTrustedDirective::PreserveExistingReason;
     bool needed = false;
     bool no_confirm = false;
+    std::string legacy_input_path = {};
 };
 
 using SourceArtifactInstallTrustedHelperInvocationResult = std::variant<

@@ -572,6 +572,7 @@ RepoOnly `-Syu --repo`ではcompatible pacman pass-throughの一部としてrepo
 ## Exit code、partial completion、failure
 
 - pacmanへ直接委譲したcommandはpacmanの終了codeを返す。
+- AURの単一package infoはquery failureと正常応答による不存在を区別する。transport / configuration / HTTP / 空応答 / parse / RPC errorはcallerへ例外として伝え、`-Si`のAurOnly / Autoやsource buildでpackage not foundへ変換しない。不存在とfailureはいずれも既存のnon-zero終了を維持する。`info_strict`の追加envelope検証とsearchのmatch policyは変更しない。
 - exact target-less Auto `-Syu`はrepository + normal AUR aggregateのtyped resultを使い、complete successは0とする。independent devel `RequiresCheck`だけはwarning / attention付きsuccessを許すが、repository failure、required `RequiresCheck`を含むrepository完了後のAUR blocker / failure、inconsistent resultはnon-zeroとする。
 - repository failureではAURをnot attemptedとして示す。repository完了後のAUR failureではrepository completionを隠さずpartial completionとして示し、rollbackを行わない。
 - AUR install resultとcleanup failureをflattenせず、AUR `NoUpdates`だけをwhole-operation `NoOp`へ昇格しない。

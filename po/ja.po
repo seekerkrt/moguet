@@ -1,8 +1,8 @@
 msgid ""
 msgstr ""
-"Project-Id-Version: Moguet 2.7.0\n"
+"Project-Id-Version: Moguet 2.7.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-10 05:44+0900\n"
+"POT-Creation-Date: 2026-09-11 07:05+0900\n"
 "PO-Revision-Date: 2026-09-09 16:53+0900\n"
 "Last-Translator: Moguet contributors\n"
 "Language-Team: Japanese\n"
@@ -2356,6 +2356,9 @@ msgstr "不明な{}更新対象状態です。"
 
 msgid "skipped: devel update requires check: suffix candidate only; not automatically updated because authoritative build provenance is unavailable"
 msgstr "スキップ: devel更新は確認が必要です: suffixは候補根拠にすぎません。authoritativeなbuild provenanceがないため自動更新しません"
+
+msgid "skipped: devel update requires check; local authority is unavailable or has changed"
+msgstr "スキップ: devel更新は確認が必要です。ローカルの検証根拠が得られないか、変更されています"
 
 msgid "Unknown devel RequiresCheck attention reason."
 msgstr "不明なdevel RequiresCheck attention reasonです。"
@@ -5601,12 +5604,6 @@ msgstr "準備済み{}成果物インストール用ワークスペースは後�
 #, c++-format
 msgid "Prepared {} artifact install workspace was already cleaned."
 msgstr "準備済み{}成果物インストール用ワークスペースはすでに後処理済みです。"
-
-#. TRANSLATORS: The placeholder is the literal Arch field name
-#. "PackageBase".
-#, c++-format
-msgid "Prepared {} artifact install has an unknown transaction directive."
-msgstr "準備済み{}成果物のインストールに不明なパッケージ処理指示があります。"
 
 #. TRANSLATORS: {} is the literal command "pacman -U".
 #, c++-format
@@ -9140,9 +9137,6 @@ msgstr "パッケージ関係ブロッカー: {}"
 msgid "Blockers:"
 msgstr "ブロッカー:"
 
-msgid "skipped: devel update requires check; local authority is unavailable or has changed"
-msgstr "スキップ: devel更新は確認が必要です。ローカルの検証根拠が得られないか、変更されています"
-
 msgid "Unified plan:"
 msgstr "統合プラン:"
 
@@ -9419,6 +9413,10 @@ msgstr "{}のデフォルト状態ログを段階{}で安全に使用できま�
 
 msgid "Unknown state log error code."
 msgstr "不明な状態ログエラーコードです。"
+
+#, c++-format
+#~ msgid "Prepared {} artifact install has an unknown transaction directive."
+#~ msgstr "準備済み{}成果物のインストールに不明なパッケージ処理指示があります。"
 
 #~ msgid "devel package update status requires check: suffix candidate only"
 #~ msgstr "devel packageの更新状態は確認が必要: suffix候補のみ"

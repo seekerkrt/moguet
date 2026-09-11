@@ -6,9 +6,9 @@
 #, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: Moguet 2.7.0\n"
+"Project-Id-Version: Moguet 2.7.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-10 06:55+0900\n"
+"POT-Creation-Date: 2026-09-11 07:05+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -2361,6 +2361,9 @@ msgid "Unknown {} update target status."
 msgstr ""
 
 msgid "skipped: devel update requires check: suffix candidate only; not automatically updated because authoritative build provenance is unavailable"
+msgstr ""
+
+msgid "skipped: devel update requires check; local authority is unavailable or has changed"
 msgstr ""
 
 msgid "Unknown devel RequiresCheck attention reason."
@@ -5608,12 +5611,6 @@ msgstr ""
 #. "PackageBase".
 #, c++-format
 msgid "Prepared {} artifact install workspace was already cleaned."
-msgstr ""
-
-#. TRANSLATORS: The placeholder is the literal Arch field name
-#. "PackageBase".
-#, c++-format
-msgid "Prepared {} artifact install has an unknown transaction directive."
 msgstr ""
 
 #. TRANSLATORS: {} is the literal command "pacman -U".
@@ -9143,9 +9140,6 @@ msgid "package relation blocker: {}"
 msgstr ""
 
 msgid "Blockers:"
-msgstr ""
-
-msgid "skipped: devel update requires check; local authority is unavailable or has changed"
 msgstr ""
 
 msgid "Unified plan:"

@@ -70,6 +70,7 @@ setup_case() {
     unset MOGUET_TEST_PACKAGE_METADATA_PACMAN_CONF_FAILURE_AT
     unset MOGUET_TEST_PACKAGE_METADATA_STATE_FILE
     unset MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE
+    unset MOGUET_TEST_INSPECTION_SCENARIO
     export MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG=$metadata_log
     unset MOGUET_TEST_PACKAGE_METADATA_INITIALIZE_FAILURE
     unset MOGUET_TEST_PACKAGE_METADATA_QUERY_FAILURE_PACKAGE
@@ -1099,6 +1100,45 @@ assert_contains "package=xpadneo-dkms-git" "$output_file"
 assert_not_contains "preflight issue: devel update requires check" "$output_file"
 assert_not_contains "The completed repository system upgrade was not rolled back." "$output_file"
 assert_not_contains "Loading custom build flags" "$output_file"
+
+# The existing authoritative query stub refines system-current to
+# RequiresCheck(ProvenanceMissing), without suffix candidate evidence.
+for scenario in attention-only mixed-update; do
+    setup_case "system-aur-update-authoritative-requires-check-$scenario"
+    foreign_inventory=$case_dir/foreign-inventory.state
+    printf '%s\n' 'system-current 1.0-1 explicit' > "$foreign_inventory"
+    if [ "$scenario" = mixed-update ]; then
+        printf '%s\n' 'system-update-a 0.9-1 explicit' >> "$foreign_inventory"
+    fi
+    export MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE=$foreign_inventory
+    export MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG=$command_log
+    export MOGUET_TEST_INSPECTION_SCENARIO=foreign-authoritative-requires-check
+    run_status 0 --noedit --nodiff --noconfirm -Syu
+    assert_event_at 1 "sudo pacman -Syu --noconfirm"
+    assert_event_before "sudo pacman -Syu --noconfirm" "pacman-conf --verbose RootDir DBPath"
+    assert_output_count 1 \
+        "skipped: devel update requires check; local authority is unavailable or has changed"
+    assert_contains "Warning: Requires check" "$output_file"
+    assert_contains "package=system-current" "$output_file"
+    assert_contains "The repository system upgrade completed." "$output_file"
+    assert_contains "The repository system upgrade and normal AUR update completed." "$output_file"
+    assert_not_contains "Unknown devel RequiresCheck attention reason." "$output_file"
+    assert_not_contains "suffix candidate only" "$output_file"
+    assert_not_contains "system-current: skipped: up to date" "$output_file"
+    assert_not_contains "preflight issue: devel update requires check" "$output_file"
+    assert_not_contains "The completed repository system upgrade was not rolled back." "$output_file"
+    assert_event_pattern_count 0 '^git clone .* system-current$'
+    assert_event_pattern_count 0 '^sudo pacman -U .*system-current-'
+    if [ "$scenario" = mixed-update ]; then
+        assert_event_pattern '^sudo pacman -U --noconfirm -- .*/system-update-a-1\.0-1-x86_64\.pkg\.tar\.zst$'
+        assert_contains "system-update-a: updated" "$output_file"
+        assert_contains "AUR update: completed" "$output_file"
+    else
+        assert_event_prefix_absent '^(git|makepkg) '
+        assert_event_pattern_count 0 '^sudo pacman -U '
+        assert_contains "AUR update: no updates" "$output_file"
+    fi
+done
 
 setup_case system-aur-update-mixed-independent-requires-check
 foreign_inventory=$case_dir/foreign-inventory.state

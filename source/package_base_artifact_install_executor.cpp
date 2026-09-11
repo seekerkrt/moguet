@@ -3,6 +3,14 @@
 #include "localization.hpp"
 #include "process.hpp"
 #include "shell_words.hpp"
+#include "source_artifact_install_trusted_protocol.hpp"
+#include "xdg_generation_store.hpp"
+
+#include <array>
+#include <cerrno>
+#include <sys/random.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include <cstddef>
 #include <exception>
@@ -274,10 +282,89 @@ void PreparedPackageBaseArtifactInstall::require_active_for_execution() const {
 
 void PreparedPackageBaseArtifactInstall::require_execution_coherence() const {
     require_active_for_execution();
+    artifacts_.require_install_content();
     require_install_draft_coherence(
         package_base_, artifacts_, aggregate_identities_,
         selected_artifacts_, unselected_artifacts_,
         transaction_directive_, needed_);
+}
+
+std::string PreparedPackageBaseArtifactInstall::legacy_install_command(
+    const ArtifactInstallExecutionOptions& options) {
+    std::array<unsigned char, 32> random{};
+    std::size_t offset = 0;
+    while(offset < random.size()) {
+        const auto count = getrandom(random.data() + offset, random.size() - offset, 0);
+        if(count < 0 && errno == EINTR) continue;
+        if(count <= 0) throw std::runtime_error("Unable to create legacy artifact transaction token.");
+        offset += count;
+    }
+    constexpr char HEX[] = "0123456789abcdef";
+    std::string token;
+    for(const auto byte : random) {
+        token += HEX[byte >> 4];
+        token += HEX[byte & 15];
+    }
+    SourceArtifactInstallRootPrepareRequest request{
+        token, package_base_, SourceArtifactInstallTrustedDirective::PreserveExistingReason, needed_, options.no_confirm, {}, SourceArtifactInstallTrustedPurpose::LegacyArtifactInstall};
+    switch(transaction_directive_) {
+        case InstallReasonDirective::Default: break;
+        case InstallReasonDirective::AsExplicit: request.directive = SourceArtifactInstallTrustedDirective::AsExplicit; break;
+        case InstallReasonDirective::AsDependency: request.directive = SourceArtifactInstallTrustedDirective::AsDependency; break;
+        default: throw_incoherent_package_base_install();
+    }
+    std::vector<std::size_t> indices;
+    for(const auto& selected : selected_artifacts_) {
+        const auto& record = artifacts_.records_.at(selected.artifact_index);
+        const auto describe = [](int fd, std::uint64_t limit) {
+            struct stat metadata{};
+            if(fd < 0 || fstat(fd, &metadata) != 0 || metadata.st_size < 0 ||
+               static_cast<std::uint64_t>(metadata.st_size) > limit)
+                throw std::runtime_error("Invalid sealed artifact size.");
+            return std::pair<std::uint64_t, std::string>{metadata.st_size,
+                                                         xdg_generation_store_file_descriptor_sha256(fd, metadata.st_size, limit)};
+        };
+        const auto archive = describe(record.sealed_artifact_descriptor, SOURCE_ARTIFACT_INSTALL_MAXIMUM_ARTIFACT_BYTES);
+        const auto signature = record.has_signature
+                                   ? describe(record.sealed_signature_descriptor, SOURCE_ARTIFACT_INSTALL_MAXIMUM_SIGNATURE_BYTES)
+                                   : std::pair<std::uint64_t, std::string>{0, "-"};
+        // Legacy selection requires name/version, not known PackageBase/arch.
+        // '-' explicitly means these are not selection authority here. Exact
+        // bytes bind the complete metadata, including optional fields.
+        request.artifacts.push_back({selected.artifact_index, selected.identity.package_name,
+                                     selected.identity.full_version, "-", "-", archive.first, signature.first, archive.second, signature.second});
+        indices.push_back(selected.artifact_index);
+    }
+    if(!is_valid_source_artifact_install_root_request(request))
+        throw std::runtime_error("Invalid legacy artifact transaction request.");
+    const int input = artifacts_.create_install_input(indices);
+    std::vector<std::string> arguments{
+        "/usr/bin/sudo", "--", MOGUET_SOURCE_ARTIFACT_INSTALL_HELPER_PATH, "install-legacy",
+        std::to_string(getpid()), std::to_string(input), token, package_base_,
+        request.directive == SourceArtifactInstallTrustedDirective::AsExplicit ? "AsExplicit" : request.directive == SourceArtifactInstallTrustedDirective::AsDependency ? "AsDependency"
+                                                                                                                                                                         : "PreserveExistingReason",
+        needed_ ? "1" : "0", options.no_confirm ? "1" : "0", "--"};
+    for(const auto& artifact : request.artifacts) {
+        arguments.insert(arguments.end(), {std::to_string(artifact.artifact_index), artifact.package_name,
+                                           artifact.full_version, artifact.package_base, artifact.architecture, std::to_string(artifact.artifact_size),
+                                           std::to_string(artifact.signature_size), artifact.archive_sha256, artifact.signature_sha256});
+    }
+#ifdef MOGUET_ENABLE_CLI_INSTALL_TEST_ADAPTER
+    // CLI fixtures use the real process owner. An absent adapter must never
+    // fall through to the fixed privileged command in this test profile.
+#ifdef MOGUET_TEST_LEGACY_INSTALL_ADAPTER_PATH
+    std::vector<std::string> adapter{
+        "/usr/bin/python3", "-I", MOGUET_TEST_LEGACY_INSTALL_ADAPTER_PATH,
+        MOGUET_SOURCE_ARTIFACT_INSTALL_HELPER_PATH, shell_words::join(arguments)};
+    for(const auto index : indices)
+        adapter.push_back(artifacts_.records_.at(index).path.string());
+    return shell_words::join(adapter);
+#else
+    throw std::logic_error("Legacy CLI test install adapter is not configured.");
+#endif
+#else
+    return shell_words::join(arguments);
+#endif
 }
 
 const std::string& PreparedPackageBaseArtifactInstall::package_base() const {
@@ -425,6 +512,7 @@ prepare_package_base_artifact_install(
     artifacts.require_validity();
     require_supported_separated_install_options(options.rm_deps);
 
+    artifacts.bind_install_content();
     ArtifactPackageIdentitySet identity_set =
         query_artifact_package_identities(artifacts);
     PackageBaseArtifactIdentitySelectionResult selection =
@@ -544,6 +632,7 @@ prepare_package_base_artifact_install(
                 artifact.artifact_index, artifact.identity});
     }
 
+    artifacts.require_install_content();
     std::string owned_package_base = package_base;
     require_install_draft_coherence(
         owned_package_base, artifacts, aggregate_identities,
@@ -683,36 +772,7 @@ execute_prepared_package_base_artifact_install(
         install.package_base_, std::move(artifact_results));
     std::string transaction_package_base = install.package_base_;
 
-    std::vector<std::string> arguments;
-    arguments.reserve(7 + install.selected_artifacts_.size());
-    arguments.emplace_back("sudo");
-    arguments.emplace_back("pacman");
-    arguments.emplace_back("-U");
-    if(options.no_confirm) arguments.emplace_back("--noconfirm");
-    if(install.needed_) arguments.emplace_back("--needed");
-    switch(install.transaction_directive_) {
-        case InstallReasonDirective::Default:
-            break;
-        case InstallReasonDirective::AsExplicit:
-            arguments.emplace_back("--asexplicit");
-            break;
-        case InstallReasonDirective::AsDependency:
-            arguments.emplace_back("--asdeps");
-            break;
-        default:
-            throw std::logic_error(localization::format_translated_message(
-                // TRANSLATORS: The placeholder is the literal Arch field name
-                // "PackageBase".
-                "Prepared {} artifact install has an unknown transaction directive.",
-                "PackageBase"));
-    }
-    arguments.emplace_back("--");
-    for(const PreparedPackageBaseArtifactInstallSelectedArtifact& artifact :
-        install.selected_artifacts_) {
-        arguments.push_back(
-            install.artifacts_.path_at(artifact.artifact_index).string());
-    }
-    std::string command = shell_words::join(arguments);
+    std::string command = install.legacy_install_command(options);
 
     try {
         // command構築中のreplacementも、mutation capabilityをconsumeする直前に拒否する。

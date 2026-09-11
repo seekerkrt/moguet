@@ -19,6 +19,7 @@ class ExpectedPackageArtifactSet;
 class ValidatedPackageArtifactPath;
 class ValidatedPackageArtifactSet;
 class SourceArtifactInstallTrustedTransport;
+class PreparedPackageBaseArtifactInstall;
 class ArtifactWorkspace;
 class ArtifactMakepkgContext;
 struct ArtifactMakepkgContextProvenance;
@@ -608,6 +609,9 @@ class ValidatedPackageArtifactSet final {
         std::uintmax_t signature_device = 0;
         std::uintmax_t signature_inode = 0;
         std::uintmax_t signature_owner = 0;
+        int sealed_artifact_descriptor = -1;
+        int sealed_signature_descriptor = -1;
+        std::filesystem::path metadata_path;
 
         Record(
             std::filesystem::path artifact_path,
@@ -632,6 +636,7 @@ class ValidatedPackageArtifactSet final {
     // cleanupへ進むため、records_をworkspace_より後ろへ保つ。
     ArtifactWorkspace workspace_;
     std::vector<Record> records_;
+    int install_input_descriptor_ = -1;
     OwnershipState ownership_state_ = OwnershipState::Active;
 
     ValidatedPackageArtifactSet(
@@ -655,6 +660,9 @@ class ValidatedPackageArtifactSet final {
     // Dedicated SourceArtifactInstall transport may snapshot only retained
     // descriptors selected by the closed PackageBase install capability.
     friend class SourceArtifactInstallTrustedTransport;
+    // Retained sealed concatenation, ordered archive then adjacent signature.
+    int create_install_input(const std::vector<std::size_t>& indices);
+    friend class PreparedPackageBaseArtifactInstall;
 #ifdef MOGUET_ENABLE_ARTIFACT_WORKSPACE_TEST_HOOKS
     friend ValidatedPackageArtifactSet
     validate_post_build_package_artifacts_for_test(
@@ -679,10 +687,15 @@ public:
         ValidatedPackageArtifactSet&& other) noexcept;
     ValidatedPackageArtifactSet& operator=(
         ValidatedPackageArtifactSet&&) = delete;
-    ~ValidatedPackageArtifactSet() noexcept = default;
+    ~ValidatedPackageArtifactSet() noexcept;
 
     std::size_t size() const;
     const std::filesystem::path& path_at(std::size_t index) const;
+    // Freeze before querying metadata. Original named/inode authority remains
+    // independent and must still match these bytes immediately before install.
+    void bind_install_content();
+    void require_install_content() const;
+    const std::filesystem::path& metadata_path_at(std::size_t index) const;
     const std::filesystem::path& workspace_path() const;
 
     void require_validity() const;

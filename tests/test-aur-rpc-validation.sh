@@ -56,6 +56,8 @@ require_exact_test_command pacman "$repo_root/tests/stubs/pacman"
 require_exact_test_command sudo "$repo_root/tests/stubs/sudo"
 require_exact_test_command git "$repo_root/tests/stubs/git"
 export MOGUET_TEST_AUR_RPC_BASE_URL=$fixture_rpc_base_url
+# All successful requests stay on the loopback fixture regardless of host proxies.
+export no_proxy=127.0.0.1 NO_PROXY=127.0.0.1
 
 setup_case() {
     case_name=$1
@@ -408,6 +410,68 @@ setup_case legacy-envelope-search
 run_envelope_ok provides-legacy strict-search-wrong-type
 assert_contains "provider-one" "$output_file"
 assert_command_log_empty
+
+# F-537-03: use production AurClient/libcurl, not commands-sync's info stub.
+# A valid empty result and a failed request must reach distinct caller branches.
+for route in aur auto build; do
+    case "$route" in
+        aur) set -- -Si --aur ;;
+        auto) set -- -Si ;;
+        build) set -- build ;;
+    esac
+    setup_case "info-absence-$route"
+    run_fail "$@" strict-not-found
+    if [ "$route" = aur ]; then
+        assert_contains "AUR package not found: strict-not-found" "$output_file"
+    else
+        assert_contains "Package not found in repos or AUR: strict-not-found" "$output_file"
+    fi
+    assert_not_contains "Failed to fetch AUR info" "$output_file"
+    assert_not_contains "Warning:" "$output_file"
+    assert_request_count 1
+    assert_no_mutation_commands
+
+    setup_case "info-invalid-proxy-$route"
+    (
+        # libcurl rejects this syntax before connecting; even the target URL
+        # remains loopback, so this regression never needs an external server.
+        export http_proxy='http://[' https_proxy='http://[' all_proxy='http://['
+        export HTTP_PROXY='http://[' HTTPS_PROXY='http://[' ALL_PROXY='http://['
+        export no_proxy= NO_PROXY=
+        run_fail "$@" audit-rpc-failure
+    )
+    assert_contains "Failed to fetch AUR info for audit-rpc-failure: AUR request failed:" "$output_file"
+    assert_not_contains "package not found" "$output_file"
+    assert_not_contains "Package not found" "$output_file"
+    assert_not_contains "Warning:" "$output_file"
+    assert_request_count 0
+    assert_no_mutation_commands
+done
+
+for route in aur auto; do
+    case "$route" in
+        aur) set -- -Si --aur ;;
+        auto) set -- -Si ;;
+    esac
+    while IFS='|' read -r package diagnostic; do
+        setup_case "info-query-failure-$route-$package"
+        run_fail "$@" "$package"
+        assert_contains "Failed to fetch AUR info for $package:" "$output_file"
+        assert_contains "$diagnostic" "$output_file"
+        assert_not_contains "package not found" "$output_file"
+        assert_not_contains "Package not found" "$output_file"
+        assert_not_contains "Warning:" "$output_file"
+        assert_request_count 1
+        assert_no_mutation_commands
+    done <<'CASES'
+info-http-failure|AUR request failed:
+info-http-redirect|AUR request failed with HTTP status 302.
+info-empty-response|AUR request returned an empty response.
+info-parse-failure|AUR RPC response parse failed
+strict-error-string|field error reported "fixture AUR RPC failure"
+strict-error-number|field error expected string, got number
+CASES
+done
 
 # missing/null/emptyはoptional arrayの正常契約。全fieldを同じentryで通す。
 for package in valid-minimal arrays-null arrays-empty arrays-valid valid-split; do

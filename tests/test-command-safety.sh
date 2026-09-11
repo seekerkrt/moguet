@@ -68,6 +68,10 @@ require_exact_test_command() {
     case $resolved_expected_test_command in
         "$resolved_repository_root"/*)
             if [ -n "$resolved_repository_root" ]; then
+                if [ "$test_command_name" = sudo ]; then
+                    MOGUET_TEST_LEGACY_SUDO_STUB=$resolved_expected_test_command
+                    export MOGUET_TEST_LEGACY_SUDO_STUB
+                fi
                 return 0
             fi
             ;;

@@ -577,6 +577,14 @@
   "search_response_overrides": {
     "strict-search-wrong-type": {"set": {"type": "multiinfo"}}
   },
+  "info_status_overrides": {
+    "info-http-failure": 503,
+    "info-http-redirect": 302
+  },
+  "info_body_overrides": {
+    "info-empty-response": "",
+    "info-parse-failure": "{"
+  },
   "search_status_overrides": {
     "strict-search-http-failure": 503
   },

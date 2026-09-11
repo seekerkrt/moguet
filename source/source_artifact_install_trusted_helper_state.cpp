@@ -2,6 +2,7 @@
 
 #include "trusted_alpm_receipt_protocol.hpp"
 #include "xdg_generation_store.hpp"
+#include "shell_words.hpp"
 
 #include <alpm.h>
 
@@ -17,6 +18,8 @@
 #include <string_view>
 #include <system_error>
 #include <sys/stat.h>
+#include <sys/wait.h>
+#include <iostream>
 #include <sys/file.h>
 #include <sys/syscall.h>
 #include <unistd.h>
@@ -459,6 +462,7 @@ std::string exact_operation_hook_contents(const std::string& token, bool upgrade
 
 std::vector<std::string> expected_hook_entries(const SourceArtifactInstallRootPrepareRequest& request) {
     const auto& token = request.transaction_token;
+    if(request.purpose == SourceArtifactInstallTrustedPurpose::LegacyArtifactInstall) return {};
     if(request.purpose == SourceArtifactInstallTrustedPurpose::ExactInstalledBinding)
         return {exact_operation_hook_filename(token, false), exact_operation_hook_filename(token, true), execution_hook_filename(token)};
     return {source_artifact_install_hook_filename(token), execution_hook_filename(token)};
@@ -481,7 +485,7 @@ std::vector<std::string> expected_artifact_entries(
     entries.reserve(request.artifacts.size() * 2);
     for(std::size_t index = 0; index < request.artifacts.size(); ++index) {
         entries.push_back(staged_artifact_filename(index));
-        if(request.artifacts[index].signature_size > 0) {
+        if(request.artifacts[index].signature_sha256 != "-") {
             entries.push_back(staged_signature_filename(index));
         }
     }
@@ -558,7 +562,7 @@ OpenTransaction open_transaction(
 
 void require_archive_identity(
     int artifact_fd,
-    const SourceArtifactInstallRootArtifactExpectation& expected) {
+    const SourceArtifactInstallRootArtifactExpectation& expected, bool legacy) {
     alpm_errno_t initialization_error = ALPM_ERR_OK;
     AlpmHandle handle(
         alpm_initialize("/", "/var/lib/pacman", &initialization_error));
@@ -582,11 +586,10 @@ void require_archive_identity(
     const char* package_base = alpm_pkg_get_base(package.get());
     const char* architecture = alpm_pkg_get_arch(package.get());
     if(package_name == nullptr || full_version == nullptr ||
-       package_base == nullptr || architecture == nullptr ||
        expected.package_name != package_name ||
        expected.full_version != full_version ||
-       expected.package_base != package_base ||
-       expected.architecture != architecture) {
+       (!legacy && (package_base == nullptr || architecture == nullptr ||
+                    expected.package_base != package_base || expected.architecture != architecture))) {
         throw_state_error_message(
             "staged artifact metadata does not match the prepared identity");
     }
@@ -789,7 +792,7 @@ std::string collect_staged_projection(int transaction_fd, uid_t owner,
             OwnedDescriptor file = open_private_file(artifacts.get(), leaf, owner, "staged input", size);
             const auto identity = StagedFilesystemIdentity::observe(file.get());
             if(!signature) {
-                require_archive_identity(file.get(), expected);
+                require_archive_identity(file.get(), expected, request.purpose == SourceArtifactInstallTrustedPurpose::LegacyArtifactInstall);
 #ifdef MOGUET_ENABLE_SOURCE_ARTIFACT_INSTALL_TRUSTED_TRANSPORT_TEST_HOOKS
                 if(g_state_test_hook) g_state_test_hook(
                     SourceArtifactInstallTrustedStateTestEvent::AfterArtifactMetadataValidation,
@@ -807,8 +810,8 @@ std::string collect_staged_projection(int transaction_fd, uid_t owner,
             descriptors.push_back(std::move(file));
         };
         inspect(staged_artifact_filename(index), expected.artifact_size, expected.archive_sha256, false);
-        if(expected.signature_size > 0) inspect(staged_signature_filename(index),
-                                                expected.signature_size, expected.signature_sha256, true);
+        if(expected.signature_sha256 != "-") inspect(staged_signature_filename(index),
+                                                     expected.signature_size, expected.signature_sha256, true);
     }
     require_exact_entries(artifacts.get(), expected_artifact_entries(request), "staged artifact directory");
     require_staged_identity(transaction_fd, std::string(ARTIFACT_DIRECTORY), artifacts.get(), artifacts_identity);
@@ -1153,7 +1156,7 @@ void cleanup_retired_transaction(
         if(unlinkat(artifacts.get(), artifact_name.c_str(), 0) == -1) {
             throw_state_error("unable to remove retired staged artifact");
         }
-        if(expected_artifact.signature_size > 0) {
+        if(expected_artifact.signature_sha256 != "-") {
             const std::string signature_name =
                 staged_signature_filename(index);
             static_cast<void>(open_private_file(
@@ -1416,7 +1419,7 @@ SourceArtifactInstallTrustedStateStore::prepare(
             input_offset += expected.artifact_size;
             synchronize_file(artifact.get(), "staged package artifact");
 
-            if(expected.signature_size > 0) {
+            if(expected.signature_sha256 != "-") {
                 OwnedDescriptor signature = create_private_file(
                     artifacts.get(), staged_signature_filename(index),
                     state.expected_owner, "staged package signature");
@@ -1442,7 +1445,7 @@ SourceArtifactInstallTrustedStateStore::prepare(
                 artifacts.get(), staged_artifact_filename(index),
                 state.expected_owner, "staged package artifact",
                 expected.artifact_size);
-            require_archive_identity(artifact.get(), expected);
+            require_archive_identity(artifact.get(), expected, request.purpose == SourceArtifactInstallTrustedPurpose::LegacyArtifactInstall);
         }
 
         if(request.purpose == SourceArtifactInstallTrustedPurpose::ExactInstalledBinding) {
@@ -1926,6 +1929,8 @@ void SourceArtifactInstallTrustedStateStore::observe_execution(const std::string
     auto lifetime = acquire_lifetime_lease(transaction.descriptor.get(), state.expected_owner, token, LOCK_SH);
     const auto request = validate_prepared_state(transaction.descriptor.get(), state.expected_owner,
                                                  token, state.reprove_namespace(), lifetime.get());
+    if(request.purpose == SourceArtifactInstallTrustedPurpose::LegacyArtifactInstall)
+        throw_state_error_message("legacy install cannot mint hook execution evidence");
     require_entry_absent(transaction.descriptor.get(), std::string(OBSERVED_FILE), "package execution observation");
     require_transaction_entries(transaction.descriptor.get(),
                                 {std::string(PREPARED_FILE), std::string(HOOK_DIRECTORY),
@@ -1954,6 +1959,47 @@ void SourceArtifactInstallTrustedStateStore::observe_execution(const std::string
             // the independent execution witness and leave missing/partial proof.
         }
     }
+}
+
+int SourceArtifactInstallTrustedStateStore::install_legacy(
+    const SourceArtifactInstallRootPrepareRequest& request, int sealed_artifact_input_fd) {
+    if(request.purpose != SourceArtifactInstallTrustedPurpose::LegacyArtifactInstall)
+        throw_state_error_message("legacy install requires its dedicated purpose");
+    static_cast<void>(prepare(request, sealed_artifact_input_fd));
+    const pid_t child = fork();
+    if(child < 0) {
+        abort(request.transaction_token);
+        throw_state_error("unable to fork legacy package transaction");
+    }
+    if(child == 0) {
+        try {
+            // Production success is exec, never an early helper return. Only
+            // test hooks return a status here. Exceptions cannot produce zero.
+            _exit(execute(request.transaction_token));
+        } catch(const std::exception& error) {
+            std::cerr << "moguet: " << error.what() << '\n';
+        } catch(...) {
+        }
+        _exit(125);
+    }
+    int status = 0;
+    pid_t waited;
+    do {
+        waited = waitpid(child, &status, 0);
+    } while(waited < 0 && errno == EINTR);
+    if(waited != child) {
+        // Unknown child lifetime: leave the stage and its lease untouched.
+        throw_state_error("legacy package transaction outcome is unknown");
+    }
+    const int result = WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
+    try {
+        abort(request.transaction_token);
+    } catch(const std::exception& error) {
+        // A completed transaction cannot become a failed installation merely
+        // because diagnostic staging cleanup failed. Keep the stage for inspection.
+        std::cerr << "moguet: legacy artifact stage cleanup failed: " << error.what() << '\n';
+    }
+    return result;
 }
 
 int SourceArtifactInstallTrustedStateStore::execute(const std::string& token) {
@@ -2006,11 +2052,16 @@ int SourceArtifactInstallTrustedStateStore::execute(const std::string& token) {
         if(request.needed) arguments.emplace_back("--needed");
         if(request.directive == SourceArtifactInstallTrustedDirective::AsDependency) arguments.emplace_back("--asdeps");
         if(request.no_confirm) arguments.emplace_back("--noconfirm");
-        arguments.emplace_back("--hookdir");
-        arguments.push_back(source_artifact_install_hook_directory(token));
+        if(request.directive == SourceArtifactInstallTrustedDirective::AsExplicit) arguments.emplace_back("--asexplicit");
+        if(request.purpose != SourceArtifactInstallTrustedPurpose::LegacyArtifactInstall) {
+            arguments.emplace_back("--hookdir");
+            arguments.push_back(source_artifact_install_hook_directory(token));
+        }
         arguments.emplace_back("--");
         for(std::size_t index = 0; index < request.artifacts.size(); ++index)
             arguments.push_back(source_artifact_install_staged_artifact_path(token, index));
+        if(request.purpose == SourceArtifactInstallTrustedPurpose::LegacyArtifactInstall)
+            std::cerr << "moguet: " << shell_words::join(arguments) << '\n';
         std::vector<char*> argv;
         for(auto& argument : arguments)
             argv.push_back(argument.data());

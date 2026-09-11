@@ -897,36 +897,40 @@ private:
             const auto& expected = binding.selected_artifacts[position];
             const auto& record =
                 install.artifacts_.records_[selected.artifact_index];
+            struct stat sealed_archive{};
+            if(fstat(record.sealed_artifact_descriptor, &sealed_archive) != 0) throw std::runtime_error("Invalid prepared archive snapshot.");
             const struct stat artifact_metadata = require_snapshot_source(
-                record.artifact_descriptor, record.artifact_device,
-                record.artifact_inode, record.artifact_owner,
+                record.sealed_artifact_descriptor, sealed_archive.st_dev,
+                sealed_archive.st_ino, record.artifact_owner,
                 SOURCE_ARTIFACT_INSTALL_MAXIMUM_ARTIFACT_BYTES);
             const std::string archive_digest = xdg_generation_store_file_descriptor_sha256(
-                record.artifact_descriptor, static_cast<std::uintmax_t>(artifact_metadata.st_size),
+                record.sealed_artifact_descriptor, static_cast<std::uintmax_t>(artifact_metadata.st_size),
                 SOURCE_ARTIFACT_INSTALL_MAXIMUM_ARTIFACT_BYTES);
             append_descriptor_bytes(
-                record.artifact_descriptor, artifact_metadata,
+                record.sealed_artifact_descriptor, artifact_metadata,
                 snapshot.get());
 
             std::uint64_t signature_size = 0;
             std::string signature_digest = "-";
             if(record.has_signature) {
+                struct stat sealed_signature{};
+                if(fstat(record.sealed_signature_descriptor, &sealed_signature) != 0) throw std::runtime_error("Invalid prepared signature snapshot.");
                 const struct stat signature_metadata =
                     require_snapshot_source(
-                        record.signature_descriptor,
-                        record.signature_device,
-                        record.signature_inode,
+                        record.sealed_signature_descriptor,
+                        sealed_signature.st_dev,
+                        sealed_signature.st_ino,
                         record.signature_owner,
                         SOURCE_ARTIFACT_INSTALL_MAXIMUM_SIGNATURE_BYTES);
                 signature_digest = xdg_generation_store_file_descriptor_sha256(
-                    record.signature_descriptor, static_cast<std::uintmax_t>(signature_metadata.st_size),
+                    record.sealed_signature_descriptor, static_cast<std::uintmax_t>(signature_metadata.st_size),
                     SOURCE_ARTIFACT_INSTALL_MAXIMUM_SIGNATURE_BYTES);
                 append_descriptor_bytes(
-                    record.signature_descriptor, signature_metadata,
+                    record.sealed_signature_descriptor, signature_metadata,
                     snapshot.get());
                 signature_size =
                     static_cast<std::uint64_t>(signature_metadata.st_size);
-            } else if(record.signature_descriptor >= 0) {
+            } else if(record.sealed_signature_descriptor >= 0) {
                 throw std::runtime_error(
                     "source-artifact signature descriptor is incoherent");
             }

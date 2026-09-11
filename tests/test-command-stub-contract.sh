@@ -138,4 +138,6 @@ expect_rejected 'typed install with two reason options' \
     "$repo_root/tests/stubs/sudo" pacman -U --asdeps --asexplicit -- \
         "$tmp_dir/artifact"
 
+/usr/bin/python3 -I "$repo_root/tests/test-legacy-install-test-adapter.py"
+
 printf '%s\n' 'test command safety and stub contracts: all checks passed'

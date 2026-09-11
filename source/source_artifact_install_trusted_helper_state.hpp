@@ -52,6 +52,10 @@ public:
     // retains the private namespace and stage FDs,
     // reproves their identities/digests, then execs fixed pacman with normal
     // archive + adjacent .sig paths. Production success never returns.
+    // One synchronous legacy operation: same staging/final reproof, no receipt
+    // claim. Waits for the exact child so a complete --needed no-op stays success.
+    [[nodiscard]] int install_legacy(const SourceArtifactInstallRootPrepareRequest& request,
+                                     int sealed_artifact_input_fd);
     [[nodiscard]] int execute(const std::string& transaction_token);
     [[nodiscard]] SourceArtifactInstallExecutionObservation execution_status(
         const std::string& transaction_token);

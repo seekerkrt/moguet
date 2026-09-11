@@ -35,6 +35,33 @@ expected artifactとactual artifactについて、次をinstall前に証明す�
 
 PackageBaseとchildのidentity相関、workspaceのcontainment、artifactのfreshnessを証明できない場合は、`--noconfirm`指定でもinstallへ進まない。filenameの規則、directory layout、内部type、module分割はこのcontractが固定するauthorityではない。
 
+### 検査したarchive bytesとtransaction input
+
+prepareはarchiveと存在するdetached signatureをretained FDからwrite-sealed snapshotへ固定し、
+そのarchive snapshotをlibalpmで検査してrequired childを選ぶ。元のnamed entry / inode / owner / containmentの
+検証に加え、prepare完了時とtransaction直前に元archive・署名をsnapshotとbyte単位で照合する。
+same-inode / same-size / mtime復元を含む内容変更は拒否する。unselected childの相関も保持し、
+transactionへ渡すbytesはselected childのarchiveと署名だけとする。
+
+legacy executorはfixed sudoからinstalled source-artifact helperの`install-legacy`を呼び、同じsealed bytesと
+保存したname/version・SHA-256をroot-owned private stagingへ渡す。helperは元workspace pathnameを再openせず、
+kernelの`/proc/PID/fd/FD`から一度開いたsealed inputを検証してcopyする。標準入力はpacmanのprompt用に維持する。
+最終的なarchive/signature digest、stage generation、parent / named / retained identityの再証明とpacmanへのexecは
+同じprivileged ownerが行う。clientの最終照合後に元pathnameが変わっても、transaction inputは検査済みsnapshotから変わらない。
+root / kernelをtrustedとする境界とfinal reproofは[trusted transport contract](trusted-source-artifact-transport.md)に従う。
+
+packageと`.sig`は通常の隣接pathnameでpacmanへ渡し、SigLevel、confirmation、install reason、`--needed`を変更しない。
+空の`.sig`もabsenceへ潰さず、legacy専用schemaでSHA-256(empty)を保持してpacmanの既存署名policyへ渡す。
+legacy selectionが要求しないoptional PackageBase / architectureを新しい選択条件にしない。
+legacy専用purpose / prepared schemaはcleanup receiptや#476のexact installed bindingへ昇格できない。
+helperは同じchildの終了をwaitし、hookが走らない完全な`--needed` skipも既存どおり成功として扱う。
+zeroは検査済みinputに対する既存operation resultの根拠であり、fresh installed DB / exact receiptの新規保証ではない。
+childの終了が不明なら成功とせず、stage / leaseを保持する。既知のtransaction終了後のstage cleanup failureは
+警告として残し、実行済みtransactionを未実行・rollback済みへ変換しない。
+
+snapshotは既存transportのresource上限（archive 4 GiB、署名16 MiB、aggregate 8 GiB）を超える場合に拒否する。
+sealed snapshotとselected transfer inputを保持するため追加のmemory / swapを使い、作成・copy・sealの失敗はinstall前に停止する。
+
 ### Transaction、failure、cleanup
 
 transaction failureはpackageごとのpartial successを証明しない。failed transaction後にchild successを推測せず、safeなattempt identity / versionをfailure evidenceとしてsuccessful outcomeから分離する。

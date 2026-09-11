@@ -69,6 +69,7 @@ class PreparedPackageBaseArtifactInstall final {
     void require_not_moved_from() const;
     void require_active_for_execution() const;
     void require_execution_coherence() const;
+    std::string legacy_install_command(const ArtifactInstallExecutionOptions& options);
 
     friend class PackageBaseArtifactInstallPreparationResult;
     friend PackageBaseArtifactInstallPreparationResult

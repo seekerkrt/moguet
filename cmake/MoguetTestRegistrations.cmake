@@ -17,7 +17,8 @@ moguet_add_ctest(
     WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
 )
 set_tests_properties(cpp.reviewed_devel_source_build_execution PROPERTIES TIMEOUT 480)
-moguet_add_ctest(NAME cpp.normal_reviewed_devel_execution TARGETS normal-reviewed-devel-execution-test COMMAND python3 "${PROJECT_SOURCE_DIR}/tests/run-with-pty.py" --timeout 480 -- "$<TARGET_FILE:normal-reviewed-devel-execution-test>" --normal-reviewed-devel-execution WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}")
+# Leave CTest 30 seconds for the wrapper's timeout diagnostic and cleanup.
+moguet_add_ctest(NAME cpp.normal_reviewed_devel_execution TARGETS normal-reviewed-devel-execution-test COMMAND python3 "${PROJECT_SOURCE_DIR}/tests/run-with-pty.py" --no-input --timeout 450 -- "$<TARGET_FILE:normal-reviewed-devel-execution-test>" --normal-reviewed-devel-execution WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}")
 set_tests_properties(cpp.normal_reviewed_devel_execution PROPERTIES TIMEOUT 480)
 moguet_add_ctest(NAME cpp.aur_devel_route TARGETS aur-devel-route-test COMMAND "$<TARGET_FILE:aur-devel-route-test>" --normal-route WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}")
 _moguet_add_direct_ctest(cpp.devel_package_assessment devel-package-assessment-test)
@@ -862,6 +863,8 @@ moguet_add_ctest(
         "-DMOGUET_NEGATIVE_COMPILE_CONFIGURATION_FLAGS_FILE=${_moguet_negative_compile_configuration_flags_file}"
         "-DMOGUET_NEGATIVE_COMPILE_PROJECT_OPTIONS_FILE=${_moguet_negative_compile_project_options_file}"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/MoguetNegativeCompile.cmake"
+    # Negative compile validation matches English compiler diagnostics.
+    ENVIRONMENT "LC_ALL=C" "LANG=C" "LANGUAGE="
 )
 
 unset(_moguet_negative_compile_state_dir)

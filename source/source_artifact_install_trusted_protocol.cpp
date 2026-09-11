@@ -17,6 +17,7 @@ namespace {
 constexpr std::string_view OWNER = "source-artifact-install";
 constexpr std::string_view PREPARED_HEADER =
     "MOGUET-SOURCE-ARTIFACT-PREPARED\t2";
+constexpr std::string_view LEGACY_PREPARED_HEADER = "MOGUET-LEGACY-ARTIFACT-PREPARED\t1";
 constexpr std::string_view PREPARE_RESPONSE_HEADER =
     "MOGUET-SOURCE-ARTIFACT-PREPARE-RESPONSE\t2";
 constexpr std::string_view RECEIPT_HEADER =
@@ -55,23 +56,25 @@ bool metadata_value_is_valid(
 
 bool artifact_is_valid(
     const SourceArtifactInstallRootArtifactExpectation& artifact,
-    std::string_view expected_package_base) noexcept {
+    std::string_view expected_package_base, bool legacy = false) noexcept {
     return artifact.artifact_index <
                SOURCE_ARTIFACT_INSTALL_MAXIMUM_ARTIFACTS &&
            is_valid_package_name(artifact.package_name) &&
            is_valid_trusted_alpm_receipt_package_name(
                artifact.package_name) &&
            metadata_value_is_valid(artifact.full_version, 4096) &&
-           is_valid_package_name(artifact.package_base) &&
-           artifact.package_base == expected_package_base &&
-           metadata_value_is_valid(artifact.architecture, 256) &&
+           (legacy ? artifact.package_base == "-" && artifact.architecture == "-"
+                   : is_valid_package_name(artifact.package_base) &&
+                         artifact.package_base == expected_package_base &&
+                         metadata_value_is_valid(artifact.architecture, 256)) &&
            artifact.artifact_size > 0 &&
            artifact.artifact_size <=
                SOURCE_ARTIFACT_INSTALL_MAXIMUM_ARTIFACT_BYTES &&
            artifact.signature_size <=
                SOURCE_ARTIFACT_INSTALL_MAXIMUM_SIGNATURE_BYTES &&
            is_valid_source_artifact_install_sha256(artifact.archive_sha256) &&
-           (artifact.signature_size == 0 ? artifact.signature_sha256 == "-"
+           (artifact.signature_size == 0 ? (artifact.signature_sha256 == "-" ||
+                                            (legacy && artifact.signature_sha256 == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"))
                                          : is_valid_source_artifact_install_sha256(artifact.signature_sha256));
 }
 
@@ -172,12 +175,14 @@ std::optional<SourceArtifactInstallTrustedDirective> parse_directive(
     if(value == "AsDependency") {
         return SourceArtifactInstallTrustedDirective::AsDependency;
     }
+    if(value == "AsExplicit") return SourceArtifactInstallTrustedDirective::AsExplicit;
     return std::nullopt;
 }
 
 std::string_view serialize_directive(
     SourceArtifactInstallTrustedDirective directive) {
     switch(directive) {
+        case SourceArtifactInstallTrustedDirective::AsExplicit: return "AsExplicit";
         case SourceArtifactInstallTrustedDirective::
             PreserveExistingReason:
             return "PreserveExistingReason";
@@ -192,7 +197,7 @@ std::optional<SourceArtifactInstallRootArtifactExpectation>
 parse_artifact_fields(
     const std::vector<std::string_view>& fields,
     std::size_t offset,
-    std::string_view expected_package_base) {
+    std::string_view expected_package_base, bool legacy = false) {
     if(fields.size() < offset + 9) return std::nullopt;
     const auto artifact_index =
         parse_canonical_unsigned<std::size_t>(fields[offset]);
@@ -213,7 +218,7 @@ parse_artifact_fields(
         *artifact_size,
         *signature_size, std::string(fields[offset + 7]),
         std::string(fields[offset + 8])};
-    if(!artifact_is_valid(artifact, expected_package_base)) {
+    if(!artifact_is_valid(artifact, expected_package_base, legacy)) {
         return std::nullopt;
     }
     return artifact;
@@ -244,7 +249,8 @@ std::string_view source_artifact_install_trusted_owner() noexcept {
 bool is_valid_source_artifact_install_root_request(
     const SourceArtifactInstallRootPrepareRequest& request) noexcept {
     if((request.purpose != SourceArtifactInstallTrustedPurpose::CleanupInstallOnly &&
-        request.purpose != SourceArtifactInstallTrustedPurpose::ExactInstalledBinding) ||
+        request.purpose != SourceArtifactInstallTrustedPurpose::ExactInstalledBinding &&
+        request.purpose != SourceArtifactInstallTrustedPurpose::LegacyArtifactInstall) ||
        !is_valid_trusted_alpm_receipt_token(request.transaction_token) ||
        !is_valid_package_name(request.package_base) ||
        request.artifacts.empty() ||
@@ -252,7 +258,11 @@ bool is_valid_source_artifact_install_root_request(
            SOURCE_ARTIFACT_INSTALL_MAXIMUM_ARTIFACTS) {
         return false;
     }
+    const bool legacy = request.purpose == SourceArtifactInstallTrustedPurpose::LegacyArtifactInstall;
     switch(request.directive) {
+        case SourceArtifactInstallTrustedDirective::AsExplicit:
+            if(!legacy) return false;
+            break;
         case SourceArtifactInstallTrustedDirective::
             PreserveExistingReason:
         case SourceArtifactInstallTrustedDirective::AsDependency:
@@ -268,7 +278,7 @@ bool is_valid_source_artifact_install_root_request(
         if((request.purpose == SourceArtifactInstallTrustedPurpose::ExactInstalledBinding
                 ? !is_valid_source_artifact_install_sha256(artifact.raw_mtree_sha256)
                 : artifact.raw_mtree_sha256 != "-") ||
-           !artifact_is_valid(artifact, request.package_base) ||
+           !artifact_is_valid(artifact, request.package_base, legacy) ||
            !checked_add(artifact.artifact_size, aggregate_size) ||
            !checked_add(artifact.signature_size, aggregate_size)) {
             return false;
@@ -299,7 +309,18 @@ bool is_valid_source_artifact_install_root_request(
 
 SourceArtifactInstallTrustedHelperInvocationResult
 parse_source_artifact_install_trusted_helper_arguments(
-    const std::vector<std::string>& arguments) {
+    const std::vector<std::string>& input_arguments) {
+    auto arguments = input_arguments;
+    std::string legacy_input_path;
+    if(!arguments.empty() && arguments[0] == "install-legacy") {
+        if(arguments.size() < 3) return fail<SourceArtifactInstallTrustedHelperInvocation>(SourceArtifactInstallTrustedProtocolIssueKind::InvalidArgumentCount);
+        const auto pid = parse_canonical_unsigned<unsigned int>(arguments[1]);
+        const auto fd = parse_canonical_unsigned<unsigned int>(arguments[2]);
+        if(!pid || *pid == 0 || !fd || *pid > 2147483647U || *fd > 2147483647U)
+            return fail<SourceArtifactInstallTrustedHelperInvocation>(SourceArtifactInstallTrustedProtocolIssueKind::UnexpectedRecord);
+        legacy_input_path = "/proc/" + arguments[1] + "/fd/" + arguments[2];
+        arguments.erase(arguments.begin() + 1, arguments.begin() + 3);
+    }
     if(arguments.empty()) {
         return fail<SourceArtifactInstallTrustedHelperInvocation>(
             SourceArtifactInstallTrustedProtocolIssueKind::
@@ -307,7 +328,9 @@ parse_source_artifact_install_trusted_helper_arguments(
     }
 
     SourceArtifactInstallTrustedHelperCommand command;
-    if(arguments[0] == "prepare") {
+    if(arguments[0] == "install-legacy") {
+        command = SourceArtifactInstallTrustedHelperCommand::InstallLegacy;
+    } else if(arguments[0] == "prepare") {
         command = SourceArtifactInstallTrustedHelperCommand::Prepare;
     } else if(arguments[0] == "prepare-exact") {
         command = SourceArtifactInstallTrustedHelperCommand::PrepareExact;
@@ -343,8 +366,9 @@ parse_source_artifact_install_trusted_helper_arguments(
                 : SourceArtifactInstallTrustedProtocolIssueKind::
                       InvalidTransactionToken);
     }
+    const bool legacy = command == SourceArtifactInstallTrustedHelperCommand::InstallLegacy;
     const bool exact = command == SourceArtifactInstallTrustedHelperCommand::PrepareExact;
-    if(command != SourceArtifactInstallTrustedHelperCommand::Prepare && !exact) {
+    if(command != SourceArtifactInstallTrustedHelperCommand::Prepare && !exact && !legacy) {
         if(arguments.size() != 2) {
             return fail<SourceArtifactInstallTrustedHelperInvocation>(
                 SourceArtifactInstallTrustedProtocolIssueKind::
@@ -364,7 +388,7 @@ parse_source_artifact_install_trusted_helper_arguments(
                 InvalidPackageBase);
     }
     const auto directive = parse_directive(arguments[3]);
-    if(!directive.has_value()) {
+    if(!directive.has_value() || (!legacy && *directive == SourceArtifactInstallTrustedDirective::AsExplicit)) {
         return fail<SourceArtifactInstallTrustedHelperInvocation>(
             SourceArtifactInstallTrustedProtocolIssueKind::InvalidDirective);
     }
@@ -410,7 +434,7 @@ parse_source_artifact_install_trusted_helper_arguments(
                 SourceArtifactInstallTrustedProtocolIssueKind::InvalidDigest);
         }
         auto artifact = parse_artifact_fields(
-            fields, index * stride, arguments[2]);
+            fields, index * stride, arguments[2], legacy);
         if(!artifact.has_value()) {
             return fail<SourceArtifactInstallTrustedHelperInvocation>(
                 SourceArtifactInstallTrustedProtocolIssueKind::
@@ -430,6 +454,7 @@ parse_source_artifact_install_trusted_helper_arguments(
     SourceArtifactInstallRootPrepareRequest request{
         arguments[1], arguments[2], *directive, *needed, *no_confirm,
         artifacts};
+    if(legacy) request.purpose = SourceArtifactInstallTrustedPurpose::LegacyArtifactInstall;
     if(exact) request.purpose = SourceArtifactInstallTrustedPurpose::ExactInstalledBinding;
     if(!is_valid_source_artifact_install_root_request(request)) {
         return fail<SourceArtifactInstallTrustedHelperInvocation>(
@@ -439,7 +464,7 @@ parse_source_artifact_install_trusted_helper_arguments(
     return SourceArtifactInstallTrustedHelperInvocation{
         command, request.transaction_token, std::move(artifacts),
         request.package_base, request.directive, request.needed,
-        request.no_confirm};
+        request.no_confirm, legacy_input_path};
 }
 
 std::string serialize_source_artifact_install_root_prepared_state(
@@ -466,7 +491,7 @@ std::string serialize_source_artifact_install_root_prepared_state(
     }
     std::string protocol;
     protocol.reserve(256 + request.artifacts.size() * 128);
-    protocol.append(PREPARED_HEADER).push_back('\n');
+    protocol.append(request.purpose == SourceArtifactInstallTrustedPurpose::LegacyArtifactInstall ? LEGACY_PREPARED_HEADER : PREPARED_HEADER).push_back('\n');
     protocol.append(TOKEN_PREFIX).append(request.transaction_token).push_back('\n');
     protocol.append(OWNER_PREFIX).append(OWNER).push_back('\n');
     protocol.append(PACKAGE_BASE_PREFIX).append(request.package_base).push_back('\n');
@@ -534,7 +559,8 @@ parse_source_artifact_install_root_prepared_state(
             SourceArtifactInstallTrustedProtocolIssueKind::
                 TruncatedProtocol);
     }
-    if(lines[0] != PREPARED_HEADER || lines.back() != END_RECORD) {
+    const bool legacy = lines[0] == LEGACY_PREPARED_HEADER;
+    if((lines[0] != PREPARED_HEADER && !legacy) || lines.back() != END_RECORD) {
         return fail<SourceArtifactInstallRootPrepareRequest>(
             lines[0] != PREPARED_HEADER
                 ? SourceArtifactInstallTrustedProtocolIssueKind::
@@ -584,7 +610,7 @@ parse_source_artifact_install_root_prepared_state(
                 SourceArtifactInstallTrustedProtocolIssueKind::InvalidDigest);
         }
         const auto artifact = parse_artifact_fields(
-            fields, 1, *package_base);
+            fields, 1, *package_base, legacy);
         if(!artifact.has_value()) {
             return fail<SourceArtifactInstallRootPrepareRequest>(
                 SourceArtifactInstallTrustedProtocolIssueKind::
@@ -595,6 +621,7 @@ parse_source_artifact_install_root_prepared_state(
     SourceArtifactInstallRootPrepareRequest request{
         std::string(*token), std::string(*package_base), *directive,
         *needed, *no_confirm, std::move(artifacts)};
+    if(legacy) request.purpose = SourceArtifactInstallTrustedPurpose::LegacyArtifactInstall;
     if(!is_valid_source_artifact_install_root_request(request)) {
         return fail<SourceArtifactInstallRootPrepareRequest>(
             SourceArtifactInstallTrustedProtocolIssueKind::
