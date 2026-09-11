@@ -56,11 +56,13 @@ moguet_add_cpp_test(
         "MOGUET_TEST_LEGACY_INSTALL_ADAPTER_PATH=\"${CMAKE_CURRENT_SOURCE_DIR}/tests/legacy-install-test-adapter.py\""
         MOGUET_ENABLE_TEST_CONFIG_PATH
         MOGUET_ENABLE_SYSTEM_AUR_UPDATE_PRESENTATION_TEST_HOOKS
+        "MOGUET_LOCALE_DIRECTORY=\"${CMAKE_CURRENT_BINARY_DIR}/locale\""
     INCLUDE_DIRECTORIES
         "${_moguet_test_source_include_dir}"
         "${_moguet_test_alpm_stub_include_dir}"
     FORBIDDEN_SOURCES ${_moguet_aur_update_command_forbidden_sources}
 )
+add_dependencies(moguet-aur-update-command-test moguet_catalogs)
 
 set(
     _moguet_upgrade_all_command_test_sources
@@ -3383,7 +3385,7 @@ set(
 set(
     MOGUET_EXPECTED_CPP_TEST_FIREWALL_DESCRIPTORS
     evaluated-devel-source-build-test=cff7745dfcc751074ea8a8eabbd5d130d899c2ed9a03f8dc5241f6b1904cc9d0
-    moguet-aur-update-command-test=114d8c7fd629aa88304677b560c60c5f5f164c41162779d5cfe185ebb0482fd3
+    moguet-aur-update-command-test=d0cdbab07574680dbd010fe1089658f180410f107856072c18652cbe63218927
     moguet-upgrade-all-command-test=95f9382bdfc0add14d6e9189874726b706d9bcf42fa44d449f7bd9ad636dbd60
     moguet-commands-sync-test=556b738b28d4021bedfc8a39a1d3b61b6f9de98c717a0436d9b6fd6540f667db
     moguet-commands-inspect-test=b3573174fa981335e191dc15f3e1fcdd9755c26e594bb082f460a6865d2b2e95

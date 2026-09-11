@@ -713,6 +713,15 @@ std::string aur_update_cli_target_failure_summary(
     const AurUpdateOperationTargetResult& target) {
     if(!target.execution_failure_kind.has_value() ||
        *target.execution_failure_kind == AurUpdateWorkItemFailureKind::None) {
+        // Preparation can fail before any execution result exists. Use only
+        // this target's attributed payload; an execution failure above None
+        // must still pass through its existing validation and projection.
+        for(const AurUpdatePreparationIssue& issue : target.preparation_issues) {
+            if(issue.reviewed_source_failure.has_value()) {
+                return reviewed_source_production_failure_diagnostic(
+                    *issue.reviewed_source_failure);
+            }
+        }
         return localization::translate_message(
             "failure category unavailable");
     }
