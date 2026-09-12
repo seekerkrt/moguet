@@ -374,6 +374,7 @@ while IFS='|' read -r package detail; do
     assert_command_log_empty
 done <<'CASES'
 version-control|field Version contains a control character
+depends-control|field Depends[0] contains a control character
 semantic-provides-control|field Provides[0] contains a control character
 semantic-provides-malformed|field Provides[0] contains an invalid version constraint
 semantic-provides-non-equality|field Provides[0] contains an invalid version constraint
@@ -482,6 +483,76 @@ for package in valid-minimal arrays-null arrays-empty arrays-valid valid-split; 
         assert_contains "Depends On      : foo>=1" "$output_file"
         assert_contains "Optional Deps   : optional-package: optional description" "$output_file"
     fi
+done
+
+# Exercise the real RPC parser and both presentation sinks. Keep stdout separate
+# and report only repr(bytes), so a regression cannot replay controls in diagnostics.
+for package in free-text-description free-text-maintainer free-text-utf8 \
+    free-text-controls free-text-empty valid-minimal arrays-null; do
+    setup_case "terminal-safe-$package"
+    python3 - "$test_binary" "$package" <<'PYTHON'
+import subprocess
+import sys
+
+binary, package = sys.argv[1:]
+controls = br"TEXT\x09\x0A\x0D\x00\x7F\xC2\x85\x5CEND"
+utf8 = "日本語 café 😀".encode("utf-8")
+# Independent expected bytes, not derived by sanitizing the fixture or output.
+description, maintainer = {
+    "free-text-description": (br"\x1B[31mDESC\x1B[0m", b"fixture-maintainer"),
+    "free-text-maintainer": (b"normal description", br"\x1B[31mMAINT\x1B[0m"),
+    "free-text-utf8": (utf8, utf8),
+    "free-text-controls": (controls, controls),
+    "free-text-empty": (b"", b""),
+    "valid-minimal": (b"", b""),
+    "arrays-null": (b"", b""),
+}[package]
+
+
+def require(condition, message, output):
+    if not condition:
+        raise SystemExit(f"{package}: {message}: {output!r}")
+
+
+for operation in ("-Ss", "-Si"):
+    # Missing/null fixtures have no search mapping; their info covers None/orphan.
+    if operation == "-Ss" and package in ("valid-minimal", "arrays-null"):
+        continue
+    result = subprocess.run(
+        [binary, operation, "--aur", package],
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        check=False,
+    )
+    require(result.returncode == 0, f"{operation} exit {result.returncode}",
+            (result.stdout, result.stderr))
+    output = result.stdout
+    if operation == "-Ss":
+        prefix = b"\x1b[1;35maur\x1b[0m/\x1b[1m"
+        header = prefix + package.encode("ascii") + b"\x1b[0m \x1b[1;32m1.0-1\x1b[0m"
+        if not maintainer:
+            header += b" \x1b[1;33m[orphaned]\x1b[0m"
+        expected = header + b"\n"
+        if description:
+            expected += b"    " + description + b"\n"
+        # Preserve Moguet's ANSI exactly; do not strip ANSI or ban ESC globally.
+        start = output.find(prefix)
+        require(start >= 0 and output[start:] == expected,
+                "search bytes / ANSI / orphan annotation differ", output)
+        payload = output[start + len(header) + 1:]
+        require(b"\x1b" not in payload, "raw ESC in description", payload)
+        if package == "free-text-maintainer":
+            require(b"MAINT" not in output, "search exposed maintainer", output)
+    else:
+        for label, expected in ((b"Description     : ", description or b"None"),
+                                (b"Maintainer      : ", maintainer or b"None")):
+            lines = [line for line in output.split(b"\n") if line.startswith(label)]
+            require(lines == [label + expected], "info field bytes differ", output)
+            require(b"\x1b" not in lines[0], "raw ESC in remote info field", lines[0])
+        orphan = b"\x1b[1;33myes\x1b[0m" if not maintainer else b"no"
+        require(b"Orphaned        : " + orphan + b"\n" in output,
+                "info orphan state differs", output)
+PYTHON
+    assert_no_mutation_commands
 done
 
 # safety-critical arrayはfieldごとに独立して刺激する。1 entryにまとめると最初のerrorで後続fieldを検証できない。

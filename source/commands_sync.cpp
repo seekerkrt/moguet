@@ -21,6 +21,7 @@
 #include "source_install.hpp"
 #include "source_preference.hpp"
 #include "system_aur_update_operation.hpp"
+#include "terminal_safe_text.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -128,7 +129,9 @@ bool search_aur(
                           << "\033[0m";
             }
             std::cout << std::endl;
-            if(!info.Description.empty()) std::cout << "    " << info.Description << std::endl;
+            if(!info.Description.empty()) {
+                std::cout << "    " << terminal_safe_text::escape_utf8(info.Description) << std::endl;
+            }
         }
     }
     return found;
@@ -197,7 +200,7 @@ void print_aur_info(const AurPackageInfo& pkg) {
                      "Description     : {}",
                      pkg.Description.empty()
                          ? localization::translate_message("None")
-                         : pkg.Description)
+                         : terminal_safe_text::escape_utf8(pkg.Description))
               << std::endl;
     std::cout << localization::format_translated_message(
                      "Depends On      : {}",
@@ -236,7 +239,7 @@ void print_aur_info(const AurPackageInfo& pkg) {
                      "Maintainer      : {}",
                      pkg.Maintainer.empty()
                          ? localization::translate_message("None")
-                         : pkg.Maintainer)
+                         : terminal_safe_text::escape_utf8(pkg.Maintainer))
               << std::endl;
     std::cout << localization::format_translated_message(
                      "Installed       : {}", installed_display(pkg))
