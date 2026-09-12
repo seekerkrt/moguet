@@ -239,7 +239,7 @@ std::optional<AurPackageInfo> AurClient::info_strict(
     return std::get<std::optional<AurPackageInfo>>(std::move(script));
 }
 
-std::string exec_command(const char* command) {
+CapturedCommandResult capture_command_output(const char* command) {
     if(command == nullptr) {
         fail_unexpected_call(
             "Filtered AUR query stub received a null command.");
@@ -258,5 +258,5 @@ std::string exec_command(const char* command) {
     if(const auto* failure = std::get_if<ScriptFailure>(&script)) {
         throw std::runtime_error(failure->diagnostic);
     }
-    return std::get<std::string>(std::move(script));
+    return CapturedCommandResult{std::get<std::string>(std::move(script)), 0};
 }

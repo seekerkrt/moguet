@@ -1353,6 +1353,15 @@ assert_contains "Foreign package not found in AUR: foreign-non-aur" "$stdout_fil
 assert_no_foreign_update_mutation
 echo "  ok: foreign version parse failure remains fail-closed"
 
+# Issue #547: numeric stdout cannot override subprocess failure; -Qua stays recoverable.
+export MOGUET_TEST_VERCMP_OUTPUT=1
+export MOGUET_TEST_VERCMP_EXIT_CODE=7
+run_ok -Qua
+assert_contains "Failed to compare versions: 1.0-1 -> 2.0-1" "$stdout_file"
+assert_not_contains "foreign-up-to-date 1.0-1 ->" "$stdout_file"
+assert_no_foreign_update_mutation
+unset MOGUET_TEST_VERCMP_EXIT_CODE
+
 # Issue #353 Slice 5: typed relation results are localized only at
 # presentation time and retain the same readiness authority.
 command -v localedef >/dev/null 2>&1 ||

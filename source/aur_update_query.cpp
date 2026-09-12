@@ -29,7 +29,10 @@ AurVersionRelation compare_aur_versions(
     std::string comparison_command =
         "vercmp " + shell_words::quote(aur_version) + " " +
         shell_words::quote(installed_version);
-    std::string comparison_output = exec_command(comparison_command.c_str());
+    const CapturedCommandResult comparison_result =
+        capture_command_output(comparison_command.c_str());
+    if(comparison_result.exit_code != 0) return AurVersionRelation::Unavailable;
+    const std::string& comparison_output = comparison_result.output;
 
     try {
         std::size_t consumed_characters = 0;
