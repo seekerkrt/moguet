@@ -1734,6 +1734,70 @@ void test_target_attributed_preparation_failure() {
         "Normal target-attributed preparation failure was inconsistent");
 }
 
+void test_reviewed_preparation_failure_retains_target_and_operation_payload() {
+    const AurUpdateExecutionPreflight preflight = preflight_with({
+        executable_target(0, "affected-a"),
+        executable_target(1, "affected-b"),
+        up_to_date_target(2, "untouched"),
+    });
+    AurUpdateSourceBuildPreparation preparation =
+        preparation_for_execution(preflight);
+    const ReviewedSourceFatalStateFailure fatal{
+        ReviewedSourceFatalStateReason::UnsafeHistory,
+        std::nullopt,
+        ReviewedSourceStateStoreUnsafeHistory{
+            ReviewedSourceStateStoreHistoryIssue::ForkDetected,
+            "/fixture/reviewed-state",
+            {"1.toml", "2-a.toml", "2-b.toml"},
+            1,
+            2},
+        std::nullopt};
+    AurUpdatePreparationIssue issue = preparation_issue(
+        AurUpdatePreparationReason::GenericPreparationInconsistent,
+        {0, 1}, "presentation text is not the failure authority");
+    issue.reviewed_source_failure = ReviewedSourceProductionFailure{
+        ReviewedSourceProductionFailureStage::FatalStatePreflight,
+        ReviewedSourceProductionFailureReason::UnsafeHistory,
+        fatal};
+    preparation.issues.push_back(std::move(issue));
+
+    const AurUpdateOperationResult result =
+        reduce_aur_update_operation_result(preflight, preparation, std::nullopt);
+    expect(result.status == AurUpdateOperationStatus::BlockedBeforeExecution &&
+               result.reduction_issues.empty() && !result.is_success() &&
+               !result.execution_status && result.execution_work_items.empty(),
+           "Reviewed preparation failure fabricated execution or inconsistency");
+    expect_target_statuses(result,
+                           {AurUpdateOperationTargetStatus::Failed,
+                            AurUpdateOperationTargetStatus::Failed,
+                            AurUpdateOperationTargetStatus::Skipped},
+                           "reviewed preparation failure");
+    const auto expect_payload = [&fatal](const AurUpdatePreparationIssue& retained) {
+        expect(retained.reason == AurUpdatePreparationReason::GenericPreparationInconsistent &&
+                   retained.affected_update_plan_indices == std::vector<std::size_t>{0, 1} &&
+                   retained.reviewed_source_failure.has_value(),
+               "Reviewed preparation issue lost its classification or attribution");
+        const auto& failure = *retained.reviewed_source_failure;
+        const auto* detail = std::get_if<ReviewedSourceFatalStateFailure>(&failure.detail);
+        expect(failure.stage == ReviewedSourceProductionFailureStage::FatalStatePreflight &&
+                   failure.reason == ReviewedSourceProductionFailureReason::UnsafeHistory &&
+                   detail != nullptr && *detail == fatal,
+               "Reviewed preparation issue lost its exact typed payload");
+    };
+    expect(result.preparation_issues.size() == 1,
+           "Reviewed preparation failure lost the operation issue");
+    expect_payload(result.preparation_issues.front());
+    for(std::size_t index = 0; index < 2; ++index) {
+        const auto& target = result.targets[index];
+        expect(!target.execution_failure_kind && !target.execution_failure_detail &&
+                   target.execution_contributions.empty() && target.preparation_issues.size() == 1,
+               "Reviewed preparation failure fabricated execution or lost target issue");
+        expect_payload(target.preparation_issues.front());
+    }
+    expect(result.targets[2].preparation_issues.empty(),
+           "Reviewed preparation issue was reattributed to an unaffected target");
+}
+
 void test_split_and_multiple_lifecycle_reduce_from_child_results() {
     AurUpdateExecutionPreflight preflight = preflight_with({
         executable_target(0, "singular-child"),
@@ -4007,6 +4071,9 @@ int main() {
         run_case(
             "target-attributed preparation failure",
             test_target_attributed_preparation_failure);
+        run_case(
+            "reviewed preparation failure retains target and operation payload",
+            test_reviewed_preparation_failure_retains_target_and_operation_payload);
         run_case(
             "split and multiple lifecycle reduce from child results",
             test_split_and_multiple_lifecycle_reduce_from_child_results);
