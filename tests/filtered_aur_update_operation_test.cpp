@@ -2587,6 +2587,79 @@ void test_system_aur_work_item_failure_preserves_inner_partial() {
     execution_stub::require_script_consumed();
 }
 
+void test_system_aur_cancellation_preserves_inner_partial() {
+    reset_stubs();
+    const std::vector<RootSpec> roots{
+        {"first-updated", "first-updated"},
+        {"middle-failed", "middle-failed"},
+        {"last-not-attempted", "last-not-attempted"}};
+    query_stub::set_foreign_inventory(
+        inventory_for_roots(roots));
+    enqueue_exact_update_query(roots);
+    return_build_plan(root_plan(roots),
+                      {roots[0].package_name,
+                       roots[1].package_name,
+                       roots[2].package_name});
+    const AppConfig config;
+    execution_stub::enqueue_success(
+        expected_system_aur_execution(
+            0, roots[0].package_name, roots[0].package_base,
+            InstalledPackageReason::Explicit, config),
+        roots[0].package_base,
+        selected_system_aur_child(
+            roots[0].package_name,
+            InstalledPackageReason::Explicit));
+    execution_stub::enqueue_confirmation_stop(
+        expected_system_aur_execution(
+            1, roots[1].package_name, roots[1].package_base,
+            InstalledPackageReason::Explicit, config),
+        ConfirmationCancelled{ConfirmationCancellationReason::ExplicitToken});
+
+    PreparedSystemAurUpdateOperation prepared =
+        prepare_system_aur_update_fixture();
+    SystemAurUpdateOperationResult result =
+        execute_prepared_system_aur_update_operation(
+            std::move(prepared), config);
+    const FilteredAurUpdateExecutionResult& child =
+        require_system_aur_child(result, "system+AUR work-item failure");
+
+    expect(
+        result.aur.status ==
+                SystemAurUpdateAurPhaseStatus::StoppedOnWorkItemCancellation &&
+            result.status ==
+                SystemAurUpdateOperationStatus::StoppedOnAurCancellation &&
+            result.has_partial_completion() &&
+            result.has_not_attempted_phase() &&
+            !result.is_success(),
+        "AUR work-item failure aggregate semantics differ");
+    expect(
+        child.reduced_operation_result.targets.size() == 3 &&
+            child.reduced_operation_result.targets[0].status ==
+                AurUpdateOperationTargetStatus::Updated &&
+            child.reduced_operation_result.targets[1].status ==
+                AurUpdateOperationTargetStatus::Cancelled &&
+            child.reduced_operation_result.targets[2].status ==
+                AurUpdateOperationTargetStatus::NotAttempted &&
+            child.reduced_operation_result.execution_work_items.size() ==
+                3 &&
+            child.reduced_operation_result.execution_work_items[0].status ==
+                AurUpdateWorkItemExecutionStatus::Updated &&
+            child.reduced_operation_result.execution_work_items[1].status ==
+                AurUpdateWorkItemExecutionStatus::Cancelled &&
+            child.reduced_operation_result.execution_work_items[2].status ==
+                AurUpdateWorkItemExecutionStatus::NotAttempted,
+        "Updated/Failed/NotAttempted inner partial was flattened");
+    expect(
+        execution_stub::call_history().size() == 2,
+        "AUR work-item failure did not fail fast");
+    expect(!result.has_inconsistency() && !result.aur.diagnostic &&
+               result.stopped_phase == SystemAurUpdateOperationPhase::AurExecution &&
+               result.repository.status == SystemAurUpdateRepositoryPhaseStatus::Completed,
+           "Known cancellation lost repository prefix or became internal inconsistency");
+    query_stub::require_script_consumed();
+    execution_stub::require_script_consumed();
+}
+
 void test_system_aur_cleanup_failure_preserves_child_phase() {
     reset_stubs();
     const std::vector<RootSpec> roots{
@@ -4278,6 +4351,55 @@ void test_ordinary_failure_partial_completion_and_not_attempted() {
     execution_stub::require_script_consumed();
 }
 
+void test_cancellation_partial_completion_and_not_attempted() {
+    reset_stubs();
+    return_build_plan(
+        root_plan({{"first-success", "first-success"},
+                   {"middle-failure", "middle-failure"},
+                   {"last-pending", "last-pending"}}),
+        {"first-success", "middle-failure", "last-pending"});
+    const AppConfig config;
+    PreparedFilteredAurUpdateOperation prepared =
+        prepare_strict_filtered_aur_update_operation(
+            query_result({update_entry("first-success"),
+                          update_entry("middle-failure"),
+                          update_entry("last-pending")}),
+            NoExplicitSourceSatisfaction{}, config);
+    enqueue_installed(prepared, config, 1);
+    execution_stub::enqueue_confirmation_stop(
+        expected_execution_at(prepared, 1, config),
+        ConfirmationCancelled{ConfirmationCancellationReason::EndOfInput});
+
+    std::optional<FilteredAurUpdateExecutionResult> partial;
+    try {
+        static_cast<void>(execute_prepared_filtered_aur_update_operation(std::move(prepared), config));
+        throw std::runtime_error("Filtered cancellation returned ordinary result");
+    } catch(FilteredAurUpdateCancelled& stop) {
+        partial.emplace(std::move(stop).release_result());
+    }
+    const auto& result = *partial;
+    expect(result.issues.empty() && result.reduced_operation_result.reduction_issues.empty() && result.selected_target_results.size() == 3,
+           "Partial cancellation lost filtered correlations");
+    expect(result.selected_target_results[1].operation_result.cancellation == ConfirmationCancelled{ConfirmationCancellationReason::EndOfInput},
+           "Filtered target lost EOF reason");
+    expect(!result.is_success() && result.changed_package_state() &&
+               result.has_partial_completion() &&
+               result.has_not_attempted_targets(),
+           "Cancellation helper semantics differ");
+    expect(result.reduced_operation_result.status ==
+               AurUpdateOperationStatus::StoppedOnWorkItemCancellation,
+           "Cancellation operation status differs");
+    expect_statuses(
+        result,
+        {AurUpdateOperationTargetStatus::Updated,
+         AurUpdateOperationTargetStatus::Cancelled,
+         AurUpdateOperationTargetStatus::NotAttempted},
+        "cancellation");
+    expect(execution_stub::call_history().size() == 2,
+           "Cancellation did not fail fast");
+    execution_stub::require_script_consumed();
+}
+
 void test_cleanup_failure_partial_completion_and_not_attempted() {
     reset_stubs();
     return_build_plan(
@@ -4638,6 +4760,8 @@ void run_case(const std::string& name, Callable callable) {
 
 int main() {
     try {
+        test_cancellation_partial_completion_and_not_attempted();
+        test_system_aur_cancellation_preserves_inner_partial();
         run_case(
             "system+AUR dry-run Auto current update observation",
             test_system_aur_dry_run_auto_observes_current_update_without_capability);

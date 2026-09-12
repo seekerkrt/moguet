@@ -41,6 +41,7 @@ enum class UpgradeAllOperationStatus {
     StoppedOnAurFailure,
     StoppedAfterAurCleanupFailure,
     InconsistentResult,
+    StoppedOnAurCancellation,
 };
 
 enum class UpgradeAllForeignInventoryPhaseStatus {
@@ -58,6 +59,7 @@ enum class UpgradeAllAurPhaseStatus {
     StoppedOnWorkItemFailure,
     StoppedAfterCleanupFailure,
     InconsistentResult,
+    StoppedOnWorkItemCancellation,
 };
 
 enum class UpgradeAllNotAttemptedReason {

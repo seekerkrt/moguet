@@ -267,6 +267,7 @@ bool is_known_work_item_status(
     switch(status) {
         case AurUpdateWorkItemExecutionStatus::Updated:
         case AurUpdateWorkItemExecutionStatus::NoChange:
+        case AurUpdateWorkItemExecutionStatus::Cancelled:
         case AurUpdateWorkItemExecutionStatus::Failed:
         case AurUpdateWorkItemExecutionStatus::UpdatedCleanupFailed:
         case AurUpdateWorkItemExecutionStatus::NoChangeCleanupFailed:
@@ -305,6 +306,7 @@ bool child_status_matches_work_item(
                    child_status == AurUpdateChildExecutionStatus::SkippedAsNeeded;
         case AurUpdateWorkItemExecutionStatus::NoChange:
             return child_status == AurUpdateChildExecutionStatus::SkippedAsNeeded;
+        case AurUpdateWorkItemExecutionStatus::Cancelled:
         case AurUpdateWorkItemExecutionStatus::Failed:
         case AurUpdateWorkItemExecutionStatus::NotAttempted:
             return child_status == AurUpdateChildExecutionStatus::NotAttempted;
@@ -326,6 +328,8 @@ bool failure_kind_matches_work_item(
     switch(status) {
         case AurUpdateWorkItemExecutionStatus::Updated:
         case AurUpdateWorkItemExecutionStatus::NoChange:
+            return kind == AurUpdateWorkItemFailureKind::None;
+        case AurUpdateWorkItemExecutionStatus::Cancelled:
             return kind == AurUpdateWorkItemFailureKind::None;
         case AurUpdateWorkItemExecutionStatus::Failed:
             return kind == AurUpdateWorkItemFailureKind::AuthoritativeExecutionIncomplete || kind == AurUpdateWorkItemFailureKind::BuildOrInstallFailed ||
@@ -379,7 +383,14 @@ void require_coherent_work_item(
             // TRANSLATORS: AUR is a runtime project identity.
             "Unknown {} work-item execution status.", "AUR"));
     }
-    if(work_item.package_base.empty() || work_item.child_results.empty() ||
+    const bool cancelled = work_item.status == AurUpdateWorkItemExecutionStatus::Cancelled;
+    const bool valid_cancellation = cancelled == work_item.cancellation.has_value() &&
+                                    (!work_item.cancellation ||
+                                     work_item.cancellation->reason == ConfirmationCancellationReason::ExplicitToken ||
+                                     work_item.cancellation->reason == ConfirmationCancellationReason::EndOfInput);
+    if(!valid_cancellation ||
+       (cancelled && (work_item.production_outcome || work_item.devel_execution || work_item.diagnostic)) ||
+       work_item.package_base.empty() || work_item.child_results.empty() ||
        work_item.child_results.size() != work_item.plan_package_names.size() ||
        !failure_kind_matches_work_item(work_item.status, work_item.failure_kind)) {
         throw std::logic_error(localization::format_translated_message(
@@ -486,7 +497,8 @@ void require_coherent_work_item(
                 "Unselected {} artifact identity is incoherent.", "AUR"));
         }
     }
-    if((work_item.status == AurUpdateWorkItemExecutionStatus::Failed ||
+    if((work_item.status == AurUpdateWorkItemExecutionStatus::Cancelled ||
+        work_item.status == AurUpdateWorkItemExecutionStatus::Failed ||
         work_item.status == AurUpdateWorkItemExecutionStatus::NotAttempted) &&
        !work_item.unselected_artifacts.empty()) {
         throw std::logic_error(localization::format_translated_message(
@@ -575,6 +587,9 @@ bool is_ordinary_singular_success(
 std::string child_outcome_label(
     const AurUpdateWorkItemExecutionResult& work_item,
     AurUpdateChildExecutionStatus status) {
+    if(work_item.status == AurUpdateWorkItemExecutionStatus::Cancelled) {
+        return localization::translate_message("Cancelled");
+    }
     if(status == AurUpdateChildExecutionStatus::NotAttempted && work_item.devel_execution) {
         const auto operation = work_item.devel_execution->operation;
         if(operation == DevelSourceArtifactInstallOperation::Succeeded) return localization::translate_message("transaction succeeded; exact installed proof unavailable");

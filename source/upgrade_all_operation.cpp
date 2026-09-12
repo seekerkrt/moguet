@@ -945,6 +945,11 @@ void map_filtered_result_status(UpgradeAllOperationResult& aggregate) {
             aggregate.aur.status = UpgradeAllAurPhaseStatus::
                 StoppedOnProviderTransactionFailure;
             return;
+        case AurUpdateOperationStatus::StoppedOnWorkItemCancellation:
+            aggregate.status = UpgradeAllOperationStatus::StoppedOnAurCancellation;
+            aggregate.stopped_phase = UpgradeAllOperationPhase::AurExecution;
+            aggregate.aur.status = UpgradeAllAurPhaseStatus::StoppedOnWorkItemCancellation;
+            return;
         case AurUpdateOperationStatus::StoppedOnWorkItemFailure:
             aggregate.status = UpgradeAllOperationStatus::StoppedOnAurFailure;
             aggregate.stopped_phase = UpgradeAllOperationPhase::AurExecution;
@@ -1815,6 +1820,12 @@ UpgradeAllOperationResult execute_prepared_upgrade_all_operation(
                 std::move(
                     aur_preflight.filtered_operation_.value()),
                 config));
+    } catch(FilteredAurUpdateCancelled& stop) {
+        result.aur.operation_result.emplace(std::move(stop).release_result());
+        map_filtered_result_status(result);
+        // Finalize only the known partial result, never the preparation-failure
+        // fallback or a later mutation after cancellation.
+        return result;
     } catch(const TrustedCacheError& error) {
         stop_for_cache_authority_failure(
             result, UpgradeAllOperationPhase::AurPreparation,

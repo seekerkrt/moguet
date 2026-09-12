@@ -1288,10 +1288,15 @@ AurUpdateWorkItemExecutionResult make_work_item_result(
             child.status = AurUpdateChildExecutionStatus::
                 SkippedAsNeededCleanupFailed;
             break;
+        case AurUpdateWorkItemExecutionStatus::Cancelled:
         case AurUpdateWorkItemExecutionStatus::Failed:
         case AurUpdateWorkItemExecutionStatus::NotAttempted:
             child.status = AurUpdateChildExecutionStatus::NotAttempted;
             break;
+    }
+    if(status == AurUpdateWorkItemExecutionStatus::Cancelled) {
+        work_item.failure_kind = AurUpdateWorkItemFailureKind::None;
+        work_item.cancellation = ConfirmationCancelled{ConfirmationCancellationReason::ExplicitToken};
     }
     work_item.child_results.push_back(std::move(child));
     return work_item;
@@ -2045,6 +2050,9 @@ UpgradeAllOperationResult make_target_status_matrix_result(
                     std::nullopt,
                     std::nullopt,
                     "matrix target is already up to date"});
+            break;
+        case AurUpdateOperationTargetStatus::Cancelled:
+            target.cancellation = ConfirmationCancelled{ConfirmationCancellationReason::ExplicitToken};
             break;
         case AurUpdateOperationTargetStatus::Failed:
             target.execution_failure_kind =

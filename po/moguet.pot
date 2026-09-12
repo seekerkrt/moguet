@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.7.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-11 07:05+0900\n"
+"POT-Creation-Date: 2026-09-12 12:26+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -937,6 +937,9 @@ msgstr ""
 #. TRANSLATORS: AUR is a runtime project identity.
 #, c++-format
 msgid "An unattempted {} work item unexpectedly has a production outcome."
+msgstr ""
+
+msgid "Cancelled"
 msgstr ""
 
 msgid "transaction succeeded; exact installed proof unavailable"
@@ -2504,9 +2507,6 @@ msgid "Selected"
 msgstr ""
 
 msgid "Ambiguous"
-msgstr ""
-
-msgid "Cancelled"
 msgstr ""
 
 msgid "Unavailable"

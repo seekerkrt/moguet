@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.7.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-11 07:05+0900\n"
+"POT-Creation-Date: 2026-09-12 12:26+0900\n"
 "PO-Revision-Date: 2026-09-09 16:53+0900\n"
 "Last-Translator: Moguet contributors\n"
 "Language-Team: Japanese\n"
@@ -932,6 +932,9 @@ msgstr "{} トランザクションの失敗詳細に試行の証拠がありま
 #, c++-format
 msgid "An unattempted {} work item unexpectedly has a production outcome."
 msgstr "未試行の{}作業項目に予期しない実行結果があります。"
+
+msgid "Cancelled"
+msgstr "取り消し"
 
 msgid "transaction succeeded; exact installed proof unavailable"
 msgstr "トランザクションは成功しましたが、インストール対象の厳密な証明は得られていません"
@@ -2499,9 +2502,6 @@ msgstr "選択済み"
 
 msgid "Ambiguous"
 msgstr "曖昧"
-
-msgid "Cancelled"
-msgstr "取り消し"
 
 msgid "Unavailable"
 msgstr "利用不可"

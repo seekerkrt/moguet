@@ -384,6 +384,7 @@ bool is_known_work_item_status(
     switch(status) {
         case AurUpdateWorkItemExecutionStatus::Updated:
         case AurUpdateWorkItemExecutionStatus::NoChange:
+        case AurUpdateWorkItemExecutionStatus::Cancelled:
         case AurUpdateWorkItemExecutionStatus::Failed:
         case AurUpdateWorkItemExecutionStatus::UpdatedCleanupFailed:
         case AurUpdateWorkItemExecutionStatus::NoChangeCleanupFailed:
@@ -419,7 +420,8 @@ bool is_known_failure_kind(AurUpdateWorkItemFailureKind kind) noexcept {
 }
 
 bool is_terminal_status(AurUpdateWorkItemExecutionStatus status) noexcept {
-    return status == AurUpdateWorkItemExecutionStatus::Failed ||
+    return status == AurUpdateWorkItemExecutionStatus::Cancelled ||
+           status == AurUpdateWorkItemExecutionStatus::Failed ||
            status == AurUpdateWorkItemExecutionStatus::UpdatedCleanupFailed ||
            status ==
                AurUpdateWorkItemExecutionStatus::NoChangeCleanupFailed;
@@ -438,6 +440,8 @@ bool has_consistent_failure_kind(
     switch(status) {
         case AurUpdateWorkItemExecutionStatus::Updated:
         case AurUpdateWorkItemExecutionStatus::NoChange:
+            return failure_kind == AurUpdateWorkItemFailureKind::None;
+        case AurUpdateWorkItemExecutionStatus::Cancelled:
             return failure_kind == AurUpdateWorkItemFailureKind::None;
         case AurUpdateWorkItemExecutionStatus::Failed:
             return failure_kind ==
@@ -544,6 +548,12 @@ bool transaction_failure_payload_is_consistent(
 bool failure_payload_is_consistent(
     const AurUpdateWorkItemExecutionResult& work_item) noexcept {
     if(work_item.failure_detail.valueless_by_exception()) return false;
+    const bool cancelled = work_item.status == AurUpdateWorkItemExecutionStatus::Cancelled;
+    if(cancelled != work_item.cancellation.has_value()) return false;
+    if(work_item.cancellation &&
+       work_item.cancellation->reason != ConfirmationCancellationReason::ExplicitToken &&
+       work_item.cancellation->reason != ConfirmationCancellationReason::EndOfInput) return false;
+    if(cancelled && (work_item.production_outcome || work_item.devel_execution || work_item.diagnostic)) return false;
     const bool has_no_detail =
         std::holds_alternative<std::monostate>(
             work_item.failure_detail);
@@ -610,7 +620,7 @@ AurUpdateOperationExecutionContribution make_contribution(
         status,
         work_item.failure_kind,
         work_item.failure_detail,
-        work_item.diagnostic};
+        work_item.diagnostic, work_item.cancellation};
 }
 
 AurUpdateOperationExecutionContribution make_planned_contribution(
@@ -640,6 +650,8 @@ AurUpdateOperationTargetStatus map_execution_status(
             return AurUpdateOperationTargetStatus::Updated;
         case AurUpdateWorkItemExecutionStatus::NoChange:
             return AurUpdateOperationTargetStatus::NoChange;
+        case AurUpdateWorkItemExecutionStatus::Cancelled:
+            return AurUpdateOperationTargetStatus::Cancelled;
         case AurUpdateWorkItemExecutionStatus::Failed:
             return AurUpdateOperationTargetStatus::Failed;
         case AurUpdateWorkItemExecutionStatus::UpdatedCleanupFailed:
@@ -658,6 +670,7 @@ int terminal_priority(AurUpdateWorkItemExecutionStatus status) noexcept {
             return 3;
         case AurUpdateWorkItemExecutionStatus::NoChangeCleanupFailed:
             return 2;
+        case AurUpdateWorkItemExecutionStatus::Cancelled:
         case AurUpdateWorkItemExecutionStatus::Failed:
             return 1;
         default:
@@ -668,6 +681,7 @@ int terminal_priority(AurUpdateWorkItemExecutionStatus status) noexcept {
 void retain_decisive_contribution(
     AurUpdateOperationTargetResult& target,
     const AurUpdateOperationExecutionContribution& contribution) {
+    target.cancellation = contribution.cancellation;
     target.execution_work_item_index = contribution.work_item_index;
     if(contribution.failure_kind == AurUpdateWorkItemFailureKind::None) {
         target.execution_failure_kind.reset();
@@ -844,6 +858,7 @@ bool child_outcome_matches_work_item(
         case AurUpdateWorkItemExecutionStatus::NoChangeCleanupFailed:
             return child_status == AurUpdateChildExecutionStatus::
                                        SkippedAsNeededCleanupFailed;
+        case AurUpdateWorkItemExecutionStatus::Cancelled:
         case AurUpdateWorkItemExecutionStatus::Failed:
         case AurUpdateWorkItemExecutionStatus::NotAttempted:
             return child_status == AurUpdateChildExecutionStatus::NotAttempted;
@@ -899,6 +914,7 @@ bool work_item_child_outcomes_are_consistent(
                     return false;
                 }
                 break;
+            case AurUpdateWorkItemExecutionStatus::Cancelled:
             case AurUpdateWorkItemExecutionStatus::Failed:
             case AurUpdateWorkItemExecutionStatus::NotAttempted:
                 if(child.status != AurUpdateChildExecutionStatus::NotAttempted ||
@@ -1035,6 +1051,11 @@ bool invocation_result_is_consistent(
                               AurUpdateWorkItemExecutionStatus::
                                   NotAttempted;
                    });
+        case AurUpdateInvocationExecutionStatus::StoppedOnWorkItemCancellation:
+            return execution.selected_repository_provider_transaction.is_success() &&
+                   terminal_count == 1 &&
+                   execution.work_item_results[terminal_position].status ==
+                       AurUpdateWorkItemExecutionStatus::Cancelled;
         case AurUpdateInvocationExecutionStatus::StoppedOnWorkItemFailure:
             return execution.selected_repository_provider_transaction.is_success() &&
                    terminal_count == 1 &&
@@ -1057,6 +1078,7 @@ bool is_known_invocation_status(
         case AurUpdateInvocationExecutionStatus::Completed:
         case AurUpdateInvocationExecutionStatus::
             StoppedOnProviderTransactionFailure:
+        case AurUpdateInvocationExecutionStatus::StoppedOnWorkItemCancellation:
         case AurUpdateInvocationExecutionStatus::StoppedOnWorkItemFailure:
         case AurUpdateInvocationExecutionStatus::
             StoppedAfterPackageCleanupFailure:
@@ -1074,6 +1096,8 @@ AurUpdateOperationStatus map_invocation_status(
             StoppedOnProviderTransactionFailure:
             return AurUpdateOperationStatus::
                 StoppedOnProviderTransactionFailure;
+        case AurUpdateInvocationExecutionStatus::StoppedOnWorkItemCancellation:
+            return AurUpdateOperationStatus::StoppedOnWorkItemCancellation;
         case AurUpdateInvocationExecutionStatus::StoppedOnWorkItemFailure:
             return AurUpdateOperationStatus::StoppedOnWorkItemFailure;
         case AurUpdateInvocationExecutionStatus::
@@ -1086,6 +1110,7 @@ AurUpdateOperationStatus map_invocation_status(
 bool is_valid_success_target_snapshot(
     const AurUpdateOperationTargetResult& target,
     DevelRequiresCheckPolicy policy) noexcept {
+    if(target.cancellation.has_value()) return false;
     switch(target.status) {
         case AurUpdateOperationTargetStatus::Updated:
         case AurUpdateOperationTargetStatus::NoChange:
@@ -1102,6 +1127,7 @@ bool is_valid_success_target_snapshot(
                         target.skip_kind, policy));
         case AurUpdateOperationTargetStatus::Unsupported:
         case AurUpdateOperationTargetStatus::Incomplete:
+        case AurUpdateOperationTargetStatus::Cancelled:
         case AurUpdateOperationTargetStatus::Failed:
         case AurUpdateOperationTargetStatus::UpdatedCleanupFailed:
         case AurUpdateOperationTargetStatus::NoChangeCleanupFailed:
@@ -2082,6 +2108,7 @@ AurUpdateOperationResult reduce_aur_update_operation_result(
                         continue;
                     }
                     const bool should_have_selected_artifact =
+                        work_item.status != AurUpdateWorkItemExecutionStatus::Cancelled &&
                         work_item.status !=
                             AurUpdateWorkItemExecutionStatus::Failed &&
                         work_item.status != AurUpdateWorkItemExecutionStatus::
@@ -2104,7 +2131,9 @@ AurUpdateOperationResult reduce_aur_update_operation_result(
                         continue;
                     }
                     const AurUpdateWorkItemExecutionStatus child_status =
-                        work_item.status ==
+                        work_item.status == AurUpdateWorkItemExecutionStatus::Cancelled
+                            ? AurUpdateWorkItemExecutionStatus::Cancelled
+                        : work_item.status ==
                                 AurUpdateWorkItemExecutionStatus::
                                     Failed
                             ? AurUpdateWorkItemExecutionStatus::Failed
@@ -2247,6 +2276,7 @@ AurUpdateOperationResult reduce_aur_update_operation_result(
                 matched_children[child_index] = true;
 
                 const bool should_have_selected_artifact =
+                    work_item.status != AurUpdateWorkItemExecutionStatus::Cancelled &&
                     work_item.status !=
                         AurUpdateWorkItemExecutionStatus::Failed &&
                     work_item.status != AurUpdateWorkItemExecutionStatus::
@@ -2301,7 +2331,8 @@ AurUpdateOperationResult reduce_aur_update_operation_result(
                     continue;
                 }
 
-                if(work_item.status ==
+                if(work_item.status == AurUpdateWorkItemExecutionStatus::Cancelled ||
+                   work_item.status ==
                        AurUpdateWorkItemExecutionStatus::Failed ||
                    work_item.status == AurUpdateWorkItemExecutionStatus::
                                            NotAttempted) {
@@ -2333,7 +2364,8 @@ AurUpdateOperationResult reduce_aur_update_operation_result(
                     {}, work_item.work_item_index);
             }
 
-            if((work_item.status ==
+            if((work_item.status == AurUpdateWorkItemExecutionStatus::Cancelled ||
+                work_item.status ==
                     AurUpdateWorkItemExecutionStatus::Failed ||
                 work_item.status ==
                     AurUpdateWorkItemExecutionStatus::NotAttempted) &&
@@ -2395,9 +2427,10 @@ AurUpdateOperationResult reduce_aur_update_operation_result(
                 }
             }
 
-            // Failed/current and later NotAttempted work items carry no selected
+            // Cancelled/failed and later NotAttempted work items carry no selected
             // child outcome. Their target projection comes from preparation.
-            if(work_item.status == AurUpdateWorkItemExecutionStatus::Failed ||
+            if(work_item.status == AurUpdateWorkItemExecutionStatus::Cancelled ||
+               work_item.status == AurUpdateWorkItemExecutionStatus::Failed ||
                work_item.status ==
                    AurUpdateWorkItemExecutionStatus::NotAttempted) {
                 for(std::size_t child_index = 0;

@@ -1818,6 +1818,8 @@ void report_system_aur_partial_failure(
                     break;
             }
             break;
+        case SystemAurUpdateOperationStatus::StoppedOnAurCancellation:
+            break; // Target summary already carries cancellation; no failure diagnostic.
         case SystemAurUpdateOperationStatus::StoppedOnAurFailure:
             Logger::error(localization::format_translated_message(
                 // TRANSLATORS: AUR is a runtime project identity.

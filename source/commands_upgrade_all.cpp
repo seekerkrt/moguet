@@ -71,6 +71,8 @@ std::string aggregate_status_label(UpgradeAllOperationStatus status) {
             // "upgrade-all" and service name "AUR".
             return localization::format_translated_message(
                 "{} stopped before {} execution", COMMAND_NAME, AUR_SERVICE);
+        case UpgradeAllOperationStatus::StoppedOnAurCancellation:
+            return localization::translate_message("Cancelled");
         case UpgradeAllOperationStatus::StoppedOnAurFailure:
             // TRANSLATORS: The placeholders are the literal command name
             // "upgrade-all" and service name "AUR".
@@ -134,6 +136,7 @@ void validate_aur_phase_presentation_boundary(
         case UpgradeAllAurPhaseStatus::Completed:
         case UpgradeAllAurPhaseStatus::BlockedBeforeExecution:
         case UpgradeAllAurPhaseStatus::StoppedOnProviderTransactionFailure:
+        case UpgradeAllAurPhaseStatus::StoppedOnWorkItemCancellation:
         case UpgradeAllAurPhaseStatus::StoppedOnWorkItemFailure:
         case UpgradeAllAurPhaseStatus::StoppedAfterCleanupFailure:
         case UpgradeAllAurPhaseStatus::InconsistentResult:
@@ -171,6 +174,7 @@ void validate_aur_phase_presentation_boundary(
         case AurUpdateOperationStatus::Completed:
         case AurUpdateOperationStatus::BlockedBeforeExecution:
         case AurUpdateOperationStatus::StoppedOnProviderTransactionFailure:
+        case AurUpdateOperationStatus::StoppedOnWorkItemCancellation:
         case AurUpdateOperationStatus::StoppedOnWorkItemFailure:
         case AurUpdateOperationStatus::StoppedAfterPackageCleanupFailure:
         case AurUpdateOperationStatus::InconsistentResult:
@@ -885,6 +889,8 @@ std::string aur_target_status_reason_label(
         case AurUpdateOperationTargetStatus::Incomplete:
             return localization::format_translated_message(
                 "{} target incomplete", AUR_SERVICE);
+        case AurUpdateOperationTargetStatus::Cancelled:
+            return localization::translate_message("Cancelled");
         case AurUpdateOperationTargetStatus::Failed:
             return localization::format_translated_message(
                 "{} target failed", AUR_SERVICE);

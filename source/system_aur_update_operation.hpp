@@ -222,6 +222,7 @@ enum class SystemAurUpdateOperationStatus {
     StoppedOnAurFailure,
     StoppedAfterAurCleanupFailure,
     InconsistentResult,
+    StoppedOnAurCancellation,
 };
 
 enum class SystemAurUpdateRepositoryPhaseStatus {
@@ -251,6 +252,7 @@ enum class SystemAurUpdateAurPhaseStatus {
     StoppedOnWorkItemFailure,
     StoppedAfterCleanupFailure,
     InconsistentResult,
+    StoppedOnWorkItemCancellation,
 };
 
 enum class SystemAurUpdateNotAttemptedReason {

@@ -1547,6 +1547,7 @@ bool invocation_status_matches_operation(
                    AurUpdateInvocationExecutionStatus::Completed;
         case AurUpdateOperationStatus::BlockedBeforeExecution:
         case AurUpdateOperationStatus::StoppedOnProviderTransactionFailure:
+        case AurUpdateOperationStatus::StoppedOnWorkItemCancellation:
         case AurUpdateOperationStatus::StoppedOnWorkItemFailure:
         case AurUpdateOperationStatus::StoppedAfterPackageCleanupFailure:
         case AurUpdateOperationStatus::InconsistentResult:
@@ -2011,11 +2012,17 @@ FilteredAurUpdateExecutionResult execute_prepared_filtered_aur_update_operation(
     const bool should_execute = prepared.is_prepared();
     prepared.valid_ = false;
     std::optional<AurUpdateSourceBuildExecutionResult> execution;
+    bool cancelled = false;
     if(should_execute) {
         // LANDMINE(#281): aggregate snapshotを保持し、one-shot invocationだけをconsumeする。
-        execution.emplace(
-            execute_prepared_aur_update_source_build_invocation(
-                std::move(*prepared.preparation->invocation), config));
+        try {
+            execution.emplace(
+                execute_prepared_aur_update_source_build_invocation(
+                    std::move(*prepared.preparation->invocation), config));
+        } catch(AurUpdateExecutionCancelled& stop) {
+            execution.emplace(std::move(stop).release_result());
+            cancelled = true;
+        }
     }
 
     correlate_prepared_work_items(
@@ -2034,7 +2041,7 @@ FilteredAurUpdateExecutionResult execute_prepared_filtered_aur_update_operation(
             reduced,
             prepared.issues);
 
-    return FilteredAurUpdateExecutionResult{
+    FilteredAurUpdateExecutionResult result{
         std::move(prepared.query_result),
         std::move(prepared.target_adapter),
         std::move(prepared.upgrade_all_plan),
@@ -2050,6 +2057,10 @@ FilteredAurUpdateExecutionResult execute_prepared_filtered_aur_update_operation(
         std::move(selected_results),
         std::move(prepared.issues),
         std::move(prepared.devel_requires_check_policy)};
+    // Only correlation/reduction ran after the stop. Keep the control signal
+    // across this intermediate owner until a terminal route finalizes it.
+    if(cancelled) throw FilteredAurUpdateCancelled(std::move(result));
+    return result;
 }
 
 bool FilteredAurUpdateExecutionResult::is_success() const noexcept {
@@ -2125,4 +2136,20 @@ bool FilteredAurUpdateExecutionResult::
                preparation.devel_requires_check_policy) &&
            reduced_operation_result.devel_requires_check_policy ==
                devel_requires_check_policy;
+}
+
+FilteredAurUpdateCancelled::FilteredAurUpdateCancelled(FilteredAurUpdateExecutionResult result) noexcept
+    : result_(std::move(result)) {
+}
+
+const FilteredAurUpdateExecutionResult& FilteredAurUpdateCancelled::result() const noexcept {
+    return result_;
+}
+
+FilteredAurUpdateExecutionResult FilteredAurUpdateCancelled::release_result() && noexcept {
+    return std::move(result_);
+}
+
+const char* FilteredAurUpdateCancelled::what() const noexcept {
+    return "AUR update cancelled; partial execution results retained.";
 }

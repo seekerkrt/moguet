@@ -1,6 +1,7 @@
 #pragma once
 
 #include "aur_update_execution_preparation.hpp"
+#include "interactive_confirmation.hpp"
 
 #include <cstddef>
 #include <optional>
@@ -17,6 +18,7 @@ enum class AurUpdateWorkItemExecutionStatus {
     UpdatedCleanupFailed,
     NoChangeCleanupFailed,
     NotAttempted,
+    Cancelled,
 };
 
 enum class AurUpdateWorkItemFailureKind {
@@ -33,6 +35,7 @@ enum class AurUpdateInvocationExecutionStatus {
     StoppedOnProviderTransactionFailure,
     StoppedOnWorkItemFailure,
     StoppedAfterPackageCleanupFailure,
+    StoppedOnWorkItemCancellation,
 };
 
 enum class AurUpdateChildExecutionStatus {
@@ -157,6 +160,8 @@ struct AurUpdateWorkItemExecutionResult {
     AurUpdateWorkItemFailureDetail failure_detail;
     std::optional<std::string> diagnostic;
     std::optional<ReviewedDevelExecutionSnapshot> devel_execution = std::nullopt;
+    // Confirmation authority is independent of ordinary execution failure.
+    std::optional<ConfirmationCancelled> cancellation = std::nullopt;
 };
 
 struct AurUpdateSourceBuildExecutionResult {
@@ -172,6 +177,18 @@ struct AurUpdateSourceBuildExecutionResult {
     bool has_not_attempted_items() const noexcept;
     bool has_cleanup_failure() const noexcept;
     std::optional<std::size_t> stopped_work_item_index() const noexcept;
+};
+
+// Owned partial facts travel with the stop signal; callers must not resume mutation.
+class AurUpdateExecutionCancelled final : public std::exception {
+public:
+    explicit AurUpdateExecutionCancelled(AurUpdateSourceBuildExecutionResult result) noexcept;
+    const AurUpdateSourceBuildExecutionResult& result() const noexcept;
+    AurUpdateSourceBuildExecutionResult release_result() && noexcept;
+    const char* what() const noexcept override;
+
+private:
+    AurUpdateSourceBuildExecutionResult result_;
 };
 
 // Correlated preparation snapshotをone-shot capabilityとしてconsumeし、逐次実行する。
