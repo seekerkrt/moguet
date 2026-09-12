@@ -17,6 +17,7 @@ Issue別に増えるproduction contractの全文はこの文書へ追加せず�
 この文書は、現在の全CLI挙動を列挙する互換性仕様でも、未実装機能を実装済みとみなす保証でもない。個別仕様を追加・変更するときは、この上位ポリシーに沿って、対象となるbehaviorと検証範囲をcontract側へ明示する。
 
 <a id="decision-1"></a>
+
 ### 1. 一貫性
 
 同じ種類の状態、結果、失敗は、経路や内部実装が違っても同じ境界と規則で扱う。
@@ -27,6 +28,7 @@ Issue別に増えるproduction contractの全文はこの文書へ追加せず�
 * 経路ごとに同じ意味を安全に保てない場合は、黙って無視したり別の意味へ変換したりせず、未対応であることを示して実行前に停止する。
 
 <a id="decision-2"></a>
+
 ### 2. 透明性
 
 何を観測し、何を判断し、どの command を実行し、なぜ停止したかを、利用者が追える形にする。
@@ -37,6 +39,7 @@ Issue別に増えるproduction contractの全文はこの文書へ追加せず�
 * 安全境界で停止した場合は、拒否した判断や不足している情報を示し、利用者が次に確認すべき対象を分かるようにする。
 
 <a id="decision-3"></a>
+
 ### 3. 既存操作と挙動の尊重
 
 pacman、makepkg、git、および既存 Moguet CLI の操作、責務、挙動は、明確な理由と独立した設計判断なしに変更しない。
@@ -47,6 +50,7 @@ pacman、makepkg、git、および既存 Moguet CLI の操作、責務、挙動�
 * この原則は完全互換の宣言ではない。現在未対応の command や edge case を保証するのではなく、差異を意図せず増やさないための判断基準である。
 
 <a id="decision-4"></a>
+
 ### 4. 任せる部分は任せる
 
 Moguetは、既存componentが所有するpackage-management機能の不完全な再実装を増やさない。各componentのauthoritativeな結果と既存の責務境界を利用し、その上で必要なorchestrationを行う。
@@ -60,6 +64,7 @@ Moguetは、既存componentが所有するpackage-management機能の不完全�
 重要: 現在採用している libalpm の scope は read-only package metadata に限る。Moguet は libalpm transaction を開始、準備、commit せず、system package transaction の owner は引き続き pacman である。metadata の authority を libalpm へ寄せることは、transaction ownership の移行を意味しない。
 
 <a id="decision-5"></a>
+
 ### 5. ユーザーが自然に想像する意図
 
 これは、利便性の好みではなく、自動化と安全境界を決める独立した中核原則である。
@@ -76,6 +81,7 @@ user intent は、command 名、指定された target と option、元 tool の
 * 「驚きが少ないこと」と「元 command から自然に予想できること」を、compatibility と UX の一部として扱う。
 
 <a id="decision-6"></a>
+
 ### 6. 責務境界
 
 | Component | 所有する責務 |
@@ -89,6 +95,7 @@ user intent は、command 名、指定された target と option、元 tool の
 Moguet が外部 component を呼び出すための順序、事前条件、停止条件、表示を設計することは orchestration の責務である。ただし、それを理由に各 component の solver、transaction、build、repository operation を独自実装へ置き換えない。
 
 <a id="decision-7"></a>
+
 ### 7. 判断ルール
 
 新しい自動化、fallback、solver 利用、または behavior change を検討するときは、最低限、次を確認する。
@@ -104,6 +111,7 @@ Moguet が外部 component を呼び出すための順序、事前条件、停�
 これらを満たす説明や検証方法がない場合は、自動化を既定動作へ組み込まない。read-only の観測や plan と、build、install、remove、repository update などの mutation を分け、必要な判断材料を利用者へ示すことを優先する。
 
 <a id="decision-8"></a>
+
 ### 8. Licenseとthird-party compliance
 
 Moguet releaseとjpacker v1.15.0以降は`GPL-3.0-or-later`で提供する。jpacker v1.14.0以前のreleaseはMIT Licenseのまま維持し、過去のtag、release、permissionを書き換えない。
@@ -127,6 +135,7 @@ The current project name is Moguet. Moguet v2.0.0 inherits the jpacker v1.16.0 e
 This document is not a compatibility specification enumerating all current CLI behavior, and it does not claim that unimplemented features already exist. Specific behavior contracts must state their affected behavior and verification scope in the contract documents while following this policy.
 
 <a id="decision-1-en"></a>
+
 ### 1. Consistency
 
 States, results, and failures of the same kind must follow the same boundaries and rules even when they pass through different routes or internal implementations.
@@ -137,6 +146,7 @@ States, results, and failures of the same kind must follow the same boundaries a
 * If a route cannot safely preserve that meaning, Moguet must not silently ignore the option or translate it into a different meaning. It must report the unsupported case and stop before execution.
 
 <a id="decision-2-en"></a>
+
 ### 2. Transparency
 
 Users must be able to follow what was observed, what was decided, which command will run, and why processing stopped.
@@ -147,6 +157,7 @@ Users must be able to follow what was observed, what was decided, which command 
 * When a safety boundary stops processing, diagnostics must identify the rejected decision or missing information so users know what to inspect next.
 
 <a id="decision-3-en"></a>
+
 ### 3. Preserve existing commands and behavior
 
 The operations, responsibilities, and behavior of pacman, makepkg, git, and the existing Moguet CLI must not change without a clear reason and a separate design decision.
@@ -157,6 +168,7 @@ The operations, responsibilities, and behavior of pacman, makepkg, git, and the 
 * This principle is not a declaration of complete compatibility. It does not guarantee commands or edge cases that are currently unsupported; it is a rule against introducing unintended differences.
 
 <a id="decision-4-en"></a>
+
 ### 4. Delegate to authoritative components
 
 Moguet must not accumulate incomplete reimplementations of package-management capabilities owned by existing components. It should use their authoritative results and established responsibility boundaries, then provide the necessary orchestration around them.
@@ -170,6 +182,7 @@ Moguet must not accumulate incomplete reimplementations of package-management ca
 Important: the currently adopted libalpm scope is limited to read-only package metadata. Moguet does not initiate, prepare, or commit libalpm transactions; pacman remains the owner of system package transactions. Treating libalpm as the metadata authority does not transfer transaction ownership to libalpm.
 
 <a id="decision-5-en"></a>
+
 ### 5. Natural user intent
 
 This is an independent core principle for automation and safety boundaries, not merely a preference about convenience.
@@ -186,6 +199,7 @@ User intent is inferred from the command name, explicit targets and options, con
 * “Low surprise” and behavior naturally predictable from the original command are part of compatibility and user experience.
 
 <a id="decision-6-en"></a>
+
 ### 6. Responsibility boundary
 
 | Component | Owned responsibility |
@@ -199,6 +213,7 @@ User intent is inferred from the command name, explicit targets and options, con
 Designing the order, preconditions, stop conditions, and presentation around calls to external components is part of Moguet orchestration. It is not a reason to replace each component's solver, transaction, build, or repository operations with a custom implementation.
 
 <a id="decision-7-en"></a>
+
 ### 7. Decision rule
 
 Before introducing new automation, fallback, solver use, or a behavior change, verify at least the following:
@@ -214,6 +229,7 @@ Before introducing new automation, fallback, solver use, or a behavior change, v
 If these questions cannot be answered with a clear explanation and verification method, the automation must not become default behavior. Prefer separating read-only observation and planning from mutations such as build, install, removal, and repository update, and expose the decision inputs users need.
 
 <a id="decision-8-en"></a>
+
 ### 8. Licensing and third-party compliance
 
 Moguet releases and jpacker v1.15.0 or later are distributed under `GPL-3.0-or-later`. jpacker releases through v1.14.0 remain under the MIT License; their historical tags, releases, and granted permissions are not rewritten.
@@ -252,28 +268,35 @@ decision 1〜7は全contractへ適用する普遍原則であり、decision 8は
 
 <a id="decision-9"></a>
 <a id="9-packagebase-buildとrequired-child-selectionの分離"></a>
+
 * 旧decision 9: [PackageBase build / required-child selection contract](contracts/packagebase-child-selection.md)へ移動。
 
 <a id="decision-10"></a>
 <a id="10-separated-source-build上のrmdepsはunsupportedとする"></a>
+
 * 旧decision 10: [separated source-build `--rmdeps` contract](contracts/source-build-rmdeps.md)へ移動。
 
 <a id="decision-11"></a>
 <a id="11-xdg-cache-cutoverの安全契約と実装の比例性"></a>
+
 * 旧decision 11: [XDG cache cutover safety contract](contracts/xdg-cache-safety.md)へ移動。
 
 <a id="decision-12"></a>
 <a id="12-source-build-preferenceのxdg authorityとv2.0.1-patch例外"></a>
+
 * 旧decision 12: [source-build preference XDG authority contract](contracts/source-build-preference-xdg.md)へ移動。
 
 <a id="decision-13"></a>
 <a id="13-ambiguous-providerはinvocation-localな明示選択とする"></a>
+
 * 旧decision 13: [ambiguous provider selection contract](contracts/ambiguous-provider-selection.md)へ移動。
 
 <a id="decision-14"></a>
 <a id="14-root-package-discoveryは-s-selectでsource-awareな明示選択とする"></a>
+
 * 旧decision 14: [root package selection contract](contracts/root-package-selection.md)へ移動。
 
 <a id="decision-15"></a>
 <a id="15-local-pkgbuildはbuild-localで明示しremote-package-identityと分離する"></a>
+
 * 旧decision 15: [local PKGBUILD contract](contracts/local-pkgbuild.md)へ移動。

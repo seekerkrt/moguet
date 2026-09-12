@@ -18,7 +18,7 @@ current normal routeでは7-Bがhistorical tipを読み、7-CがS4/S5を完了�
     != provenance-store generation
 ```
 
-#411 bindingは、AUR source identityとPackageBase、exact reviewed recipe OID、#411 record
+Issue #411 bindingは、AUR source identityとPackageBase、exact reviewed recipe OID、#411 record
 generation、observed raw state documentのSHA-256を保持する。#411 state path、generation leaf、
 device、inode、mode、link count、mtime、ctimeはruntime filesystem/CAS proofであり、provenanceの
 persistent business identityへ保存しない。7-B consumerはcurrent #411 store readに対して、
@@ -34,7 +34,7 @@ generation ownerは次のとおり分離する。
 
 provenance payloadはprovenance generationを保存しない。これによりpayload generationとfilename
 generationが不一致になる二重authorityを作らない。
-#411 generationはlow-level storeと同じ`uint64_t`全域を保持するため、schemaではleading zeroなしの
+Issue #411 generationはlow-level storeと同じ`uint64_t`全域を保持するため、schemaではleading zeroなしの
 canonical decimal stringとして保存し、0、符号、overflow、integer representationを拒否する。
 
 ## Namespace and lookup

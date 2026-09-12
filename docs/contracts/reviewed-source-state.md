@@ -169,7 +169,7 @@ invocation-local overlayとしてbuild provenanceへ保持する。
 editor overlayはupstream reviewed revisionと別authorityである。overlay bytesをpersistent
 reviewed stateへ書かず、overlayをacceptance token、upstream commit、将来invocationのpatch、
 またはgeneric source identityへ昇格させない。user-authored patchの保存・再適用は#59 / #359 /
-#363の別責務である。
+Issue #363の別責務である。
 
 ### Legacy migration
 
@@ -209,7 +209,7 @@ generic source identity projection
 reviewed-source persistent/build authority
 ```
 
-#355のcurrent repository / AUR projectionは、projection元のgeneric modelがexact commitを保持しない
+Issue #355のcurrent repository / AUR projectionは、projection元のgeneric modelがexact commitを保持しない
 ため、revisionを引き続き`Unknown`とする。#411はlifecycle内でexact target OIDを取得し、既存の
 `PackageBaseIdentity` / `SourceRevisionIdentity` valueをreviewed-source capabilityとして再利用するが、
 そのOIDを`source_package_identity_projection`へ注入してgeneric projectionを`Known`へ昇格させない。

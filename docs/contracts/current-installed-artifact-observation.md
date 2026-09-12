@@ -87,4 +87,4 @@ UpToDate/UpdateAvailable assessmentはない。differentは単に異なるrevisi
 - `test-reviewed-source-pinned-build`: S5/S6 existing negativesとS7-A current-owner construction negatives。
 - `test-build-authority-closure`: new current observer/comparatorをnormal routeから切り離す。
 
-#475 regressionは既存deterministic loopback fixtureを使う。new S7-A targets自体には#475 observer symbolをlinkしない。
+Issue #475 regressionは既存deterministic loopback fixtureを使う。new S7-A targets自体には#475 observer symbolをlinkしない。
