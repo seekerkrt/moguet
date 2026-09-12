@@ -408,6 +408,11 @@ AurUpdateWorkItemExecutionResult work_item_result(
     child.roles = {PackageRole::Root};
 
     switch(status) {
+        case AurUpdateWorkItemExecutionStatus::BootstrapSkipped:
+            child.status = AurUpdateChildExecutionStatus::BootstrapSkipped;
+            result.failure_kind = AurUpdateWorkItemFailureKind::None;
+            result.bootstrap_skipped_roots = affected_update_plan_indices;
+            break;
         case AurUpdateWorkItemExecutionStatus::Updated:
             child.selected_artifact = ArtifactPackageIdentity{
                 resolved_package_base, "2.0-1"};
@@ -527,6 +532,7 @@ void append_unique(std::vector<Value>& values, const Value& value) {
 AurUpdateWorkItemFailureKind failure_kind_for_status(
     AurUpdateWorkItemExecutionStatus status) {
     switch(status) {
+        case AurUpdateWorkItemExecutionStatus::BootstrapSkipped:
         case AurUpdateWorkItemExecutionStatus::Updated:
         case AurUpdateWorkItemExecutionStatus::NoChange:
         case AurUpdateWorkItemExecutionStatus::Cancelled:
@@ -4096,10 +4102,26 @@ void run_case(const std::string& name, Callable callable) {
     std::cout << "  ok: " << name << '\n';
 }
 
+void test_bootstrap_skip_cannot_discard_an_ordinary_required_dependency() {
+    const RootTargetIdentity root{0, "ordinary-root"};
+    auto input = exact_reducer_input({executable_target(0, "ordinary-root")}, {ExactWorkItemExecutionSpec{"ordinary-dependency", {exact_child("ordinary-dependency", {0}, {root}, {PackageRole::RuntimeDependency}, AurUpdateChildExecutionStatus::Installed, DesiredInstallReason::Dependency)}, AurUpdateWorkItemExecutionStatus::Updated, {}}, ExactWorkItemExecutionSpec{"ordinary-root", {exact_child("ordinary-root", {0}, {root}, {PackageRole::Root}, AurUpdateChildExecutionStatus::Installed)}, AurUpdateWorkItemExecutionStatus::Updated, {}}}, AurUpdateInvocationExecutionStatus::Completed);
+    const auto control = ::reduce_aur_update_operation_result(input.preflight, input.preparation, DevelRequiresCheckPolicy::BlockOperation, input.execution);
+    expect(control.is_success(), "ordinary dependency control was not coherent");
+    auto& dependency = input.execution.work_item_results.front();
+    dependency.status = AurUpdateWorkItemExecutionStatus::BootstrapSkipped;
+    dependency.bootstrap_skipped_roots = {0};
+    dependency.child_results.front().status = AurUpdateChildExecutionStatus::BootstrapSkipped;
+    dependency.child_results.front().selected_artifact.reset();
+    const auto forged = ::reduce_aur_update_operation_result(input.preflight, input.preparation, DevelRequiresCheckPolicy::BlockOperation, input.execution);
+    expect(!forged.is_success() && forged.status == AurUpdateOperationStatus::InconsistentResult,
+           "bootstrap skip bypassed an ordinary required dependency without a decision");
+}
+
 } // namespace
 
 int main() {
     try {
+        test_bootstrap_skip_cannot_discard_an_ordinary_required_dependency();
         test_exact_split_cancellation_retains_prepared_children();
         test_cancellation_terminal_coherence();
         run_case("all skipped is NoUpdates", test_all_skipped_is_no_updates);

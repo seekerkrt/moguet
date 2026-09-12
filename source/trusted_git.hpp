@@ -481,3 +481,7 @@ int trusted_git_clone_aur_export(
     const std::filesystem::path& anchored_destination);
 std::string trusted_git_aur_export_remote_origin_url(
     const std::filesystem::path& anchored_checkout);
+
+// Read-only trial gate. Reject tracked changes and untracked overlay content;
+// no checkout, index refresh, or removal is authorized by this observation.
+bool trusted_git_checkout_has_no_overlay(const ValidatedCachePath& checkout, const std::string& expected_remote_url);

@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.7.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-12 12:26+0900\n"
+"POT-Creation-Date: 2026-09-12 15:37+0900\n"
 "PO-Revision-Date: 2026-09-09 16:53+0900\n"
 "Last-Translator: Moguet contributors\n"
 "Language-Team: Japanese\n"
@@ -945,6 +945,9 @@ msgstr "トランザクション結果は不明です。インストールされ
 msgid "transaction failed; package effects unverified"
 msgstr "トランザクションは失敗しました。パッケージへの影響は未検証です"
 
+msgid "skipped: devel tracking bootstrap"
+msgstr "スキップ: devel追跡の初期化"
+
 msgid "installed / updated"
 msgstr "インストール済み／更新済み"
 
@@ -1016,6 +1019,10 @@ msgstr "devel packageの更新状態は確認が必要です。suffixは候補�
 
 msgid "Devel package update status requires check."
 msgstr "devel packageの更新状態は確認が必要です。"
+
+#, c++-format
+msgid "Bootstrap action does not match the ordinary {} route or target."
+msgstr "初期化操作が通常の{}更新経路または対象と一致しません。"
 
 msgid "Installed package is already up to date."
 msgstr "インストール済みパッケージはすでに最新です。"
@@ -1492,13 +1499,23 @@ msgstr "アーティファクトインストールの実行結果が不明です
 msgid "{} install preparation failure does not match the prepared {}."
 msgstr "{} のインストール準備失敗が準備済みの {} と一致しません。"
 
+#, c++-format
+msgid "{}: devel tracking baseline is missing. Fully review the source, rebuild and install it to establish {} tracking?"
+msgstr "{}: devel追跡の基準情報がありません。ソース全体をレビューして再ビルド・インストールし、{}による追跡を開始しますか？"
+
 msgid "Preparation target snapshot does not match the targets eligible in this preflight phase."
 msgstr "準備対象のスナップショットが、この事前検査段階で対象となる項目と一致しません。"
+
+msgid "Devel tracking bootstrap was skipped; package remains unverified."
+msgstr "devel追跡の初期化をスキップしました。パッケージは未検証のままです。"
 
 #. TRANSLATORS: AUR is a runtime project identity.
 #, c++-format
 msgid "Terminal execution outcomes from multiple work items were attributed to one {} update target."
 msgstr "複数の作業項目の最終実行結果が1つの {} 更新対象へ帰属しています。"
+
+msgid "Devel bootstrap decisions or skipped-root correlations are inconsistent."
+msgstr "devel追跡の初期化の判断、またはスキップしたルートとの対応関係に矛盾があります。"
 
 #. TRANSLATORS: AUR is a runtime project identity.
 #, c++-format
@@ -2317,6 +2334,9 @@ msgstr "devel更新は確認が必要: suffix候補のみ"
 
 msgid "reason unavailable"
 msgstr "理由を取得できません"
+
+msgid "devel tracking baseline established"
+msgstr "devel追跡の基準情報を作成しました"
 
 msgid "updated"
 msgstr "更新済み"
@@ -5104,6 +5124,9 @@ msgstr "{}更新候補"
 msgid "{} update candidate has no remote package identity"
 msgstr "{}更新候補にリモートパッケージ識別情報がありません"
 
+msgid "Devel tracking bootstrap candidate; update availability is unverified."
+msgstr "devel追跡の初期化候補です。更新の有無は未検証です。"
+
 #. TRANSLATORS: {} is the literal service name "AUR".
 #, c++-format
 msgid "{} version comparison unavailable"
@@ -6537,6 +6560,10 @@ msgid "Reviewed-source outcome for {} {}: review acceptance was declined by the 
 msgstr "確認済みソースの結果（{} {}）: 安全側の既定値によりレビュー受理を拒否しました。この呼び出しには互換経路のソース権限だけがあり、確認済み状態は進めていません。"
 
 #, c++-format
+msgid "Reviewed-source outcome for {} {}: bootstrap full review accepted for exact upstream commit {}."
+msgstr "確認済みソースの結果（{} {}）: 正確なupstream commit {} の追跡初期化用の全体レビューを受理しました。"
+
+#, c++-format
 msgid "Reviewed-source outcome for {} {}: initial full review accepted for exact upstream commit {}."
 msgstr "確認済みソースの結果（{} {}）: 正確なupstream commit {} の初回全体レビューを受理しました。"
 
@@ -7051,6 +7078,9 @@ msgstr "{}/{}のレビューを省略します（{}）。"
 msgid "Edit install script {}?"
 msgstr "インストールスクリプト {} を編集しますか？"
 
+msgid "Accept this full source review for devel tracking bootstrap?"
+msgstr "devel追跡の初期化に向けたソース全体のレビューを受理しますか？"
+
 msgid "Accept this explicit reviewed-source full rebaseline?"
 msgstr "確認済みソースの明示的な全体再ベースライン確認を受理しますか？"
 
@@ -7065,6 +7095,9 @@ msgstr "確認済みソース識別情報の明示的な再関連付け／再ベ
 
 msgid "Accept this reviewed upstream revision?"
 msgstr "この確認済みupstream revisionを受理しますか？"
+
+msgid "Devel tracking bootstrap recipe changed before full review; no build was started."
+msgstr "全体レビュー前にdevel追跡の初期化対象レシピが変更されたため、ビルドを開始しませんでした。"
 
 #, c++-format
 msgid "{} was updated by the system transaction ({} -> {}); rebuilding the preferred source package."
@@ -7169,6 +7202,9 @@ msgstr "{} セットのソースビルドで、単一要求の識別情報に整
 #, c++-format
 msgid "{} set source-build multiple request must not expose a singular package name."
 msgstr "{} セットの複数対象ソースビルド要求で、単一のパッケージ名を公開してはいけません。"
+
+msgid "Devel tracking bootstrap observations changed; no build was started."
+msgstr "devel追跡の初期化に使う観測結果が変更されたため、ビルドを開始しませんでした。"
 
 msgid "Private artifact workspace preparation failed."
 msgstr "専用アーティファクト作業領域の準備に失敗しました。"

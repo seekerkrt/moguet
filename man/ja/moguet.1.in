@@ -361,6 +361,19 @@ updateを停止しません。このstateは未検証のままで、UpToDateで�
 はstrictなwhole-operation RequiresCheck blocker behaviorを維持します。
 .
 .PP
+初回devel provenance観測が真のMissingである独立targetには、interactiveなexact target-less Auto
+更新でdefault-Noの明示tracking bootstrap確認を提示できます。先にexact AUR recipeをread-onlyで
+観測して試行適格性を確認し、unsupported、判定不能、checkout overlayは従来どおりskipします。
+初期trialはone package、architecture-independentなone floating HTTPS Git sourceに限定します。
+追加source fileのtracked regular-file identityをtrialで確認できない場合は提示しません。
+.PP
+bootstrap確認は対象由来のcache/provider/dependency mutationより前に行います。Yes後にも、既存review
+recordの有無によらずfull source review、対応build、exact install、fresh installed binding、provenance
+publication成功を要求します。Noは対象をskipし、cancelまたは後段のfailureは後続を停止します。
+rollbackやinvalid/corrupt/future/unsafe stateのrepairは行いません。--noeditは利用できますが、
+--nodiff、review.diff=skip、--noconfirm、non-TTY入力はbootstrap承認になりません。
+.
+.PP
 phaseはsequentialでatomicではありません。repository failure時はAUR phaseをnot attemptedの
 ままnon-zeroで終了します。repository phase完了後にAUR phaseがblock / failした場合は、
 repository completionとnon-zeroのpartial failureを表示し、rollbackしません。cleanup failureは

@@ -266,3 +266,13 @@ void set_devel_package_assessment_test_hooks(DevelPackageAssessmentTestHooks hoo
     g_assessment_hooks = std::move(hooks);
 }
 #endif
+
+DevelPackageLocalObservations observe_devel_bootstrap_local_state(const PackageChildIdentity& child) {
+    DevelPackageLocalObservations out;
+    out.provenance = read_devel_build_provenance(child.package_base());
+    if(!std::holds_alternative<DevelBuildProvenanceStoreMissing>(*out.provenance)) return out;
+    out.installed = observe_current_installed_artifact_binding(child);
+    if(!std::holds_alternative<CurrentInstalledArtifactBindingObserved>(*out.installed)) return out;
+    out.reviewed = read_reviewed_source_state(child.package_base());
+    return out;
+}

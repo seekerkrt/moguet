@@ -1731,3 +1731,7 @@ void activate_production_source_build_cache(
     seed_production_source_build_cache(
         invocation, invocation.cache_root.value());
 }
+
+ConfirmationResult request_confirmation(const std::string&, ConfirmationDefault, bool) {
+    throw std::logic_error("Upgrade-all fixture received an unexpected bootstrap confirmation.");
+}

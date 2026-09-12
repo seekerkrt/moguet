@@ -3,6 +3,7 @@
 #include "app_config.hpp"
 #include "aur_devel_update.hpp"
 #include "reviewed_devel_source_route.hpp"
+#include "devel_tracking_bootstrap.hpp"
 #include "srcinfo_source_metadata.hpp"
 #include <fstream>
 #include "diagnostic_projection.hpp"
@@ -613,6 +614,9 @@ struct ProductionReviewedSourceOutcomeSnapshot {
 
 ProductionReviewedSourceOutcomeSnapshot production_reviewed_source_outcome(
     const ReviewedSourceIntegrationLifecycle& lifecycle) {
+    if(std::holds_alternative<ReviewedSourceLifecycleBootstrapFullReview>(lifecycle)) {
+        return {ProductionReviewedSourceOutcome::BootstrapFullReview, std::nullopt};
+    }
     if(std::holds_alternative<ReviewedSourceLifecycleInitialFullReview>(
            lifecycle)) {
         return {ProductionReviewedSourceOutcome::InitialFullReview,
@@ -713,6 +717,9 @@ bool should_run_reviewed_source_route(const AppConfig& config) noexcept {
 
 std::string reviewed_source_acceptance_question(
     const ReviewedSourceIntegrationLifecycle& lifecycle) {
+    if(std::holds_alternative<ReviewedSourceLifecycleBootstrapFullReview>(lifecycle)) {
+        return localization::translate_message("Accept this full source review for devel tracking bootstrap?");
+    }
     if(std::holds_alternative<
            ReviewedSourceLifecycleRebaselineFullReview>(lifecycle)) {
         return localization::translate_message(
@@ -772,9 +779,16 @@ AurCheckoutAuthority prepare_aur_checkout_authority(
             std::get<SourceRevisionIdentity>(
                 std::move(target_result)));
 
+    if(request.devel_tracking_bootstrap && identity.target_revision() != request.devel_tracking_bootstrap->recipe_revision()) {
+        throw std::runtime_error(localization::translate_message(
+            "Devel tracking bootstrap recipe changed before full review; no build was started."));
+    }
+
     ReviewedSourceLifecyclePlanResult lifecycle =
         plan_reviewed_source_lifecycle_from_preflight(
-            identity, std::move(fatal_preflight));
+            identity, std::move(fatal_preflight),
+            request.devel_tracking_bootstrap ? ReviewedSourceReviewPurpose::DevelTrackingBootstrap
+                                             : ReviewedSourceReviewPurpose::NormalUpdate);
     if(auto* stop = std::get_if<ReviewedSourceOperationStop>(&lifecycle)) {
         stop_reviewed_source_operation(
             *stop,
@@ -971,7 +985,7 @@ ReviewedProductionSourceExecution finalize_aur_checkout_authority(
     const ReviewedDevelSourceBuildIntent* intent = nullptr) {
     if(auto* compatibility =
            std::get_if<AurCompatibilityCheckout>(&authority)) {
-        if(intent && intent->request.authoritative_devel_update)
+        if(intent && (intent->request.authoritative_devel_update || intent->request.devel_tracking_bootstrap))
             return ReviewedDevelSourceBuildRejected{ReviewedDevelSourceBuildIssue::InvalidPin};
         if(editor_overlay.has_value()) {
             throw std::logic_error(
@@ -1857,6 +1871,12 @@ SourceBuildPreparationOutcome prepare_source_build_for_execution(
     const ValidatedCacheRoot& cache_root,
     const AppConfig& config,
     const ReviewedDevelSourceBuildIntent* execution_intent) {
+    if(request.devel_tracking_bootstrap &&
+       (!should_run_reviewed_source_route(config) || !revalidate_devel_tracking_bootstrap(*request.devel_tracking_bootstrap))) {
+        throw std::runtime_error(localization::translate_message(
+            "Devel tracking bootstrap observations changed; no build was started."));
+    }
+
     std::optional<ReviewedSourceFatalStatePreflight> reviewed_state_preflight;
     if(request.aur_review_identity.has_value()) {
         std::shared_ptr<ReviewedSourceFatalStatePreflightSlot> slot =

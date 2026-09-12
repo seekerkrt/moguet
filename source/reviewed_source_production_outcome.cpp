@@ -85,6 +85,10 @@ std::string accepted_review_line(
     const ProductionSourceBuildProvenance& provenance) {
     const std::string& commit = reviewed_commit(provenance);
     switch(*provenance.reviewed_outcome) {
+        case ProductionReviewedSourceOutcome::BootstrapFullReview:
+            return localization::format_translated_message(
+                "Reviewed-source outcome for {} {}: bootstrap full review accepted for exact upstream commit {}.",
+                PACKAGE_BASE_FIELD, package_base, commit);
         case ProductionReviewedSourceOutcome::InitialFullReview:
             return localization::format_translated_message(
                 "Reviewed-source outcome for {} {}: initial full review accepted for exact upstream commit {}.",

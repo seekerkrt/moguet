@@ -28,7 +28,7 @@ copyはsnapshot copyであり、fresh query/leaseではない。
 | --- | --- | --- | --- |
 | UpToDate | candidate除外 | candidate除外 | current develならsource buildをskip |
 | UpdateAvailable / GitRevision | normal preflight後にreviewed execution | 同左 | version-only shortcutを迂回してreviewed execution |
-| RequiresCheck | independentはwarning/skip、required dependency/provider/childへ再entryならblock | whole-operation block/nonzero | default-Noの明示rebuild確認。declineはtyped Incomplete、acceptedでも別途normal reviewed pinが必要 |
+| RequiresCheck | independentはwarning/skip。初回Missingだけは下記の明示bootstrapを提示可能。required dependency/provider/childへ再entryならblock | whole-operation block/nonzero | default-Noの明示rebuild確認。declineはtyped Incomplete、acceptedでも別途normal reviewed pinが必要 |
 | Unknown | hard observation failure、build0 | block/nonzero、build0 | failure/nonzero、automatic build0 |
 | Unsupported | auto candidateにしない | block/nonzero | automatic build0。explicit supported legacy intentは別経路 |
 | NotApplicable | normal version policy | normal version policy | 既存registered version/source-baseline policy |
@@ -107,3 +107,38 @@ S4/S5/S6のproof・lifetime契約と、本当にthrowされたlegacy failureのe
 `test-normal-reviewed-devel-execution`はsingular/PackageBaseSetの各4 partial casesを実集約ループへ通し、
 real reviewed finalizer/S4/S5/S6、one-shot、nonzero、last-owner cleanup、persistent allocation denialを確認する。
 そのprofileだけにあるdispatch seamはhost cache/provider操作を省き、raw Completeを注入しない。
+
+## Explicit initial tracking bootstrap (#553)
+
+有効化するのはexact target-less ordinary `-Syu`のactual Auto coordinatorだけ。
+query / -Qua / dry-run、standalone upgrade-aur、upgrade-allはbootstrap intentを生成しない。
+source-buildやtarget grammarの一般policyを変更しない。
+
+- `is_initial_devel_bootstrap_observation`はCurrentObservation、initial Provenance stage、beforeの
+  StoreMissing、ProvenanceMissing reason、exact target correlationを要求する。remote後の消失や他reasonは除外する。
+- `observe_aur_devel_bootstrap_candidates`は元query index/evidence/contextを維持してtrial intentを付ける。
+  RequiresCheckやVersion/GitRevision basisを変更しない。
+- trialはP/I/Rとfull installed groupingをread-onlyで観測し、recipe HEAD OIDをrepositoryless Gitで取得し、
+  そのexact idのAUR cgit metadataをboundedに読む。既存cacheは安全なread-only open/statusだけで確認する。
+  one package、one floating HTTPS Git source、DefaultHead/Branch、architecture-independent、overlayなしに限定する。
+  metadataだけで追加local sourceのtracked regular-file identityを証明できない場合は提示しない。
+  source evaluation、cache作成、checkout、review authority、publicationはこの観測で発生しない。
+- trial failure/unsupported/判定不能は従来skip。P/R invalid、corrupt、future、unsafeをMissingへ丸めない。
+  trial network failureは既存valid provenanceに対する#475 Unknownと別の試行適格性観測である。
+- 同じcombined BuildPlanを一度解決し、既存required relation projectionを適用する。
+  bootstrapの自分自身のsingular Root artifactだけをそのtrial intentとして区別し、cross-rootの
+  dependency/provider/child/shared-base relationは従来どおりblockする。
+- runnerのbootstrap decision phaseはcache activation/shared provider transactionより前。
+  query index順にdefault-No確認を行う。declined/changed/unavailable rootだけに属するwork itemとproviderを
+  実行対象から除き、元のindex/root attributionとtyped skipを結果へ残す。名前で再検索/replanningしない。
+- bootstrap確認前、Yes後、source実行開始時に既存local/source観測を再検証する。Missing snapshotをleaseとしない。
+  source reviewはtrialと同じexact recipeを要求し、変化時はfail closed。新global lockやretryは作らない。
+- accepted intentは専用full-review purposeを要求する。元R observed record/CASを保持し、same/changed revisionでも
+  full inventoryを提示する。--noeditはeditor省略だけ。review bypass/declineからlegacy buildへfallbackしない。
+- actual build/install/publicationは既存7-C→S4→S5→S6。trial metadataはproofにならず、actual built OIDはS4だけが所有する。
+- declineはIndependentDevelRequiresCheck skip。cancel/EOFは既存AurUpdateExecutionCancelled→FilteredAurUpdateCancelledで
+  partial resultを運ぶ。decision phaseのcancelでは他work itemは未実行、review中のcancelでは完了済みprefixを保持する。
+- accepted後のfailure/partialは既存first-failure stop。S6 Failed/OutcomeUnknownをinstall outcomeと分離し、retry/rollbackしない。
+
+`test-aur-devel-route`が試行適格性/reason/local drift、`test-reviewed-source-lifecycle`がfull-review purposeとCAS保持、
+`test-devel-tracking-bootstrap`がactual route/confirmation/review/S4/S5/S6と同一fixture再assessmentを検証する。

@@ -531,6 +531,26 @@ is non-zero. `upgrade-aur`, its dry-run, and the fresh AUR phase of
 `upgrade-all` retain their strict whole-operation blocker behavior. Non-TTY use
 and `--noconfirm` do not add a prompt or approve a rebuild.
 
+For an independent target whose initial provenance observation is genuinely
+missing, interactive exact target-less `-Syu` can offer an explicit tracking
+bootstrap with a default-No confirmation. Before offering it, Moguet observes
+an exact AUR recipe without changing cache or state and checks the trial source
+shape. The initial trial supports a single architecture-independent floating
+HTTPS Git source, one package, and no checkout overlay; supplementary source
+files remain unoffered when their tracked regular-file identity cannot be
+verified by this observation. Unavailable or unsupported observations keep the
+existing warning/skip behavior. This trial is not build or provenance proof.
+
+Bootstrap decisions precede cache, provider, and dependency mutations for those
+targets. Acceptance still requires a full source review, including when a prior
+review exists, followed by the existing supported build, exact install, fresh
+installed binding, and successful provenance publication. `--noedit` is allowed;
+`--nodiff`, `review.diff = "skip"`, `--noconfirm`, and non-TTY input do not approve
+bootstrap. Decline skips the target; cancellation or a later execution failure
+stops subsequent work without rollback. Invalid, corrupt, future, mismatched,
+and unsafe state are never repaired this way. This bootstrap does not change
+`upgrade-aur`, `upgrade-all`, query/dry-run behavior, or explicit target routing.
+
 v2.5.0 does not query or compare the upstream VCS revision and does not publish
 devel build provenance. Moguet now includes the trusted
 HTTPS Git remote revision observer foundation from
@@ -554,7 +574,7 @@ replace source review. `--noconfirm` cannot supply review authority. See the
 [normal devel route contract](https://github.com/seekerkrt/moguet/blob/develop/docs/contracts/devel-normal-routes.md).
 The provenance format remains schema v1 in a separate XDG state namespace.
 Unknown/future schemas and corrupt or unsafe history fail closed; the updater does
-not repair records, adopt external history, or create a missing baseline. A baseline
+not repair records, adopt external history, or automatically create a missing baseline. A baseline
 requires an explicitly reviewed supported build, an actual install, and successful
 publication. Same-version reinstalls invalidate historical provenance when the
 installed artifact binding changes. See the [devel tracking and migration contract](https://github.com/seekerkrt/moguet/blob/develop/docs/contracts/devel-tracking.md).
@@ -584,7 +604,8 @@ upstream commit for each PackageBase in persistent XDG state. After fetch or
 clone, it pins one exact target commit. With no reviewed state—including an
 existing cache created before this workflow—the first affected PackageBase
 gets a full tracked-file review. A later target is reviewed from the previous
-reviewed revision; the same target needs no new prompt or state write. If the
+reviewed revision; the same target needs no new prompt or state write. The explicit devel
+tracking bootstrap described above always requires a full review, including the same target. If the
 old commit object is unavailable, Moguet presents a full rebaseline review
 instead of falling back to the cache checkout. Invalid, corrupted, or
 source-mismatched state requires an explicit full rebind review; future or

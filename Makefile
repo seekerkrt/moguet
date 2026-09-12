@@ -74,6 +74,7 @@ CMAKE_FOCUSED_ALIASES := \
 	test-current-installed-artifact-binding \
 	test-devel-package-assessment \
 	test-aur-devel-route \
+	test-devel-tracking-bootstrap \
 	test-normal-reviewed-devel-execution \
 	test-reviewed-devel-source-build-execution \
 	test-devel-git-revision-comparison \

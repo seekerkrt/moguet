@@ -479,10 +479,27 @@ void test_inconsistent_store_observation_fails_closed() {
             "Raw record mismatch produced the wrong stop reason.");
 }
 
+void test_bootstrap_full_review_preserves_existing_cas_observation() {
+    const auto identity = review_identity();
+    for(const auto& revision : {std::string(), std::string(SHA1_A), std::string(SHA1_B)}) {
+        const auto observed = revision.empty() ? missing_read() : observed_read(encode_reviewed_source_state(state_for(identity, revision)), identity.package_base());
+        set_reviewed_source_lifecycle_store_result_for_test(observed);
+        auto preflight = preflight_reviewed_source_fatal_state(identity.package_base());
+        auto result = plan_reviewed_source_lifecycle_from_preflight(identity,
+                                                                    std::move(std::get<ReviewedSourceFatalStatePreflight>(preflight)), ReviewedSourceReviewPurpose::DevelTrackingBootstrap);
+        const auto& requirement = require_arm<ReviewedSourceReviewRequirement>(result, "Bootstrap skipped full review");
+        require(requirement.kind() == ReviewedSourceReviewRequirementKind::BootstrapFullReview && !requirement.baseline(),
+                "Bootstrap used incremental or already-reviewed continuation");
+        require(requirement.expected_state_observation().store_read() == observed,
+                "Bootstrap erased or changed the exact CAS observation");
+    }
+}
+
 } // namespace
 
 int main() {
     try {
+        test_bootstrap_full_review_preserves_existing_cas_observation();
         test_typed_identity_reuses_aur_package_base_and_exact_revision();
         test_split_children_share_one_package_base_review_identity();
         test_missing_maps_to_initial_full_review_with_expected_null();

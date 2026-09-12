@@ -71,7 +71,7 @@ deterministic positive fixtureはreviewed recipeに`options=('!debug')`を明示
 | normal RPC Version newer | Version precedence。Git queryなしで既存candidateを維持 |
 | valid Git same | UpToDate、automatic buildなし |
 | valid Git different | GitRevision candidate。normal preflightとreviewed executionを通す |
-| RequiresCheck | automatic buildなし。ordinary -Syuのindependent targetはwarning/skip、required relationとstrict routeはblock |
+| RequiresCheck | automatic buildなし。ordinary -Syuのindependent targetはwarning/skip。初回Missingの試行適格性を確認できる場合だけ明示bootstrapを提示。required relationとstrict routeはblock |
 | Unknown | remote observation failureを保持、automatic buildなし／nonzero |
 | Unsupported / unsupported devel source | automatic authoritative buildなし。suffixだけでVCSを確定しない。local proof不足はRequiresCheck |
 | ordinary non-devel AUR | normal version policy。missing provenanceからGit baselineを生成しない |
@@ -137,3 +137,19 @@ deterministic normal route/partial acceptance、actual Git/makepkg/archive、loo
 transactionを区別して記録する。S5-only laneはpublicationなし、S6 laneはraw document SHA-256・27 keys・
 exact predecessor chain・actual S4 OID / artifact / S5 bindingとのreadback一致を要求する。
 public provider/AUR/local live acceptanceやrelease approvalをdeterministic seamから推定しない。
+
+## Ordinary initial bootstrap (#553)
+
+exact target-less ordinary `-Syu` Autoだけが、initial ProvenanceMissingの独立targetへdefault-Noの
+bootstrap確認を提示できる。試行適格性はexact recipeとcurrent local observationsに結び付くread-only値であり、
+review/build/install/publication proofではない。初期trial observerでは追加source fileの追跡・file typeを
+metadataだけから証明しないため、one Git source以外のrecipeは提示しない。
+
+Yes後にもfull source reviewを要求する。既存RをMissingへ偽装せず、exact observed predecessorをCASへ保持する。
+reviewed exact recipe→S4→S5→S6を完了した場合だけ初回baselineが成立し、次回P/I/Rとsame remote OIDはUpToDate、
+different OIDはGitRevision updateとなる。--noconfirm/non-TTY/--nodiff/config review Skipは承認ではない。
+
+既存valid provenanceのfast pathと通常Version updateは維持する。invalid/corrupt/future/unsafeやstale bindingは
+bootstrapでrepairしない。Rはbuild前に進み得るがPとは別であり、install failureはpartial effectを持ち得る。
+S6 OutcomeUnknownではrecordが存在する可能性を保ち、baseline successとは報告せず、後続を停止する。
+詳細なowner/interaction境界は[normal routes](devel-normal-routes.md)を正とする。

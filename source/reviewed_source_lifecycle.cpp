@@ -346,7 +346,8 @@ preflight_reviewed_source_fatal_state(
 ReviewedSourceLifecyclePlanResult
 plan_reviewed_source_lifecycle_from_preflight(
     AurReviewedSourceReviewIdentity identity,
-    ReviewedSourceFatalStatePreflight preflight) {
+    ReviewedSourceFatalStatePreflight preflight,
+    ReviewedSourceReviewPurpose purpose) {
     if(preflight.package_base_ != identity.package_base()) {
         return ReviewedSourceOperationStop::make(
             ReviewedSourceOperationStopReason::PackageBaseMismatch);
@@ -357,6 +358,21 @@ plan_reviewed_source_lifecycle_from_preflight(
     const ReviewedSourceStateObservation& observation =
         expected.observation();
 
+    if(purpose == ReviewedSourceReviewPurpose::DevelTrackingBootstrap) {
+        // A valid prior review still needs full review for the new build intent.
+        // Keep its exact record/digest as the publication CAS predecessor.
+        if(!std::holds_alternative<ReviewedSourceStateMissing>(observation) &&
+           !std::holds_alternative<ReviewedSourceStateLoaded>(observation)) {
+            return ReviewedSourceOperationStop::make(
+                ReviewedSourceOperationStopReason::InconsistentStoreObservation);
+        }
+        return ReviewedSourceReviewRequirement(
+            std::move(identity), ReviewedSourceReviewRequirementKind::BootstrapFullReview,
+            std::nullopt, std::nullopt, std::move(expected));
+    }
+    if(purpose != ReviewedSourceReviewPurpose::NormalUpdate) {
+        return ReviewedSourceOperationStop::make(ReviewedSourceOperationStopReason::LifecycleMismatch);
+    }
     if(std::holds_alternative<ReviewedSourceStateMissing>(observation)) {
         return ReviewedSourceReviewRequirement(
             std::move(identity),

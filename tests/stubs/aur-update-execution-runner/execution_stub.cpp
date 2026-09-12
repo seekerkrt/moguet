@@ -706,3 +706,7 @@ execute_prepared_package_base_source_build_work_item_typed(
     throw std::logic_error(
         "AUR update set executor stub has an unknown scripted outcome.");
 }
+
+ConfirmationResult request_confirmation(const std::string&, ConfirmationDefault, bool) {
+    throw std::logic_error("Runner fixture received an unexpected bootstrap confirmation.");
+}

@@ -1,4 +1,5 @@
 #include "system_aur_update_operation.hpp"
+#include "aur_devel_update.hpp"
 
 #include "app_config.hpp"
 #include "aur_update_execution_preflight.hpp"
@@ -747,6 +748,7 @@ execute_prepared_system_aur_update_operation(
     try {
         query_result = query_aur_updates_for_foreign_inventory(
             result.foreign_inventory.inventory);
+        observe_aur_devel_bootstrap_candidates(query_result, config);
     } catch(const std::exception& error) {
         result.query.status = SystemAurUpdateQueryPhaseStatus::Failed;
         result.query.diagnostic = error.what();

@@ -1266,6 +1266,8 @@ AurUpdateWorkItemExecutionResult make_work_item_result(
     child.affected_roots = {{index, package_name}};
     child.roles = {PackageRole::Root};
     switch(status) {
+        case AurUpdateWorkItemExecutionStatus::BootstrapSkipped:
+            throw std::logic_error("Upgrade-all fixture cannot mint bootstrap results.");
         case AurUpdateWorkItemExecutionStatus::Updated:
             child.selected_artifact =
                 ArtifactPackageIdentity{package_name, "2.0-1"};

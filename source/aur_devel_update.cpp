@@ -1,4 +1,18 @@
+#include "aur_rpc.hpp"
+#include "local_package_metadata.hpp"
+#include "process.hpp"
+#include "srcinfo_source_metadata.hpp"
+#include "trusted_git.hpp"
+#include "trusted_git_process_policy.hpp"
+#include <curl/curl.h>
+#include <fcntl.h>
+#include <chrono>
+#include <limits>
+#include <utility>
 #include "aur_devel_update.hpp"
+#include "app_config.hpp"
+#include "devel_tracking_bootstrap.hpp"
+#include <unistd.h>
 #include "package_identifier.hpp"
 #include "system_source_upgrade.hpp"
 #include <algorithm>
@@ -151,4 +165,258 @@ std::vector<RegisteredAurDevelObservation> observe_registered_aur_devel_updates(
         result.push_back(std::move(observed));
     }
     return result;
+}
+
+AurDevelUpdateContextObservation observe_aur_devel_update_context() {
+    return observe_context();
+}
+
+void observe_aur_devel_bootstrap_candidates(AurUpdateQueryResult& query, const AppConfig& config) {
+    if(config.no_confirm || config.user_config.review.diff != ReviewPolicy::Prompt || isatty(STDIN_FILENO) != 1) return;
+    for(const auto& observation : query.devel_observations) {
+        if(observation.plan_index >= query.plan.entries.size() || !observation.evidence || !observation.context) continue;
+        auto& entry = query.plan.entries[observation.plan_index];
+        const auto& evidence = *observation.evidence;
+        if(entry.bootstrap || !is_initial_devel_bootstrap_observation(entry, evidence)) continue;
+        if(std::count_if(query.devel_observations.begin(), query.devel_observations.end(), [&](const auto& item) {
+               return item.plan_index == observation.plan_index;
+           }) != 1) continue;
+        const auto& base_name = entry.aur_package->package_base;
+        if(std::count_if(query.plan.entries.begin(), query.plan.entries.end(), [&](const auto& other) {
+               return other.aur_package && other.aur_package->package_base == base_name;
+           }) != 1) continue; // No trial from a partial/shared RPC PackageBase view.
+
+        const auto base = PackageBaseIdentity::make(PackageSourceIdentity::aur(
+                                                        SourceLocationIdentity::known_git_remote("https://aur.archlinux.org/" + base_name + ".git")),
+                                                    base_name);
+        const auto trial = observe_devel_tracking_bootstrap(PackageChildIdentity::make(base, entry.installed_name));
+        if(const auto* available = std::get_if<std::shared_ptr<const DevelTrackingBootstrapTrial>>(&trial)) {
+            if((*available)->installed().version().full_version() &&
+               *(*available)->installed().version().full_version() == entry.installed_version) entry.bootstrap = *available;
+        }
+    }
+}
+
+
+namespace {
+using Reason = DevelTrackingBootstrapUnavailableReason;
+constexpr std::size_t MAX_RECIPE_METADATA = 256 * 1024;
+
+struct Descriptor {
+    int value;
+    ~Descriptor() {
+        if(value >= 0) static_cast<void>(::close(value));
+    }
+};
+
+struct RecipeObservation {
+    SourceRevisionIdentity revision;
+    std::string srcinfo;
+};
+
+#ifdef MOGUET_ENABLE_DEVEL_TRACKING_BOOTSTRAP_TEST_HOOKS
+DevelTrackingBootstrapTestHooks g_bootstrap_hooks;
+#endif
+
+bool clean_checkout(const PackageChildIdentity& package) {
+#ifdef MOGUET_ENABLE_DEVEL_TRACKING_BOOTSTRAP_TEST_HOOKS
+    if(g_bootstrap_hooks.checkout) return g_bootstrap_hooks.checkout(package);
+#endif
+    const auto paths = xdg_paths::resolve_cache_process_environment();
+    auto directory = xdg_directory_safety::open_existing_directory(paths);
+    if(!directory) return true;
+    const auto root = adopt_trusted_cache_root(paths, std::move(*directory));
+    const auto checkout = require_trusted_cache_path(root, paths.directory / package.package_base().package_base(),
+                                                     CachePathRequirement::ExistingOrMissing);
+    if(!checkout.exists()) return true;
+    return trusted_git_checkout_has_no_overlay(checkout, *package.package_base().source().location().value());
+}
+
+std::size_t receive_metadata(void* bytes, std::size_t size, std::size_t count, void* context) noexcept {
+    auto& out = *static_cast<std::string*>(context);
+    if(size != 0 && count > std::numeric_limits<std::size_t>::max() / size) return 0;
+    const auto length = size * count;
+    if(length > MAX_RECIPE_METADATA - out.size()) return 0;
+    try {
+        out.append(static_cast<char*>(bytes), length);
+    } catch(...) {
+        return 0;
+    }
+    return length;
+}
+
+std::optional<RecipeObservation> observe_recipe(const PackageChildIdentity& package) {
+#ifdef MOGUET_ENABLE_DEVEL_TRACKING_BOOTSTRAP_TEST_HOOKS
+    if(g_bootstrap_hooks.recipe) {
+        const auto result = g_bootstrap_hooks.recipe(package);
+        if(!result) return std::nullopt;
+        return RecipeObservation{result->revision, result->srcinfo};
+    }
+#endif
+    Descriptor directory{::open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)};
+    Descriptor input{::open("/dev/null", O_RDONLY | O_CLOEXEC | O_NOFOLLOW)};
+    if(directory.value < 0 || input.value < 0) return std::nullopt;
+    auto arguments = trusted_git_observer_process_arguments();
+    arguments.insert(arguments.end(), {"ls-remote", "--exit-code", "--", *package.package_base().source().location().value(), "HEAD"});
+    ExplicitProcessInvocation invocation{"/usr/bin/git", std::move(arguments),
+                                         trusted_git_process_environment(TrustedGitProcessEnvironmentMode::ReadOnlyObservation)};
+    invocation.working_directory_fd = directory.value;
+    invocation.standard_input_fd = input.value;
+    const auto observed = capture_bounded_explicit_process_output_raw(invocation,
+                                                                      {std::chrono::seconds(30), std::chrono::seconds(1), 256, true});
+    const auto* exited = std::get_if<BoundedProcessExited>(&observed.outcome);
+    if(!exited || exited->exit_code != 0) return std::nullopt;
+    const auto& bytes = observed.output;
+    const auto tab = bytes.find('\t');
+    if(tab == std::string::npos || bytes.substr(tab) != "\tHEAD\n") return std::nullopt;
+    const auto revision = SourceRevisionIdentity::git_commit(bytes.substr(0, tab));
+
+    // cgit's immutable id selects the same recipe commit advertised by Git.
+    // The bytes remain untrusted trial metadata, never reviewed/source proof.
+    static CurlGlobal curl_global;
+    std::unique_ptr<CURL, decltype(&curl_easy_cleanup)> curl(curl_easy_init(), curl_easy_cleanup);
+    if(!curl) return std::nullopt;
+    std::unique_ptr<char, decltype(&curl_free)> escaped(
+        curl_easy_escape(curl.get(), package.package_base().package_base().c_str(), 0), curl_free);
+    if(!escaped) return std::nullopt;
+    const std::string url = "https://aur.archlinux.org/cgit/aur.git/plain/.SRCINFO?h=" +
+                            std::string(escaped.get()) + "&id=" + *revision.git_commit();
+    std::string metadata;
+    if(curl_easy_setopt(curl.get(), CURLOPT_URL, url.c_str()) != CURLE_OK ||
+       curl_easy_setopt(curl.get(), CURLOPT_PROTOCOLS_STR, "https") != CURLE_OK ||
+       curl_easy_setopt(curl.get(), CURLOPT_FOLLOWLOCATION, 0L) != CURLE_OK ||
+       curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT, 30L) != CURLE_OK ||
+       curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT, 10L) != CURLE_OK ||
+       curl_easy_setopt(curl.get(), CURLOPT_WRITEFUNCTION, receive_metadata) != CURLE_OK ||
+       curl_easy_setopt(curl.get(), CURLOPT_WRITEDATA, &metadata) != CURLE_OK ||
+       curl_easy_perform(curl.get()) != CURLE_OK) return std::nullopt;
+    long status = 0;
+    if(curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &status) != CURLE_OK || status != 200) return std::nullopt;
+    return RecipeObservation{revision, std::move(metadata)};
+}
+
+bool complete_installed_group(const PackageChildIdentity& package) {
+    const auto context = observe_aur_devel_update_context();
+    if(!context.installed_inventory) return false;
+    const auto* inventory = std::get_if<InstalledPackageStateSnapshot>(&*context.installed_inventory);
+    if(!inventory) return false;
+    const auto selected = inventory->find(package.package_name());
+    if(selected == inventory->end() || !selected->second.package_base.value() ||
+       *selected->second.package_base.value() != package.package_base().package_base() ||
+       selected->second.reason == InstalledPackageReason::Unknown) return false;
+    std::size_t children = 0;
+    for(const auto& [name, installed] : *inventory) {
+        static_cast<void>(name);
+        if(!installed.package_base.value()) return false;
+        if(*installed.package_base.value() == package.package_base().package_base()) ++children;
+    }
+    return children == 1;
+}
+
+bool valid_reviewed(const ReviewedSourceStateStoreRead& read) {
+    return (std::holds_alternative<ReviewedSourceStateMissing>(read.observation) && !read.observed) ||
+           (std::holds_alternative<ReviewedSourceStateLoaded>(read.observation) && read.observed);
+}
+} // namespace
+
+DevelTrackingBootstrapTrial::DevelTrackingBootstrapTrial(
+    PackageChildIdentity package, SourceRevisionIdentity revision, std::string metadata,
+    InstalledArtifactBinding installed, ReviewedSourceStateStoreRead reviewed)
+    : package_(std::move(package)), recipe_revision_(std::move(revision)), source_metadata_(std::move(metadata)),
+      installed_(std::move(installed)), installed_version_(*installed_.version().full_version()), reviewed_(std::move(reviewed)) {
+}
+
+bool has_supported_devel_bootstrap_source(const PackageChildIdentity& package, const std::string& srcinfo) {
+    const auto sources = parse_srcinfo_source_metadata(srcinfo);
+    const auto metadata = parse_local_package_metadata(srcinfo);
+    if(!sources.is_success() || !metadata.is_success() ||
+       sources.metadata()->package_base != package.package_base().package_base() ||
+       metadata.metadata()->package_base != package.package_base().package_base() ||
+       metadata.metadata()->children.size() != 1 || metadata.metadata()->children.front().name != package.package_name()) return false;
+    // Local supplemental files cannot be proven regular/tracked by RPC or a
+    // plain metadata response. Leave those unverified recipes unoffered.
+    if(sources.metadata()->source_entries.size() != 1) return false;
+    const auto& entry = sources.metadata()->source_entries.front();
+    const auto& source = entry.parsed_source;
+    if(entry.architecture_qualifier || source.kind != ParsedSourceEntryKind::Vcs || !source.vcs ||
+       source.vcs->recognized_kind != ParsedSourceVcsKind::Git ||
+       source.vcs->declaration_kind != ParsedSourceVcsDeclarationKind::ExplicitPrefix ||
+       source.transport_scheme != std::optional<std::string>("https") || source.vcs->query) return false;
+    if(source.vcs->selector) {
+        const auto& selector = *source.vcs->selector;
+        if(source.vcs->component_order != ParsedSourceVcsComponentOrder::FragmentOnly ||
+           selector.recognized_role != ParsedSourceSelectorRole::Branch || selector.key != "branch" ||
+           !std::holds_alternative<ValidatedExactGitBranch>(validate_exact_git_branch(selector.value))) return false;
+    } else if(source.vcs->component_order != ParsedSourceVcsComponentOrder::None)
+        return false;
+    try {
+        static_cast<void>(ValidatedHttpsGitRemote::make(source.source_location));
+    } catch(const std::invalid_argument&) {
+        return false;
+    }
+    return true;
+}
+
+DevelTrackingBootstrapObservation observe_devel_tracking_bootstrap(const PackageChildIdentity& package) {
+    try {
+        const auto& base = package.package_base();
+        if(!is_valid_package_name(package.package_name()) || !is_valid_package_name(base.package_base()) ||
+           base.source() != PackageSourceIdentity::aur(SourceLocationIdentity::known_git_remote(
+                                "https://aur.archlinux.org/" + base.package_base() + ".git"))) return DevelTrackingBootstrapUnavailable{Reason::RecipeUnavailable};
+        if(!complete_installed_group(package)) return DevelTrackingBootstrapUnavailable{Reason::InstalledStateUnavailable};
+        const auto local = observe_devel_bootstrap_local_state(package);
+        if(!local.provenance || !std::holds_alternative<DevelBuildProvenanceStoreMissing>(*local.provenance))
+            return DevelTrackingBootstrapUnavailable{Reason::ProvenanceNotMissing};
+        const auto* installed = local.installed ? std::get_if<CurrentInstalledArtifactBindingObserved>(&*local.installed) : nullptr;
+        if(!installed) return DevelTrackingBootstrapUnavailable{Reason::InstalledStateUnavailable};
+        const auto* reviewed = local.reviewed ? std::get_if<ReviewedSourceStateStoreRead>(&*local.reviewed) : nullptr;
+        if(!reviewed || !valid_reviewed(*reviewed)) return DevelTrackingBootstrapUnavailable{Reason::ReviewedStateInvalid};
+        if(!clean_checkout(package)) return DevelTrackingBootstrapUnavailable{Reason::CheckoutOverlayOrUnavailable};
+        const auto recipe = observe_recipe(package);
+        if(!recipe) return DevelTrackingBootstrapUnavailable{Reason::RecipeUnavailable};
+        if(!has_supported_devel_bootstrap_source(package, recipe->srcinfo)) return DevelTrackingBootstrapUnavailable{Reason::UnsupportedSource};
+        // Network observation is outside all local reader lifetimes. Recheck
+        // the same local facts once before returning a trial to the prompt.
+        const auto after = observe_devel_bootstrap_local_state(package);
+        const auto* after_installed = after.installed ? std::get_if<CurrentInstalledArtifactBindingObserved>(&*after.installed) : nullptr;
+        const auto* after_reviewed = after.reviewed ? std::get_if<ReviewedSourceStateStoreRead>(&*after.reviewed) : nullptr;
+        if(!after.provenance || !std::holds_alternative<DevelBuildProvenanceStoreMissing>(*after.provenance) ||
+           !after_installed || after_installed->binding() != installed->binding() ||
+           !after_reviewed || *after_reviewed != *reviewed || !complete_installed_group(package)) {
+            return DevelTrackingBootstrapUnavailable{Reason::ObservationChanged};
+        }
+        return std::shared_ptr<const DevelTrackingBootstrapTrial>(new DevelTrackingBootstrapTrial(
+            package, recipe->revision, recipe->srcinfo, installed->binding(), *reviewed));
+    } catch(const std::bad_alloc&) {
+        throw;
+    } catch(const std::exception&) {
+        return DevelTrackingBootstrapUnavailable{Reason::ObservationChanged};
+    }
+}
+
+bool revalidate_devel_tracking_bootstrap(const DevelTrackingBootstrapTrial& trial) {
+    const auto fresh = observe_devel_tracking_bootstrap(trial.package());
+    const auto* observed = std::get_if<std::shared_ptr<const DevelTrackingBootstrapTrial>>(&fresh);
+    return observed && (*observed)->recipe_revision() == trial.recipe_revision() &&
+           (*observed)->source_metadata() == trial.source_metadata() &&
+           (*observed)->installed() == trial.installed() && (*observed)->reviewed() == trial.reviewed();
+}
+
+#ifdef MOGUET_ENABLE_DEVEL_TRACKING_BOOTSTRAP_TEST_HOOKS
+void set_devel_tracking_bootstrap_test_hooks(DevelTrackingBootstrapTestHooks hooks) {
+    g_bootstrap_hooks = std::move(hooks);
+}
+#endif
+
+bool is_initial_devel_bootstrap_observation(const AurUpdatePlanEntry& entry, const DevelPackageAssessment& evidence) noexcept {
+    return entry.devel_assessment_origin == AurDevelAssessmentOrigin::CurrentObservation &&
+           entry.devel_assessment == evidence.assessment && evidence.stage == DevelPackageAssessmentStage::Provenance &&
+           !evidence.issue && evidence.before.provenance &&
+           std::holds_alternative<DevelBuildProvenanceStoreMissing>(*evidence.before.provenance) &&
+           !evidence.before.installed && !evidence.before.reviewed && !evidence.after.provenance &&
+           !evidence.after.installed && !evidence.after.reviewed && !evidence.remote &&
+           evidence.post_check == DevelPackagePostCheck::NotAttempted &&
+           project_aur_update_effective_state(entry) == AurUpdateEffectiveState::RequiresCheck &&
+           *entry.devel_assessment.requires_check_reason() == DevelRequiresCheckReason::ProvenanceMissing &&
+           entry.aur_package && entry.installed_name == entry.aur_package->aur_name;
 }
