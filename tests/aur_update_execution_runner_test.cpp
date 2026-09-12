@@ -2112,3 +2112,7 @@ int main() {
     std::cout << "AUR update execution runner tests: all checks passed\n";
     return 0;
 }
+
+bool revalidate_devel_tracking_bootstrap(const DevelTrackingBootstrapTrial&) {
+    throw std::logic_error("Runner fixture has no bootstrap observation authority.");
+}

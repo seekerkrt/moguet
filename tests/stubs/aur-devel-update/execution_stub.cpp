@@ -9,7 +9,7 @@ bool PreparedReviewedDevelSourceBuildExecution::valid() const noexcept {
 }
 ReviewedProductionSourceExecution select_normal_reviewed_source_execution(const ValidatedCachePath& checkout, PinnedReviewedSourceBuild pin,
                                                                           ProductionReviewedSourceOutcome outcome, std::optional<ReviewedSourceAbnormalStateReason> abnormal, const ReviewedDevelSourceBuildIntent* intent) {
-    if(intent && intent->request.authoritative_devel_update) throw std::logic_error("Legacy fixture received authoritative execution intent.");
+    if(intent && (intent->request.authoritative_devel_update || intent->request.devel_tracking_bootstrap)) throw std::logic_error("Legacy fixture received authoritative execution intent.");
     return make_reviewed_production_artifact_source_tree(checkout, std::move(pin), outcome, abnormal);
 }
 ReviewedDevelExecutionSnapshot execute_normal_reviewed_devel(PreparedReviewedDevelSourceBuildExecution) {

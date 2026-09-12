@@ -542,31 +542,25 @@ struct AurUpdateExecutionPreflight {
 };
 
 inline bool required_devel_blocker_references_target(
-    const AurUpdateExecutionIssue& issue,
-    const AurUpdateExecutionTarget& target) noexcept {
-    if(issue.reason != AurUpdateExecutionReason::
-                           RequiredDevelTargetRequiresCheck ||
-       !is_valid_aur_update_execution_issue_devel_payload(issue) ||
-       target.skip_kind !=
-           std::optional<AurUpdateExecutionSkipKind>{
-               AurUpdateExecutionSkipKind::RequiredDevelRequiresCheck} ||
-       target.issues.size() != 1 ||
-       !target.update.aur_package.has_value()) {
+    const AurUpdateExecutionIssue& issue, const AurUpdateExecutionTarget& target) noexcept {
+    if(issue.reason != AurUpdateExecutionReason::RequiredDevelTargetRequiresCheck ||
+       !is_valid_aur_update_execution_issue_devel_payload(issue) || !target.update.aur_package) return false;
+    const bool bootstrap = has_aur_update_bootstrap_intent(target.update);
+    if(bootstrap) {
+        if(target.status != AurUpdateExecutionTargetStatus::Incomplete ||
+           !std::any_of(target.issues.begin(), target.issues.end(), [](const auto& retained) {
+               return retained.reason == AurUpdateExecutionReason::DevelRequiresCheck &&
+                      retained.devel_requires_check_reason == DevelRequiresCheckReason::ProvenanceMissing;
+           })) return false;
+    } else if(target.skip_kind != AurUpdateExecutionSkipKind::RequiredDevelRequiresCheck || target.issues.size() != 1) {
         return false;
     }
-    const AurUpdateRequiredDevelTargetBlocker& blocker =
-        *issue.required_devel_target_blocker;
-    const std::optional<DevelRequiresCheckReason>& target_reason =
-        target.issues.front().devel_requires_check_reason;
-    return blocker.requires_check_update_plan_index ==
-               target.update_plan_index &&
-           blocker.package_name == target.update.installed_name &&
-           blocker.package_name == target.update.aur_package->aur_name &&
-           blocker.package_base ==
-               std::optional<std::string>{
-                   target.update.aur_package->package_base} &&
-           target_reason.has_value() &&
-           blocker.devel_requires_check_reason == *target_reason;
+    const auto& blocker = *issue.required_devel_target_blocker;
+    const auto* reason = target.update.devel_assessment.requires_check_reason();
+    return blocker.requires_check_update_plan_index == target.update_plan_index &&
+           blocker.package_name == target.update.installed_name && blocker.package_name == target.update.aur_package->aur_name &&
+           blocker.package_base == std::optional<std::string>{target.update.aur_package->package_base} &&
+           reason && blocker.devel_requires_check_reason == *reason;
 }
 
 inline bool has_valid_aur_update_execution_policy_snapshot(
@@ -602,11 +596,11 @@ inline bool has_valid_aur_update_execution_policy_snapshot(
                     preflight.targets[target_position];
                 if(required_devel_blocker_references_target(
                        issue, target)) {
-                    if(owner_position == target_position ||
-                       target.skip_kind !=
-                           std::optional<AurUpdateExecutionSkipKind>{
-                               AurUpdateExecutionSkipKind::
-                                   RequiredDevelRequiresCheck}) {
+                    if(!has_aur_update_bootstrap_intent(target.update) &&
+                       (owner_position == target_position || target.skip_kind !=
+                                                                 std::optional<AurUpdateExecutionSkipKind>{
+                                                                     AurUpdateExecutionSkipKind::
+                                                                         RequiredDevelRequiresCheck})) {
                         return false;
                     }
                     ++referenced_target_count;

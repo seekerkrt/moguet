@@ -886,3 +886,11 @@ unset(_moguet_projection_forbidden_symbol_pattern)
 unset(_moguet_projection_probe_symbols)
 unset(_moguet_renderer_forbidden_symbol_pattern)
 unset(_moguet_renderer_probe_symbols)
+
+moguet_add_ctest(
+    NAME cpp.devel_tracking_bootstrap
+    TARGETS devel-tracking-bootstrap-test
+    COMMAND python3 "${PROJECT_SOURCE_DIR}/tests/test-devel-tracking-bootstrap.py" "$<TARGET_FILE:devel-tracking-bootstrap-test>"
+    WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+)
+set_tests_properties(cpp.devel_tracking_bootstrap PROPERTIES TIMEOUT 480)

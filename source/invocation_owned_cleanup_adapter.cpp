@@ -205,6 +205,7 @@ bool is_valid_reviewed_outcome(
     ProductionReviewedSourceOutcome outcome) noexcept {
     switch(outcome) {
         case ProductionReviewedSourceOutcome::InitialFullReview:
+        case ProductionReviewedSourceOutcome::BootstrapFullReview:
         case ProductionReviewedSourceOutcome::UpdateReview:
         case ProductionReviewedSourceOutcome::RebaselineFullReview:
         case ProductionReviewedSourceOutcome::

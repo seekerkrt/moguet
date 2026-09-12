@@ -117,6 +117,14 @@ reviewed authorityを持たないcompatibility-only buildとして継続し得�
 q-family、EOF、input failure、unsupported review、unsafe / future / inconsistent state等、operation
 stopに分類された経路はbuildへ進まない。
 
+### Initial devel tracking bootstrapのfull review
+
+ordinary exact target-less `-Syu`の明示bootstrap intentは、通常のreview lifecycleとは別purposeで
+full inventory reviewを要求する。valid reviewed stateが同一revisionでもAlreadyReviewedへ短絡せず、
+異なるrevisionでも差分reviewだけにはしない。元のstore observationとexact CAS predecessorを保持し、
+Missingへの偽装・削除・修復は行わない。bootstrapの開始確認と、このfull reviewの明示acceptanceは別である。
+このpurposeはexisting valid provenanceのnormal updateやexplicit source-buildへ伝播しない。
+
 ### CAS publicationとstate advancement
 
 publicationはreview開始時に読んだexact record identityとraw contentsをguardにするCAS semanticsを

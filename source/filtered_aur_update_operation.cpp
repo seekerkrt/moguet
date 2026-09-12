@@ -133,6 +133,7 @@ bool same_update_entry(
            lhs.devel_classification == rhs.devel_classification &&
            lhs.devel_assessment_origin == rhs.devel_assessment_origin &&
            lhs.devel_assessment == rhs.devel_assessment &&
+           lhs.bootstrap == rhs.bootstrap &&
            same_remote_package(lhs.aur_package, rhs.aur_package);
 }
 
@@ -1533,7 +1534,7 @@ bool target_status_is_success(
 
 bool work_item_status_is_success(
     AurUpdateWorkItemExecutionStatus status) noexcept {
-    return status == AurUpdateWorkItemExecutionStatus::Updated ||
+    return status == AurUpdateWorkItemExecutionStatus::BootstrapSkipped || status == AurUpdateWorkItemExecutionStatus::Updated ||
            status == AurUpdateWorkItemExecutionStatus::NoChange;
 }
 
@@ -1608,6 +1609,11 @@ FilteredAurUpdateTargetAdapter adapt_aur_update_plan_for_upgrade_all(
                                           AUR_SERVICE_NAME);
                 break;
             case AurUpdateEffectiveState::RequiresCheck:
+                if(has_aur_update_bootstrap_intent(update) && devel_requires_check_policy == DevelRequiresCheckPolicy::SkipIndependentTarget) {
+                    status = UpgradeAllAurTargetStatus::Candidate;
+                    status_detail = localization::translate_message("Devel tracking bootstrap candidate; update availability is unverified.");
+                    break;
+                }
                 if(devel_requires_check_policy ==
                    DevelRequiresCheckPolicy::SkipIndependentTarget) {
                     // POLICY(#508): Keep the complete query/update identity,

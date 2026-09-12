@@ -19,6 +19,7 @@ enum class AurUpdateWorkItemExecutionStatus {
     NoChangeCleanupFailed,
     NotAttempted,
     Cancelled,
+    BootstrapSkipped,
 };
 
 enum class AurUpdateWorkItemFailureKind {
@@ -44,6 +45,7 @@ enum class AurUpdateChildExecutionStatus {
     InstalledCleanupFailed,
     SkippedAsNeededCleanupFailed,
     NotAttempted,
+    BootstrapSkipped,
 };
 
 enum class AurUpdateSourceBuildFailureCategory {
@@ -112,6 +114,16 @@ using AurUpdateWorkItemFailureDetail = std::variant<
     AurUpdatePackageTransactionFailureSnapshot,
     AurUpdateExecutionCorrelationFailure>;
 
+enum class AurUpdateBootstrapDecisionState { Accepted,
+                                             Declined,
+                                             ObservationChanged,
+                                             InteractionUnavailable };
+struct AurUpdateBootstrapDecision {
+    AurUpdateBootstrapDecisionState state;
+    std::optional<ConfirmationResult> confirmation;
+    bool operator==(const AurUpdateBootstrapDecision&) const = default;
+};
+
 // Preparationが確定したrequired child attributionを最初からowned保持し、
 // transaction成功時だけselected identity/outcomeを埋める。
 struct AurUpdateChildExecutionResult {
@@ -162,7 +174,13 @@ struct AurUpdateWorkItemExecutionResult {
     std::optional<ReviewedDevelExecutionSnapshot> devel_execution = std::nullopt;
     // Confirmation authority is independent of ordinary execution failure.
     std::optional<ConfirmationCancelled> cancellation = std::nullopt;
+    std::optional<AurUpdateBootstrapDecision> bootstrap_decision = std::nullopt;
+    // Original query-plan indices, not names or compacted work-item indices.
+    std::vector<std::size_t> bootstrap_skipped_roots = {};
 };
+
+enum class AurUpdateInvocationExecutionPhase { WorkItems,
+                                               BootstrapDecisions };
 
 struct AurUpdateSourceBuildExecutionResult {
     AurUpdateInvocationExecutionStatus status =
@@ -170,6 +188,8 @@ struct AurUpdateSourceBuildExecutionResult {
     std::vector<AurUpdateWorkItemExecutionResult> work_item_results;
     SelectedRepositoryProviderTransactionResult
         selected_repository_provider_transaction;
+
+    AurUpdateInvocationExecutionPhase phase = AurUpdateInvocationExecutionPhase::WorkItems;
 
     bool is_success() const noexcept;
     PackageStateChange package_state_change() const noexcept;
@@ -198,3 +218,11 @@ AurUpdateSourceBuildExecutionResult
 execute_prepared_aur_update_source_build_invocation(
     PreparedAurUpdateSourceBuildInvocation invocation,
     const AppConfig& config);
+
+#ifdef MOGUET_ENABLE_AUR_UPDATE_EXECUTION_RUNNER_TEST_HOOKS
+#include <functional>
+// Production-connected bootstrap fixtures may replace unrelated legacy work.
+// The runner never applies this seam to a bootstrap work item.
+using AurUpdateNonBootstrapExecutionTestHook = std::function<std::optional<PackageBaseSourceBuildExecutionResult>(const ProductionSourceBuildWorkItem&)>;
+void set_aur_update_non_bootstrap_execution_test_hook(AurUpdateNonBootstrapExecutionTestHook hook);
+#endif

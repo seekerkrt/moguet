@@ -49,6 +49,7 @@ enum class ProductionSourceInstallOutcome {
 // AlreadyReviewedやcompatibilityへflattenしないためのsnapshotである。
 enum class ProductionReviewedSourceOutcome {
     InitialFullReview,
+    BootstrapFullReview,
     UpdateReview,
     RebaselineFullReview,
     AbnormalStateRebindFullReview,

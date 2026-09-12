@@ -31,3 +31,11 @@ struct RegisteredAurDevelObservation {
     std::vector<AurUpdateExecutionIssue> issues;
 };
 std::vector<RegisteredAurDevelObservation> observe_registered_aur_devel_updates(const SystemSourceUpgradeProjectionAuthority& prepared);
+
+// Same complete configured/trusted installed context as the normal query.
+AurDevelUpdateContextObservation observe_aur_devel_update_context();
+// Called only from actual exact target-less system/AUR orchestration.
+struct AppConfig;
+void observe_aur_devel_bootstrap_candidates(AurUpdateQueryResult& query, const AppConfig& config);
+
+bool is_initial_devel_bootstrap_observation(const AurUpdatePlanEntry& entry, const DevelPackageAssessment& evidence) noexcept;

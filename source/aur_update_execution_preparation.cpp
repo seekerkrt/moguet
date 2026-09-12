@@ -1,4 +1,5 @@
 #include "aur_update_execution_preparation.hpp"
+#include "devel_tracking_bootstrap.hpp"
 
 #include "aur_update_required_devel_relation_projection.hpp"
 #include "app_config.hpp"
@@ -1047,6 +1048,11 @@ bool collect_work_item_drafts(
                        binding.target->update.aur_package && binding.target->update.aur_package->package_base == entry.package_base &&
                        aur_update_basis(binding.target->update) == AurUpdateBasis::GitRevision)
                         draft.work_item.request.authoritative_devel_update = true;
+                    if(binding.target->update_plan_index == index && has_aur_update_bootstrap_intent(binding.target->update) &&
+                       binding.target->update.installed_name == package_target->package_name &&
+                       binding.target->update.aur_package->package_base == entry.package_base) {
+                        draft.work_item.request.devel_tracking_bootstrap = binding.target->update.bootstrap;
+                    }
                 }
                 add_unique(draft.affected_update_plan_indices, index);
             }
@@ -1628,6 +1634,20 @@ bool has_exact_prepared_correlation(
         }
         const AurUpdateProjectedBuildUnit& projected_build_unit =
             preparation.projected_build_units[attribution.build_plan_order_index];
+        std::shared_ptr<const DevelTrackingBootstrapTrial> expected_bootstrap;
+        for(const auto& target : preparation.affected_update_targets) {
+            if(target.update.installed_name != work_item.request.package_name ||
+               !target.update.aur_package ||
+               target.update.aur_package->package_base != work_item.request.checkout_name) continue;
+            if(target.update.bootstrap) {
+                if(expected_bootstrap || !has_aur_update_bootstrap_intent(target.update)) return false;
+                expected_bootstrap = target.update.bootstrap;
+            }
+        }
+        // The private execution capability is published only after the exact
+        // root intent survives generic preparation. Dependencies receive none.
+        if(work_item.request.devel_tracking_bootstrap != expected_bootstrap ||
+           (expected_bootstrap && work_item.required_targets.size() != 1)) return false;
         if(attribution.invocation_work_item_index != index ||
            attribution.package_name != work_item.request.package_name ||
            attribution.package_base != work_item.request.checkout_name ||

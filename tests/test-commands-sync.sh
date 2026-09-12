@@ -1402,6 +1402,37 @@ assert_event_pattern '^pacman -Qp --color never -- .*/source-a-1\.0-1-x86_64\.pk
 assert_event_pattern '^sudo pacman -U --noconfirm -- .*/source-a-1\.0-1-x86_64\.pkg\.tar\.zst$'
 assert_event_absent "sudo pacman -Syu --noconfirm source-a"
 
+# #553 is confined to the exact target-less aggregate. A foreign-inventory
+# sentinel would fail if any target-bearing form accidentally started a sweep.
+for sync_operation in -Syu -Su; do
+    setup_case "issue553-target-bearing-$sync_operation"
+    write_repository_package official-a
+    write_repository_package official-b
+    export MOGUET_TEST_PACMAN_REPO_PACKAGES='official-a official-b'
+    foreign_inventory=$case_dir/foreign-inventory.state
+    printf 'system-query-fatal 0.9-1 explicit\n' > "$foreign_inventory"
+    export MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE=$foreign_inventory
+    run_status 0 --noconfirm "$sync_operation" official-a
+    assert_event "sudo pacman $sync_operation --noconfirm official-a"
+    assert_event_prefix_absent '^aur '
+    assert_not_contains 'devel tracking baseline is missing' "$output_file"
+    run_status 0 --noconfirm "$sync_operation" official-a official-b
+    assert_event "sudo pacman $sync_operation --noconfirm official-a official-b"
+    assert_event_prefix_absent '^aur '
+    run_status 0 --noconfirm "$sync_operation" -- official-a
+    assert_event "sudo pacman $sync_operation --noconfirm -- official-a"
+    assert_event_prefix_absent '^aur '
+    assert_not_contains 'devel tracking baseline is missing' "$output_file"
+done
+
+setup_case issue553-target-bearing-su-explicit-source
+run_status 0 --noedit --nodiff --noconfirm -Su source-a
+assert_event "sudo pacman -Su --noconfirm"
+assert_event "git clone https://aur.archlinux.org/source-a.git source-a"
+assert_event_pattern '^sudo pacman -U --noconfirm -- .*/source-a-1\.0-1-x86_64\.pkg\.tar\.zst$'
+assert_event_absent 'aur info-many system-query-fatal'
+assert_not_contains 'devel tracking baseline is missing' "$output_file"
+
 # P0-8/P0-9: Issue #217 production root search/selection route and phase barrier.
 setup_case select-nontty-gate-before-query
 run_status 1 -S --select select-scope

@@ -1,6 +1,8 @@
 #include "devel_package_assessment.hpp"
 #ifdef MOGUET_TEST_AUR_DEVEL_ROUTING
 #include "aur_devel_update.hpp"
+#include "devel_tracking_bootstrap.hpp"
+#include <curl/curl.h>
 #include "aur_rpc.hpp"
 #include "system_source_upgrade.hpp"
 struct UnifiedPlanProjectionTestAccess {
@@ -11,6 +13,12 @@ struct UnifiedPlanProjectionTestAccess {
         return SystemSourceUpgradeProjectionAuthority(snapshot, nullptr, issues, std::move(refs));
     }
 };
+CurlGlobal::CurlGlobal() {
+    if(curl_global_init(CURL_GLOBAL_DEFAULT) != CURLE_OK) throw std::runtime_error("curl init failed");
+}
+CurlGlobal::~CurlGlobal() {
+    curl_global_cleanup();
+}
 namespace route_rpc {
 std::string version = "1-1";
 std::string name = "assessment-git";
@@ -502,6 +510,80 @@ void read_only_snapshot() {
     std::cout << "S7B read-only inventory/bytes and snapshot-copy PASS\n";
 }
 #ifdef MOGUET_TEST_AUR_DEVEL_ROUTING
+void bootstrap_trial_observation_matrix() {
+    using Unavailable = DevelTrackingBootstrapUnavailable;
+    for(const std::string mode : {"eligible", "unsupported", "split-source", "multiple-source", "architecture", "malformed", "overlay", "corrupt", "future", "unsafe", "review-corrupt", "binding-change", "recipe-change"}) {
+        Fixture f;
+        struct Reset {
+            ~Reset() {
+                set_devel_tracking_bootstrap_test_hooks({});
+                set_aur_devel_update_database_paths_for_test(std::nullopt);
+            }
+        } reset;
+        set_aur_devel_update_database_paths_for_test(PacmanDatabasePaths{"/", f.db});
+        if(mode == "corrupt")
+            write(f.p_file(), "not toml = [");
+        else if(mode == "future")
+            replace(f.p_file(), "schema_version = 1", "schema_version = 2");
+        else if(mode == "unsafe")
+            write(f.p_file().parent_path() / "unrecognized", "unsafe");
+        else
+            fs::rename(f.p_file().parent_path(), f.root / "prior-p");
+        if(mode == "review-corrupt") write(f.r_file(), "not toml = [");
+        std::string metadata = "pkgbase = assessment\n\tpkgver = 1\n\tpkgrel = 1\n\tarch = any\n\tsource = git+https://example.invalid/upstream.git\npkgname = assessment-git\n";
+        if(mode == "unsupported") metadata.replace(metadata.find("git+https"), 9, "hg+https");
+        if(mode == "split-source") metadata += "pkgname = sibling\n";
+        if(mode == "multiple-source") metadata.insert(metadata.find("pkgname"), "\tsource = git+https://example.invalid/other.git\n");
+        if(mode == "architecture") metadata.replace(metadata.find("source ="), 8, "source_x86_64 =");
+        if(mode == "malformed") metadata = "not source metadata";
+        unsigned recipe_calls = 0;
+        std::string recipe = f.recipe;
+        set_devel_tracking_bootstrap_test_hooks({[&](const auto&) -> std::optional<DevelTrackingBootstrapRecipeObservation> {
+                                                     ++recipe_calls;
+                                                     return DevelTrackingBootstrapRecipeObservation{SourceRevisionIdentity::git_commit(recipe), metadata};
+                                                 },
+                                                 [&](const auto&) { return mode != "overlay"; }});
+        const auto before_review = read(f.r_file());
+        const auto result = observe_devel_tracking_bootstrap(f.child);
+        const auto* trial = std::get_if<std::shared_ptr<const DevelTrackingBootstrapTrial>>(&result);
+        const bool positive = mode == "eligible" || mode == "binding-change" || mode == "recipe-change";
+        require(static_cast<bool>(trial) == positive, "bootstrap trial eligibility mismatch");
+        if(trial) {
+            require(revalidate_devel_tracking_bootstrap(**trial), "unchanged trial was rejected");
+            if(mode == "binding-change") ++f.generation;
+            if(mode == "recipe-change") recipe = std::string(40, 'c');
+            if(mode != "eligible") require(!revalidate_devel_tracking_bootstrap(**trial), "stale trial remained usable");
+            require(!fs::exists(f.p_file().parent_path()), "trial created provenance");
+        } else {
+            static_cast<void>(arm<Unavailable>(result));
+            if(mode == "corrupt" || mode == "future" || mode == "unsafe" || mode == "review-corrupt")
+                require(recipe_calls == 0, "invalid existing state reached trial network");
+        }
+        require(read(f.r_file()) == before_review, "trial changed reviewed state");
+        std::cout << "S553 trial " << mode << " read-only PASS\n";
+    }
+    Fixture f;
+    fs::rename(f.p_file().parent_path(), f.root / "prior-p");
+    auto evidence = f.assess();
+    auto entry = classify_aur_update(AurUpdatePlanInput{f.child.package_name(), "1-1", InstalledPackageReason::Explicit,
+                                                        AurUpdateRemotePackage{f.child.package_name(), "assessment", "1-1", AurVersionRelation::SameAsInstalled}});
+    entry.devel_assessment_origin = AurDevelAssessmentOrigin::CurrentObservation;
+    for(const auto reason : {Check::SuffixCandidateOnly, Check::NoAuthoritativeBuildProvenance, Check::InstalledArtifactDrift,
+                             Check::AurRecipeAdvanced, Check::SourceMetadataMissing, Check::SourceMetadataMalformed, Check::SourceIdentityChanged,
+                             Check::TransportRequiresCheck, Check::SelectorRequiresCheck, Check::MultipleFloatingSources,
+                             Check::ArchitectureSpecificSourceUnresolved, Check::ProvenanceMissing, Check::ProvenanceInvalid,
+                             Check::ProvenanceCorrupted, Check::ProvenanceFutureSchema, Check::BuildSourceProofUnavailable}) {
+        evidence.assessment = DevelUpdateAssessment::requires_check(reason);
+        entry.devel_assessment = evidence.assessment;
+        require(is_initial_devel_bootstrap_observation(entry, evidence) == (reason == Check::ProvenanceMissing), "reason whitelist widened");
+    }
+    evidence.assessment = DevelUpdateAssessment::requires_check(Check::ProvenanceMissing);
+    entry.devel_assessment = evidence.assessment;
+    evidence.stage = Stage::PostProvenance;
+    require(!is_initial_devel_bootstrap_observation(entry, evidence), "post-observation disappearance became initial missing");
+    std::cout << "S553 initial stage / complete reason taxonomy PASS\n";
+}
+
 void normal_route_matrix() {
     for(const std::string mode : {"same", "different", "sha256", "format", "timeout", "missing", "recipe", "generation", "split", "unknown-base", "ordinary-same", "ordinary-newer", "newer-same", "newer-timeout", "older-different", "registered-different", "registered-same", "db-context"}) {
         Fixture f(mode == "sha256" ? 64 : 40);
@@ -631,6 +713,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv) {
     try {
 #ifdef MOGUET_TEST_AUR_DEVEL_ROUTING
         if(argc == 2 && std::string(argv[1]) == "--normal-route") {
+            bootstrap_trial_observation_matrix();
             normal_route_matrix();
             registered_observation_parity();
             return 0;

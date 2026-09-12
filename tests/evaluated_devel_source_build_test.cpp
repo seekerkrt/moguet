@@ -1,3 +1,19 @@
+#ifdef MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
+#include "aur_devel_update.hpp"
+#include "system_aur_update_operation.hpp"
+#include "commands_aur_update.hpp"
+#include "cli_parser.hpp"
+#include "cli_runtime_contract.hpp"
+#include "devel_tracking_bootstrap.hpp"
+namespace aur_devel_update_test_stub {
+void reset_registered_calls() {
+}
+unsigned registered_call_count() {
+    return 0;
+}
+} // namespace aur_devel_update_test_stub
+#endif
+
 #include "evaluated_devel_source_build.hpp"
 
 #ifdef MOGUET_TEST_REVIEWED_DEVEL_SOURCE_EXECUTION
@@ -47,12 +63,16 @@ extern unsigned failures;
 #include "xdg_generation_store.hpp"
 
 #include <algorithm>
+#include <chrono>
+#include <csignal>
+#include <sys/wait.h>
 #include <cstdlib>
 #include <fcntl.h>
 #include <filesystem>
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <map>
 #include <iterator>
 #include <memory>
 #include <optional>
@@ -430,6 +450,14 @@ public:
         recipe_oid_ = commit("reviewed recipe");
         run_git({"update-ref", "refs/remotes/origin/main", recipe_oid_});
     }
+
+#ifdef MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
+    void advance_recipe_for_bootstrap_test() {
+        write_file("review-again.txt", "This tracked file is part of the bootstrap full review.\n");
+        recipe_oid_ = commit("changed recipe for bootstrap");
+        run_git({"update-ref", "refs/remotes/origin/main", recipe_oid_});
+    }
+#endif
 
     [[nodiscard]] const std::string& recipe_oid() const noexcept {
         return recipe_oid_;
@@ -2484,7 +2512,33 @@ void deny_after_bridge_publication(const XdgGenerationStoreTestRaceContext&) {
     publication_allocation::blocked = true;
 }
 
-void test_reviewed_devel_execution_bridge(bool normal = false) {
+#ifdef MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
+std::map<fs::path, std::string> bootstrap_cache_snapshot(const ValidatedCachePath& checkout) {
+    const auto retained = retain_trusted_cache_directory(checkout);
+    retained.require_unchanged_identity();
+    std::map<fs::path, std::string> out;
+    for(const auto& entry : fs::recursive_directory_iterator(checkout.canonical_path())) {
+        const auto status = entry.symlink_status();
+        std::string value;
+        if(fs::is_symlink(status))
+            value = "symlink:" + fs::read_symlink(entry.path()).string();
+        else if(fs::is_directory(status))
+            value = "directory";
+        else if(fs::is_regular_file(status)) {
+            std::ifstream input(entry.path(), std::ios::binary);
+            require(static_cast<bool>(input), "snapshot file open failed");
+            value = xdg_generation_store_raw_contents_sha256(std::string((std::istreambuf_iterator<char>(input)), {}));
+        } else
+            throw std::runtime_error("Unsupported bootstrap fixture entry");
+        out.emplace(entry.path().lexically_relative(checkout.canonical_path()), value + ":" + std::to_string(static_cast<unsigned>(status.permissions())));
+    }
+    retained.require_unchanged_identity();
+    return out;
+}
+#endif
+
+void test_reviewed_devel_execution_bridge(bool normal = false, const std::string& bootstrap_case = {}) {
+    const bool bootstrap = !bootstrap_case.empty();
     using Stage = ReviewedDevelSourceBuildStage;
     using Issue = ReviewedDevelSourceBuildIssue;
     using Operation = DevelSourceArtifactInstallOperation;
@@ -2496,7 +2550,7 @@ void test_reviewed_devel_execution_bridge(bool normal = false) {
     static_assert(!std::is_copy_constructible_v<ReviewedDevelSourceBuildExecutionResult>);
     static_assert(std::is_nothrow_move_constructible_v<ReviewedDevelSourceBuildExecutionResult>);
 #ifdef MOGUET_TEST_NORMAL_REVIEWED_DEVEL_EXECUTION
-    if(normal) {
+    if(normal && !bootstrap) {
         for(const auto lifecycle : {ArtifactLifecycleIntent::SingularCompatibility, ArtifactLifecycleIntent::PackageBaseSet}) {
             PreparedProductionSourceBuildInvocation invocation;
             ProductionSourceBuildWorkItem work;
@@ -2531,26 +2585,36 @@ void test_reviewed_devel_execution_bridge(bool normal = false) {
     }
 #endif
     UpstreamGitFixture upstream("s7c-upstream", GitObjectFormat::Sha1);
-    for(const std::string case_name : {"install", "branch", "upgrade-explicit", "upgrade-dependency", "dependency-keeps-explicit",
-                                       "new-dependency", "promotion", "needed", "split", "rmdeps", "only-if-updated", "legacy", "overlay", "overlay-legacy",
-                                       "environment", "build-failure", "artifact-mismatch", "database-world", "snapshot-failure", "prepare-failure",
-                                       "nonzero", "unknown", "no-post", "binding-failure", "publication-failure", "publication-unknown",
-                                       "cleanup-failure", "retirement-failure", "no-allocation", "registered-different", "registered-same", "registered-unknown", "registered-check",
-                                       "outer-singular-publication-failure", "outer-singular-publication-unknown", "outer-singular-cleanup-failure", "outer-singular-no-allocation",
-                                       "outer-set-publication-failure", "outer-set-publication-unknown", "outer-set-cleanup-failure", "outer-set-no-allocation"}) {
+    std::vector<std::string> bridge_cases = {"install", "branch", "upgrade-explicit", "upgrade-dependency", "dependency-keeps-explicit",
+                                             "new-dependency", "promotion", "needed", "split", "rmdeps", "only-if-updated", "legacy", "overlay", "overlay-legacy",
+                                             "environment", "build-failure", "artifact-mismatch", "database-world", "snapshot-failure", "prepare-failure",
+                                             "nonzero", "unknown", "no-post", "binding-failure", "publication-failure", "publication-unknown",
+                                             "cleanup-failure", "retirement-failure", "no-allocation", "registered-different", "registered-same", "registered-unknown", "registered-check",
+                                             "outer-singular-publication-failure", "outer-singular-publication-unknown", "outer-singular-cleanup-failure", "outer-singular-no-allocation",
+                                             "outer-set-publication-failure", "outer-set-publication-unknown", "outer-set-cleanup-failure", "outer-set-no-allocation"};
+    if(bootstrap) bridge_cases = {bootstrap_case};
+    for(const std::string& case_name : bridge_cases) {
         const bool outer = case_name.starts_with("outer-");
+        const bool multi = bootstrap && case_name.starts_with("multi-");
         const bool outer_set = case_name.starts_with("outer-set-");
-        const std::string mode = outer ? case_name.substr(outer_set ? 10 : 15) : case_name;
+        const std::string mode = multi ? case_name.substr(6) : outer ? case_name.substr(outer_set ? 10 : 15)
+                                                                     : case_name;
         if(outer && !normal) continue;
         if(!normal && mode.starts_with("registered-")) continue;
-        ReviewedBuildFixture fixture("s7c-fixture", upstream, mode == "build-failure" ? RecipeShape::RawEvaluatedMismatch : normal && mode == "legacy" ? RecipeShape::UnsupportedVcs
-                                                                                                                                                       : RecipeShape::Valid,
+        ReviewedBuildFixture fixture(bootstrap ? "bootstrap-git" : "s7c-fixture", upstream, mode == "build-failure" ? RecipeShape::RawEvaluatedMismatch : normal && mode == "legacy" ? RecipeShape::UnsupportedVcs
+                                                                                                                                                                                     : RecipeShape::Valid,
                                      false, mode == "branch");
         struct ResetBridgeHooks {
             ~ResetBridgeHooks() {
                 publication_allocation::blocked = false;
 #ifdef MOGUET_TEST_NORMAL_REVIEWED_DEVEL_EXECUTION
                 set_source_invocation_execution_test_hooks({});
+#endif
+#ifdef MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
+                set_aur_update_non_bootstrap_execution_test_hook({});
+                set_devel_tracking_bootstrap_test_hooks({});
+                set_devel_package_assessment_test_hooks({});
+                set_aur_devel_update_database_paths_for_test(std::nullopt);
 #endif
                 set_devel_build_provenance_publication_test_hook(nullptr);
                 set_reviewed_devel_source_build_execution_test_hooks({});
@@ -2576,7 +2640,7 @@ void test_reviewed_devel_execution_bridge(bool normal = false) {
         std::optional<BuiltPackageArtifactEvidence> expected;
         std::string actual_oid, raw_mtree;
         fs::path installed_record;
-        const bool existing = mode == "upgrade-explicit" || mode == "upgrade-dependency" || mode == "dependency-keeps-explicit" || mode == "promotion" || mode.starts_with("registered-");
+        const bool existing = bootstrap || mode == "upgrade-explicit" || mode == "upgrade-dependency" || mode == "dependency-keeps-explicit" || mode == "promotion" || mode.starts_with("registered-");
         const bool dependency_reason = mode == "upgrade-dependency" || mode == "promotion";
         const auto write_package = [&](const std::string& version) {
             if(!installed_record.empty() && fs::exists(installed_record)) fs::remove_all(installed_record);
@@ -2587,10 +2651,13 @@ void test_reviewed_devel_execution_bridge(bool normal = false) {
             write_file(installed_record / "files", "%FILES%\nusr/share/moguet-test\n\n");
             write_file(installed_record / "mtree", raw_mtree.empty() ? "old-mtree" : raw_mtree);
         };
-        if(existing) write_package("0-1");
+        if(existing) write_package(mode.starts_with("required-") || mode == "shared-base" ? "2-1" : "0-1");
         InstalledRecordObservationTestHooks record_hooks;
         record_hooks.database_path = db.string();
         record_hooks.expected_owner = geteuid();
+#ifdef MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
+        if(bootstrap) record_hooks.statfs = [](int, struct statfs* value) { *value = {}; value->f_type = 0xef53; return 0; };
+#endif
         record_hooks.name_to_handle = [&](int fd, const char* path, struct file_handle* handle, int* mount, int flags) {
             require(fd >= 0 && path[0] == '\0' && flags == AT_EMPTY_PATH, "S7-C generation reopened path");
             *mount = 1;
@@ -2679,6 +2746,413 @@ void test_reviewed_devel_execution_bridge(bool normal = false) {
                                                                   if(mode == "no-allocation") run_xdg_generation_store_race_once_for_test(XdgGenerationStoreTestRacePoint::AfterVerifiedPublication, &deny_after_bridge_publication);
                                                               },
                                                               token});
+
+#ifdef MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
+        if(bootstrap) {
+            const auto bin = runtime.path() / "bin";
+            fs::create_directory(bin);
+            const auto commands = runtime.path() / "commands.log";
+            const auto script = [&](const fs::path& path, const std::string& text) {
+                write_file(path, text);
+                fs::permissions(path, fs::perms::owner_all);
+            };
+            script(bin / "pacman-conf", "#!/bin/sh\nif [ \"$1\" = --repo-list ]; then printf 'core\\n'; else printf 'RootDir = /\\nDBPath = %s\\n' \"$MOGUET_TEST_PACKAGE_METADATA_DB_PATH\"; fi\n");
+            script(bin / "sudo", "#!/bin/sh\ncase \"$*\" in 'pacman -Syu'|'pacman -Syu --noconfirm') ;; *) exit 99 ;; esac\nprintf '%s\\n' \"$*\" >> \"$MOGUET_TEST_COMMAND_LOG\"\n");
+            const bool provider_case = mode.starts_with("provider-");
+            if(provider_case) {
+                script(bin / "sudo", "#!/bin/sh\ncase \"$*\" in 'pacman -Syu') ;; 'pacman -S --asdeps --needed -- core/anchor') ;; *) exit 99 ;; esac\nprintf '%s\\n' \"$*\" >> \"$MOGUET_TEST_COMMAND_LOG\"\n" +
+                                         std::string(mode == "provider-failure" ? "[ \"$2\" != -S ] || exit 42\n" : ""));
+            }
+            script(bin / "recipe-git", "#!/bin/sh\nfor argument do if [ \"$argument\" = fetch ]; then exit 0; fi; done\nexec /usr/bin/git \"$@\"\n");
+            fs::create_directories(runtime.path() / "sync-stage/anchor-1-1");
+            write_file(runtime.path() / "sync-stage/anchor-1-1/desc", "%NAME%\nanchor\n\n%BASE%\nanchor\n\n%VERSION%\n1-1\n\n%ARCH%\nany\n\n");
+            if(provider_case) {
+                write_file(runtime.path() / "sync-stage/anchor-1-1/desc", "%NAME%\nanchor\n\n%BASE%\nanchor\n\n%VERSION%\n1-1\n\n%ARCH%\nany\n\n%PROVIDES%\nvirtual-active\n\n");
+                fs::create_directories(runtime.path() / "sync-stage/declined-1-1");
+                write_file(runtime.path() / "sync-stage/declined-1-1/desc", "%NAME%\ndeclined\n\n%BASE%\ndeclined\n\n%VERSION%\n1-1\n\n%ARCH%\nany\n\n%PROVIDES%\nvirtual-declined\n\n");
+            }
+            fs::create_directory(db / "sync");
+            std::vector<std::string> archive_arguments{"-cf", (db / "sync/core.db").string(), "-C", (runtime.path() / "sync-stage").string(), "anchor-1-1"};
+            if(provider_case) {
+                archive_arguments.push_back("declined-1-1");
+                for(const std::string name : {"zz-anchor", "zz-declined"}) {
+                    const auto entry = name + "-1-1";
+                    fs::create_directories(runtime.path() / "sync-stage" / entry);
+                    write_file(runtime.path() / "sync-stage" / entry / "desc", "%NAME%\n" + name + "\n\n%BASE%\n" + name +
+                                                                                   "\n\n%VERSION%\n1-1\n\n%ARCH%\nany\n\n%PROVIDES%\nvirtual-" + (name == "zz-anchor" ? "active" : "declined") + "\n\n");
+                    archive_arguments.push_back(entry);
+                }
+            }
+            require_process_success("/usr/bin/bsdtar", archive_arguments, {"PATH=/usr/bin:/bin"});
+            ScopedEnvironmentVariable path("PATH", bin.string() + ":/usr/bin:/bin");
+            ScopedEnvironmentVariable database("MOGUET_TEST_PACKAGE_METADATA_DB_PATH", db.string());
+            ScopedEnvironmentVariable command_log("MOGUET_TEST_COMMAND_LOG", commands.string());
+            ScopedEnvironmentVariable git("MOGUET_TEST_GIT_EXECUTABLE", (bin / "recipe-git").string());
+            ScopedEnvironmentVariable git_count("GIT_CONFIG_COUNT", "1");
+            ScopedEnvironmentVariable git_key("GIT_CONFIG_KEY_0", "url.file://" + upstream.remote().string() + ".insteadOf");
+            ScopedEnvironmentVariable git_value("GIT_CONFIG_VALUE_0", upstream.url());
+            ScopedEnvironmentVariable library("MAKEPKG_LIBRARY", "/usr/share/makepkg");
+            set_aur_devel_update_database_paths_for_test(PacmanDatabasePaths{"/", db});
+            const auto child = PackageChildIdentity::make(*fixture.execution_intent({"/", db}).request.aur_review_identity, fixture.package_name());
+            const auto base = child.package_base();
+            const auto p_directory = devel_build_provenance_store_entry_path(base);
+            const auto r_directory = reviewed_source_state_store_entry_path(base);
+            if(mode == "reviewed-same" || mode == "reviewed-changed") {
+                {
+                    auto pin = fixture.execution_pin();
+                    require(pin.valid(), "prior reviewed fixture failed");
+                }
+                if(mode == "reviewed-changed") fixture.advance_recipe_for_bootstrap_test();
+            }
+            const auto cache_before = bootstrap_cache_snapshot(fixture.execution_checkout());
+            std::optional<std::string> existing_provenance;
+            if(mode == "invalid" || mode == "corrupt" || mode == "future" || mode == "unsafe") {
+                fs::create_directories(p_directory);
+                for(auto directory = p_directory; directory != fs::path(std::getenv("XDG_STATE_HOME")); directory = directory.parent_path())
+                    fs::permissions(directory, fs::perms::owner_all);
+                existing_provenance = mode == "invalid" ? "schema_version = 1\n" : mode == "future" ? "schema_version = 2\n"
+                                                                                                    : "not TOML = [\n";
+                write_file(p_directory / "1.toml", *existing_provenance);
+                fs::permissions(p_directory / "1.toml", fs::perms::owner_read | fs::perms::owner_write);
+                if(mode == "unsafe") write_file(p_directory / "unexpected", "unsafe history");
+            }
+
+            const bool decisions_only = multi && (mode == "decisions" || mode == "decision-cancel" || mode == "all-decline");
+            const std::string first_name = decisions_only ? "bootstrap-a-git" : "bootstrap-a";
+            const std::string last_name = decisions_only ? "zz-bootstrap-c-git" : "zz-bootstrap-c";
+            const auto write_sidecar = [&](const std::string& name, const std::string& version) {
+                const auto prior = db / "local" / (name + "-0-1");
+                if(version != "0-1" && fs::exists(prior)) fs::remove_all(prior);
+                const auto record = db / "local" / (name + "-" + version);
+                fs::create_directories(record);
+                write_file(record / "desc", "%NAME%\n" + name + "\n\n%BASE%\n" + name + "\n\n%VERSION%\n" + version + "\n\n%ARCH%\nany\n\n%REASON%\n0\n\n");
+                write_file(record / "files", "%FILES%\nusr/share/fixture\n\n");
+                write_file(record / "mtree", "sidecar-mtree");
+            };
+            std::vector<std::string> sidecar_calls;
+            if(multi) {
+                write_sidecar(first_name, "0-1");
+                write_sidecar(last_name, "0-1");
+                if(!decisions_only) set_aur_update_non_bootstrap_execution_test_hook([&](const auto& work) -> std::optional<PackageBaseSourceBuildExecutionResult> {
+                    const auto& name = work.request.package_name;
+                    if(mode == "provider-ordinary" && name == fixture.package_name()) return std::nullopt;
+                    require(name == first_name || name == last_name, "bootstrap entered legacy fixture seam");
+                    if(provider_case) {
+                        require(work.cache_root.has_value(), "source lost activated cache authority");
+                        work.cache_root->require_unchanged_identity();
+                        std::ifstream log(commands);
+                        const std::string recorded((std::istreambuf_iterator<char>(log)), {});
+                        require(recorded == "pacman -Syu\npacman -S --asdeps --needed -- core/anchor\n", "provider did not precede source or retained declined provider");
+                    }
+                    sidecar_calls.push_back(name);
+                    write_sidecar(name, "2-1");
+                    return PackageBaseSourceBuildExecutionResult::make_for_aur_update_runner_test(work.request.checkout_name,
+                                                                                                  {{ArtifactPackageIdentity{name, "2-1", ArtifactPackageBaseIdentity::known(name), ArtifactPackageArchitectureIdentity::known("any")},
+                                                                                                    DesiredInstallReason::Explicit, ArtifactInstallExecutionOutcome::Installed}},
+                                                                                                  {});
+                });
+            }
+            std::map<std::string, unsigned> recipe_counts;
+            unsigned trial_calls = 0;
+            set_devel_tracking_bootstrap_test_hooks({[&](const PackageChildIdentity& requested) -> std::optional<DevelTrackingBootstrapRecipeObservation> {
+                                                         ++trial_calls;
+                                                         const auto calls = ++recipe_counts[requested.package_name()];
+                                                         if(mode == "decisions" && requested.package_name() == first_name && calls >= 4) return std::nullopt;
+                                                         const auto file = fixture.execution_checkout().canonical_path() / ".SRCINFO";
+                                                         std::ifstream input(file);
+                                                         std::string metadata((std::istreambuf_iterator<char>(input)), {});
+                                                         if(decisions_only && requested.package_name() != fixture.package_name()) {
+                                                             const auto base_position = metadata.find("pkgbase = " + fixture.package_base());
+                                                             const auto name_position = metadata.find("pkgname = " + fixture.package_name());
+                                                             require(base_position != std::string::npos && name_position != std::string::npos, "trial fixture identity missing");
+                                                             metadata.replace(name_position, 10 + fixture.package_name().size(), "pkgname = " + requested.package_name());
+                                                             metadata.replace(base_position, 10 + fixture.package_base().size(), "pkgbase = " + requested.package_base().package_base());
+                                                         }
+                                                         if(mode == "unsupported") metadata += "pkgname = unsupported-sibling\n";
+                                                         return DevelTrackingBootstrapRecipeObservation{SourceRevisionIdentity::git_commit(fixture.recipe_oid()), metadata};
+                                                     },
+                                                     {}});
+            AppConfig config;
+            config.user_config.review.diff = mode == "diff-skip" ? ReviewPolicy::Skip : ReviewPolicy::Prompt;
+            std::vector<std::string> argument_values{"moguet", "-Syu", "--noedit"};
+            if(mode == "nodiff") argument_values.push_back("--nodiff");
+            if(mode == "noconfirm") argument_values.push_back("--noconfirm");
+            std::vector<char*> arguments;
+            for(auto& value : argument_values)
+                arguments.push_back(value.data());
+            const auto parsed = parse_cli_arguments(static_cast<int>(arguments.size()), arguments.data());
+            require(parsed && validate_cli_invocation_contract(*parsed).is_valid(), "ordinary -Syu CLI contract failed");
+            config.user_config = compose_user_config(config.user_config, parsed->cli_overrides);
+            config.no_confirm = parsed->cli_overrides.no_confirm;
+            if(provider_case) config.provider_selection = make_provider_selection_session(config.no_confirm);
+            auto route = classify_sync_invocation_route(*parsed);
+            auto request = make_compatible_system_aur_update_request(std::get<AutoSystemUpdateRouteCandidate>(std::move(route)));
+            require(request.has_value(), "exact targetless route did not produce authority");
+            const bool local_failure = mode.starts_with("local-");
+            const auto child_pid_file = runtime.path() / "local-git.pid";
+            if(local_failure) {
+                const std::string operation = mode.starts_with("local-config-") ? "config" : "status";
+                // An isolated child never exits by itself. No sleep race: the
+                // production deadline/overflow must terminate and reap it.
+                script(bin / "local-child", "#!/usr/bin/python3\nimport os, signal\nsignal.signal(signal.SIGTERM, signal.SIG_IGN)\nopen('" + child_pid_file.string() + "', 'w').write(str(os.getpid()))\n" +
+                                                (mode.ends_with("overflow") ? "while True: os.write(1, b'x' * 8192)\n" : "while True: signal.pause()\n"));
+                script(bin / "recipe-git", "#!/bin/sh\nfor argument do if [ \"$argument\" = " + operation + " ]; then exec '" + (bin / "local-child").string() + "'; fi; done\nexec /usr/bin/git \"$@\"\n");
+            }
+            const auto operation_started = std::chrono::steady_clock::now();
+            auto result = execute_prepared_system_aur_update_operation(prepare_system_aur_update_operation(std::move(*request)), config);
+            require(result.repository.status == SystemAurUpdateRepositoryPhaseStatus::Completed, "fixture repository phase did not complete");
+            require(result.aur.operation_result.has_value(), "bootstrap lost filtered result");
+            const auto& filtered = *result.aur.operation_result;
+            const auto& targets = filtered.reduced_operation_result.targets;
+            const std::size_t bootstrap_index = multi ? 1 : 0;
+            require(targets.size() == (multi ? 3U : 1U) && targets[bootstrap_index].update.installed_name == fixture.package_name(), "bootstrap lost original query target correlation");
+            const auto& target = targets[bootstrap_index];
+            if(local_failure) {
+                require(std::chrono::steady_clock::now() - operation_started < std::chrono::seconds(15), "local Git trial was not bounded");
+                pid_t child_pid = -1;
+                std::ifstream pid_file(child_pid_file);
+                pid_file >> child_pid;
+                require(child_pid > 0, "local Git failure fixture was not reached");
+                int status = 0;
+                require(waitpid(child_pid, &status, WNOHANG) == -1 && errno == ECHILD, "local Git child was not reaped");
+                require(kill(child_pid, 0) == -1 && errno == ESRCH, "local Git child survived trial");
+                require(trial_calls == 0 && !target.update.bootstrap && !filtered.execution &&
+                            build_entries == 0 && execute_calls == 0 && g_bridge_publication_entries == 0,
+                        "local Git unavailable observation offered bootstrap or mutated state");
+            }
+            if(provider_case) {
+                require(filtered.execution.has_value(), "provider fixture has no execution");
+                const auto& transaction = filtered.execution->selected_repository_provider_transaction;
+                if(transaction.selected_providers.size() != 1 || transaction.selected_providers.front().package_name != "anchor") {
+                    present_filtered_aur_update_execution_result(filtered);
+                    std::cerr << "provider count=" << transaction.selected_providers.size() << '\n';
+                }
+                require(transaction.selected_providers.size() == 1 && transaction.selected_providers.front().package_name == "anchor",
+                        "filtered provider transaction lost active provider or retained declined contribution");
+            }
+            if(mode == "provider-failure") {
+                const auto assert_provider_failure = [&](const AurUpdateSourceBuildExecutionResult& execution, SelectedRepositoryProviderTransactionStatus status) {
+                    const auto reduced = reduce_aur_update_operation_result(filtered.preflight, filtered.preparation,
+                                                                            DevelRequiresCheckPolicy::SkipIndependentTarget, execution);
+                    require(reduced.status == AurUpdateOperationStatus::StoppedOnProviderTransactionFailure &&
+                                reduced.reduction_issues.empty() && !reduced.is_success() &&
+                                reduced.selected_repository_provider_transaction.status == status &&
+                                reduced.selected_repository_provider_transaction.command_exit_status == execution.selected_repository_provider_transaction.command_exit_status,
+                            "legitimate bootstrap skip corrupted provider failure classification");
+                    require(reduced.targets[0].status == AurUpdateOperationTargetStatus::NotAttempted &&
+                                reduced.targets[1].status == AurUpdateOperationTargetStatus::Skipped &&
+                                reduced.targets[2].status == AurUpdateOperationTargetStatus::NotAttempted &&
+                                execution.work_item_results[1].status == AurUpdateWorkItemExecutionStatus::BootstrapSkipped,
+                            "provider failure lost declined target or executed source");
+                };
+                require(filtered.execution->status == AurUpdateInvocationExecutionStatus::StoppedOnProviderTransactionFailure &&
+                            filtered.reduced_operation_result.reduction_issues.empty() && sidecar_calls.empty() &&
+                            build_entries == 0 && execute_calls == 0 && g_bridge_publication_entries == 0,
+                        "provider failure did not stop before source execution");
+                assert_provider_failure(*filtered.execution, SelectedRepositoryProviderTransactionStatus::Failed);
+                auto unknown = *filtered.execution;
+                unknown.selected_repository_provider_transaction.status = SelectedRepositoryProviderTransactionStatus::OutcomeUnknown;
+                unknown.selected_repository_provider_transaction.command_exit_status.reset();
+                assert_provider_failure(unknown, SelectedRepositoryProviderTransactionStatus::OutcomeUnknown);
+                for(const std::string corruption : {"decision", "origin", "intent", "accepted", "index", "root", "mapping", "updated", "completed", "cancelled"}) {
+                    auto forged = unknown;
+                    auto preflight = filtered.preflight;
+                    auto& item = forged.work_item_results[1];
+                    if(corruption == "decision") item.bootstrap_decision.reset();
+                    if(corruption == "origin") item.bootstrap_decision->confirmation.reset();
+                    if(corruption == "intent") preflight.targets[1].update.bootstrap.reset();
+                    if(corruption == "accepted") item.bootstrap_decision = AurUpdateBootstrapDecision{AurUpdateBootstrapDecisionState::Accepted,
+                                                                                                      ConfirmationAccepted{ConfirmationDecisionOrigin::ExplicitToken}};
+                    if(corruption == "index") item.work_item_index = 99;
+                    if(corruption == "root") item.bootstrap_skipped_roots = {0};
+                    if(corruption == "mapping") item.affected_roots = forged.work_item_results[0].affected_roots;
+                    if(corruption == "updated") forged.work_item_results[0].status = AurUpdateWorkItemExecutionStatus::Updated;
+                    if(corruption == "completed") forged.status = AurUpdateInvocationExecutionStatus::Completed;
+                    if(corruption == "cancelled") item.cancellation = ConfirmationCancelled{ConfirmationCancellationReason::ExplicitToken};
+                    const auto rejected = reduce_aur_update_operation_result(preflight, filtered.preparation,
+                                                                             DevelRequiresCheckPolicy::SkipIndependentTarget, forged);
+                    require(rejected.status == AurUpdateOperationStatus::InconsistentResult && !rejected.reduction_issues.empty(),
+                            "provider failure accepted forged bootstrap skip: " + corruption);
+                }
+                require(!fs::exists(p_directory / "1.toml"), "provider failure published baseline");
+                std::cout << "S553 provider Failed / OutcomeUnknown + default-No skip / 10 negatives PASS\n";
+                std::cout << "S553 production " << case_name << " PASS\n";
+                continue;
+            }
+            if(mode.starts_with("required-") || mode == "shared-base") {
+                if(filtered.reduced_operation_result.status != AurUpdateOperationStatus::BlockedBeforeExecution) {
+                    present_filtered_aur_update_execution_result(filtered);
+                    for(const auto& issue : filtered.issues)
+                        std::cerr << "filtered: " << issue.diagnostic << '\n';
+                }
+
+                require(!result.is_success() && filtered.reduced_operation_result.status == AurUpdateOperationStatus::BlockedBeforeExecution &&
+                            !filtered.execution && sidecar_calls.empty() && build_entries == 0 && execute_calls == 0,
+                        "required RequiresCheck was weakened by bootstrap");
+                const auto wanted = mode == "required-provider" ? AurUpdateRequiredDevelTargetRelation::AurProvider : mode == "shared-base" ? AurUpdateRequiredDevelTargetRelation::RequiredArtifactChild
+                                                                                                                                            : AurUpdateRequiredDevelTargetRelation::AurExactDependency;
+                require(std::any_of(targets.front().preflight_issues.begin(), targets.front().preflight_issues.end(), [&](const auto& issue) {
+                            return issue.reason == AurUpdateExecutionReason::RequiredDevelTargetRequiresCheck &&
+                                   issue.required_devel_target_blocker && issue.required_devel_target_blocker->relation == wanted;
+                        }),
+                        "required relation lost its typed blocker");
+                if(mode == "shared-base") require(trial_calls == 0, "shared PackageBase received bootstrap trial");
+                require(!fs::exists(p_directory / "1.toml"), "required target published provenance");
+                std::cout << "S553 production " << case_name << " PASS\n";
+                continue;
+            }
+            if(decisions_only) {
+                require(filtered.execution && sidecar_calls.empty() && build_entries == 0 && execute_calls == 0, "decision fixture performed package mutation");
+                const auto& items = filtered.execution->work_item_results;
+                require(items.size() == 3, "multiple bootstrap candidates lost ordering");
+                if(mode == "all-decline") {
+                    require(result.is_success(), "all-decline did not complete with attention");
+                    for(const auto& item : targets)
+                        require(item.status == AurUpdateOperationTargetStatus::Skipped, "all-decline was not a typed skip");
+                } else if(mode == "decision-cancel") {
+                    require(!result.is_success() && filtered.execution->phase == AurUpdateInvocationExecutionPhase::BootstrapDecisions &&
+                                targets[0].status == AurUpdateOperationTargetStatus::NotAttempted && targets[1].status == AurUpdateOperationTargetStatus::Cancelled &&
+                                targets[2].status == AurUpdateOperationTargetStatus::NotAttempted && !items[2].bootstrap_decision,
+                            "decision cancellation continued or lost unattempted targets");
+                } else {
+                    require(!result.is_success() && targets[0].status == AurUpdateOperationTargetStatus::Failed &&
+                                targets[1].status == AurUpdateOperationTargetStatus::Skipped && targets[2].status == AurUpdateOperationTargetStatus::NotAttempted,
+                            "accepted/declined candidate execution order changed");
+                    require(items[0].bootstrap_decision->state == AurUpdateBootstrapDecisionState::Accepted &&
+                                items[1].bootstrap_decision->state == AurUpdateBootstrapDecisionState::Declined &&
+                                items[2].bootstrap_decision->state == AurUpdateBootstrapDecisionState::Accepted,
+                            "multiple decisions were flattened");
+                }
+                require(!fs::exists(p_directory / "1.toml"), "decision-only fixture published provenance");
+                std::cout << "S553 production " << case_name << " PASS\n";
+                continue;
+            }
+            if(mode == "newer" || mode == "provider-ordinary") {
+                require(result.is_success() && target.status == AurUpdateOperationTargetStatus::Updated && !target.update.bootstrap &&
+                            aur_update_basis(target.update) == AurUpdateBasis::Version && trial_calls == 0 && build_entries == 1 && execute_calls == 1,
+                        "normal version update was intercepted or executed twice");
+                require(!filtered.execution->work_item_results.front().bootstrap_decision, "normal version update gained bootstrap confirmation");
+                if(provider_case) require(sidecar_calls == std::vector<std::string>{first_name, last_name} &&
+                                              filtered.execution->selected_repository_provider_transaction.status == SelectedRepositoryProviderTransactionStatus::Succeeded,
+                                          "ordinary provider/source positive path did not complete");
+                std::cout << "S553 production " << case_name << " PASS\n";
+                continue;
+            }
+            const bool success = mode == "accept" || mode == "older" || mode == "reviewed-same" || mode == "reviewed-changed";
+            const bool skipped = local_failure || mode == "provider-decline" || mode == "decline" || mode == "default-no" || mode == "non-tty" || mode == "noconfirm" || mode == "nodiff" || mode == "diff-skip" ||
+                                 mode == "unsupported" || mode == "invalid" || mode == "corrupt" || mode == "future" || mode == "unsafe";
+            const bool cancelled = mode == "cancel" || mode == "eof" || mode == "review-cancel";
+            if(success) {
+                require(result.is_success() && target.status == AurUpdateOperationTargetStatus::Updated, "bootstrap did not complete");
+                require(target.update.devel_assessment.state() == DevelUpdateAssessmentState::RequiresCheck && !aur_update_basis(target.update), "bootstrap fabricated update availability");
+                require(filtered.execution && filtered.execution->work_item_results.size() == (multi ? 3U : 1U), "bootstrap execution missing");
+                const auto& execution = filtered.execution->work_item_results[bootstrap_index];
+                require(execution.bootstrap_decision && execution.bootstrap_decision->state == AurUpdateBootstrapDecisionState::Accepted &&
+                            execution.devel_execution && execution.devel_execution->complete &&
+                            execution.devel_execution->publication == Pub::Complete,
+                        "bootstrap lost acceptance or S6 authority");
+                require(execution.devel_execution->production_outcome->source_provenance.reviewed_outcome == ProductionReviewedSourceOutcome::BootstrapFullReview,
+                        "bootstrap reused incremental/already-reviewed continuation");
+                if(!multi && mode == "accept") {
+                    auto observation = observe_aur_update_source_build_preparation(
+                        filtered.preflight, filtered.preparation.build_unit_selection,
+                        DevelRequiresCheckPolicy::SkipIndependentTarget, SavedSourcePreferencePolicy::Strict, false, config);
+                    require(observation.is_ready(), "bootstrap intent failed preparation correlation");
+                    auto dropped = observation;
+                    dropped.production_preflight->work_items.front().request.devel_tracking_bootstrap.reset();
+                    require(!dropped.is_ready(), "preparation accepted a dropped bootstrap intent");
+                    observation.affected_update_targets.front().update.bootstrap.reset();
+                    require(!observation.is_ready(), "preparation accepted a bootstrap intent without its original target");
+                }
+                for(const bool corrupt_origin : {true, false}) {
+                    auto forged = *filtered.execution;
+                    auto& item = forged.work_item_results[bootstrap_index];
+                    item.status = AurUpdateWorkItemExecutionStatus::BootstrapSkipped;
+                    item.failure_kind = AurUpdateWorkItemFailureKind::None;
+                    item.production_outcome.reset();
+                    item.devel_execution.reset();
+                    item.bootstrap_decision = AurUpdateBootstrapDecision{AurUpdateBootstrapDecisionState::Declined,
+                                                                         corrupt_origin ? ConfirmationResult{ConfirmationAccepted{ConfirmationDecisionOrigin::ExplicitToken}}
+                                                                                        : ConfirmationResult{ConfirmationDeclined{ConfirmationDecisionOrigin::ExplicitToken}}};
+                    item.bootstrap_skipped_roots = {corrupt_origin ? bootstrap_index : targets.size() + 1};
+                    for(auto& child_result : item.child_results) {
+                        child_result.status = AurUpdateChildExecutionStatus::BootstrapSkipped;
+                        child_result.selected_artifact.reset();
+                    }
+                    const auto reduced = reduce_aur_update_operation_result(filtered.preflight, filtered.preparation,
+                                                                            DevelRequiresCheckPolicy::SkipIndependentTarget, forged);
+                    require(!reduced.is_success() && reduced.status == AurUpdateOperationStatus::InconsistentResult,
+                            "forged bootstrap decline/root mapping became success");
+                }
+                const auto readback = read_devel_build_provenance(base);
+                const auto& loaded = require_arm<DevelBuildProvenanceStoreLoaded>(readback, "bootstrap publication readback missing");
+                require(*loaded.provenance.actual_built_revision().revision().value().git_commit() == actual_oid && actual_oid == upstream.oid(), "bootstrap published an observed/cache OID instead of built proof");
+                set_devel_package_assessment_test_hooks({{}, [&](const auto& remote_request) {
+                                                             return parse_git_remote_revision_observation(remote_request, 0, upstream.oid() + "\tHEAD\n");
+                                                         }});
+                const DevelPackageAssessmentTarget assessment_target{base, {child}, true};
+                const auto same = assess_current_devel_package(assessment_target);
+                require(same.assessment.state() == DevelUpdateAssessmentState::UpToDate, "post-bootstrap same OID was not UpToDate");
+                const auto trials_before_fast_path = trial_calls;
+                const auto fast_request = make_compatible_system_aur_update_request(
+                    std::get<AutoSystemUpdateRouteCandidate>(classify_sync_invocation_route(*parsed)));
+                auto fast = execute_prepared_system_aur_update_operation(prepare_system_aur_update_operation(*fast_request), config);
+                require(fast.is_success() && trial_calls == trials_before_fast_path && build_entries == 1 && execute_calls == 1,
+                        "valid provenance fast path gained bootstrap/rebuild");
+                require(fast.aur.operation_result->reduced_operation_result.targets[bootstrap_index].update.devel_assessment.state() == DevelUpdateAssessmentState::UpToDate,
+                        "next ordinary update did not use the published baseline");
+                upstream.commit("bootstrap remote advanced\n");
+                const auto different = assess_current_devel_package(assessment_target);
+                require(different.assessment.state() == DevelUpdateAssessmentState::UpdateAvailable && different.update_basis == DevelPackageUpdateBasis::GitRevision,
+                        "post-bootstrap remote advance was not GitRevision update");
+                std::cout << "S553 lifecycle S6 Complete generation=" << loaded.observed.generation
+                          << " sha256=" << xdg_generation_store_raw_contents_sha256(loaded.observed.raw_contents)
+                          << " built=" << actual_oid << " same=UpToDate different=UpdateAvailable(GitRevision)\n";
+            } else if(skipped) {
+                require(result.is_success() && target.status == AurUpdateOperationTargetStatus::Skipped &&
+                            target.skip_kind == AurUpdateExecutionSkipKind::IndependentDevelRequiresCheck,
+                        "bootstrap decline/unavailable lost RequiresCheck skip");
+                require(build_entries == 0 && execute_calls == 0 && g_bridge_publication_entries == 0, "unaccepted bootstrap mutated package/provenance");
+                require(cache_before == bootstrap_cache_snapshot(fixture.execution_checkout()), "unaccepted bootstrap mutated checkout/cache");
+            } else {
+                require(!result.is_success(), "failed/cancelled bootstrap became success");
+                if(cancelled) require(target.status == AurUpdateOperationTargetStatus::Cancelled && target.cancellation,
+                                      "bootstrap cancellation lost typed partial result");
+                if(mode == "publication-failure" || mode == "publication-unknown") {
+                    const auto& execution = filtered.execution->work_item_results[bootstrap_index];
+                    require(execution.devel_execution && execution.devel_execution->operation == Operation::Succeeded &&
+                                execution.devel_execution->publication == (mode == "publication-failure" ? Pub::Failed : Pub::OutcomeUnknown),
+                            "bootstrap flattened install and publication outcomes");
+                    require(!execution.devel_execution->owner->publication()->identity(), "failed/unknown publication exposed success identity");
+                }
+            }
+            if(!success && mode != "publication-unknown") {
+                if(existing_provenance) {
+                    std::ifstream file(p_directory / "1.toml");
+                    require(std::string((std::istreambuf_iterator<char>(file)), {}) == *existing_provenance, "bootstrap repaired existing invalid provenance");
+                } else
+                    require(!fs::exists(p_directory / "1.toml"), "negative bootstrap published a baseline");
+            }
+            if(mode == "noconfirm" || mode == "nodiff" || mode == "diff-skip" || mode == "non-tty") require(trial_calls == 0, "noninteractive/bypassed route observed trial source");
+            if(skipped || mode == "cancel" || mode == "eof" || mode == "review-decline" || mode == "review-cancel") {
+                require(!fs::exists(r_directory / "1.toml"), "unaccepted review advanced reviewed-source state");
+                require(execute_calls == 0, "negative bootstrap attempted install");
+            }
+            if(multi) {
+                const bool decision_cancel = mode == "cancel" || mode == "eof";
+                require(targets[0].status == (decision_cancel ? AurUpdateOperationTargetStatus::NotAttempted : AurUpdateOperationTargetStatus::Updated),
+                        "bootstrap lost completed prefix");
+                const bool continues = success || skipped;
+                require(targets[2].status == (continues ? AurUpdateOperationTargetStatus::Updated : AurUpdateOperationTargetStatus::NotAttempted),
+                        "bootstrap executed the suffix after stop or skipped it after decline");
+                require(sidecar_calls.size() == (decision_cancel ? 0U : continues ? 2U
+                                                                                  : 1U),
+                        "wrong number of unrelated target mutations");
+            }
+            std::cout << "S553 production " << case_name << " PASS\n";
+            continue;
+        }
+#endif
         auto intent = fixture.execution_intent({"/", db});
 #ifdef MOGUET_TEST_NORMAL_REVIEWED_DEVEL_EXECUTION
         std::optional<ScopedEnvironmentVariable> registered_state;
@@ -2913,6 +3387,13 @@ std::vector<fs::path> context_root_inventory() {
 int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
     const std::vector<fs::path> before = context_root_inventory();
     try {
+#ifdef MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
+        if(argc == 3 && std::string(argv[1]) == "--devel-bootstrap") {
+            test_reviewed_devel_execution_bridge(true, argv[2]);
+            require(context_root_inventory() == before, "bootstrap retained build context");
+            return 0;
+        }
+#endif
 #ifdef MOGUET_TEST_REVIEWED_DEVEL_SOURCE_EXECUTION
 #ifdef MOGUET_TEST_NORMAL_REVIEWED_DEVEL_EXECUTION
         if(argc == 2 && std::string(argv[1]) == "--normal-reviewed-devel-execution") {

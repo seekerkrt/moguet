@@ -286,6 +286,7 @@ std::string target_status_label(
     AurUpdateOperationStatus operation_status) {
     switch(target.status) {
         case AurUpdateOperationTargetStatus::Updated:
+            if(has_aur_update_bootstrap_intent(target.update)) return localization::translate_message("devel tracking baseline established");
             return localization::translate_message("updated");
         case AurUpdateOperationTargetStatus::NoChange:
             return localization::translate_message("no change");

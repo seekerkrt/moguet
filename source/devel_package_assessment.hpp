@@ -96,3 +96,7 @@ struct DevelPackageAssessmentTestHooks {
 };
 void set_devel_package_assessment_test_hooks(DevelPackageAssessmentTestHooks hooks);
 #endif
+
+// Initial-missing bootstrap trial only: observe P/I/R without granting remote
+// tracking authority or manufacturing an installed source-build baseline.
+DevelPackageLocalObservations observe_devel_bootstrap_local_state(const PackageChildIdentity& child);

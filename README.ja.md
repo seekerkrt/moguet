@@ -467,6 +467,20 @@ unrelatedなnormal AUR updateを継続してaggregate successを許します。u
 `upgrade-aur`、そのdry-run、`upgrade-all`のfresh AUR phaseは、strictなwhole-operation
 blocker semanticsを維持します。non-TTYや`--noconfirm`でもpromptを追加せずrebuildを承認しません。
 
+初回provenance観測が真のMissingであるindependent targetには、interactiveなexact target-less
+`-Syu`からdefault-Noの明示tracking bootstrapを提示できます。先にexact AUR recipeをread-onlyで
+観測し、cache/stateを変更せず試行適格性を確認します。初期trialはone package、architecture-independentな
+one floating HTTPS Git source、checkout overlayなしに限定します。追加source fileのtracked regular-file
+identityを確認できない場合など、unsupportedまたは判定不能なら従来のwarning/skipを維持します。
+このtrialはbuildやprovenanceのproofではありません。
+
+bootstrap確認は対象由来のcache/provider/dependency mutationより前に行います。Yes後も、既存reviewの
+有無によらずfull source review、対応build、exact install、fresh installed binding、provenance publication成功を
+要求します。`--noedit`は利用できますが、`--nodiff`、`review.diff=skip`、`--noconfirm`、non-TTY入力は
+bootstrapを承認しません。Noは対象をskipし、cancelまたは後段のfailureは後続処理を停止します。
+rollbackやinvalid/corrupt/future/mismatched/unsafe stateのrepairは行いません。`upgrade-aur`、`upgrade-all`、
+query/dry-run、explicit target routingは変更しません。
+
 v2.5.0ではupstream VCS revisionのquery / 比較やdevel build provenanceのpublicationを
 行いません。現在のMoguetには
 [Issue #475](https://github.com/seekerkrt/moguet/issues/475)のtrusted HTTPS Git remote revision
@@ -510,7 +524,8 @@ AUR Git source buildでは、最後に明示acceptしたexact upstream commitを
 persistent XDG stateとして保持します。fetch / clone後は1つのexact target commitをpinします。
 このworkflowより前から存在するcacheを含め、reviewed stateがなければ、最初に対象となる
 PackageBaseのtracked file全体をfull reviewします。後続targetはprevious reviewed revisionから
-reviewし、同じtargetなら新しいpromptもstate writeも不要です。old commit objectが利用できない
+reviewし、同じtargetなら新しいpromptもstate writeも不要です。ただし、上記の明示devel tracking
+bootstrapでは、同じtargetでもfull reviewを要求します。old commit objectが利用できない
 場合、cache checkoutへfallbackせずfull rebaseline reviewを提示します。invalid、corrupted、
 source-mismatched stateにはexplicitなfull rebind reviewが必要で、future / unsafe stateは
 fail-closedで停止します。

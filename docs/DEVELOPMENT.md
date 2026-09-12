@@ -209,17 +209,17 @@ inventoryを所有する。
 
 | Inventory | Expected |
 | --- | ---: |
-| C++ test executables | 115 |
+| C++ test executables | 116 |
 | installed transport fixture harnesses (`EXCLUDE_FROM_ALL`) | 1 |
 | support / stub translation units | 32 |
 | link firewalls | 50 |
 | firewall descriptors | 50 |
-| CTest registrations | 146 |
+| CTest registrations | 147 |
 
 stub / real implementation exclusion、replacement ABI、ALPM stub、exact source closureをtarget-localに
 維持する。単一production libraryを全testへ無条件linkしない。negative compileはCTest registrationから
 effective CMake compiler / launcher / compile optionを取得し、GNU Make recursive compileへ戻さない。
-Make focused aliasとCMake focused targetは各126件で一致し、missing / unexpectedを0に保つ。
+Make focused aliasとCMake focused targetは各127件で一致し、missing / unexpectedを0に保つ。
 
 `make test-installed-fixture-compile`は既存のinstalled transport fixture全体をcompile/linkする
 host gateであり、fixtureを実行しない。`make test`のrepository validationにも含め、production headerと

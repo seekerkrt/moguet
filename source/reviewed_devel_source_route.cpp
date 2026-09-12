@@ -1,4 +1,5 @@
 #include "reviewed_devel_source_route.hpp"
+#include "devel_tracking_bootstrap.hpp"
 #include "srcinfo_source_metadata.hpp"
 #include <fstream>
 #include <iterator>
@@ -9,7 +10,7 @@ bool selects_reviewed_devel_execution(const ValidatedCachePath& checkout,
                                       const ReviewedDevelSourceBuildIntent* intent,
                                       bool overlay) {
     if(!intent) return false;
-    if(intent->request.authoritative_devel_update) return true;
+    if(intent->request.authoritative_devel_update || intent->request.devel_tracking_bootstrap) return true;
     if(overlay || intent->request.needed || intent->rm_deps || intent->required_targets.size() != 1) return false;
     std::ifstream file(checkout.canonical_path() / ".SRCINFO");
     if(!file) return false;
@@ -45,6 +46,14 @@ ReviewedProductionSourceExecution select_normal_reviewed_source_execution(
     const ValidatedCachePath& checkout, PinnedReviewedSourceBuild pin,
     ProductionReviewedSourceOutcome outcome, std::optional<ReviewedSourceAbnormalStateReason> abnormal,
     const ReviewedDevelSourceBuildIntent* intent) {
+    if(intent && intent->request.devel_tracking_bootstrap) {
+        const auto& trial = *intent->request.devel_tracking_bootstrap;
+        std::ifstream file(checkout.canonical_path() / ".SRCINFO");
+        const std::string metadata((std::istreambuf_iterator<char>(file)), {});
+        if(!file || metadata != trial.source_metadata() || pin.identity().target_revision() != trial.recipe_revision()) {
+            return ReviewedDevelSourceBuildRejected{ReviewedDevelSourceBuildIssue::IdentityMismatch};
+        }
+    }
     const bool authoritative = selects_reviewed_devel_execution(checkout, intent, pin.editor_overlay_status() != ReviewedSourceEditorOverlayStatus::None);
     if(!intent) return make_reviewed_production_artifact_source_tree(checkout, std::move(pin), outcome, abnormal);
     return prepare_reviewed_production_source_execution(authoritative ? ReviewedProductionExecutionChoice::AuthoritativeDevel : ReviewedProductionExecutionChoice::Legacy,

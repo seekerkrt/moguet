@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.7.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-12 12:26+0900\n"
+"POT-Creation-Date: 2026-09-12 15:37+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -951,6 +951,9 @@ msgstr ""
 msgid "transaction failed; package effects unverified"
 msgstr ""
 
+msgid "skipped: devel tracking bootstrap"
+msgstr ""
+
 msgid "installed / updated"
 msgstr ""
 
@@ -1021,6 +1024,10 @@ msgid "Devel package update status requires check: the suffix is candidate evide
 msgstr ""
 
 msgid "Devel package update status requires check."
+msgstr ""
+
+#, c++-format
+msgid "Bootstrap action does not match the ordinary {} route or target."
 msgstr ""
 
 msgid "Installed package is already up to date."
@@ -1498,12 +1505,22 @@ msgstr ""
 msgid "{} install preparation failure does not match the prepared {}."
 msgstr ""
 
+#, c++-format
+msgid "{}: devel tracking baseline is missing. Fully review the source, rebuild and install it to establish {} tracking?"
+msgstr ""
+
 msgid "Preparation target snapshot does not match the targets eligible in this preflight phase."
+msgstr ""
+
+msgid "Devel tracking bootstrap was skipped; package remains unverified."
 msgstr ""
 
 #. TRANSLATORS: AUR is a runtime project identity.
 #, c++-format
 msgid "Terminal execution outcomes from multiple work items were attributed to one {} update target."
+msgstr ""
+
+msgid "Devel bootstrap decisions or skipped-root correlations are inconsistent."
 msgstr ""
 
 #. TRANSLATORS: AUR is a runtime project identity.
@@ -2322,6 +2339,9 @@ msgid "devel update requires check: suffix candidate only"
 msgstr ""
 
 msgid "reason unavailable"
+msgstr ""
+
+msgid "devel tracking baseline established"
 msgstr ""
 
 msgid "updated"
@@ -5112,6 +5132,9 @@ msgstr ""
 msgid "{} update candidate has no remote package identity"
 msgstr ""
 
+msgid "Devel tracking bootstrap candidate; update availability is unverified."
+msgstr ""
+
 #. TRANSLATORS: {} is the literal service name "AUR".
 #, c++-format
 msgid "{} version comparison unavailable"
@@ -6545,6 +6568,10 @@ msgid "Reviewed-source outcome for {} {}: review acceptance was declined by the 
 msgstr ""
 
 #, c++-format
+msgid "Reviewed-source outcome for {} {}: bootstrap full review accepted for exact upstream commit {}."
+msgstr ""
+
+#, c++-format
 msgid "Reviewed-source outcome for {} {}: initial full review accepted for exact upstream commit {}."
 msgstr ""
 
@@ -7056,6 +7083,9 @@ msgstr ""
 msgid "Edit install script {}?"
 msgstr ""
 
+msgid "Accept this full source review for devel tracking bootstrap?"
+msgstr ""
+
 msgid "Accept this explicit reviewed-source full rebaseline?"
 msgstr ""
 
@@ -7069,6 +7099,9 @@ msgid "Accept this explicit reviewed-source identity rebind/rebaseline?"
 msgstr ""
 
 msgid "Accept this reviewed upstream revision?"
+msgstr ""
+
+msgid "Devel tracking bootstrap recipe changed before full review; no build was started."
 msgstr ""
 
 #, c++-format
@@ -7173,6 +7206,9 @@ msgstr ""
 
 #, c++-format
 msgid "{} set source-build multiple request must not expose a singular package name."
+msgstr ""
+
+msgid "Devel tracking bootstrap observations changed; no build was started."
 msgstr ""
 
 msgid "Private artifact workspace preparation failed."

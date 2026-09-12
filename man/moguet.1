@@ -396,6 +396,24 @@ and
 routes retain their strict whole-operation RequiresCheck blocker behavior.
 .
 .PP
+For an independent target with an initially missing devel provenance record,
+interactive exact target-less Auto updates may offer an explicit tracking
+bootstrap with a default-No confirmation. A read-only observation of the exact
+AUR recipe must first establish trial eligibility; unsupported or unverifiable
+source shapes and checkout overlays remain skipped. The initial trial admits
+one package and one architecture-independent floating HTTPS Git source.
+Additional source files remain unoffered when their tracked regular-file
+identity cannot be verified by the trial observation.
+.PP
+Bootstrap decisions precede target-related cache, provider and dependency
+mutations. Acceptance still requires a full source review, even with an existing
+review record, and the supported build, exact install, fresh installed binding
+and successful provenance publication. No skips the target; cancel or a later
+failure stops subsequent work without rollback. Invalid, corrupt, future and
+unsafe state are not repaired. --noedit is allowed; --nodiff, review.diff=skip,
+--noconfirm and non-TTY input do not approve bootstrap.
+.
+.PP
 The phases are sequential, not atomic. A repository failure leaves the AUR
 phase not attempted and exits non-zero. If the repository phase completes but
 the AUR phase is blocked or fails, Moguet reports repository completion and a

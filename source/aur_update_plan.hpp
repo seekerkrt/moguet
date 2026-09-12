@@ -2,13 +2,17 @@
 
 #include "devel_package_classification.hpp"
 #include "devel_update_model.hpp"
+#include "devel_tracking_bootstrap.hpp"
 #include "installed_package.hpp"
 
+#include <memory>
 #include <optional>
 #include <string>
 #include <utility>
 #include <variant>
 #include <vector>
+
+class DevelTrackingBootstrapTrial;
 
 // Version文字列の比較は外部境界で済ませ、pure modelには比較結果だけを渡す。
 enum class AurVersionRelation {
@@ -89,6 +93,10 @@ struct AurUpdatePlanEntry {
     // Pure routing metadata, not a build or remote-approval capability.
     AurDevelAssessmentOrigin devel_assessment_origin = AurDevelAssessmentOrigin::Conservative;
 
+    // Only the actual ordinary -Syu coordinator supplies this trial intent.
+    // RequiresCheck and Version/GitRevision assessment remain unchanged.
+    std::shared_ptr<const DevelTrackingBootstrapTrial> bootstrap;
+
     AurUpdatePlanEntry() = default;
 
     AurUpdatePlanEntry(
@@ -140,4 +148,23 @@ inline std::optional<AurUpdateBasis> aur_update_basis(const AurUpdatePlanEntry& 
        entry.devel_assessment.state() == DevelUpdateAssessmentState::UpdateAvailable && entry.aur_package &&
        (entry.aur_package->version_relation == AurVersionRelation::SameAsInstalled || entry.aur_package->version_relation == AurVersionRelation::OlderThanInstalled)) return AurUpdateBasis::GitRevision;
     return std::nullopt;
+}
+
+inline bool has_aur_update_bootstrap_intent(const AurUpdatePlanEntry& entry) noexcept {
+    return entry.bootstrap && entry.aur_package &&
+           entry.bootstrap->package().package_name() == entry.installed_name &&
+           entry.bootstrap->package().package_base().package_base() == entry.aur_package->package_base &&
+           entry.bootstrap->installed_version() == entry.installed_version &&
+           entry.classification == AurUpdateClassification::UpToDate &&
+           entry.devel_assessment_origin == AurDevelAssessmentOrigin::CurrentObservation &&
+           entry.devel_assessment.requires_check_reason() &&
+           *entry.devel_assessment.requires_check_reason() == DevelRequiresCheckReason::ProvenanceMissing &&
+           entry.aur_package && entry.installed_name == entry.aur_package->aur_name &&
+           (entry.aur_package->version_relation == AurVersionRelation::SameAsInstalled ||
+            entry.aur_package->version_relation == AurVersionRelation::OlderThanInstalled);
+}
+
+inline bool has_aur_update_execution_intent(const AurUpdatePlanEntry& entry) noexcept {
+    return aur_update_basis(entry).has_value() ||
+           has_aur_update_bootstrap_intent(entry);
 }

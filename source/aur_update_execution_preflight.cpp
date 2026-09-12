@@ -252,7 +252,13 @@ bool has_consistent_normal_remote_metadata(
     return false;
 }
 
-void add_initial_classification_issue(AurUpdateExecutionTarget& target) {
+void add_initial_classification_issue(AurUpdateExecutionTarget& target, DevelRequiresCheckPolicy policy) {
+    if(target.update.bootstrap) {
+        if(policy == DevelRequiresCheckPolicy::SkipIndependentTarget && has_aur_update_bootstrap_intent(target.update)) return;
+        add_issue(target, make_localized_execution_issue(AurUpdateExecutionReason::UpdatePlanInconsistent,
+                                                         localization::format_translated_message("Bootstrap action does not match the ordinary {} route or target.", "AUR"), target.update.installed_name));
+        return;
+    }
     switch(project_aur_update_effective_state(target.update)) {
         case AurUpdateEffectiveState::UpdateAvailable:
             break;
@@ -1705,10 +1711,9 @@ AurUpdateExecutionPreflight resolve_aur_update_execution_preflight(
         AurUpdateExecutionTarget target;
         target.update_plan_index = plan_index;
         target.update = update_plan.entries[plan_index];
-        add_initial_classification_issue(target);
+        add_initial_classification_issue(target, devel_requires_check_policy);
 
-        if(project_aur_update_effective_state(target.update) ==
-           AurUpdateEffectiveState::UpdateAvailable) {
+        if(has_aur_update_execution_intent(target.update)) {
             target.desired_install_reason =
                 desired_install_reason_for_aur_update_root(
                     target.update.install_reason);
@@ -1822,9 +1827,16 @@ AurUpdateExecutionPreflight resolve_aur_update_execution_preflight(
                 required_devel_projection.required_update_plan_indices.end(),
                 target.update_plan_index) !=
             required_devel_projection.required_update_plan_indices.end();
+        if(is_required && has_aur_update_bootstrap_intent(target.update)) {
+            add_issue(target, make_localized_execution_issue(
+                                  AurUpdateExecutionReason::DevelRequiresCheck,
+                                  devel_requires_check_diagnostic(DevelRequiresCheckReason::ProvenanceMissing),
+                                  target.update.installed_name, target.update.aur_package->package_base,
+                                  std::nullopt, DevelRequiresCheckReason::ProvenanceMissing));
+        }
         reduce_target_status(
-            target, devel_requires_check_policy, true,
-            is_required);
+            target, devel_requires_check_policy,
+            !(is_required && has_aur_update_bootstrap_intent(target.update)), is_required);
     }
     if(devel_requires_check_policy ==
            DevelRequiresCheckPolicy::SkipIndependentTarget &&

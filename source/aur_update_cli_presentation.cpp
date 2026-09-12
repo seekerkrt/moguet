@@ -265,6 +265,7 @@ std::string failure_detail_summary(
 bool is_known_work_item_status(
     AurUpdateWorkItemExecutionStatus status) noexcept {
     switch(status) {
+        case AurUpdateWorkItemExecutionStatus::BootstrapSkipped:
         case AurUpdateWorkItemExecutionStatus::Updated:
         case AurUpdateWorkItemExecutionStatus::NoChange:
         case AurUpdateWorkItemExecutionStatus::Cancelled:
@@ -279,6 +280,7 @@ bool is_known_work_item_status(
 
 bool is_known_child_status(AurUpdateChildExecutionStatus status) noexcept {
     switch(status) {
+        case AurUpdateChildExecutionStatus::BootstrapSkipped:
         case AurUpdateChildExecutionStatus::Installed:
         case AurUpdateChildExecutionStatus::SkippedAsNeeded:
         case AurUpdateChildExecutionStatus::InstalledCleanupFailed:
@@ -301,6 +303,8 @@ bool child_status_matches_work_item(
     AurUpdateWorkItemExecutionStatus work_item_status,
     AurUpdateChildExecutionStatus child_status) noexcept {
     switch(work_item_status) {
+        case AurUpdateWorkItemExecutionStatus::BootstrapSkipped:
+            return child_status == AurUpdateChildExecutionStatus::BootstrapSkipped;
         case AurUpdateWorkItemExecutionStatus::Updated:
             return child_status == AurUpdateChildExecutionStatus::Installed ||
                    child_status == AurUpdateChildExecutionStatus::SkippedAsNeeded;
@@ -326,6 +330,7 @@ bool failure_kind_matches_work_item(
     AurUpdateWorkItemExecutionStatus status,
     AurUpdateWorkItemFailureKind kind) noexcept {
     switch(status) {
+        case AurUpdateWorkItemExecutionStatus::BootstrapSkipped:
         case AurUpdateWorkItemExecutionStatus::Updated:
         case AurUpdateWorkItemExecutionStatus::NoChange:
             return kind == AurUpdateWorkItemFailureKind::None;
@@ -597,6 +602,8 @@ std::string child_outcome_label(
         if(operation == DevelSourceArtifactInstallOperation::Failed) return localization::translate_message("transaction failed; package effects unverified");
     }
     switch(status) {
+        case AurUpdateChildExecutionStatus::BootstrapSkipped:
+            return localization::translate_message("skipped: devel tracking bootstrap");
         case AurUpdateChildExecutionStatus::Installed:
             return localization::translate_message("installed / updated");
         case AurUpdateChildExecutionStatus::SkippedAsNeeded:

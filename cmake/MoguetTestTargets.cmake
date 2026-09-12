@@ -881,6 +881,9 @@ moguet_add_cpp_test(
     SOURCES
         source/package_metadata.cpp
         source/aur_devel_update.cpp
+        source/srcinfo_source_metadata.cpp
+        source/source_entry_parser.cpp
+        source/local_package_metadata.cpp
         source/aur_update_query.cpp
         source/aur_update_plan.cpp
         source/shell_words.cpp
@@ -928,6 +931,7 @@ moguet_add_cpp_test(
         source/localization.cpp
     DEFINITIONS
         MOGUET_TEST_AUR_DEVEL_ROUTING
+        MOGUET_ENABLE_DEVEL_TRACKING_BOOTSTRAP_TEST_HOOKS
         MOGUET_ENABLE_AUR_DEVEL_UPDATE_TEST_HOOKS
         MOGUET_ENABLE_DEVEL_PACKAGE_ASSESSMENT_TEST_HOOKS
         MOGUET_ENABLE_INSTALLED_RECORD_OBSERVATION_TEST_HOOKS
@@ -1643,6 +1647,47 @@ moguet_add_cpp_test(
     INCLUDE_DIRECTORIES
         "${_moguet_test_source_include_dir}"
         "${_moguet_test_support_include_dir}"
+    COMPILE_OPTIONS -ffunction-sections -fdata-sections
+    LINK_OPTIONS LINKER:--gc-sections
+)
+
+# #553 retains the actual CLI classifier, system/AUR coordinator, planner,
+# confirmation/review and S4/S5/S6 owners. Only network and privileged fixture
+# effects are redirected; no synthetic Complete/provenance is injected.
+set(_moguet_devel_bootstrap_test_sources ${MOGUET_PRODUCTION_SOURCES})
+list(REMOVE_ITEM _moguet_devel_bootstrap_test_sources source/moguet.cpp)
+moguet_add_cpp_test(
+    devel-tracking-bootstrap-test
+    ALPM_COMPILE REAL_ALPM CURL
+    SOURCES ${_moguet_devel_bootstrap_test_sources}
+        source/source_artifact_install_trusted_helper_state.cpp
+        tests/evaluated_devel_source_build_test.cpp
+        tests/devel_source_artifact_install_fixture.cpp
+        tests/devel_build_provenance_publication_fixture.cpp
+    DEFINITIONS
+        MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
+        MOGUET_ENABLE_AUR_UPDATE_EXECUTION_RUNNER_TEST_HOOKS
+        MOGUET_TEST_NORMAL_REVIEWED_DEVEL_EXECUTION
+        MOGUET_TEST_REVIEWED_DEVEL_SOURCE_EXECUTION
+        MOGUET_ENABLE_SOURCE_INVOCATION_EXECUTION_TEST_HOOKS
+        MOGUET_ENABLE_REVIEWED_DEVEL_SOURCE_BUILD_EXECUTION_TEST_HOOKS
+        MOGUET_ENABLE_DEVEL_BUILD_PROVENANCE_PUBLICATION_TEST_HOOKS
+        MOGUET_ENABLE_XDG_GENERATION_STORE_TEST_HOOKS
+        MOGUET_ENABLE_DEVEL_SOURCE_ARTIFACT_INSTALL_TEST_HOOKS
+        MOGUET_ENABLE_TEST_OVERRIDES
+        MOGUET_ENABLE_REVIEWED_SOURCE_PRESENTATION_TEST_HOOKS
+        MOGUET_ENABLE_REVIEWED_SOURCE_ACCEPTANCE_TEST_HOOKS
+        MOGUET_ENABLE_REVIEWED_SOURCE_STATE_STORE_TEST_HOOKS
+        MOGUET_ENABLE_INVOCATION_OWNED_SOURCE_BUILD_CONTEXT_TEST_HOOKS
+        MOGUET_ENABLE_EVALUATED_DEVEL_SOURCE_BUILD_TEST_HOOKS
+        MOGUET_ENABLE_SOURCE_ARTIFACT_INSTALL_TRUSTED_TRANSPORT_TEST_HOOKS
+        MOGUET_TEST_EVALUATED_DEVEL_ARTIFACT_TRANSPORT
+        MOGUET_ENABLE_INSTALLED_RECORD_OBSERVATION_TEST_HOOKS
+        MOGUET_TEST_EXACT_INSTALLED_BINDING
+        MOGUET_ENABLE_AUR_DEVEL_UPDATE_TEST_HOOKS
+        MOGUET_ENABLE_DEVEL_TRACKING_BOOTSTRAP_TEST_HOOKS
+        MOGUET_ENABLE_DEVEL_PACKAGE_ASSESSMENT_TEST_HOOKS
+    INCLUDE_DIRECTORIES "${_moguet_test_source_include_dir}" "${_moguet_test_support_include_dir}"
     COMPILE_OPTIONS -ffunction-sections -fdata-sections
     LINK_OPTIONS LINKER:--gc-sections
 )
@@ -3170,6 +3215,7 @@ moguet_add_cpp_test(
 
 set(
     MOGUET_EXPECTED_CPP_TEST_TARGETS
+    devel-tracking-bootstrap-test
     normal-reviewed-devel-execution-test
     aur-devel-route-test
     reviewed-devel-source-build-execution-test

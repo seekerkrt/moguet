@@ -72,6 +72,7 @@ struct RequiresCheckTargetIdentity {
     std::string remote_version;
     DevelRequiresCheckReason reason =
         DevelRequiresCheckReason::SuffixCandidateOnly;
+    bool is_bootstrap_trial = false;
 };
 
 struct CandidateMapping {
@@ -94,12 +95,8 @@ struct PendingRequiredDevelRelation {
 };
 
 inline bool is_update_candidate(const AurUpdatePlanEntry& update) noexcept {
-    // Normal version precedence is the candidate authority. Devel evidence
-    // cannot remove a real UpdateAvailable root.
-    return update.classification == AurUpdateClassification::UpdateAvailable ||
-           (update.classification == AurUpdateClassification::UpToDate &&
-            update.devel_assessment_origin == AurDevelAssessmentOrigin::CurrentObservation &&
-            update.devel_assessment.state() == DevelUpdateAssessmentState::UpdateAvailable);
+    // Execution roots may include a trial; effective update state is unchanged.
+    return has_aur_update_execution_intent(update);
 }
 
 inline bool is_requires_check_candidate(
@@ -538,6 +535,13 @@ inline AurUpdateRequiredDevelTargetBlocker make_blocker(
     std::optional<std::size_t> build_plan_order_index,
     std::vector<PackageRole> roles,
     std::vector<RootTargetIdentity> roots) {
+    if(requires_check.is_bootstrap_trial) {
+        // The added trial root role is not itself a required dependency role.
+        // Preserve the original BuildPlan roles, and project only required
+        // roles into this existing blocker contract. Never invent a role.
+        std::erase(roles, PackageRole::Root);
+        if(roles.empty()) relation = AurUpdateRequiredDevelTargetRelation::IdentityDrift;
+    }
     AurUpdateRequiredDevelTargetBlocker blocker{
         relation, requires_check.update_plan_index,
         requires_check.aur_name, requires_check.reason};
@@ -605,7 +609,7 @@ collect_requires_check_identities(
             target.update.aur_package->aur_name,
             target.update.aur_package->package_base,
             target.update.aur_package->version,
-            reason});
+            reason, has_aur_update_bootstrap_intent(target.update)});
     }
     return identities;
 }
@@ -869,6 +873,15 @@ project_aur_update_required_devel_relations(
                 entry.package_base == requires_check.package_base &&
                 planned_target != nullptr && !roots.empty() &&
                 projection_contains_exact_child;
+            // A bootstrap's own singular root output is its explicit trial
+            // intent. Every cross-root/provider/dependency contribution still
+            // produces the original strict RequiresCheck blocker.
+            const auto& original = preflight.targets[requires_check.update_plan_index];
+            if(exact_identity && has_aur_update_bootstrap_intent(original.update) &&
+               roots.size() == 1 && roles == std::vector<PackageRole>{PackageRole::Root}) {
+                const auto* self = find_candidate_for_root(candidates, roots.front());
+                if(self && self->update_plan_index == requires_check.update_plan_index) continue;
+            }
             pending_relations.emplace_back(
                 make_blocker(
                     exact_identity
@@ -916,7 +929,7 @@ inline bool has_complete_aur_update_required_devel_relation_snapshot(
 
     std::vector<AurUpdateExpectedRequiredDevelRelation> actual_relations;
     for(const AurUpdateExecutionTarget& target : preflight.targets) {
-        if(is_requires_check_candidate(target.update)) {
+        if(is_requires_check_candidate(target.update) && !has_aur_update_bootstrap_intent(target.update)) {
             const bool expected_required = contains_index(
                 expected.required_update_plan_indices,
                 target.update_plan_index);
@@ -931,6 +944,11 @@ inline bool has_complete_aur_update_required_devel_relation_snapshot(
                 return false;
             }
         }
+
+        if(has_aur_update_bootstrap_intent(target.update) &&
+           (target.skip_kind || target.status == AurUpdateExecutionTargetStatus::Skipped ||
+            (contains_index(expected.required_update_plan_indices, target.update_plan_index) &&
+             target.status != AurUpdateExecutionTargetStatus::Incomplete))) return false;
 
         for(const AurUpdateExecutionIssue& issue : target.issues) {
             if(issue.reason != AurUpdateExecutionReason::

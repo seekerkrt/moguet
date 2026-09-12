@@ -256,6 +256,8 @@ AurUpdateWorkItemExecutionResult make_work_item_result(
     child.affected_roots = {{update_plan_index, package_name}};
     child.roles = {PackageRole::Root};
     switch(status) {
+        case AurUpdateWorkItemExecutionStatus::BootstrapSkipped:
+            throw std::logic_error("Standalone fixture cannot mint bootstrap results.");
         case AurUpdateWorkItemExecutionStatus::Updated:
             child.selected_artifact =
                 ArtifactPackageIdentity{package_name, "2.0-1"};
@@ -427,6 +429,8 @@ bool target_status_is_success(
 bool work_item_status_is_success(
     AurUpdateWorkItemExecutionStatus status) noexcept {
     switch(status) {
+        case AurUpdateWorkItemExecutionStatus::BootstrapSkipped:
+            return false;
         case AurUpdateWorkItemExecutionStatus::Updated:
         case AurUpdateWorkItemExecutionStatus::NoChange:
             return true;

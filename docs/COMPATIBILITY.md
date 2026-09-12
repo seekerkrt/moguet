@@ -213,6 +213,23 @@ preparation barrierに従ってnon-zeroとなる。saved source preference polic
 zero-I/Oとする。`upgrade-aur`と`upgrade-all`は`BlockOperation` + Strictのままであり、normal
 `-Syu`からsource preference登録packageをsource-build routeへ自動routingしない。
 
+interactiveなexact target-less Auto `-Syu`では、初回P観測が
+`ProvenanceMissing` / `Stage::Provenance` / `before=Missing`の独立targetだけに、
+明示tracking bootstrapを提示できる。exact AUR recipeのread-only trial観測で、single package・
+architecture-independentなone floating HTTPS Git source・checkout overlayなしを確認する。
+追加source fileのtracked regular-file identityを確認できない場合など、試行適格性が不明なら
+提示せず従来のwarning/skipとする。この観測はS4/S5/S6 proofではない。
+
+default-No確認は対象由来のcache/provider/dependency mutationより前に行う。Yesは開始の許可だけで、
+既存review stateがあっても別途full source reviewを要求し、reviewed exact source、対応build、
+actual install、fresh installed binding、S6 Completeをすべて要求する。RのMissing偽装やstate削除はしない。
+`--noedit`は利用できるが、`--nodiff` / `review.diff=Skip` / `--noconfirm` / non-TTYでは提示しない。
+declineはtyped RequiresCheck skip、cancel/EOFはtyped operation cancellation、後続は停止する。
+accepted後のreview/build/install/publication failureも既存first-failure policyに従う。
+既存valid provenance、通常Version update、required dependency/provider/child blockerは維持する。
+invalid/corrupt/future/unsafe/binding mismatchのrepairは行わない。publication FailedとOutcomeUnknownを区別し、
+install成功だけをtracking成功へ変換しない。詳細は[normal devel routes](contracts/devel-normal-routes.md)を参照する。
+
 <a id="compat-git-remote-revision-observer"></a>
 ## Trusted Git remote revision observer foundation compatibility
 
