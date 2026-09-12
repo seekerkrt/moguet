@@ -125,6 +125,13 @@ source-buildやtarget grammarの一般policyを変更しない。
   source evaluation、cache作成、checkout、review authority、publicationはこの観測で発生しない。
 - trial failure/unsupported/判定不能は従来skip。P/R invalid、corrupt、future、unsafeをMissingへ丸めない。
   trial network failureは既存valid provenanceに対する#475 Unknownと別の試行適格性観測である。
+  recipe HEAD応答は256 bytes・30秒の既存bound内で、完全な`<OID><TAB>HEAD<LF>` recordだけを解析する。
+  同一OID・同一HEADの完全同一recordは一意化するが、異なるOID、別ref、不正・未完・余剰bytesは拒否する。
+  この正規化はrecipe trial専用で、#475 upstream observerのduplicate rejectionは変更しない。
+  HEAD process failure/timeout/overflow、malformed/conflicting response、HTTP metadata unavailable、
+  metadata parse failure、unsupported sourceは`DevelTrackingBootstrapUnavailableReason`で区別し、collectorが
+  `AurDevelUpdateObservation.bootstrap_unavailable`へ保持する。元のassessmentは変更せず、現行presentationは
+  従来のgeneric warning/skipへまとめる。typed reason自体はbuild/review/provenance authorityにならない。
 - 同じcombined BuildPlanを一度解決し、既存required relation projectionを適用する。
   bootstrapの自分自身のsingular Root artifactだけをそのtrial intentとして区別し、cross-rootの
   dependency/provider/child/shared-base relationは従来どおりblockする。

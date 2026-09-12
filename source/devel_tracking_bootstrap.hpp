@@ -14,6 +14,13 @@ enum class DevelTrackingBootstrapUnavailableReason {
     InstalledStateUnavailable,
     ReviewedStateInvalid,
     RecipeUnavailable,
+    RecipeHeadProcessFailed,
+    RecipeHeadTimedOut,
+    RecipeHeadOutputLimitExceeded,
+    RecipeHeadMalformed,
+    RecipeHeadConflicting,
+    RecipeMetadataUnavailable,
+    RecipeMetadataMalformed,
     UnsupportedSource,
     CheckoutOverlayOrUnavailable,
     ObservationChanged,
@@ -69,11 +76,8 @@ private:
 DevelTrackingBootstrapObservation observe_devel_tracking_bootstrap(const PackageChildIdentity& package);
 bool revalidate_devel_tracking_bootstrap(const DevelTrackingBootstrapTrial& trial);
 
-// Existing parsers over exact recipe bytes; this checks only the supported
-// declaration envelope. S4 still owns evaluated metadata and actual outputs.
-bool has_supported_devel_bootstrap_source(const PackageChildIdentity& package, const std::string& srcinfo);
-
 #ifdef MOGUET_ENABLE_DEVEL_TRACKING_BOOTSTRAP_TEST_HOOKS
+#include "process.hpp"
 #include <functional>
 struct DevelTrackingBootstrapRecipeObservation {
     SourceRevisionIdentity revision;
@@ -82,6 +86,10 @@ struct DevelTrackingBootstrapRecipeObservation {
 struct DevelTrackingBootstrapTestHooks {
     std::function<std::optional<DevelTrackingBootstrapRecipeObservation>(const PackageChildIdentity&)> recipe;
     std::function<bool(const PackageChildIdentity&)> checkout;
+    // Raw boundaries retain production argv/policy, HEAD parsing and cgit URL
+    // construction. Unlike recipe, these hooks do not supply a parsed identity.
+    std::function<BoundedCapturedProcessResult(const ExplicitProcessInvocation&, const BoundedProcessPolicy&)> recipe_head = {};
+    std::function<std::optional<std::string>(const std::string&)> recipe_metadata = {};
 };
 void set_devel_tracking_bootstrap_test_hooks(DevelTrackingBootstrapTestHooks hooks);
 #endif
