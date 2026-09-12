@@ -1187,10 +1187,15 @@ UpdateCheckResult check_update_status(
     if(!new_ver.has_value()) return UpdateCheckResult::Unknown;
 
     std::string cmp_cmd = "vercmp " + shell_words::quote(new_ver.value()) + " " + shell_words::quote(installed_version.value()) + " 2>/dev/null";
-    std::string cmp_res = exec_command(cmp_cmd.c_str());
+    const CapturedCommandResult comparison_result = capture_command_output(cmp_cmd.c_str());
+    if(comparison_result.exit_code != 0) return UpdateCheckResult::Unknown;
 
     try {
-        int version_comparison = std::stoi(cmp_res);
+        std::size_t consumed_characters = 0;
+        int version_comparison = std::stoi(comparison_result.output, &consumed_characters);
+        if(consumed_characters != comparison_result.output.size()) {
+            return UpdateCheckResult::Unknown;
+        }
         if(version_comparison > 0) return UpdateCheckResult::NeedsBuild;
         if(version_comparison == 0 && update_baseline.has_value()) {
             const std::optional<std::string>& pre_upgrade_version =

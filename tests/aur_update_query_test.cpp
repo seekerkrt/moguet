@@ -21,7 +21,7 @@ using InfoManyHandler = std::function<std::map<std::string, AurPackageInfo>(
     const std::vector<std::string>&)>;
 using InfoStrictHandler =
     std::function<std::optional<AurPackageInfo>(const std::string&)>;
-using ExecHandler = std::function<std::string(const std::string&)>;
+using ExecHandler = std::function<CapturedCommandResult(const std::string&)>;
 
 struct QueryFixture {
     ForeignPackageInventory inventory;
@@ -129,7 +129,7 @@ void reset_fixture() {
         if(!command.starts_with("vercmp ")) {
             throw std::runtime_error("Unexpected query command: " + command);
         }
-        return std::string("0");
+        return CapturedCommandResult{"0", 0};
     };
 }
 
@@ -246,7 +246,7 @@ std::optional<AurPackageInfo> AurClient::info_strict(
     return g_fixture.info_strict_handler(package_name);
 }
 
-std::string exec_command(const char* command) {
+CapturedCommandResult capture_command_output(const char* command) {
     if(command == nullptr) throw std::runtime_error("Null query command");
 
     const std::string command_string(command);
@@ -619,14 +619,14 @@ void test_version_comparison_classifies_and_fails_closed() {
         if(!command.starts_with("vercmp ")) {
             throw std::runtime_error("Unexpected query command: " + command);
         }
-        if(command.find("remote-newer") != std::string::npos) return std::string("1");
-        if(command.find("remote-same") != std::string::npos) return std::string("0");
-        if(command.find("remote-older") != std::string::npos) return std::string("-1");
+        if(command.find("remote-newer") != std::string::npos) return CapturedCommandResult{"1", 0};
+        if(command.find("remote-same") != std::string::npos) return CapturedCommandResult{"0", 0};
+        if(command.find("remote-older") != std::string::npos) return CapturedCommandResult{"-1", 0};
         if(command.find("remote-invalid") != std::string::npos) {
-            return std::string("invalid");
+            return CapturedCommandResult{"invalid", 0};
         }
         if(command.find("remote-prefix-junk") != std::string::npos) {
-            return std::string("1junk");
+            return CapturedCommandResult{"1junk", 0};
         }
         throw std::runtime_error("Unexpected vercmp fixture command: " + command);
     };
@@ -651,6 +651,24 @@ void test_version_comparison_classifies_and_fails_closed() {
         AurUpdateClassification::VersionComparisonUnavailable,
         "Numeric-prefix junk vercmp output did not fail closed");
     expect(g_fixture.exec_calls.size() == 5, "Version fixture vercmp call count differs");
+
+    // Fault injection hardens the result contract; no natural vercmp trigger is assumed.
+    const std::vector<CapturedCommandResult> unavailable_results = {
+        {"-1", 7}, {"0", 7}, {"1", 7}, {"-1garbage", 0}, {"0garbage", 0}, {"1garbage", 0}, {"1x", 0}, {"1 2", 0}, {"--1", 0}, {"garbage", 0}, {"", 0}, {"999999999999999999999999999999", 0}};
+    for(const auto& comparison_result : unavailable_results) {
+        reset_fixture();
+        g_fixture.inventory = {{"version-failure", "1.0-1"}};
+        g_fixture.exec_handler = [comparison_result](const std::string&) {
+            return comparison_result;
+        };
+        const AurUpdateQueryResult unavailable = query_installed_aur_updates();
+        expect_classification(
+            unavailable.plan, 0,
+            AurUpdateClassification::VersionComparisonUnavailable,
+            "vercmp output [" + comparison_result.output + "] / exit " +
+                std::to_string(comparison_result.exit_code) + " did not fail closed");
+        expect(g_fixture.exec_calls.size() == 1, "Failure case did not invoke vercmp once");
+    }
     expect(
         result.plan.entries[4].aur_package.has_value() &&
             result.plan.entries[4].aur_package->version == "remote-prefix-junk",
@@ -665,7 +683,7 @@ void test_installed_and_aur_identity_are_preserved() {
             {"installed-query-name",
              package_info("aur-response-name", "aur-version", "split-package-base")}};
     };
-    g_fixture.exec_handler = [](const std::string&) { return std::string("1"); };
+    g_fixture.exec_handler = [](const std::string&) { return CapturedCommandResult{"1", 0}; };
 
     const AurUpdateQueryResult result = query_installed_aur_updates();
 
@@ -704,12 +722,12 @@ void test_query_projects_exact_aur_suffix_candidates_conservatively() {
                                  const std::string&) mutable {
         const std::size_t current_index = comparison_index++;
         if(current_index == 0) {
-            return std::string("1");
+            return CapturedCommandResult{"1", 0};
         }
         if(current_index == 4) {
-            return std::string("invalid");
+            return CapturedCommandResult{"invalid", 0};
         }
-        return std::string("0");
+        return CapturedCommandResult{"0", 0};
     };
 
     const AurUpdateQueryResult result = query_installed_aur_updates();
