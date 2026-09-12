@@ -2,6 +2,38 @@
   "config": {
     "MD013": false
   },
+  // overridesはmarkdownlint-cli2 0.23.2 / markdownlint 0.41.1で確認。
+  // fileをlint対象から除外せず、mergeで下記以外のruleを維持する。
+  "overrides": [
+    {
+      // Claude Codeの先頭@AGENTS.md importと固有指示をそのまま保つtool shim。
+      "filter": ["CLAUDE.md"],
+      "config": { "MD041": false },
+      "combine": "merge"
+    },
+    {
+      // releaseごとのH1とEnglish / 日本語sectionを保つ。
+      // 異なる親の下での同名sectionだけ許可し、同一親内の重複は検査する。
+      "filter": ["RELEASE_NOTES.md"],
+      "config": {
+        "MD024": { "siblings_only": true },
+        "MD025": false
+      },
+      "combine": "merge"
+    },
+    {
+      // historical auditは章ごとにFindings等を反復する。記録をrewriteしない。
+      "filter": ["docs/audit/v1.8.0-codex.md"],
+      "config": { "MD024": { "siblings_only": true } },
+      "combine": "merge"
+    },
+    {
+      // 文書間linkと旧decision参照のstable anchor用にa要素だけ許可する。
+      "filter": ["docs/COMPATIBILITY.md", "docs/DECISIONS.md"],
+      "config": { "MD033": { "allowed_elements": ["a"] } },
+      "combine": "merge"
+    }
+  ],
   "globs": [
     "**/*.md"
   ],

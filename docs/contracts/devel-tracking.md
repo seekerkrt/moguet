@@ -95,7 +95,7 @@ Slice 8でschema変更もmigration commandも追加しない。
 ${XDG_STATE_HOME:-$HOME/.local/state}/moguet/devel-build-provenance/aur/<PackageBase>/
 ```
 
-#411 reviewed-source stateとはnamespace、schema、CAS、publication timingが異なる。
+Issue #411 reviewed-source stateとはnamespace、schema、CAS、publication timingが異なる。
 serialized dataはhistorical evidenceであり、parser resultからlive proofをmintできない。
 transaction token、FD、Post anchor、ALPM session、build-context lifetimeは永続化しない。
 

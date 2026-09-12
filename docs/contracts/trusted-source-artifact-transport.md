@@ -200,7 +200,7 @@ cryptographically valid署名を持つactual Installのlive evidenceへ読み替
 hostのpacman transactionはこのfocused targetでは実行しない。
 
 S5-C final proof/resultは内部producerとして実装する。normal #476 routeは7-CからS4→S5→S6を実行し、
-#475 comparisonは7-Bだけが所有する。transportからpublicationやremote observationを直接呼ばない。
+Issue #475 comparisonは7-Bだけが所有する。transportからpublicationやremote observationを直接呼ばない。
 S5-Bのexact purposeだけにInstall/Upgrade receipt、fresh local DB observer、live InstalledArtifactBinding mintを追加し、
 既存cleanup Install-only routeを拡張しない。
 
