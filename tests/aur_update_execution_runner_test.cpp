@@ -573,6 +573,77 @@ void test_ordinary_size_one_uses_set_owner_strictly() {
         "ordinary size-one");
 }
 
+void test_confirmation_stops_preserve_partial_and_control_flow() {
+    const AppConfig config = runner_config();
+    const PacmanDatabasePaths paths{"/cancel/root", "/cancel/database"};
+    for(const auto reason : {ConfirmationCancellationReason::ExplicitToken,
+                             ConfirmationCancellationReason::EndOfInput}) {
+        for(const std::size_t count : {std::size_t{1}, std::size_t{3}}) {
+            for(std::size_t stop_index = 0; stop_index < count; ++stop_index) {
+                auto preparation = prepare_fixture(
+                    count == 1 ? single_root_preflight("runner-root", DesiredInstallReason::Explicit, "runner-root")
+                               : three_singular_work_item_preflight(),
+                    false, config, paths);
+                execution_stub::reset();
+                const std::vector<std::string> names = count == 1
+                                                           ? std::vector<std::string>{"runner-root"}
+                                                           : std::vector<std::string>{"first-dependency", "second-dependency", "runner-root"};
+                for(std::size_t i = 0; i <= stop_index; ++i) {
+                    const auto install_reason = i + 1 == count ? DesiredInstallReason::Explicit : DesiredInstallReason::Dependency;
+                    auto expected = expected_execution(i, names[i], {required_target(names[i], names[i], install_reason)}, false, paths, config);
+                    if(i == stop_index)
+                        execution_stub::enqueue_confirmation_stop(std::move(expected), ConfirmationCancelled{reason});
+                    else
+                        execution_stub::enqueue_success(std::move(expected), names[i], {selected_child(names[i], "2.0-1", install_reason, ArtifactInstallExecutionOutcome::Installed)});
+                }
+                bool caught = false;
+                try {
+                    static_cast<void>(execute_prepared_aur_update_source_build_invocation(std::move(*preparation.invocation), config));
+                    throw std::runtime_error("Cancellation returned ordinary execution result");
+                } catch(AurUpdateExecutionCancelled& stop) {
+                    auto result = std::move(stop).release_result();
+                    caught = true;
+                    expect(!result.is_success() && result.status == AurUpdateInvocationExecutionStatus::StoppedOnWorkItemCancellation,
+                           "Cancellation lost invocation stop");
+                    expect(result.stopped_work_item_index() == stop_index && result.work_item_results.size() == count,
+                           "Cancellation lost stop index or suffix");
+                    for(std::size_t i = 0; i < count; ++i) {
+                        const auto& item = result.work_item_results[i];
+                        expect(item.status == (i < stop_index ? AurUpdateWorkItemExecutionStatus::Updated : i == stop_index ? AurUpdateWorkItemExecutionStatus::Cancelled
+                                                                                                                            : AurUpdateWorkItemExecutionStatus::NotAttempted),
+                               "Cancellation changed partial states");
+                        if(i == stop_index) {
+                            expect(item.cancellation == ConfirmationCancelled{reason} && item.failure_kind == AurUpdateWorkItemFailureKind::None,
+                                   "Cancellation reason was flattened into failure");
+                        }
+                        if(i >= stop_index) expect_no_fabricated_child_success(item, "cancelled/unattempted child");
+                    }
+                }
+                expect(caught && execution_stub::call_history().size() == stop_index + 1, "Cancellation continued later work");
+                expect(execution_stub::event_history().size() == stop_index * 4 + 1,
+                       "Cancellation executed build/install or later checkout");
+                execution_stub::require_script_consumed();
+            }
+        }
+    }
+    for(const ConfirmationResult& original : std::vector<ConfirmationResult>{
+            ConfirmationDeclined{ConfirmationDecisionOrigin::ExplicitToken},
+            ConfirmationUnavailable{ConfirmationUnavailableReason::NonInteractiveInput}, ConfirmationInputFailure{}}) {
+        auto preparation = prepare_fixture(single_root_preflight("runner-root", DesiredInstallReason::Explicit, "runner-root"), false, config, paths);
+        execution_stub::reset();
+        execution_stub::enqueue_confirmation_stop(expected_execution(0, "runner-root", {required_target("runner-root", "runner-root", DesiredInstallReason::Explicit)}, false, paths, config), original);
+        bool caught = false;
+        try {
+            static_cast<void>(execute_prepared_aur_update_source_build_invocation(std::move(*preparation.invocation), config));
+        } catch(const ConfirmationOperationStopped& stop) {
+            expect(stop.result() == original, "Non-cancel confirmation changed type");
+            caught = true;
+        }
+        expect(caught, "Non-cancel stop lost existing propagation");
+        execution_stub::require_script_consumed();
+    }
+}
+
 void test_multiple_work_items_preserve_fifo_call_order_and_one_db_snapshot() {
     const AppConfig config = runner_config();
     const PacmanDatabasePaths database_paths{
@@ -1990,6 +2061,7 @@ void run_case(const std::string& name, Callable callable) {
 
 int main() {
     try {
+        test_confirmation_stops_preserve_partial_and_control_flow();
         run_case(
             "ordinary size-one set owner",
             test_ordinary_size_one_uses_set_owner_strictly);

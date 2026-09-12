@@ -48,6 +48,8 @@ SystemAurUpdateAurPhaseStatus projected_aur_phase_status(
             StoppedOnProviderTransactionFailure:
             return SystemAurUpdateAurPhaseStatus::
                 StoppedOnProviderTransactionFailure;
+        case AurUpdateOperationStatus::StoppedOnWorkItemCancellation:
+            return SystemAurUpdateAurPhaseStatus::StoppedOnWorkItemCancellation;
         case AurUpdateOperationStatus::StoppedOnWorkItemFailure:
             return SystemAurUpdateAurPhaseStatus::
                 StoppedOnWorkItemFailure;
@@ -591,6 +593,11 @@ SystemAurUpdateOperationResult reduce_system_aur_update_result(
             result.stopped_phase =
                 SystemAurUpdateOperationPhase::AurExecution;
             return result;
+        case AurUpdateOperationStatus::StoppedOnWorkItemCancellation:
+            result.aur.status = SystemAurUpdateAurPhaseStatus::StoppedOnWorkItemCancellation;
+            result.status = SystemAurUpdateOperationStatus::StoppedOnAurCancellation;
+            result.stopped_phase = SystemAurUpdateOperationPhase::AurExecution;
+            return result;
         case AurUpdateOperationStatus::StoppedOnWorkItemFailure:
             result.aur.status = SystemAurUpdateAurPhaseStatus::
                 StoppedOnWorkItemFailure;
@@ -793,6 +800,11 @@ execute_prepared_system_aur_update_operation(
         result.aur.operation_result.emplace(
             execute_prepared_filtered_aur_update_operation(
                 std::move(filtered.value()), config));
+    } catch(FilteredAurUpdateCancelled& stop) {
+        result.aur.operation_result.emplace(std::move(stop).release_result());
+        // Nested cancellation is authoritative; a generic aur.diagnostic would
+        // contradict this child and be rejected by the reducer.
+        return reduce_system_aur_update_result(std::move(result));
     } catch(const std::exception& error) {
         result.aur.status =
             SystemAurUpdateAurPhaseStatus::InconsistentResult;

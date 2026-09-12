@@ -3242,6 +3242,61 @@ void test_aur_ordinary_failure_partial_and_not_attempted() {
     stub::require_script_consumed();
 }
 
+void test_aur_cancellation_partial_and_not_attempted() {
+    stub::reset();
+    stub::set_preference_directory(preference_directory({}));
+    const std::vector<std::string> roots = {
+        "updated-first", "failed-second", "pending-third"};
+    stub::set_foreign_inventory(foreign_inventory(roots));
+    enqueue_aur_query({{roots[0], roots[0]},
+                       {roots[1], roots[1]},
+                       {roots[2], roots[2]}});
+    return_build_plan(
+        root_plan({{roots[0], roots[0]},
+                   {roots[1], roots[1]},
+                   {roots[2], roots[2]}}),
+        roots);
+    stub::enqueue_aur_success(ArtifactInstallExecutionOutcome::Installed);
+    stub::enqueue_aur_cancellation();
+    const AppConfig config;
+    PreparedUpgradeAllOperation prepared = take_prepared(
+        prepare_upgrade_all_operation(config),
+        "ordinary AUR failure fixture");
+
+    UpgradeAllOperationResult result =
+        execute_prepared_upgrade_all_operation(
+            std::move(prepared), config);
+    expect(
+        result.status ==
+                UpgradeAllOperationStatus::StoppedOnAurCancellation &&
+            result.aur.status == UpgradeAllAurPhaseStatus::
+                                     StoppedOnWorkItemCancellation &&
+            result.aur.operation_result.has_value() &&
+            result.aur.operation_result->selected_target_results.size() == 3 &&
+            result.aur.operation_result->selected_target_results[0].operation_result.status ==
+                AurUpdateOperationTargetStatus::Updated &&
+            result.aur.operation_result->selected_target_results[1].operation_result.status ==
+                AurUpdateOperationTargetStatus::Cancelled &&
+            result.aur.operation_result->selected_target_results[2].operation_result.status ==
+                AurUpdateOperationTargetStatus::NotAttempted &&
+            result.has_partial_completion() &&
+            result.has_not_attempted_phase() &&
+            result.package_state_change() ==
+                PackageStateChange::Changed,
+        "Ordinary AUR failure lost partial/NotAttempted result");
+    expect(stub::aur_execution_calls().size() == 2,
+           "Ordinary AUR failure did not stop later work item");
+    expect(!result.is_success() && result.issues.empty() && result.diagnostics.empty() && !result.aur.diagnostic &&
+               result.system_source.system.status == SystemUpgradePhaseStatus::Completed &&
+               result.stopped_phase == UpgradeAllOperationPhase::AurExecution,
+           "Cancellation became preparation failure or lost completed system phase");
+    const auto presentation = project_upgrade_all_presentation_with_operation_state(result, project_upgrade_all_operation_state(result));
+    expect(presentation.full_items.size() == 3, "Cancellation generated generic AUR fallback");
+    expect(presentation.full_items[1].diagnostic_class == DiagnosticClass::Cancelled,
+           "Cancellation projection became metadata/execution failure");
+    stub::require_script_consumed();
+}
+
 void test_aur_cleanup_failure_partial_and_not_attempted() {
     stub::reset();
     stub::set_preference_directory(preference_directory({}));
@@ -3736,6 +3791,7 @@ void run_case(const std::string& name, Callable callable) {
 
 int main() {
     try {
+        test_aur_cancellation_partial_and_not_attempted();
         TemporaryCacheEnvironment cache_environment;
         run_case(
             "empty registered-source preparation snapshot",

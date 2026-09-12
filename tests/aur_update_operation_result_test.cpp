@@ -420,6 +420,10 @@ AurUpdateWorkItemExecutionResult work_item_result(
             child.status = AurUpdateChildExecutionStatus::SkippedAsNeeded;
             result.failure_kind = AurUpdateWorkItemFailureKind::None;
             break;
+        case AurUpdateWorkItemExecutionStatus::Cancelled:
+            result.failure_kind = AurUpdateWorkItemFailureKind::None;
+            result.cancellation = ConfirmationCancelled{ConfirmationCancellationReason::ExplicitToken};
+            break;
         case AurUpdateWorkItemExecutionStatus::Failed:
             child.status = AurUpdateChildExecutionStatus::NotAttempted;
             result.failure_kind =
@@ -525,6 +529,7 @@ AurUpdateWorkItemFailureKind failure_kind_for_status(
     switch(status) {
         case AurUpdateWorkItemExecutionStatus::Updated:
         case AurUpdateWorkItemExecutionStatus::NoChange:
+        case AurUpdateWorkItemExecutionStatus::Cancelled:
             return AurUpdateWorkItemFailureKind::None;
         case AurUpdateWorkItemExecutionStatus::Failed:
             return AurUpdateWorkItemFailureKind::BuildOrInstallFailed;
@@ -2737,6 +2742,34 @@ void test_exact_mixed_cleanup_partial_success_projects_per_child() {
         "Mixed cleanup child outcomes were flattened");
 }
 
+void test_exact_split_cancellation_retains_prepared_children() {
+    const RootTargetIdentity first{0, "split-a"};
+    const RootTargetIdentity second{1, "split-b"};
+    const RootTargetIdentity later{2, "later"};
+    auto input = exact_reducer_input(
+        {executable_target(0, "split-a"), executable_target(1, "split-b"), executable_target(2, "later")},
+        {ExactWorkItemExecutionSpec{"split-base",
+                                    {exact_child("split-a", {0}, {first}, {PackageRole::Root}, AurUpdateChildExecutionStatus::NotAttempted),
+                                     exact_child("split-b", {1}, {second}, {PackageRole::Root}, AurUpdateChildExecutionStatus::NotAttempted)},
+                                    AurUpdateWorkItemExecutionStatus::Cancelled,
+                                    {}},
+         ExactWorkItemExecutionSpec{"later-base",
+                                    {exact_child("later", {2}, {later}, {PackageRole::Root}, AurUpdateChildExecutionStatus::NotAttempted)},
+                                    AurUpdateWorkItemExecutionStatus::NotAttempted,
+                                    {}}},
+        AurUpdateInvocationExecutionStatus::StoppedOnWorkItemCancellation);
+    input.execution.work_item_results[0].cancellation = ConfirmationCancelled{ConfirmationCancellationReason::EndOfInput};
+    const auto result = reduce_aur_update_operation_result(input.preflight, input.preparation, input.execution);
+    expect_target_statuses(result, {AurUpdateOperationTargetStatus::Cancelled, AurUpdateOperationTargetStatus::Cancelled, AurUpdateOperationTargetStatus::NotAttempted}, "split cancellation");
+    expect(result.reduction_issues.empty(), "Split cancellation lost prepared correlation");
+    for(std::size_t i = 0; i < 2; ++i) {
+        expect(result.targets[i].execution_work_item_index == 0 && result.targets[i].execution_contributions.size() == 1 &&
+                   result.targets[i].execution_contributions.front().required_child_index == i &&
+                   result.targets[i].cancellation == ConfirmationCancelled{ConfirmationCancellationReason::EndOfInput},
+               "Split cancellation lost child index or reason");
+    }
+}
+
 void test_exact_current_failure_and_later_not_attempted() {
     const RootTargetIdentity failed_root{0, "failed-child"};
     const RootTargetIdentity later_root{1, "later-child"};
@@ -3164,6 +3197,51 @@ void test_exact_ordinary_singular_regression() {
                     .execution_contributions.front()
                     .package_name == "ordinary-singular",
         "Ordinary singular execution changed under child projection");
+}
+
+void test_cancellation_terminal_coherence() {
+    using S = AurUpdateWorkItemExecutionStatus;
+    for(const std::vector<S>& states : std::vector<std::vector<S>>{
+            {S::Updated, S::Cancelled, S::NotAttempted}, {S::NoChange, S::Cancelled}, {S::Cancelled, S::NotAttempted}, {S::Updated, S::Updated, S::Cancelled}}) {
+        std::vector<AurUpdateExecutionTarget> targets;
+        std::vector<AurUpdateWorkItemExecutionResult> items;
+        for(std::size_t i = 0; i < states.size(); ++i) {
+            targets.push_back(executable_target(i, "cancel-target-" + std::to_string(i)));
+            items.push_back(work_item_result(i, states[i], {i}));
+        }
+        auto preflight = preflight_with(std::move(targets));
+        auto preparation = preparation_for_execution(preflight);
+        auto execution = execution_result(AurUpdateInvocationExecutionStatus::StoppedOnWorkItemCancellation, std::move(items));
+        auto reduced = reduce_aur_update_operation_result(preflight, preparation, execution);
+        expect(reduced.status == AurUpdateOperationStatus::StoppedOnWorkItemCancellation && reduced.reduction_issues.empty() && !reduced.is_success(), "Valid cancellation became inconsistent/success");
+        for(std::size_t i = 0; i < states.size(); ++i) {
+            if(states[i] == S::Cancelled) expect(reduced.targets[i].status == AurUpdateOperationTargetStatus::Cancelled && reduced.targets[i].cancellation == execution.work_item_results[i].cancellation && !reduced.targets[i].execution_failure_kind,
+                                                 "Target lost cancellation authority");
+        }
+        auto false_success = reduced;
+        false_success.status = AurUpdateOperationStatus::Completed;
+        for(auto& target : false_success.targets)
+            target.status = AurUpdateOperationTargetStatus::Updated;
+        expect(!false_success.is_success(), "Retained cancellation was hidden by success statuses");
+        auto malformed = execution;
+        malformed.status = AurUpdateInvocationExecutionStatus::Completed;
+        expect(reduce_aur_update_operation_result(preflight, preparation, malformed).status == AurUpdateOperationStatus::InconsistentResult, "Cancelled invocation reported completed");
+        malformed = execution;
+        for(auto& item : malformed.work_item_results)
+            if(item.status == S::Cancelled) item.cancellation.reset();
+        expect(reduce_aur_update_operation_result(preflight, preparation, malformed).status == AurUpdateOperationStatus::InconsistentResult, "Cancellation missing reason accepted");
+        malformed = execution;
+        malformed.work_item_results.front().work_item_index = 99;
+        expect(reduce_aur_update_operation_result(preflight, preparation, malformed).status == AurUpdateOperationStatus::InconsistentResult, "Wrong terminal/index correlation accepted");
+    }
+    const auto preflight = preflight_with({executable_target(0, "first"), executable_target(1, "last")});
+    const auto preparation = preparation_for_execution(preflight);
+    for(const auto second : {S::Updated, S::Failed, S::Cancelled}) {
+        const auto execution = execution_result(AurUpdateInvocationExecutionStatus::StoppedOnWorkItemCancellation,
+                                                {work_item_result(0, S::Cancelled, {0}), work_item_result(1, second, {1})});
+        expect(reduce_aur_update_operation_result(preflight, preparation, execution).status == AurUpdateOperationStatus::InconsistentResult,
+               "Post-cancel execution or multiple terminal outcomes accepted");
+    }
 }
 
 void test_ordinary_failure_and_not_attempted_suffix() {
@@ -4022,6 +4100,8 @@ void run_case(const std::string& name, Callable callable) {
 
 int main() {
     try {
+        test_exact_split_cancellation_retains_prepared_children();
+        test_cancellation_terminal_coherence();
         run_case("all skipped is NoUpdates", test_all_skipped_is_no_updates);
         run_case(
             "independent RequiresCheck result semantics",

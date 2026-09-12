@@ -17,6 +17,7 @@ enum class AurUpdateOperationTargetStatus {
     UpdatedCleanupFailed,
     NoChangeCleanupFailed,
     NotAttempted,
+    Cancelled,
 };
 
 enum class AurUpdateOperationStatus {
@@ -27,6 +28,7 @@ enum class AurUpdateOperationStatus {
     StoppedOnWorkItemFailure,
     StoppedAfterPackageCleanupFailure,
     InconsistentResult,
+    StoppedOnWorkItemCancellation,
 };
 
 enum class AurUpdateOperationReductionStage {
@@ -97,6 +99,7 @@ struct AurUpdateOperationExecutionContribution {
         AurUpdateWorkItemFailureKind::PriorWorkItemStopped;
     AurUpdateWorkItemFailureDetail failure_detail;
     std::optional<std::string> diagnostic;
+    std::optional<ConfirmationCancelled> cancellation = std::nullopt;
 };
 
 struct AurUpdateOperationTargetResult {
@@ -119,6 +122,7 @@ struct AurUpdateOperationTargetResult {
     std::vector<AurUpdateOperationExecutionContribution>
         execution_contributions;
     std::optional<AurUpdateExecutionSkipKind> skip_kind;
+    std::optional<ConfirmationCancelled> cancellation = std::nullopt;
 };
 
 struct AurUpdateOperationResult {

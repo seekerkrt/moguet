@@ -278,10 +278,15 @@ AurUpdateWorkItemExecutionResult make_work_item_result(
             child.status = AurUpdateChildExecutionStatus::
                 SkippedAsNeededCleanupFailed;
             break;
+        case AurUpdateWorkItemExecutionStatus::Cancelled:
         case AurUpdateWorkItemExecutionStatus::Failed:
         case AurUpdateWorkItemExecutionStatus::NotAttempted:
             child.status = AurUpdateChildExecutionStatus::NotAttempted;
             break;
+    }
+    if(status == AurUpdateWorkItemExecutionStatus::Cancelled) {
+        result.failure_kind = AurUpdateWorkItemFailureKind::None;
+        result.cancellation = ConfirmationCancelled{ConfirmationCancellationReason::ExplicitToken};
     }
     result.child_results.push_back(std::move(child));
     return result;
@@ -409,6 +414,7 @@ bool target_status_is_success(
             return true;
         case AurUpdateOperationTargetStatus::Unsupported:
         case AurUpdateOperationTargetStatus::Incomplete:
+        case AurUpdateOperationTargetStatus::Cancelled:
         case AurUpdateOperationTargetStatus::Failed:
         case AurUpdateOperationTargetStatus::UpdatedCleanupFailed:
         case AurUpdateOperationTargetStatus::NoChangeCleanupFailed:
@@ -424,6 +430,7 @@ bool work_item_status_is_success(
         case AurUpdateWorkItemExecutionStatus::Updated:
         case AurUpdateWorkItemExecutionStatus::NoChange:
             return true;
+        case AurUpdateWorkItemExecutionStatus::Cancelled:
         case AurUpdateWorkItemExecutionStatus::Failed:
         case AurUpdateWorkItemExecutionStatus::UpdatedCleanupFailed:
         case AurUpdateWorkItemExecutionStatus::NoChangeCleanupFailed:
@@ -444,6 +451,7 @@ bool invocation_status_matches_operation(
                    *status == AurUpdateInvocationExecutionStatus::Completed;
         case AurUpdateOperationStatus::BlockedBeforeExecution:
         case AurUpdateOperationStatus::StoppedOnProviderTransactionFailure:
+        case AurUpdateOperationStatus::StoppedOnWorkItemCancellation:
         case AurUpdateOperationStatus::StoppedOnWorkItemFailure:
         case AurUpdateOperationStatus::StoppedAfterPackageCleanupFailure:
         case AurUpdateOperationStatus::InconsistentResult:
@@ -1949,4 +1957,17 @@ bool FilteredAurUpdateExecutionResult::
                devel_requires_check_policy &&
            reduced_operation_result.devel_requires_check_policy ==
                devel_requires_check_policy;
+}
+
+FilteredAurUpdateCancelled::FilteredAurUpdateCancelled(FilteredAurUpdateExecutionResult result) noexcept
+    : result_(std::move(result)) {
+}
+const FilteredAurUpdateExecutionResult& FilteredAurUpdateCancelled::result() const noexcept {
+    return result_;
+}
+FilteredAurUpdateExecutionResult FilteredAurUpdateCancelled::release_result() && noexcept {
+    return std::move(result_);
+}
+const char* FilteredAurUpdateCancelled::what() const noexcept {
+    return "AUR update cancelled; partial execution results retained.";
 }

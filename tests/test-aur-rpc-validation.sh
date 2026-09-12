@@ -860,3 +860,6 @@ assert_cache_entry_absent upgrade-sequence-a
 assert_cache_entry_absent upgrade-sequence-b
 
 echo "AUR RPC validation integration tests: all checks passed"
+
+# Real runner/filtered/route propagation through a production confirmation.
+python3 "$repo_root/tests/test-aur-partial-cancellation.py" "$test_binary"

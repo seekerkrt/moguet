@@ -701,7 +701,8 @@ std::optional<std::size_t>
 AurUpdateSourceBuildExecutionResult::stopped_work_item_index()
     const noexcept {
     for(const auto& work_item_result : work_item_results) {
-        if(work_item_result.status == AurUpdateWorkItemExecutionStatus::Failed ||
+        if(work_item_result.status == AurUpdateWorkItemExecutionStatus::Cancelled ||
+           work_item_result.status == AurUpdateWorkItemExecutionStatus::Failed ||
            work_item_result.status ==
                AurUpdateWorkItemExecutionStatus::UpdatedCleanupFailed ||
            work_item_result.status == AurUpdateWorkItemExecutionStatus::
@@ -850,8 +851,16 @@ execute_prepared_aur_update_source_build_invocation(
             // Aggregate ownerがcache authorityのtyped payloadを転写できるよう、
             // ordinary work-item failureへcontainせずrethrowする。
             throw;
-        } catch(const ConfirmationOperationStopped&) {
-            throw;
+        } catch(const ConfirmationOperationStopped& stop) {
+            const auto* cancellation = std::get_if<ConfirmationCancelled>(&stop.result());
+            if(cancellation == nullptr) throw;
+            work_item_result.status = AurUpdateWorkItemExecutionStatus::Cancelled;
+            work_item_result.failure_kind = AurUpdateWorkItemFailureKind::None;
+            work_item_result.cancellation = *cancellation;
+            result.status = AurUpdateInvocationExecutionStatus::StoppedOnWorkItemCancellation;
+            // Preserve the completed prefix and untouched suffix without turning
+            // operation cancellation into an ordinary executor return.
+            throw AurUpdateExecutionCancelled(std::move(result));
         } catch(const std::exception& error) {
             work_item_result.status = AurUpdateWorkItemExecutionStatus::Failed;
             work_item_result.failure_kind =
@@ -878,4 +887,20 @@ execute_prepared_aur_update_source_build_invocation(
     }
 
     return result;
+}
+
+AurUpdateExecutionCancelled::AurUpdateExecutionCancelled(AurUpdateSourceBuildExecutionResult result) noexcept
+    : result_(std::move(result)) {
+}
+
+const AurUpdateSourceBuildExecutionResult& AurUpdateExecutionCancelled::result() const noexcept {
+    return result_;
+}
+
+AurUpdateSourceBuildExecutionResult AurUpdateExecutionCancelled::release_result() && noexcept {
+    return std::move(result_);
+}
+
+const char* AurUpdateExecutionCancelled::what() const noexcept {
+    return "AUR update cancelled; partial execution results retained.";
 }

@@ -22,6 +22,8 @@ std::string operation_status_label(AurUpdateOperationStatus status) {
     switch(status) {
         case AurUpdateOperationStatus::NoUpdates:
             return localization::translate_message("no updates");
+        case AurUpdateOperationStatus::StoppedOnWorkItemCancellation:
+            return localization::translate_message("Cancelled");
         case AurUpdateOperationStatus::Completed:
             return localization::translate_message("completed");
         case AurUpdateOperationStatus::BlockedBeforeExecution:
@@ -301,6 +303,8 @@ std::string target_status_label(
             }
             return localization::translate_message("incomplete") + ": " +
                    target_reason_label(target);
+        case AurUpdateOperationTargetStatus::Cancelled:
+            return localization::translate_message("Cancelled");
         case AurUpdateOperationTargetStatus::Failed:
             return localization::translate_message("failed") + ": " +
                    aur_update_cli_target_failure_summary(target);
@@ -527,7 +531,8 @@ void print_operation_result(
     }
     print_reduction_issues(result);
 
-    if(result.has_partial_completion()) {
+    if(result.has_partial_completion() &&
+       result.status != AurUpdateOperationStatus::StoppedOnWorkItemCancellation) {
         std::cout << localization::format_translated_message(
                          // TRANSLATORS: AUR is a runtime project identity.
                          "{} update partially completed before failure.",
@@ -574,15 +579,17 @@ PreparedFilteredAurUpdateOperation prepare_upgrade_aur_operation(
 
 int cmd_upgrade_aur(
     PreparedFilteredAurUpdateOperation prepared,
-    const AppConfig& config) {
+    const AppConfig& config) try {
     FilteredAurUpdateExecutionResult result =
-        execute_prepared_filtered_aur_update_operation(
-            std::move(prepared), config);
+        execute_prepared_filtered_aur_update_operation(std::move(prepared), config);
 
     // POLICY(#281): upgrade-aur presentationはlegacy reducer resultを正本にし、
     // filtered boundary固有のplanner/mapping detailをcommand outputへ追加しない。
     present_filtered_aur_update_execution_result(result);
     return result.is_success() ? 0 : 1;
+} catch(const FilteredAurUpdateCancelled& stop) {
+    present_filtered_aur_update_execution_result(stop.result());
+    return 1;
 }
 
 void present_filtered_aur_update_execution_result(

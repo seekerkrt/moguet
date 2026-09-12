@@ -75,7 +75,7 @@ using ScriptedOutcome = std::variant<
     ScriptedMetadataFailure,
     ScriptedTrustedCacheFailure,
     ScriptedTransactionFailure,
-    ScriptedUnknownFailure>;
+    ScriptedUnknownFailure, ConfirmationResult>;
 
 struct ScriptedExecution {
     stub::ExpectedExecution expected;
@@ -373,6 +373,10 @@ void enqueue_transaction_failure(
             std::move(production_outcome)});
 }
 
+void enqueue_confirmation_stop(ExpectedExecution expected, ConfirmationResult result) {
+    enqueue(std::move(expected), std::move(result));
+}
+
 void enqueue_unknown_failure(ExpectedExecution expected) {
     enqueue(std::move(expected), ScriptedUnknownFailure{});
 }
@@ -620,6 +624,9 @@ execute_prepared_package_base_source_build_work_item_typed(
     g_state.executions.pop_front();
 
     record_event(call_index, stub::EventKind::Checkout);
+    if(const auto* stop = std::get_if<ConfirmationResult>(&scripted.outcome)) {
+        throw ConfirmationOperationStopped(*stop);
+    }
     record_event(call_index, stub::EventKind::Build);
 
     if(auto* success = std::get_if<ScriptedSuccess>(&scripted.outcome)) {
