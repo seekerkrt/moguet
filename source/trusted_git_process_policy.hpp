@@ -25,3 +25,7 @@ trusted_git_managed_process_arguments();
 // operands; raw source metadata is not accepted here.
 [[nodiscard]] std::vector<std::string>
 trusted_git_observer_process_arguments();
+
+// Same HTTPS-only isolation, bound by the acquisition owner to a fresh repo.
+[[nodiscard]] std::vector<std::string>
+trusted_git_recipe_acquisition_process_arguments();

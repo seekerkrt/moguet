@@ -66,6 +66,7 @@ foreach(_moguet_direct_focus IN ITEMS
     source-package-identity-projection
     source-package-compatibility
     invocation-owned-cleanup-model
+    invocation-owned-recipe-acquisition
     invocation-owned-source-build-context
     evaluated-devel-source-build
     evaluated-devel-source-artifact-transport

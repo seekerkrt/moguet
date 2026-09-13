@@ -85,6 +85,7 @@ CMAKE_FOCUSED_ALIASES := \
 	test-source-package-identity-projection \
 	test-source-package-compatibility \
 	test-invocation-owned-cleanup-model \
+	test-invocation-owned-recipe-acquisition \
 	test-invocation-owned-source-build-context \
 	test-evaluated-devel-source-build \
 	test-evaluated-devel-source-artifact-transport \

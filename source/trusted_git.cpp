@@ -2786,6 +2786,19 @@ trusted_git_project_reviewed_recipe_snapshot(
         identity, std::move(exact_tree), std::move(entries));
 }
 
+std::optional<GitObjectFormat> trusted_git_recipe_acquisition_configuration_format(
+    const std::string& null_terminated_config,
+    const AurReviewedSourceReviewIdentity& expected) {
+    try {
+        const auto configuration = parse_local_configuration(
+            CapturedCommandResult{null_terminated_config, 0, false});
+        require_expected_remote(configuration, expected.canonical_git_remote());
+        return configuration.object_format;
+    } catch(const std::runtime_error&) {
+        return std::nullopt;
+    }
+}
+
 std::string trusted_git_remote_origin_url(
     const ValidatedCachePath& checkout) {
     return trim(inspect_managed_checkout_configuration(

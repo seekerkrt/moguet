@@ -63,6 +63,9 @@ struct BoundedProcessPolicy {
     std::chrono::milliseconds termination_grace;
     std::size_t stdout_capture_limit;
     bool suppress_standard_error = true;
+    // Optional combined diagnostic stream, sharing stdout_capture_limit.
+    // Takes precedence over suppress_standard_error; default callers unchanged.
+    bool capture_standard_error = false;
 };
 
 enum class BoundedProcessLaunchStage {
@@ -149,6 +152,9 @@ using BoundedProcessOutcome = std::variant<
 struct BoundedCapturedProcessResult {
     std::string output;
     BoundedProcessOutcome outcome;
+    // Independent of exit status: a child may trap a forwarded signal and
+    // exit zero. Consumers must not treat that as uncancelled success.
+    std::optional<int> cancellation_signal = std::nullopt;
 };
 
 CapturedCommandResult capture_command_output(const char* cmd);
@@ -164,7 +170,8 @@ CapturedCommandResult capture_explicit_process_output_raw(
 // deadline is absolute for the whole child tree and is never extended by
 // stdout activity. Timeout and capture overflow terminate the group with
 // SIGTERM, wait only termination_grace, then escalate to SIGKILL. stderr is
-// either inherited or redirected to /dev/null and is never captured here.
+// inherited or redirected to /dev/null by default. capture_standard_error
+// instead merges it into the same bounded output pipe (one combined limit).
 // The direct child also receives a Linux parent-death SIGKILL. Normal
 // same-group descendants are reaped/removed before return; an executable that
 // deliberately escapes with setsid() is outside this fixed-program contract.

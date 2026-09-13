@@ -239,7 +239,8 @@ void revalidate_named_checkout_entry(
 }
 
 std::vector<std::string> directory_entry_names(
-    int directory_descriptor, const struct stat& expected_status) {
+    int directory_descriptor, const struct stat& expected_status,
+    const std::function<void()>* checkpoint = nullptr) {
     const int listing_descriptor = openat(
         directory_descriptor, ".",
         O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
@@ -282,6 +283,7 @@ std::vector<std::string> directory_entry_names(
 
     std::vector<std::string> names;
     while(true) {
+        if(checkpoint) (*checkpoint)();
         errno = 0;
         dirent* entry = readdir(directory.get());
         if(entry == nullptr) {
@@ -310,7 +312,9 @@ void require_safe_git_metadata_entry(
     int parent_descriptor, const fs::path& name,
     CheckoutEntryRequirement requirement, std::size_t depth,
     const fs::path& relative_path,
-    bool require_regular_file_read_access) {
+    bool require_regular_file_read_access,
+    const std::function<void()>* checkpoint = nullptr) {
+    if(checkpoint) (*checkpoint)();
     if(depth > MAX_GIT_METADATA_DEPTH) {
         throw_descendant_error(TrustedCacheErrorCode::ChildEscape);
     }
@@ -332,15 +336,15 @@ void require_safe_git_metadata_entry(
     }
 
     const std::vector<std::string> names = directory_entry_names(
-        opened.descriptor.value, opened.status);
+        opened.descriptor.value, opened.status, checkpoint);
     for(const std::string& child_name : names) {
         require_safe_git_metadata_entry(
             opened.descriptor.value, child_name,
             CheckoutEntryRequirement::DirectoryOrRegularFile,
             depth + 1, relative_path / child_name,
-            require_regular_file_read_access);
+            require_regular_file_read_access, checkpoint);
     }
-    if(directory_entry_names(opened.descriptor.value, opened.status) != names) {
+    if(directory_entry_names(opened.descriptor.value, opened.status, checkpoint) != names) {
         throw_descendant_error(
             TrustedCacheErrorCode::ConcurrentReplacement);
     }
@@ -396,14 +400,15 @@ bool has_safe_git_directory(int checkout_descriptor) {
 
 void require_safe_git_directory(
     int checkout_descriptor,
-    bool require_regular_file_read_access = false) {
+    bool require_regular_file_read_access = false,
+    const std::function<void()>* checkpoint = nullptr) {
     if(!has_safe_git_directory(checkout_descriptor)) {
         throw_descendant_error(TrustedCacheErrorCode::NotDirectory);
     }
     require_safe_git_metadata_entry(
         checkout_descriptor, ".git",
         CheckoutEntryRequirement::Directory, 0, fs::path(),
-        require_regular_file_read_access);
+        require_regular_file_read_access, checkpoint);
 }
 
 void require_safe_artifact(
@@ -507,6 +512,13 @@ void require_safe_persistent_checkout_git_metadata(
         retain_trusted_cache_directory(checkout);
     require_safe_git_directory(
         PersistentCheckoutDirectoryAccess::descriptor(directory));
+    directory.require_unchanged_identity();
+}
+
+void require_safe_persistent_checkout_git_metadata(
+    const ValidatedCachePath& checkout, const std::function<void()>& checkpoint) {
+    RetainedTrustedCacheDirectory directory = retain_trusted_cache_directory(checkout);
+    require_safe_git_directory(PersistentCheckoutDirectoryAccess::descriptor(directory), true, &checkpoint);
     directory.require_unchanged_identity();
 }
 

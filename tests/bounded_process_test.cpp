@@ -140,6 +140,18 @@ void write_pid_marker(const fs::path& marker) {
 int run_child(int argc, char* argv[]) {
     require(argc >= 3, "Missing bounded-process child mode");
     const std::string_view mode(argv[2]);
+    if(mode == "cancel-exit-zero") {
+        require(argc == 4, "Missing cancellation marker");
+        struct sigaction action{};
+        action.sa_handler = [](int) { _exit(0); };
+        require(sigemptyset(&action.sa_mask) == 0 && sigaction(SIGINT, &action, nullptr) == 0, "cancel handler failed");
+        write_pid_marker(argv[3]);
+        pause_forever();
+    }
+    if(mode == "stderr") {
+        require(argc == 4, "Missing stderr size");
+        return write_all(STDERR_FILENO, std::string(parse_size(argv[3]), 'e')) ? 0 : 125;
+    }
     if(mode == "exit") {
         require(argc == 4, "Missing bounded-process exit status");
         return parse_int(argv[3]);
@@ -567,8 +579,8 @@ struct WorkerResult {
 
 void test_signal_forwarding(
     const fs::path& executable,
-    const fs::path& fixture_root) {
-    const fs::path marker = fixture_root / "signal-forwarding-ready";
+    const fs::path& fixture_root, bool trap_zero = false) {
+    const fs::path marker = fixture_root / (trap_zero ? "cancel-zero-ready" : "signal-forwarding-ready");
     int result_pipe[2] = {-1, -1};
     require(pipe2(result_pipe, O_CLOEXEC) == 0,
             "Failed to create signal forwarding result pipe");
@@ -579,11 +591,16 @@ void test_signal_forwarding(
     if(worker == 0) {
         static_cast<void>(close(result_pipe[0]));
         auto result = run_bounded(
-            executable, {"marker-hang", marker.string()},
+            executable, {trap_zero ? "cancel-exit-zero" : "marker-hang", marker.string()},
             BoundedProcessPolicy{5s, 200ms, DEFAULT_CAPTURE_LIMIT, true});
         WorkerResult encoded{-1, 0};
+        if(trap_zero && result.cancellation_signal == SIGINT &&
+           std::get_if<BoundedProcessExited>(&result.outcome) && std::get<BoundedProcessExited>(result.outcome).exit_code == 0) {
+            encoded = WorkerResult{1, SIGINT};
+        }
         if(const auto* signaled =
-               std::get_if<BoundedProcessSignaled>(&result.outcome)) {
+               std::get_if<BoundedProcessSignaled>(&result.outcome);
+           !trap_zero && signaled) {
             encoded = WorkerResult{1, signaled->signal_number};
         }
         const bool reported = write_all(
@@ -663,6 +680,10 @@ void run_tests(const fs::path& executable) {
     test_launch_setup_and_fd_hygiene(executable, fixture.path());
     test_retained_executable_identity(executable);
     test_signal_forwarding(executable, fixture.path());
+    test_signal_forwarding(executable, fixture.path(), true);
+    const auto diagnostic = run_bounded(executable, {"stderr", "100"}, BoundedProcessPolicy{5s, 200ms, 64, true, true});
+    require(std::holds_alternative<BoundedProcessCaptureLimitExceeded>(diagnostic.outcome) && diagnostic.output.size() == 64,
+            "Combined stderr capture exceeded its bound or lost overflow");
     test_parent_death_root_ownership(executable, fixture.path());
     require_no_waitable_children();
 }
