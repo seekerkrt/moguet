@@ -1064,6 +1064,32 @@ bool safe_relative_source_path(const fs::path& path) {
         });
 }
 
+struct DeclaredArchitectureContract {
+    std::vector<std::string> base_architectures;
+    std::vector<std::string> package_architectures;
+
+    bool operator==(const DeclaredArchitectureContract&) const = default;
+};
+
+DeclaredArchitectureContract declared_architecture_contract(
+    const LocalPackageMetadata& metadata) {
+    // The strict metadata parser owns token, duplicate and any/native
+    // validation. Callers have also established exactly one child. Compare
+    // sets, including the base declaration even when the child overrides it.
+    const auto& child = metadata.children.front();
+    DeclaredArchitectureContract contract{
+        metadata.architectures,
+        child.has_architecture_override ? child.architectures : metadata.architectures};
+    if(contract.package_architectures.empty()) {
+        throw_build_failure(
+            EvaluatedDevelSourceBuildStage::EvaluatedSource,
+            EvaluatedDevelSourceBuildFailureReason::UnsupportedSourceShape);
+    }
+    std::sort(contract.base_architectures.begin(), contract.base_architectures.end());
+    std::sort(contract.package_architectures.begin(), contract.package_architectures.end());
+    return contract;
+}
+
 SourceProjectionAnalysis analyze_source_projection(
     std::string_view reviewed_srcinfo,
     std::string_view evaluated_srcinfo,
@@ -1124,6 +1150,13 @@ SourceProjectionAnalysis analyze_source_projection(
         throw_build_failure(
             EvaluatedDevelSourceBuildStage::EvaluatedSource,
             EvaluatedDevelSourceBuildFailureReason::UnsupportedSourceShape);
+    }
+
+    if(declared_architecture_contract(reviewed_package) !=
+       declared_architecture_contract(evaluated_package)) {
+        throw_build_failure(
+            EvaluatedDevelSourceBuildStage::EvaluatedSource,
+            EvaluatedDevelSourceBuildFailureReason::RawEvaluatedSourceMismatch);
     }
 
     std::optional<VcsSourceIdentity> git_source;
@@ -1224,7 +1257,7 @@ SourceProjectionAnalysis analyze_source_projection(
 struct PreparedPackageExpectation {
     std::string package_name;
     std::string full_version;
-    std::string architecture;
+    DeclaredArchitectureContract declared_architectures;
 };
 
 PreparedPackageExpectation prepared_package_expectation(
@@ -1261,15 +1294,6 @@ PreparedPackageExpectation prepared_package_expectation(
             EvaluatedDevelSourceBuildFailureReason::DynamicVersionUnavailable);
     }
     const LocalPackageMetadataChild& child = metadata.children.front();
-    const std::vector<std::string>& architectures =
-        child.has_architecture_override
-            ? child.architectures
-            : metadata.architectures;
-    if(architectures.size() != 1) {
-        throw_build_failure(
-            EvaluatedDevelSourceBuildStage::DynamicVersion,
-            EvaluatedDevelSourceBuildFailureReason::UnsupportedSourceShape);
-    }
     PackageVersionIdentity version = PackageVersionIdentity::pkgver_pkgrel(
         metadata.epoch, metadata.pkgver, metadata.pkgrel);
     if(version.full_version() == nullptr) {
@@ -1278,12 +1302,18 @@ PreparedPackageExpectation prepared_package_expectation(
             EvaluatedDevelSourceBuildFailureReason::DynamicVersionUnavailable);
     }
     return PreparedPackageExpectation{
-        child.name, *version.full_version(), architectures.front()};
+        child.name, *version.full_version(), declared_architecture_contract(metadata)};
 }
 
-fs::path parse_expected_artifact_path(
+struct SelectedPackageOutput {
+    fs::path path;
+    std::string architecture;
+};
+
+SelectedPackageOutput parse_expected_package_output(
     std::string output,
-    const InvocationOwnedSourceBuildContext& context) {
+    const InvocationOwnedSourceBuildContext& context,
+    const PreparedPackageExpectation& package) {
     const std::string line = require_single_output_line(
         std::move(output),
         EvaluatedDevelSourceBuildStage::DynamicVersion,
@@ -1296,7 +1326,27 @@ fs::path parse_expected_artifact_path(
             EvaluatedDevelSourceBuildStage::DynamicVersion,
             EvaluatedDevelSourceBuildFailureReason::DynamicVersionUnavailable);
     }
-    return path;
+    // makepkg get_full_version includes a nonzero epoch. Its output grammar
+    // uses the known child/version prefix and a PKGEXT beginning with .pkg.tar;
+    // neither hyphens in identity nor the compression suffix select an arch.
+    const std::string filename = path.filename().string();
+    const std::string prefix = package.package_name + "-" + package.full_version + "-";
+    const std::size_t extension = filename.find(".pkg.tar", prefix.size());
+    if(!filename.starts_with(prefix) || extension == std::string::npos) {
+        throw_build_failure(
+            EvaluatedDevelSourceBuildStage::DynamicVersion,
+            EvaluatedDevelSourceBuildFailureReason::DynamicVersionUnavailable);
+    }
+    const std::string architecture = filename.substr(prefix.size(), extension - prefix.size());
+    const auto& declared = package.declared_architectures.package_architectures;
+    // Membership also enforces the parser's architecture token grammar. The
+    // valid singleton {any} can only accept any, never the native CARCH.
+    if(std::find(declared.begin(), declared.end(), architecture) == declared.end()) {
+        throw_build_failure(
+            EvaluatedDevelSourceBuildStage::DynamicVersion,
+            EvaluatedDevelSourceBuildFailureReason::UnsupportedSourceShape);
+    }
+    return SelectedPackageOutput{path, architecture};
 }
 
 struct RetainedDirectory {
@@ -2489,14 +2539,14 @@ EvaluatedDevelSourceBuildResult EvaluatedDevelSourceBuildAuthority::build(
                 prepared_srcinfo, reviewed_srcinfo.bytes,
                 source_analysis, context.recipe_descriptor(),
                 context.root_device(), context.package_base());
-        const fs::path expected_artifact_path =
-            parse_expected_artifact_path(
+        const SelectedPackageOutput selected_output =
+            parse_expected_package_output(
                 run_makepkg(
                     {"--packagelist"},
                     EvaluatedDevelSourceBuildStage::DynamicVersion,
                     EvaluatedDevelSourceBuildProcess::PreparedPackagelist,
                     METADATA_PROCESS_TIMEOUT, MAX_PACKAGELIST_BYTES),
-                context);
+                context, package_expectation);
         require_empty_pkgdest(
             context.pkgdest_descriptor(),
             EvaluatedDevelSourceBuildStage::DynamicVersion);
@@ -2588,7 +2638,7 @@ EvaluatedDevelSourceBuildResult EvaluatedDevelSourceBuildAuthority::build(
 
         OpenedArtifact opened_artifact = open_fresh_artifact(
             context.pkgdest_descriptor(), context.pkgdest(),
-            expected_artifact_path, context.root_device(),
+            selected_output.path, context.root_device(),
             context.owned_root());
         PackageArchiveSha256Digest archive_digest =
             hash_artifact_archive(opened_artifact);
@@ -2626,7 +2676,7 @@ EvaluatedDevelSourceBuildResult EvaluatedDevelSourceBuildAuthority::build(
            artifact_identity.architecture.state() !=
                ArtifactMetadataValueState::Known ||
            artifact_architecture == nullptr ||
-           *artifact_architecture != package_expectation.architecture) {
+           *artifact_architecture != selected_output.architecture) {
             throw_build_failure(
                 EvaluatedDevelSourceBuildStage::ArtifactMetadata,
                 EvaluatedDevelSourceBuildFailureReason::ArtifactMetadataMismatch);

@@ -69,6 +69,30 @@ Slice 1 characterizationとmakepkg owner contractに従い、同じworking recip
 pre-preparation `--packagelist`はfinal identityへ入れない。post-preparation package metadata / packagelistとactual
 archive metadataのchild、PackageBase、full version、architectureが一致することを要求する。
 
+## Package architecture authority（Issue #564 Slice 2A）
+
+packageのsupported architecture宣言集合と、今回の単一artifactのarchitectureは別の値である。
+reviewed `.SRCINFO`、initial evaluation、prepared evaluationについて、base宣言集合とchild overrideを
+適用した宣言集合がそれぞれ一致することを要求する。集合の順序には意味を持たせず、dynamic `pkgver()`の
+更新を許すため`.SRCINFO`全体のbyte一致は要求しない。空、重複、不正token、`any`とnativeの混在は
+既存strict metadata parserとmakepkgのvalidationで拒否し、空のchild overrideもS4では拒否する。
+
+post-preparation `--packagelist`の単一absolute pathは同じcontextのprivate `PKGDEST`直下でなければならない。
+prepared metadataの既知child名とfull version（nonzero epochを含む）からexact filename prefixを構成し、
+その後のarchitecture tokenとmakepkgの`PKGEXT`契約である`.pkg.tar…`を分離する。package名のhyphenや
+versionのdotを区切りとして推測せず、compression suffixを固定しない。
+
+- native singleton / multiple: selected output archがdeclared supported setに属することを要求する。
+- `arch=('any')`: selected output archもactual archive metadataも厳密に`any`でなければならない。
+- CPU名の独自whitelistは設けず、構文上validな未知のtokenとmetadataのunknown stateを区別する。
+
+packagelistは出力期待値でありfinal proofではない。fresh retained-FD archiveをlibalpmで読んだactual archが
+selected archと厳密一致した場合だけS4へ進む。`package()`中のCARCH変更等によりactual archが別の宣言要素へ
+変化した場合も拒否する。uname、宣言の先頭要素、旧installed archを今回の選択authorityにしない。
+
+この拡張は単一artifactのS4 subsetだけを広げる。architecture-qualified source、split、submodule、trialの
+supplemental source対応を追加せず、S5/S6のscalar arch、schema、storage、review/install/publication順序は維持する。
+
 ## Git proof
 
 private `SRCDEST`直下のexactly one bare mirrorと、private `BUILDDIR`配下をbounded / descriptor-relativeに走査して
