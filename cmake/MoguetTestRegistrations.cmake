@@ -173,7 +173,8 @@ _moguet_add_direct_ctest(
 )
 set_tests_properties(
     cpp.evaluated_devel_source_build
-    PROPERTIES TIMEOUT 180
+    # The architecture correlation matrix runs real makepkg/archive phases.
+    PROPERTIES TIMEOUT 300
 )
 _moguet_add_direct_ctest(
     cpp.reviewed_source_projection

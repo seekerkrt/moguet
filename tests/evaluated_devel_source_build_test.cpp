@@ -388,6 +388,19 @@ enum class RecipeShape {
     DynamicVersionDrift,
 };
 
+struct ArchitectureFixture {
+    std::vector<std::string> declared{"any"};
+    std::optional<std::vector<std::string>> reviewed;
+    std::string effective;
+    std::string extension;
+    std::string epoch;
+    std::string pkgrel = "1";
+    std::string recipe_suffix;
+    std::string package_commands;
+    std::string reviewed_child_arch;
+    bool qualified_source = false;
+};
+
 class ReviewedBuildFixture final {
 public:
     ReviewedBuildFixture(
@@ -399,11 +412,13 @@ public:
         bool tracked_local_source = false,
         // The reviewed fixture owns its one-artifact shape even when the
         // current Arch makepkg.conf enables a debug package by default.
-        bool disable_debug = true)
+        bool disable_debug = true,
+        ArchitectureFixture architecture = {})
         : tree_(label), upstream_(upstream),
           package_base_("example-base"),
           package_name_("moguet-slice4-" + label),
-          aur_remote_("https://aur.archlinux.org/example-base.git") {
+          aur_remote_("https://aur.archlinux.org/example-base.git"),
+          architecture_(std::move(architecture)) {
         cache_home_ = tree_.path() / "cache";
         state_home_ = tree_.path() / "state";
         home_ = tree_.path() / "home";
@@ -440,7 +455,8 @@ public:
             pkgbuild(
                 shape, prepare_mutation, exact_branch,
                 tracked_local_source) +
-                (disable_debug ? "\noptions=('!debug')\n" : ""));
+                (disable_debug ? "\noptions=('!debug')\n" : "") +
+                architecture_.recipe_suffix);
         write_file(
             ".SRCINFO",
             srcinfo(shape, exact_branch, tracked_local_source));
@@ -523,6 +539,12 @@ public:
             {"GIT_CONFIG_KEY_0", rewrite_key},
             {"GIT_CONFIG_VALUE_0", upstream_.url()},
         }};
+        if(!architecture_.effective.empty()) {
+            customization.ordered_assignments.push_back({"CARCH", architecture_.effective});
+        }
+        if(!architecture_.extension.empty()) {
+            customization.ordered_assignments.push_back({"PKGEXT", architecture_.extension});
+        }
         InvocationOwnedMakepkgEnvironmentResult result =
             context.make_makepkg_environment(
                 customization,
@@ -675,22 +697,27 @@ private:
                   "    cd \"$srcdir/$pkgname\"\n"
                   "    printf '1.r%s.g%s' \"$(git rev-list --count HEAD)\" \"$(git rev-parse --short=12 HEAD)\"\n"
                   "}\n\n";
+        std::string arch_declaration = "arch=(";
+        for(const auto& arch : architecture_.declared)
+            arch_declaration += "'" + arch + "' ";
+        arch_declaration += ")\n";
         return "pkgbase=" + package_base_ + "\n"
                                             "pkgname=" +
                package_name_ + "\n"
                                "pkgver=0\n"
-                               "pkgrel=1\n"
-                               "pkgdesc='Moguet Slice 4 fixture'\n"
-                               "arch=('any')\n"
-                               "license=('GPL-3.0-or-later')\n"
-                               "source=(\"" +
+                               "pkgrel=" +
+               architecture_.pkgrel + "\n" +
+               (architecture_.epoch.empty() ? "" : "epoch=" + architecture_.epoch + "\n") +
+               "pkgdesc='Moguet Slice 4 fixture'\n" + arch_declaration +
+               "license=('GPL-3.0-or-later')\n"
+               "source=(\"" +
                effective_source + "\"" +
                second_source + ")\n"
                                "sha256sums=('SKIP'" +
                (shape == RecipeShape::MultipleGit ? " 'SKIP'" : "") +
                (tracked_local_source ? " 'SKIP'" : "") +
                ")\n\n" + pkgver_function + prepare +
-               "package() {\n"
+               "package() {\n" + architecture_.package_commands +
                "    install -Dm644 \"$srcdir/$pkgname/payload.txt\" \"$pkgdir/usr/share/$pkgname/payload.txt\"\n"
                "}\n";
     }
@@ -703,12 +730,16 @@ private:
             "pkgbase = " + package_base_ + "\n"
                                            "\tpkgdesc = Moguet Slice 4 fixture\n"
                                            "\tpkgver = 0\n"
-                                           "\tpkgrel = 1\n"
-                                           "\tarch = any\n"
-                                           "\tlicense = GPL-3.0-or-later\n"
-                                           "\tsource = " +
+                                           "\tpkgrel = " +
+            architecture_.pkgrel + "\n" +
+            (architecture_.epoch.empty() ? "" : "\tepoch = " + architecture_.epoch + "\n") +
+            "\tlicense = GPL-3.0-or-later\n" +
+            (architecture_.qualified_source ? "\tsource_x86_64 = " : "\tsource = ") +
             source_value(shape, exact_branch, true) +
             "\n\tsha256sums = SKIP\n";
+        for(const auto& arch : architecture_.reviewed.value_or(architecture_.declared)) {
+            result += "\tarch = " + arch + "\n";
+        }
         if(shape == RecipeShape::MultipleGit) {
             result +=
                 "\tsource = second::git+https://fixture.invalid/second.git\n"
@@ -720,6 +751,7 @@ private:
                 "\tsha256sums = SKIP\n";
         }
         result += "pkgname = " + package_name_ + "\n";
+        result += architecture_.reviewed_child_arch;
         return result;
     }
 
@@ -855,6 +887,7 @@ private:
     std::string package_base_;
     std::string package_name_;
     std::string aur_remote_;
+    ArchitectureFixture architecture_;
     fs::path cache_home_;
     fs::path state_home_;
     fs::path home_;
@@ -1126,7 +1159,10 @@ void expect_failure(
     const auto& failure = require_arm<EvaluatedDevelSourceBuildFailure>(
         result, "Unsupported fixture produced a proof");
     require(failure.reason == expected_reason,
-            "Unsupported fixture returned a different typed failure");
+            "Unsupported fixture returned a different typed failure: expected=" +
+                std::to_string(static_cast<int>(expected_reason)) + " actual=" +
+                std::to_string(static_cast<int>(failure.reason)) + " stage=" +
+                std::to_string(static_cast<int>(failure.stage)));
     if(retains_unproven_content) {
         require(failure.cleanup_consequence.has_value() &&
                     failure.cleanup_consequence->failure.reason ==
@@ -1175,6 +1211,156 @@ void test_source_projection_fail_closed() {
         expect_failure(
             fixture,
             EvaluatedDevelSourceBuildFailureReason::UnsupportedSourceShape);
+    }
+}
+
+void test_declared_architecture_outputs() {
+    UpstreamGitFixture upstream("architecture-positive");
+    struct Case {
+        std::string label;
+        std::vector<std::string> declared;
+        std::string effective;
+        std::string expected;
+        std::string extension;
+    };
+    for(const Case& entry : std::vector<Case>{
+            {"multiple", {"i686", "x86_64"}, "x86_64", "x86_64", ".pkg.tar"},
+            {"reversed", {"x86_64", "i686"}, "x86_64", "x86_64", ".pkg.tar.gz"},
+            {"other-context", {"x86_64", "i686"}, "i686", "i686", ".pkg.tar.xz"},
+            {"singleton", {"x86_64"}, "x86_64", "x86_64", ".pkg.tar.zst"},
+            {"independent", {"any"}, "i686", "any", ".pkg.tar"},
+            {"unfamiliar", {"fixture_cpu"}, "fixture_cpu", "fixture_cpu", ".pkg.tar"}}) {
+        ArchitectureFixture architecture;
+        architecture.declared = entry.declared;
+        architecture.reviewed = entry.declared;
+        std::reverse(architecture.reviewed->begin(), architecture.reviewed->end());
+        architecture.effective = entry.effective;
+        architecture.extension = entry.extension;
+        architecture.epoch = "3";
+        // pkgver() changes pkgrel to 1 during preparation; restore a dotted
+        // release in the post-prepare evaluations to exercise exact identity.
+        architecture.pkgrel = "1.2";
+        architecture.recipe_suffix = "if [[ $pkgver != 0 ]]; then pkgrel=1.2; fi\n";
+        architecture.package_commands =
+            "    printf 'package-built\\n' >> \"$srcdir/$pkgname/payload.txt\"\n";
+        ReviewedBuildFixture fixture(
+            "arch-" + entry.label, upstream, RecipeShape::Valid,
+            true, false, false, true, architecture);
+        auto proof = build_success(fixture);
+        const auto& identity = proof.artifact().evidence().identity;
+        require(identity.architecture.state() == ArtifactMetadataValueState::Known &&
+                    identity.architecture.value() && *identity.architecture.value() == entry.expected,
+                "Selected architecture did not reach retained archive evidence");
+        require(identity.full_version.starts_with("3:1.r") && identity.full_version.ends_with("-1.2") &&
+                    proof.artifact().path().filename() ==
+                        fixture.package_name() + "-" + identity.full_version + "-" + entry.expected + entry.extension,
+                "Packagelist identity lost epoch, version dots, package hyphens or PKGEXT");
+        require(archive_member(proof.artifact().path(), "usr/share/" + fixture.package_name() + "/payload.txt") ==
+                        "revision-one\nprepared\npackage-built\n" &&
+                    proof.evaluated_source().source_count() == 1 &&
+                    *proof.actual_built_revision().revision().value().git_commit() == upstream.oid(),
+                "Tree-sitter-shaped prepare/pkgver/package build evidence differs");
+        cleanup_proof(proof);
+        std::cout << "S4 architecture " << entry.label << " / selected=" << entry.expected << " PASS\n";
+    }
+}
+
+void test_architecture_declaration_rejection() {
+    using Reason = EvaluatedDevelSourceBuildFailureReason;
+    UpstreamGitFixture upstream("architecture-negative");
+    for(const std::string kind : {"initial-drift", "prepared-drift", "child-drift", "empty-child",
+                                  "duplicate", "mixed-any", "malformed", "empty", "outside-set", "qualified-source"}) {
+        ArchitectureFixture architecture;
+        architecture.declared = {"i686", "x86_64"};
+        architecture.effective = "x86_64";
+        Reason reason = Reason::RawEvaluatedSourceMismatch;
+        if(kind == "initial-drift") architecture.reviewed = {{"x86_64"}};
+        if(kind == "prepared-drift") architecture.recipe_suffix = "if [[ $pkgver != 0 ]]; then arch=('x86_64'); fi\n";
+        if(kind == "child-drift") architecture.reviewed_child_arch = "\tarch = x86_64\n";
+        if(kind == "empty-child") {
+            architecture.reviewed_child_arch = "\tarch =\n";
+            reason = Reason::UnsupportedSourceShape;
+        }
+        if(kind == "duplicate") architecture.reviewed = {{"x86_64", "x86_64"}};
+        if(kind == "mixed-any") architecture.reviewed = {{"any", "x86_64"}};
+        if(kind == "malformed") architecture.reviewed = {{"x86-64"}};
+        if(kind == "empty") architecture.reviewed = std::vector<std::string>{};
+        if(kind == "duplicate" || kind == "mixed-any" || kind == "malformed" || kind == "empty") {
+            reason = Reason::EvaluatedSourceFailure;
+        }
+        if(kind == "outside-set") {
+            architecture.declared = {"i686"};
+            reason = Reason::MakepkgPhaseFailure;
+        }
+        if(kind == "qualified-source") {
+            // The source itself is unchanged; only its qualifier differs.
+            architecture.recipe_suffix = "source_x86_64=(\"${source[@]}\"); source=(); sha256sums_x86_64=('SKIP'); sha256sums=()\n";
+            architecture.qualified_source = true;
+            reason = Reason::UnsupportedSourceShape;
+        }
+        ReviewedBuildFixture fixture("arch-" + kind, upstream, RecipeShape::Valid,
+                                     false, false, false, true, architecture);
+        expect_failure(fixture, reason);
+        std::cout << "S4 architecture declaration " << kind << " rejected PASS\n";
+    }
+}
+
+void test_packagelist_output_rejection() {
+    using Reason = EvaluatedDevelSourceBuildFailureReason;
+    UpstreamGitFixture upstream("packagelist-negative");
+    const std::string valid = "$PKGDEST/$pkgname-$pkgver-$pkgrel-x86_64.pkg.tar";
+    for(const auto& [kind, output] : std::vector<std::pair<std::string, std::string>>{
+            {"empty", ""}, {"multiple", valid + "\\n" + valid}, {"relative", "relative.pkg.tar"}, {"outside", "/tmp/outside.pkg.tar"}, {"traversal", "$PKGDEST/../unexpected.pkg.tar"}, {"wrong-child", "$PKGDEST/unexpected-$pkgver-$pkgrel-x86_64.pkg.tar"}, {"wrong-version", "$PKGDEST/$pkgname-0-1-x86_64.pkg.tar"}, {"wrong-extension", "$PKGDEST/$pkgname-$pkgver-$pkgrel-x86_64.tar.zst"}, {"missing-arch", "$PKGDEST/$pkgname-$pkgver-$pkgrel-.pkg.tar"}, {"malformed-arch", "$PKGDEST/$pkgname-$pkgver-$pkgrel-x86-64.pkg.tar"}, {"outside-arch", "$PKGDEST/$pkgname-$pkgver-$pkgrel-aarch64.pkg.tar"}}) {
+        ArchitectureFixture architecture;
+        architecture.declared = {"i686", "x86_64"};
+        architecture.effective = "x86_64";
+        // Deliberately corrupt only the real makepkg process's packagelist
+        // output. This fixture does not inject a selected arch or S4 proof.
+        architecture.recipe_suffix = "if (( PACKAGELIST )); then printf \"" + output + "\\n\"; exit 0; fi\n";
+        ReviewedBuildFixture fixture("packagelist-" + kind, upstream, RecipeShape::Valid,
+                                     false, false, false, true, architecture);
+        const bool invalid_arch = kind == "missing-arch" || kind == "malformed-arch" || kind == "outside-arch";
+        expect_failure(fixture, invalid_arch ? Reason::UnsupportedSourceShape : Reason::DynamicVersionUnavailable);
+        std::cout << "S4 packagelist " << kind << " rejected PASS\n";
+    }
+}
+
+void test_selected_architecture_archive_drift() {
+    using Reason = EvaluatedDevelSourceBuildFailureReason;
+    UpstreamGitFixture upstream("archive-arch-drift");
+    for(const std::string kind : {"path-drift", "metadata-drift", "any-drift"}) {
+        ArchitectureFixture architecture;
+        architecture.declared = kind == "any-drift" ? std::vector<std::string>{"any"}
+                                                    : std::vector<std::string>{"i686", "x86_64"};
+        architecture.effective = "x86_64";
+        architecture.extension = ".pkg.tar";
+        architecture.package_commands = "    CARCH=i686\n";
+        if(kind == "any-drift") architecture.package_commands += "    printf -v 'arch[0]' '%s' i686\n";
+        ReviewedBuildFixture fixture("archive-" + kind, upstream, RecipeShape::Valid,
+                                     false, false, false, true, architecture);
+        bool observed = false;
+        set_evaluated_devel_source_build_test_hook(
+            [&](EvaluatedDevelSourceBuildTestEvent event, const fs::path& root, const fs::path&) {
+                if(event != EvaluatedDevelSourceBuildTestEvent::AfterPackageBuild) return;
+                const fs::path archive = fs::directory_iterator(root / "pkgdest")->path();
+                require(std::distance(fs::directory_iterator(root / "pkgdest"), fs::directory_iterator{}) == 1, "Arch drift fixture artifact cardinality differs");
+                require(archive_member(archive, ".PKGINFO").find("\narch = i686\n") != std::string::npos,
+                        "package() CARCH drift did not change actual archive metadata");
+                observed = true;
+                if(kind != "path-drift") {
+                    // Preserve the expected leaf to reach the retained-FD
+                    // metadata guard; mere membership in {i686,x86_64} fails.
+                    std::string leaf = archive.filename().string();
+                    const auto offset = leaf.rfind("-i686.pkg.tar");
+                    require(offset != std::string::npos, "Arch drift output name differs");
+                    leaf.replace(offset, std::string::npos, kind == "any-drift" ? "-any.pkg.tar" : "-x86_64.pkg.tar");
+                    fs::rename(archive, archive.parent_path() / leaf);
+                }
+            });
+        expect_failure(fixture, kind == "path-drift" ? Reason::ArtifactInventoryMismatch : Reason::ArtifactMetadataMismatch, true);
+        set_evaluated_devel_source_build_test_hook({});
+        require(observed, "Archive drift never reached package build");
+        std::cout << "S4 selected/archive " << kind << " rejected PASS\n";
     }
 }
 
@@ -3440,6 +3626,10 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
         }
 #endif
         test_valid_dynamic_build_and_prepare_mutation();
+        test_declared_architecture_outputs();
+        test_architecture_declaration_rejection();
+        test_packagelist_output_rejection();
+        test_selected_architecture_archive_drift();
         test_reviewed_local_source_remains_supported_input();
         test_sha256_upstream_revision();
         test_source_projection_fail_closed();
