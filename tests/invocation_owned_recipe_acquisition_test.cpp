@@ -16,6 +16,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <map>
 #include <sstream>
 #include <sys/stat.h>
 #include <type_traits>
@@ -262,6 +263,93 @@ void positives() {
     }
 }
 
+// Snapshot names, entry kinds and all regular bytes, including packed refs and
+// objects. Timestamps are deliberately not part of this external-write oracle.
+std::map<fs::path, std::pair<fs::file_type, std::string>> repository_snapshot(const fs::path& root) {
+    std::map<fs::path, std::pair<fs::file_type, std::string>> result;
+    for(const auto& entry : fs::recursive_directory_iterator(root)) {
+        const auto type = entry.symlink_status().type();
+        require(type == fs::file_type::directory || type == fs::file_type::regular, "unexpected external fixture entry");
+        result.emplace(entry.path().lexically_relative(root),
+                       std::pair{type, type == fs::file_type::regular ? read(entry.path()) : std::string{}});
+    }
+    return result;
+}
+
+void preexisting_git_rejected_before_init() {
+    for(const std::string mode : {"gitfile", "directory", "symlink", "dangling-symlink", "fifo", "socket"}) {
+        Fixture f;
+        const auto trial = f.trial();
+        const auto external = f.root / "external.git";
+        f.git({"clone", "--bare", "--no-local", "--quiet", f.remote.string(), external.string()});
+        const std::string git_dir = "--git-dir=" + external.string();
+        require(f.git({git_dir, "config", "--local", "core.bare"}) == "true", "external fixture is not bare");
+        const auto config_before = read(external / "config");
+        const auto head_before = read(external / "HEAD");
+        const auto symbolic_before = f.git({git_dir, "symbolic-ref", "HEAD"});
+        const auto refs_before = f.git({git_dir, "show-ref"});
+        const auto objects_before = f.git({git_dir, "cat-file", "--batch-all-objects", "--batch-check"});
+        require(!refs_before.empty() && !objects_before.empty(), "external inventory is empty");
+        const auto snapshot_before = repository_snapshot(external);
+        fs::path created;
+        unsigned process_calls = 0;
+        unsigned init_calls = 0;
+        unsigned cleanup_calls = 0;
+        f.hooks.process = [&](const ExplicitProcessInvocation& invocation, const BoundedProcessPolicy& policy) {
+            ++process_calls;
+            if(std::find(invocation.arguments.begin(), invocation.arguments.end(), "init") != invocation.arguments.end()) ++init_calls;
+            return f.transport(invocation, policy);
+        };
+        f.hooks.event = [&](Stage stage, const fs::path& root) {
+            if(stage == Stage::Initialization) {
+                created = root;
+                const auto git = root / "moguet/acquisition/.git";
+                if(mode == "gitfile") {
+                    write(git, "gitdir: " + external.string() + "\n");
+                    require(::chmod(git.c_str(), 0644) == 0, "gitfile chmod failed");
+                    struct stat entry{};
+                    require(::lstat(git.c_str(), &entry) == 0 && S_ISREG(entry.st_mode) &&
+                                (entry.st_mode & 07777) == 0644 && entry.st_nlink == 1,
+                            "F1 gitfile shape differs from counterexample");
+                }
+                if(mode == "directory") fs::create_directory(git);
+                if(mode == "symlink") fs::create_directory_symlink(external, git);
+                if(mode == "dangling-symlink") fs::create_symlink(f.root / "absent", git);
+                if(mode == "fifo") require(::mkfifo(git.c_str(), 0600) == 0, "fixture FIFO failed");
+                if(mode == "socket") require(::mknod(git.c_str(), S_IFSOCK | 0600, 0) == 0, "fixture socket failed");
+            }
+            if(stage == Stage::Cleanup) {
+                ++cleanup_calls;
+                require(root == created, "cleanup target is not the self-owned root");
+                require(repository_snapshot(external) == snapshot_before, "external repository changed before cleanup");
+            }
+        };
+        set_recipe_acquisition_test_hooks(f.hooks);
+        const auto failure = take<RecipeAcquisitionFailure>(acquire_invocation_owned_recipe(*trial));
+        require(init_calls == 0 && process_calls == 0, mode + " started a Git child before rejection");
+        require(failure.stage == Stage::Initialization && failure.reason == Reason::UnsafeFilesystem && !failure.process,
+                mode + " lost pre-init typed filesystem failure");
+        require(cleanup_calls == 1, "abort cleanup was skipped or retried");
+        require(read(external / "config") == config_before && read(external / "HEAD") == head_before,
+                "external config or HEAD bytes changed");
+        require(repository_snapshot(external) == snapshot_before, "cleanup changed external repository entries or bytes");
+        require(f.git({git_dir, "symbolic-ref", "HEAD"}) == symbolic_before && f.git({git_dir, "show-ref"}) == refs_before &&
+                    f.git({git_dir, "cat-file", "--batch-all-objects", "--batch-check"}) == objects_before,
+                "external HEAD / refs / objects changed");
+        if(mode == "gitfile" || mode == "directory") {
+            require(!failure.cleanup && !failure.abandoned_root && !fs::exists(created), "safe abort cleanup left owned root");
+        } else {
+            // Existing cleanup refuses special entries rather than following
+            // them. Preserve its typed residue consequence; fixture teardown
+            // below is separate from acquisition cleanup authority.
+            require(failure.cleanup && failure.cleanup->reason == Reason::UnsafeFilesystem &&
+                        failure.abandoned_root == created && fs::exists(created),
+                    "unsafe cleanup consequence lost");
+        }
+        std::cout << "pre-init " << mode << " / Git child 0 / external config HEAD refs objects unchanged / cleanup PASS\n";
+    }
+}
+
 void failures() {
     for(const std::string mode : {"missing-fetch", "missing-object", "tag", "blob", "format", "metadata", "nonzero", "timeout", "signal", "cancel-zero",
                                   "launch", "setup", "io", "capture", "entries", "bytes", "oversized-metadata", "collision", "parent-symlink", "unsafe-parent",
@@ -486,6 +574,7 @@ void cleanup_and_environment() {
 
 int main() {
     try {
+        preexisting_git_rejected_before_init();
         positives();
         failures();
         cleanup_and_environment();

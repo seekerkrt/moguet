@@ -182,6 +182,10 @@ raw path、arbitrary URL/OID tuple、old cache HEAD/origin、installed version�
   inherited Git routing/config/object/template environment、HOME/global/system Git config、askpass、
   terminal auth、SSH、credential helper、hooks、fsmonitorを取得authorityにしない。
   proxy / absolute custom CAだけは既存policyのrouting例外を維持する。
+- init前はretained checkout FDから`.git`の不存在をno-followで検証する。型にかかわらず既存entryを
+  `Initialization / UnsafeFilesystem`で拒否し、Git childを起動しない。不在以外の検査errorも停止する。
+  init後は`.git` directoryの存在と既存strict metadata検査を必須にする。preexisting gitfileの内容を
+  cleanup authorityにせず、自己作成root内のregular fileとしてのみ扱う。
 - fresh `git init --template= --object-format=<expected format>`の後、canonical URLへexact expected OIDを
   fetchする。checkout、submodule update、auto-maintenance、shallow/partial/reference取得はしない。
   `FETCH_HEAD`も書かない。remoteがXからYへ進んでもexpected Xの取得だけを試みる。

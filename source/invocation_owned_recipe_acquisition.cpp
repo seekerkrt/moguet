@@ -25,6 +25,11 @@ using Clock = std::chrono::steady_clock;
 using Stage = RecipeAcquisitionStage;
 using Reason = RecipeAcquisitionFailureReason;
 
+enum class GitInitializationState {
+    BeforeGitInit,
+    AfterGitInit,
+};
+
 // Recipe history budgets, independent of S4 source/build limits. Verification
 // happens after fetch: these are NOT hard transport-byte or disk quotas.
 constexpr std::size_t MAX_ENTRIES = 32768;
@@ -335,13 +340,23 @@ struct InvocationOwnedRecipeAcquisition::State {
         require_lineage(Stage::WorkspaceCreation);
     }
 
-    void inspect(Stage stage, bool git_initialized) {
+    void inspect(Stage stage, GitInitializationState git_state) {
         active_stage = stage;
         require_lineage(stage);
+        if(git_state == GitInitializationState::BeforeGitInit) {
+            // Git init resolves regular gitfiles even with --git-dir=.git.
+            // Reject every preexisting entry before any Git child can write
+            // outside this fresh checkout. This check is not an atomic sandbox
+            // against same-UID replacement between inspection and execution.
+            struct stat git_entry{};
+            if(::fstatat(repository.get(), ".git", &git_entry, AT_SYMLINK_NOFOLLOW) == 0)
+                fail(stage, Reason::UnsafeFilesystem);
+            if(errno != ENOENT) fail(stage, Reason::IoFailure, errno);
+        }
         Budget budget(deadline);
         std::vector<Inventory> nodes;
         inventory(root.get(), root.get(), {}, root_identity.st_dev, 0, budget, stage, nodes);
-        if(git_initialized) {
+        if(git_state == GitInitializationState::AfterGitInit) {
             if(git_identity) require_named(repository.get(), ".git", *git_identity, stage);
             std::size_t metadata_steps = 0;
             require_safe_persistent_checkout_git_metadata(*checkout, [&] {
@@ -360,9 +375,9 @@ struct InvocationOwnedRecipeAcquisition::State {
     }
 
     BoundedCapturedProcessResult run(Stage stage, std::initializer_list<std::string> operation,
-                                     std::size_t limit, bool initialized = true, bool diagnostic = false) {
+                                     std::size_t limit, GitInitializationState git_state = GitInitializationState::AfterGitInit, bool diagnostic = false) {
         notify(stage, root_path);
-        inspect(stage, initialized);
+        inspect(stage, git_state);
         auto arguments = trusted_git_recipe_acquisition_process_arguments();
         arguments.push_back("--git-dir=.git");
         arguments.push_back("--work-tree=.");
@@ -392,16 +407,16 @@ struct InvocationOwnedRecipeAcquisition::State {
             failure.process = std::move(result);
             throw Failure(std::move(failure));
         }
-        inspect(stage, initialized);
+        inspect(stage, GitInitializationState::AfterGitInit);
         return result;
     }
 
     void initialize() {
         const bool sha256 = expected.git_object_format() == GitObjectFormat::Sha256;
-        run(Stage::Initialization, {"init", "--quiet", "--template=", "--initial-branch=recipe-acquisition", sha256 ? "--object-format=sha256" : "--object-format=sha1"}, 4096, false, true);
+        run(Stage::Initialization, {"init", "--quiet", "--template=", "--initial-branch=recipe-acquisition", sha256 ? "--object-format=sha256" : "--object-format=sha1"}, 4096, GitInitializationState::BeforeGitInit, true);
         auto git_directory = open_beneath(repository.get(), ".git", O_RDONLY | O_DIRECTORY, Stage::Initialization);
         git_identity = status(git_directory.get(), Stage::Initialization);
-        inspect(Stage::Initialization, true);
+        inspect(Stage::Initialization, GitInitializationState::AfterGitInit);
         // Add only the canonical identity required by the existing strict
         // full-review configuration contract. No origin observation is used.
         auto config = open_beneath(repository.get(), ".git/config", O_WRONLY | O_APPEND, Stage::Initialization);
@@ -475,7 +490,7 @@ struct InvocationOwnedRecipeAcquisition::State {
         if(size > MAX_METADATA_BYTES) fail(Stage::Metadata, Reason::ResourceLimit);
         if(size != metadata.size() || run(Stage::Metadata, {"cat-file", "blob", blob}, MAX_METADATA_BYTES).output != metadata)
             fail(Stage::Metadata, Reason::MetadataMismatch);
-        inspect(Stage::Metadata, true);
+        inspect(Stage::Metadata, GitInitializationState::AfterGitInit);
     }
 
     RecipeAcquisitionCleanupResult cleanup() noexcept {
@@ -560,7 +575,7 @@ RecipeAcquisitionResult acquire_invocation_owned_recipe(const DevelTrackingBoots
             fail(Stage::Metadata, Reason::ResourceLimit);
         state->create();
         state->initialize();
-        state->run(Stage::Fetch, {"fetch", "--no-tags", "--no-recurse-submodules", "--no-auto-maintenance", "--no-write-commit-graph", "--no-write-fetch-head", "--", state->expected.canonical_git_remote(), *state->expected.target_revision().git_commit()}, 65536, true, true);
+        state->run(Stage::Fetch, {"fetch", "--no-tags", "--no-recurse-submodules", "--no-auto-maintenance", "--no-write-commit-graph", "--no-write-fetch-head", "--", state->expected.canonical_git_remote(), *state->expected.target_revision().git_commit()}, 65536, GitInitializationState::AfterGitInit, true);
         state->verify(trial.source_metadata());
         return InvocationOwnedRecipeAcquisition(std::move(state));
     } catch(Failure& error) {
