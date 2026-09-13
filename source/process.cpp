@@ -747,6 +747,7 @@ void bind_bounded_child_descriptor(
     int output_descriptor,
     int exec_status_descriptor,
     bool suppress_standard_error,
+    bool capture_standard_error,
     const sigset_t& original_signal_mask,
     pid_t expected_parent_pid) noexcept {
     int group_result;
@@ -791,7 +792,11 @@ void bind_bounded_child_descriptor(
         output_descriptor, STDOUT_FILENO,
         exec_status_descriptor, BoundedProcessLaunchStage::StandardOutput);
 
-    if(suppress_standard_error) {
+    if(capture_standard_error) {
+        bind_bounded_child_descriptor(
+            output_descriptor, STDERR_FILENO, exec_status_descriptor,
+            BoundedProcessLaunchStage::StandardError);
+    } else if(suppress_standard_error) {
         int null_descriptor;
         do {
             null_descriptor = open("/dev/null", O_WRONLY | O_CLOEXEC);
@@ -1024,7 +1029,7 @@ BoundedCapturedProcessResult execute_bounded_explicit_process(
         exec_bounded_explicit_process_child(
             invocation, argument_vector, environment_vector,
             output_write.get(), exec_status_write.get(),
-            policy.suppress_standard_error, original_signal_mask,
+            policy.suppress_standard_error, policy.capture_standard_error, original_signal_mask,
             expected_parent_pid);
     }
 
@@ -1082,6 +1087,7 @@ BoundedCapturedProcessResult execute_bounded_explicit_process(
 
     std::string output;
     std::optional<BoundedProcessOutcome> forced_outcome;
+    std::optional<int> cancellation_signal;
     std::exception_ptr pending_exception;
     std::array<char, sizeof(BoundedChildFailureRecord)>
         exec_status_bytes{};
@@ -1278,6 +1284,7 @@ BoundedCapturedProcessResult execute_bounded_explicit_process(
                     const int signal_number = static_cast<int>(
                         signal_information.ssi_signo);
                     if(signal_number != SIGCHLD) {
+                        if(!cancellation_signal) cancellation_signal = signal_number;
                         signal_tree(signal_number);
                         if(!termination_started) {
                             termination_started = true;
@@ -1435,22 +1442,23 @@ BoundedCapturedProcessResult execute_bounded_explicit_process(
     if(pending_exception) std::rethrow_exception(pending_exception);
     if(forced_outcome.has_value()) {
         return BoundedCapturedProcessResult{
-            std::move(output), std::move(*forced_outcome)};
+            std::move(output), std::move(*forced_outcome), cancellation_signal};
     }
     if(WIFEXITED(root_status)) {
         return BoundedCapturedProcessResult{
             std::move(output),
-            BoundedProcessExited{WEXITSTATUS(root_status)}};
+            BoundedProcessExited{WEXITSTATUS(root_status)}, cancellation_signal};
     }
     if(WIFSIGNALED(root_status)) {
         return BoundedCapturedProcessResult{
             std::move(output),
-            BoundedProcessSignaled{WTERMSIG(root_status)}};
+            BoundedProcessSignaled{WTERMSIG(root_status)}, cancellation_signal};
     }
     return BoundedCapturedProcessResult{
         std::move(output),
         BoundedProcessIoOrWaitFailure{
-            BoundedProcessIoStage::Wait, ECHILD}};
+            BoundedProcessIoStage::Wait, ECHILD},
+        cancellation_signal};
 }
 
 CapturedCommandResult execute_explicit_process(

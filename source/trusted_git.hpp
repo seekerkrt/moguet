@@ -16,6 +16,13 @@
 class ReviewedSourcePackageBaseLease;
 class InvocationOwnedSourceBuildContextAuthority;
 
+// Reuse the strict managed-repository config allowlist on bounded machine
+// output. This is validation only, never acquisition/review/build authority.
+[[nodiscard]] std::optional<GitObjectFormat>
+trusted_git_recipe_acquisition_configuration_format(
+    const std::string& null_terminated_config,
+    const AurReviewedSourceReviewIdentity& expected);
+
 // Moguet-owned persistent checkoutで許可するGit operationだけを公開する。
 // Filesystem mutation authorityはValidatedCachePath側に残し、Gitへ渡すpathは
 // explicit repository/worktree binding用のlogical viewとしてのみ使用する。

@@ -184,3 +184,13 @@ std::vector<std::string> trusted_git_observer_process_arguments() {
         "submodule.recurse=false",
     };
 }
+
+std::vector<std::string> trusted_git_recipe_acquisition_process_arguments() {
+    auto arguments = trusted_git_observer_process_arguments();
+    // The repositoryless profile has exactly this binding at index 1.
+    // All transport/config restrictions remain shared with the observer.
+    arguments.erase(arguments.begin() + 1);
+    arguments.insert(arguments.end(), {"--no-replace-objects", "-c", "gc.auto=0", "-c", "maintenance.auto=false",
+                                       "-c", "fetch.fsckObjects=true", "-c", "transfer.fsckObjects=true"});
+    return arguments;
+}

@@ -157,3 +157,75 @@ source-buildやtarget grammarの一般policyを変更しない。
 
 `test-aur-devel-route`が試行適格性/reason/local drift、`test-reviewed-source-lifecycle`がfull-review purposeとCAS保持、
 `test-devel-tracking-bootstrap`がactual route/confirmation/review/S4/S5/S6と同一fixture再assessmentを検証する。
+
+## Isolated recipe acquisition foundation (#564 Slice 3A)
+
+`acquire_invocation_owned_recipe(const DevelTrackingBootstrapTrial&)`は、initial migration用の
+取得foundationである。normal routeへの接続、trial eligibilityの変更、`clean_checkout()`の削除、
+old persistent recipe checkoutとの切離しはSlice 3Bに残る。3Aだけではdirty cache migrationは成功しない。
+
+入力は既存typed trialのcanonical PackageBase、事前観測済みexact recipe OID、cgit exact-idの
+raw `.SRCINFO` bytes。canonical AUR URLの検証は既存`AurReviewedSourceReviewIdentity`を再利用する。
+RPCのPackageBase観測、recipe HEAD観測、cgit metadataは別の役割を維持する。
+raw path、arbitrary URL/OID tuple、old cache HEAD/origin、installed versionからownerを構成できない。
+
+- fixed `/tmp`の安全なparentをdescriptorで保持し、128-bit random名を最大32回試行する。
+  新規0700 rootの下に`moguet/<PackageBase>`を作る。preexisting collision、stale rootの再利用・採用・GCはない。
+  pure `EnvironmentSnapshot`から既存XDG resolver / directory preparation / validated cache bridgeを使う。
+  processのHOME/XDGは書き換えない。leaf==PackageBaseという既存pin契約を維持する。
+- root / parent / checkout / `.git`のidentity、owner/modeを相関し、root配下は
+  `openat2`のBENEATH / NO_SYMLINKS / NO_XDEVで開く。regular metadataのhardlink、gitfile、
+  unsafe permission、replacement、alternate/commondirを拒否する。
+  既存strict Git metadata validatorはacquisition専用checkpoint付き入口でdeadline / visit数を制限する。
+  Git configのallowlistは既存trusted Git parserを共用し、検証後のconfig byte driftも拒否する。
+- trusted Gitのcomplete envpとobserver由来のHTTPS-only profileを使用する。
+  inherited Git routing/config/object/template environment、HOME/global/system Git config、askpass、
+  terminal auth、SSH、credential helper、hooks、fsmonitorを取得authorityにしない。
+  proxy / absolute custom CAだけは既存policyのrouting例外を維持する。
+- init前はretained checkout FDから`.git`の不存在をno-followで検証する。型にかかわらず既存entryを
+  `Initialization / UnsafeFilesystem`で拒否し、Git childを起動しない。不在以外の検査errorも停止する。
+  init後は`.git` directoryの存在と既存strict metadata検査を必須にする。preexisting gitfileの内容を
+  cleanup authorityにせず、自己作成root内のregular fileとしてのみ扱う。
+- fresh `git init --template= --object-format=<expected format>`の後、canonical URLへexact expected OIDを
+  fetchする。checkout、submodule update、auto-maintenance、shallow/partial/reference取得はしない。
+  `FETCH_HEAD`も書かない。remoteがXからYへ進んでもexpected Xの取得だけを試みる。
+  fetch非zeroは元のprocess outcome付きfailureであり、stderrから「Xが存在しない」と推定しない。
+  reobserve / Y差替え / cache fallback / retryはない。
+- 全object inventory、raw object type==commit、resolved complete OID、storage object formatを検証し、
+  expected commit treeのregular `.SRCINFO` blobをtrial bytesと完全一致で比較する。
+  generated `.SRCINFO`のsemantic authorityはS4に残る。recipe OIDをupstream built OIDへ転用しない。
+
+取得全体のdeadlineは90秒。各bounded childは残時間を使い、200msのtermination grace、
+process-group終了/reap、既存parent-death behaviorを維持する。init/fetchのstdout/stderrは
+同一pipeの合計上限（4KiB / 64KiB）でcaptureし、object/metadata queryは個別のstdout上限を持ち
+stderrを破棄する。`BoundedCapturedProcessResult::cancellation_signal`はchild outcomeから独立し、
+親cancelを観測した後にchildがexit 0を返してもacquisition successを作らない。
+他のbounded callerのoutcome解釈は3Aでは変更しない。
+
+verification budgetはfilesystem 32,768 entries / depth 64 / observed regular bytes合計256MiB、
+Git objects 32,768件 / individual expanded size 32MiB / expanded size合計256MiB、
+`.SRCINFO` 256KiB、local config 8KiB。object inventory streamは32,768×96 bytes以下。
+これらはrecipe historyの取得検証budgetであり、S4のbuild/source budgetとは独立している。
+**hard transport byte quota / disk quotaではない**。fetch中にこれを超えるpackが一時的に書かれる可能性があり、
+超過を検証した結果はfailureとなる。OSのblocking filesystem syscallや同UID hostile writerに対する
+hard realtime / sandbox保証も提供しない。
+
+success ownerはmove-onlyで、証明するのはexpected identityのprivate workspaceへの取得・照合まで。
+`checkout()`はborrowであり、そのcapabilityのcopyはworkspace寿命を延長しない。
+callerはownerをfull review → separate explicit acceptance → exact pin → S3 final recipe reproofまで保持する。
+既存full review / R CAS / pin / S3のfactoryを通り、raw acquisitionからreview/R/S3/S4/Pをmintしない。
+S3成功後はsource bytesがS3へ移っているため、acquisitionをcleanupしてからbuildへ進める。
+
+`cleanup()`は5秒の走査deadlineと上記filesystem budgetで、全treeをpreflightしてから
+ancestor/leaf identityを再照合し、自己作成rootだけを削除する。primary failureとcleanup consequenceは別fieldであり、
+abort cleanupが失敗した場合は`abandoned_root`を診断用に保持する。explicit cleanupのfailureはsuccessへ丸めず、
+同じownerで再試行しない。noexcept destructorは未実施cleanupのbackstopで、callerは結果を必要とする経路で
+必ずexplicit cleanupを使う。SIGKILL/power loss後のdestructor実行、同UIDによるmkdir/open間の置換や
+最後のidentity check/unlink間の原子的なcompare-and-unlinkは保証しない。残存rootは次invocationで採用しない。
+同PackageBaseの各ownerは別root/repo/refs/indexを持ち、old cache leaseやPackageBase-wide lockを取得しない。
+
+`test-invocation-owned-recipe-acquisition`はreal typed bootstrap observer、isolated installed DB、
+exact-id metadata observation seam、offline Git transport substitutionを使う。productionのcanonical HTTPS
+argv/envpを検査した後、test binaryだけで取得先をlocal fixtureへ置換する。実HTTPS/AUR server policyの
+検証ではない。SHA-1/SHA-256、remote advance、actual full review/pin/S3、two-owner isolation、
+process/cancel/resource/config/filesystem/cleanup failureを覆う。通常routeのactivation evidenceにはしない。
