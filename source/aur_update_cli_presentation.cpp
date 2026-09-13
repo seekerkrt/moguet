@@ -225,7 +225,7 @@ std::string failure_detail_summary(
     return std::visit(
         [](const auto& failure) -> std::string {
             using Failure = std::decay_t<decltype(failure)>;
-            if constexpr(std::is_same_v<Failure, std::monostate>) {
+            if constexpr(std::is_same_v<Failure, std::monostate> || std::is_same_v<Failure, TrustedCacheFailure>) {
                 return localization::translate_message(
                     "build or install failure");
             } else if constexpr(std::is_same_v<
@@ -389,7 +389,10 @@ void require_coherent_work_item(
             "Unknown {} work-item execution status.", "AUR"));
     }
     const bool cancelled = work_item.status == AurUpdateWorkItemExecutionStatus::Cancelled;
-    const bool valid_cancellation = cancelled == work_item.cancellation.has_value() &&
+    const bool acquisition_cancelled = work_item.recipe_acquisition_failure &&
+                                       work_item.recipe_acquisition_failure->reason == RecipeAcquisitionFailureReason::Cancelled;
+    const bool valid_cancellation = !(work_item.cancellation && acquisition_cancelled) &&
+                                    cancelled == (work_item.cancellation.has_value() || acquisition_cancelled) &&
                                     (!work_item.cancellation ||
                                      work_item.cancellation->reason == ConfirmationCancellationReason::ExplicitToken ||
                                      work_item.cancellation->reason == ConfirmationCancellationReason::EndOfInput);

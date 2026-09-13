@@ -5,6 +5,7 @@
 #include "cli_parser.hpp"
 #include "cli_runtime_contract.hpp"
 #include "devel_tracking_bootstrap.hpp"
+#include "invocation_owned_recipe_acquisition.hpp"
 namespace aur_devel_update_test_stub {
 void reset_registered_calls() {
 }
@@ -445,6 +446,13 @@ public:
         checkout_.emplace(create_trusted_cache_directory(
             *cache_root_, package_base_));
         repository_ = checkout_->path();
+#ifdef MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
+        // Authoritative recipe bytes are authored independently, before the old
+        // cache copy exists. Neither trial metadata nor fetch reads that copy.
+        recipe_remote_ = tree_.path() / "authoritative-recipe";
+        fs::create_directory(recipe_remote_);
+        repository_ = recipe_remote_;
+#endif
         run_git({"init", "-q", "-b", "main"});
         run_git({"config", "--local", "remote.origin.url", aur_remote_});
         run_git({"config", "--local", "remote.origin.fetch",
@@ -475,13 +483,28 @@ public:
         }
         recipe_oid_ = commit("reviewed recipe");
         run_git({"update-ref", "refs/remotes/origin/main", recipe_oid_});
+#ifdef MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
+        require_process_success("/usr/bin/git", {"clone", "--no-local", recipe_remote_.string(), checkout_->path().string()}, git_environment(home_));
+        repository_ = checkout_->path();
+        run_git({"config", "--local", "remote.origin.url", aur_remote_});
+#endif
     }
 
 #ifdef MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
+    const fs::path& recipe_remote() const {
+        return recipe_remote_;
+    }
+    std::string recipe_metadata() const {
+        std::ifstream input(recipe_remote_ / ".SRCINFO");
+        require(input.good(), "Independent authoritative metadata unavailable");
+        return std::string((std::istreambuf_iterator<char>(input)), {});
+    }
     void advance_recipe_for_bootstrap_test() {
+        repository_ = recipe_remote_;
         write_file("review-again.txt", "This tracked file is part of the bootstrap full review.\n");
         recipe_oid_ = commit("changed recipe for bootstrap");
         run_git({"update-ref", "refs/remotes/origin/main", recipe_oid_});
+        repository_ = checkout_->path();
     }
 #endif
 
@@ -915,6 +938,9 @@ private:
     fs::path state_home_;
     fs::path home_;
     fs::path repository_;
+#ifdef MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
+    fs::path recipe_remote_;
+#endif
     std::string recipe_oid_;
     std::vector<std::unique_ptr<ScopedEnvironmentVariable>> environment_;
     std::optional<ValidatedCacheRoot> cache_root_;
@@ -2778,11 +2804,10 @@ void deny_after_bridge_publication(const XdgGenerationStoreTestRaceContext&) {
 }
 
 #ifdef MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
-std::map<fs::path, std::string> bootstrap_cache_snapshot(const ValidatedCachePath& checkout) {
-    const auto retained = retain_trusted_cache_directory(checkout);
-    retained.require_unchanged_identity();
+std::map<fs::path, std::string> bootstrap_cache_snapshot(const fs::path& checkout) {
     std::map<fs::path, std::string> out;
-    for(const auto& entry : fs::recursive_directory_iterator(checkout.canonical_path())) {
+    if(!fs::exists(checkout)) return out;
+    for(const auto& entry : fs::recursive_directory_iterator(checkout)) {
         const auto status = entry.symlink_status();
         std::string value;
         if(fs::is_symlink(status))
@@ -2795,9 +2820,8 @@ std::map<fs::path, std::string> bootstrap_cache_snapshot(const ValidatedCachePat
             value = xdg_generation_store_raw_contents_sha256(std::string((std::istreambuf_iterator<char>(input)), {}));
         } else
             throw std::runtime_error("Unsupported bootstrap fixture entry");
-        out.emplace(entry.path().lexically_relative(checkout.canonical_path()), value + ":" + std::to_string(static_cast<unsigned>(status.permissions())));
+        out.emplace(entry.path().lexically_relative(checkout), value + ":" + std::to_string(static_cast<unsigned>(status.permissions())));
     }
-    retained.require_unchanged_identity();
     return out;
 }
 #endif
@@ -2868,7 +2892,7 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
         if(!normal && mode.starts_with("registered-")) continue;
         ReviewedBuildFixture fixture(bootstrap ? "bootstrap-git" : "s7c-fixture", upstream, mode == "build-failure" ? RecipeShape::RawEvaluatedMismatch : normal && mode == "legacy" ? RecipeShape::UnsupportedVcs
                                                                                                                                                                                      : RecipeShape::Valid,
-                                     false, mode == "branch", mode == "supplemental");
+                                     false, mode == "branch", mode == "supplemental" || mode == "supplemental-collision");
         struct ResetBridgeHooks {
             ~ResetBridgeHooks() {
                 publication_allocation::blocked = false;
@@ -2878,6 +2902,7 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
 #ifdef MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
                 set_aur_update_non_bootstrap_execution_test_hook({});
                 set_devel_tracking_bootstrap_test_hooks({});
+                set_recipe_acquisition_test_hooks({});
                 set_devel_package_assessment_test_hooks({});
                 set_aur_devel_update_database_paths_for_test(std::nullopt);
 #endif
@@ -2891,6 +2916,10 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
             }
         } reset_bridge_hooks;
         TemporaryTree runtime("s7c-runtime");
+#ifdef MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
+        unsigned acquisition_fetches = 0, acquisition_processes = 0, acquisition_creations = 0, acquisition_cleanups = 0, context_entries = 0;
+        fs::path acquisition_root;
+#endif
         const auto db = runtime.path() / "db";
         fs::create_directories(db / "local");
         write_file(db / "local/ALPM_DB_VERSION", "9\n");
@@ -2994,10 +3023,28 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
                (mode == "retirement-failure" && event == SourceArtifactInstallTrustedStateTestEvent::BeforeExactRetirement)) throw std::bad_alloc();
         });
         set_reviewed_devel_source_build_execution_test_hooks({[&](Stage stage, const EvaluatedDevelSourceBuildProof* built) {
+#ifdef MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
+                                                                  if(bootstrap && !acquisition_root.empty()) {
+                                                                      if(stage == Stage::Context) {
+                                                                          ++context_entries;
+                                                                          require(fs::exists(acquisition_root / "moguet/example-base/.git"), "acquisition died before S3");
+                                                                          const auto fresh = acquisition_root / "moguet/example-base";
+                                                                          for(const auto& entry : fs::directory_iterator(fresh)) {
+                                                                              require(entry.path().filename() != "evil.patch" && entry.path().filename() != "random-file" && entry.path().filename() != "ignored-residue" && entry.path().filename() != "wrong-head", "old overlay reached pin/S3");
+                                                                              if(entry.is_regular_file()) {
+                                                                                  std::ifstream input(entry.path());
+                                                                                  require(std::string((std::istreambuf_iterator<char>(input)), {}).find("malicious-old") == std::string::npos, "old bytes reached pin/S3");
+                                                                              }
+                                                                          }
+                                                                          if(mode == "s3-failure") write_file(fresh / "PKGBUILD", "changed after pin\n");
+                                                                      }
+                                                                      if(stage == Stage::Build) require(!fs::exists(acquisition_root) && acquisition_cleanups == 1, "S4 began before acquisition cleanup");
+                                                                  }
+#endif
                                                                   if(stage == Stage::Build) ++build_entries;
                                                                   if(stage != Stage::Transport) return;
                                                                   require(built && built->valid(), "bridge did not retain S4 proof");
-                                                                  if(mode == "supplemental") require_supplemental_artifact(*built, fixture);
+                                                                  if(mode == "supplemental" || mode == "supplemental-collision") require_supplemental_artifact(*built, fixture);
                                                                   expected.emplace(built->artifact().evidence());
                                                                   actual_oid = *built->actual_built_revision().revision().value().git_commit();
                                                                   const auto mtree = capture_process("/usr/bin/bsdtar", {"-xOf", built->artifact().path().string(), ".MTREE"}, {"PATH=/usr/bin:/bin", "LC_ALL=C"});
@@ -3070,7 +3117,38 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
                 }
                 if(mode == "reviewed-changed") fixture.advance_recipe_for_bootstrap_test();
             }
-            const auto cache_before = bootstrap_cache_snapshot(fixture.execution_checkout());
+            const auto old_cache = fixture.execution_checkout().canonical_path();
+            const auto recipe_x = fixture.recipe_oid();
+            const auto authoritative_metadata = fixture.recipe_metadata() + (mode == "acquire-metadata" ? "\n" : "");
+            const auto old_git_calls = runtime.path() / "old-git.log";
+            const bool migration_cache_case = mode != "newer" && mode != "provider-ordinary";
+            if(migration_cache_case) {
+                script(bin / "recipe-git", "#!/bin/sh\nfor argument do case \"$argument\" in *'" + old_cache.string() + "'*) printf 'old argument\\n' >> '" + old_git_calls.string() + "'; exit 98;; esac; done\nif [ \"$(pwd -P)\" = '" + old_cache.string() + "' ]; then printf 'old cwd\\n' >> '" + old_git_calls.string() + "'; exit 98; fi\nexec /usr/bin/git \"$@\"\n");
+            }
+            if(mode == "dirty-pkgbuild") write_file(old_cache / "PKGBUILD", "malicious-old-PKGBUILD\n");
+            if(mode == "overlay") {
+                write_file(old_cache / "evil.patch", "malicious-old-overlay\n");
+                write_file(old_cache / "random-file", "malicious-old-overlay\n");
+            }
+            if(mode == "ignored") {
+                write_file(old_cache / ".git/info/exclude", "ignored-residue\n");
+                write_file(old_cache / "ignored-residue", "malicious-old-ignored\n");
+            }
+            if(mode == "supplemental-collision") {
+                write_file(old_cache / "fix.patch", "malicious-old-patch\n");
+                write_file(old_cache / "config.toml", "malicious-old-config\n");
+            }
+            if(mode == "wrong-head") {
+                write_file(old_cache / "wrong-head", "unrelated-old-revision\n");
+                require_process_success("/usr/bin/git", {"-C", old_cache.string(), "add", "wrong-head"}, git_environment(fixture.home()));
+                require_process_success("/usr/bin/git", {"-C", old_cache.string(), "commit", "-qm", "wrong old HEAD"}, git_environment(fixture.home()));
+            }
+            if(mode == "malicious-config") {
+                std::ofstream config_file(old_cache / ".git/config", std::ios::app);
+                config_file << "\n[remote \"origin\"]\nurl = https://malicious.invalid/old.git\n[url \"https://malicious.invalid/\"]\ninsteadOf = https://aur.archlinux.org/\n[core]\nhooksPath = /nonexistent/old-hooks\n[filter \"old\"]\nclean = false\n[credential]\nhelper = false\n";
+            }
+            if(mode == "no-cache") fs::remove_all(old_cache);
+            const auto cache_before = bootstrap_cache_snapshot(old_cache);
             std::optional<std::string> existing_provenance;
             if(mode == "invalid" || mode == "corrupt" || mode == "future" || mode == "unsafe") {
                 fs::create_directories(p_directory);
@@ -3124,9 +3202,7 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
                                                          ++trial_calls;
                                                          const auto calls = ++recipe_counts[requested.package_name()];
                                                          if(mode == "decisions" && requested.package_name() == first_name && calls >= 4) return std::nullopt;
-                                                         const auto file = fixture.execution_checkout().canonical_path() / ".SRCINFO";
-                                                         std::ifstream input(file);
-                                                         std::string metadata((std::istreambuf_iterator<char>(input)), {});
+                                                         std::string metadata = authoritative_metadata;
                                                          if(decisions_only && requested.package_name() != fixture.package_name()) {
                                                              const auto base_position = metadata.find("pkgbase = " + fixture.package_base());
                                                              const auto name_position = metadata.find("pkgname = " + fixture.package_name());
@@ -3135,22 +3211,21 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
                                                              metadata.replace(base_position, 10 + fixture.package_base().size(), "pkgbase = " + requested.package_base().package_base());
                                                          }
                                                          if(mode == "unsupported") metadata += "pkgname = unsupported-sibling\n";
-                                                         return DevelTrackingBootstrapRecipeObservation{SourceRevisionIdentity::git_commit(fixture.recipe_oid()), metadata};
+                                                         return DevelTrackingBootstrapRecipeObservation{SourceRevisionIdentity::git_commit(recipe_x), metadata};
                                                      },
                                                      {}});
-            if(mode == "supplemental") {
+            if(!decisions_only) {
                 // Keep production HEAD parsing, exact-id cgit URL construction,
-                // metadata parsing and clean_checkout; inject no trial identity.
+                // metadata parsing; inject no trial identity or old-cache bytes.
                 set_devel_tracking_bootstrap_test_hooks({{}, {}, [&](const ExplicitProcessInvocation& invocation, const BoundedProcessPolicy&) {
                         ++trial_calls;
+                        if(mode == "advance-before-revalidation" && trial_calls == 3) fixture.advance_recipe_for_bootstrap_test();
                         require(invocation.arguments.back() == "HEAD", "Supplemental trial did not observe recipe HEAD");
-                        const auto record = fixture.recipe_oid() + "\tHEAD\n";
+                        const auto record = (mode == "advance-before-revalidation" && trial_calls >= 3 ? fixture.recipe_oid() : recipe_x) + "\tHEAD\n";
                         return BoundedCapturedProcessResult{record + record, BoundedProcessExited{0}}; }, [&](const std::string& url) -> std::optional<std::string> {
-                        require(url == "https://aur.archlinux.org/cgit/aur.git/plain/.SRCINFO?h=" + fixture.package_base() + "&id=" + fixture.recipe_oid(),
+                        require(url == "https://aur.archlinux.org/cgit/aur.git/plain/.SRCINFO?h=" + fixture.package_base() + "&id=" + (mode == "advance-before-revalidation" && trial_calls >= 3 ? fixture.recipe_oid() : recipe_x),
                                 "Supplemental trial lost exact recipe metadata URL");
-                        std::ifstream input(fixture.execution_checkout().canonical_path() / ".SRCINFO");
-                        require(input.good(), "Supplemental fixture metadata unavailable");
-                        return std::string((std::istreambuf_iterator<char>(input)), {}); }});
+                        return authoritative_metadata + (mode == "unsupported" ? "pkgname = unsupported-sibling\n" : ""); }});
             }
             AppConfig config;
             config.user_config.review.diff = mode == "diff-skip" ? ReviewPolicy::Skip : ReviewPolicy::Prompt;
@@ -3168,37 +3243,71 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
             auto route = classify_sync_invocation_route(*parsed);
             auto request = make_compatible_system_aur_update_request(std::get<AutoSystemUpdateRouteCandidate>(std::move(route)));
             require(request.has_value(), "exact targetless route did not produce authority");
-            const bool local_failure = mode.starts_with("local-");
-            const auto child_pid_file = runtime.path() / "local-git.pid";
-            if(local_failure) {
-                const std::string operation = mode.starts_with("local-config-") ? "config" : "status";
-                // An isolated child never exits by itself. No sleep race: the
-                // production deadline/overflow must terminate and reap it.
-                script(bin / "local-child", "#!/usr/bin/python3\nimport os, signal\nsignal.signal(signal.SIGTERM, signal.SIG_IGN)\nopen('" + child_pid_file.string() + "', 'w').write(str(os.getpid()))\n" +
-                                                (mode.ends_with("overflow") ? "while True: os.write(1, b'x' * 8192)\n" : "while True: signal.pause()\n"));
-                script(bin / "recipe-git", "#!/bin/sh\nfor argument do if [ \"$argument\" = " + operation + " ]; then exec '" + (bin / "local-child").string() + "'; fi; done\nexec /usr/bin/git \"$@\"\n");
-            }
-            const auto operation_started = std::chrono::steady_clock::now();
+            const auto acquisition_parent = runtime.path() / "acquisitions";
+            fs::create_directory(acquisition_parent);
+            RecipeAcquisitionTestHooks acquisition_hooks;
+            acquisition_hooks.parent = acquisition_parent;
+            acquisition_hooks.event = [&](RecipeAcquisitionStage stage, const fs::path& root) {
+                if(stage == RecipeAcquisitionStage::Initialization) {
+                    ++acquisition_creations;
+                    acquisition_root = root;
+                    require(trial_calls >= 4, "acquisition began before final accepted revalidation");
+                    if(mode == "acquire-unsafe") write_file(root / "moguet/example-base/.git", "gitdir: /never-open\n");
+                }
+                if(stage == RecipeAcquisitionStage::Fetch && mode == "advance-after-revalidation") fixture.advance_recipe_for_bootstrap_test();
+                if(stage == RecipeAcquisitionStage::Cleanup) {
+                    ++acquisition_cleanups;
+                    if(mode == "acquire-cleanup" || mode == "review-decline-cleanup" || mode == "review-cancel-cleanup")
+                        fs::permissions(root, fs::perms::group_write, fs::perm_options::add);
+                }
+            };
+            acquisition_hooks.process = [&](ExplicitProcessInvocation invocation, const BoundedProcessPolicy& policy) {
+                ++acquisition_processes;
+                require(invocation.executable == "/usr/bin/git", "acquisition lost fixed Git executable");
+                for(const auto* key : {"GIT_DIR=", "GIT_WORK_TREE=", "GIT_CONFIG_COUNT=", "GIT_OBJECT_DIRECTORY=", "HOME="})
+                    for(const auto& value : invocation.environment)
+                        require(!value.starts_with(key), "acquisition inherited old Git policy");
+                const bool fetch = std::find(invocation.arguments.begin(), invocation.arguments.end(), "fetch") != invocation.arguments.end();
+                if(fetch) {
+                    ++acquisition_fetches;
+                    require(invocation.arguments[invocation.arguments.size() - 2] == "https://aur.archlinux.org/example-base.git" && invocation.arguments.back() == recipe_x,
+                            "acquisition changed canonical URL or expected X");
+                    if(mode == "acquire-unavailable") return BoundedCapturedProcessResult{"", BoundedProcessExited{0}};
+                    if(mode == "acquire-launch") {
+                        invocation.executable = (runtime.path() / "missing-git").string();
+                    } else if(mode == "acquire-nonzero" || mode == "acquire-signal" || mode == "acquire-timeout" || mode == "acquire-cancel" || mode == "acquire-cancel-zero") {
+                        invocation.executable = "/bin/sh";
+                        invocation.arguments = {"-c", mode == "acquire-nonzero" ? "exit 42" : mode == "acquire-signal"    ? "kill -TERM $$"
+                                                                                          : mode == "acquire-timeout"     ? "while :; do :; done"
+                                                                                          : mode == "acquire-cancel-zero" ? "trap 'exit 0' INT; kill -INT $PPID; while :; do :; done"
+                                                                                                                          : "trap 'exit 130' INT; kill -INT $PPID; while :; do :; done"};
+                        auto bounded = policy;
+                        bounded.hard_timeout = std::chrono::milliseconds(200);
+                        return capture_bounded_explicit_process_output_raw(invocation, bounded);
+                    } else {
+                        // Offline transport only, after asserting the production URL,
+                        // complete environment and HTTPS policy. No acquired success injection.
+                        invocation.arguments[invocation.arguments.size() - 2] = fixture.recipe_remote().string();
+                        auto file_policy = std::find(invocation.arguments.begin(), invocation.arguments.end(), "protocol.file.allow=never");
+                        require(file_policy != invocation.arguments.end(), "acquisition lost HTTPS-only policy");
+                        *file_policy = "protocol.file.allow=always";
+                    }
+                }
+                return capture_bounded_explicit_process_output_raw(invocation, policy);
+            };
+            set_recipe_acquisition_test_hooks(std::move(acquisition_hooks));
             auto result = execute_prepared_system_aur_update_operation(prepare_system_aur_update_operation(std::move(*request)), config);
             require(result.repository.status == SystemAurUpdateRepositoryPhaseStatus::Completed, "fixture repository phase did not complete");
+            if(!result.aur.operation_result && result.aur.diagnostic) std::cerr << *result.aur.diagnostic << '\n';
             require(result.aur.operation_result.has_value(), "bootstrap lost filtered result");
             const auto& filtered = *result.aur.operation_result;
             const auto& targets = filtered.reduced_operation_result.targets;
             const std::size_t bootstrap_index = multi ? 1 : 0;
             require(targets.size() == (multi ? 3U : 1U) && targets[bootstrap_index].update.installed_name == fixture.package_name(), "bootstrap lost original query target correlation");
             const auto& target = targets[bootstrap_index];
-            if(local_failure) {
-                require(std::chrono::steady_clock::now() - operation_started < std::chrono::seconds(15), "local Git trial was not bounded");
-                pid_t child_pid = -1;
-                std::ifstream pid_file(child_pid_file);
-                pid_file >> child_pid;
-                require(child_pid > 0, "local Git failure fixture was not reached");
-                int status = 0;
-                require(waitpid(child_pid, &status, WNOHANG) == -1 && errno == ECHILD, "local Git child was not reaped");
-                require(kill(child_pid, 0) == -1 && errno == ESRCH, "local Git child survived trial");
-                require(trial_calls == 0 && !target.update.bootstrap && !filtered.execution &&
-                            build_entries == 0 && execute_calls == 0 && g_bridge_publication_entries == 0,
-                        "local Git unavailable observation offered bootstrap or mutated state");
+            if(migration_cache_case) {
+                require(cache_before == bootstrap_cache_snapshot(old_cache), "migration changed old checkout bytes/inventory/HEAD/refs/config");
+                require(!fs::exists(old_git_calls), "migration invoked Git on old checkout");
             }
             if(provider_case) {
                 require(filtered.execution.has_value(), "provider fixture has no execution");
@@ -3318,10 +3427,11 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
                 std::cout << "S553 production " << case_name << " PASS\n";
                 continue;
             }
-            const bool success = mode == "accept" || mode == "older" || mode == "reviewed-same" || mode == "reviewed-changed" || mode == "supplemental";
-            const bool skipped = local_failure || mode == "provider-decline" || mode == "decline" || mode == "default-no" || mode == "non-tty" || mode == "noconfirm" || mode == "nodiff" || mode == "diff-skip" ||
+            const bool success = mode == "accept" || mode == "older" || mode == "reviewed-same" || mode == "reviewed-changed" || mode == "supplemental" || mode == "supplemental-collision" || mode == "no-cache" || mode == "clean-cache" || mode == "dirty-pkgbuild" || mode == "overlay" || mode == "ignored" || mode == "wrong-head" || mode == "malicious-config" || mode == "advance-after-revalidation";
+            const bool skipped = mode == "advance-before-revalidation" || mode == "provider-decline" || mode == "decline" || mode == "default-no" || mode == "non-tty" || mode == "noconfirm" || mode == "nodiff" || mode == "diff-skip" ||
                                  mode == "unsupported" || mode == "invalid" || mode == "corrupt" || mode == "future" || mode == "unsafe";
-            const bool cancelled = mode == "cancel" || mode == "eof" || mode == "review-cancel";
+            const bool process_cancelled = mode == "acquire-cancel" || mode == "acquire-cancel-zero";
+            const bool cancelled = mode == "cancel" || mode == "eof" || mode == "review-cancel" || mode == "review-eof" || mode == "review-cancel-cleanup" || process_cancelled;
             if(success) {
                 require(result.is_success() && target.status == AurUpdateOperationTargetStatus::Updated, "bootstrap did not complete");
                 require(target.update.devel_assessment.state() == DevelUpdateAssessmentState::RequiresCheck && !aur_update_basis(target.update), "bootstrap fabricated update availability");
@@ -3366,6 +3476,7 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
                 }
                 const auto readback = read_devel_build_provenance(base);
                 const auto& loaded = require_arm<DevelBuildProvenanceStoreLoaded>(readback, "bootstrap publication readback missing");
+                require(*loaded.provenance.reviewed_recipe_revision().value().git_commit() == recipe_x && recipe_x != actual_oid, "recipe pin changed X or contaminated upstream S4 identity");
                 require(*loaded.provenance.actual_built_revision().revision().value().git_commit() == actual_oid && actual_oid == upstream.oid(), "bootstrap published an observed/cache OID instead of built proof");
                 set_devel_package_assessment_test_hooks({{}, [&](const auto& remote_request) {
                                                              return parse_git_remote_revision_observation(remote_request, 0, upstream.oid() + "\tHEAD\n");
@@ -3377,7 +3488,7 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
                 const auto fast_request = make_compatible_system_aur_update_request(
                     std::get<AutoSystemUpdateRouteCandidate>(classify_sync_invocation_route(*parsed)));
                 auto fast = execute_prepared_system_aur_update_operation(prepare_system_aur_update_operation(*fast_request), config);
-                require(fast.is_success() && trial_calls == trials_before_fast_path && build_entries == 1 && execute_calls == 1,
+                require(fast.is_success() && trial_calls == trials_before_fast_path && build_entries == 1 && execute_calls == 1 && acquisition_creations == 1 && acquisition_fetches == 1,
                         "valid provenance fast path gained bootstrap/rebuild");
                 require(fast.aur.operation_result->reduced_operation_result.targets[bootstrap_index].update.devel_assessment.state() == DevelUpdateAssessmentState::UpToDate,
                         "next ordinary update did not use the published baseline");
@@ -3393,10 +3504,11 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
                             target.skip_kind == AurUpdateExecutionSkipKind::IndependentDevelRequiresCheck,
                         "bootstrap decline/unavailable lost RequiresCheck skip");
                 require(build_entries == 0 && execute_calls == 0 && g_bridge_publication_entries == 0, "unaccepted bootstrap mutated package/provenance");
-                require(cache_before == bootstrap_cache_snapshot(fixture.execution_checkout()), "unaccepted bootstrap mutated checkout/cache");
+                require(cache_before == bootstrap_cache_snapshot(old_cache), "unaccepted bootstrap mutated checkout/cache");
             } else {
                 require(!result.is_success(), "failed/cancelled bootstrap became success");
-                if(cancelled) require(target.status == AurUpdateOperationTargetStatus::Cancelled && target.cancellation,
+                present_filtered_aur_update_execution_result(filtered);
+                if(cancelled) require(target.status == AurUpdateOperationTargetStatus::Cancelled && (process_cancelled ? !target.cancellation.has_value() : target.cancellation.has_value()),
                                       "bootstrap cancellation lost typed partial result");
                 if(mode == "publication-failure" || mode == "publication-unknown") {
                     const auto& execution = filtered.execution->work_item_results[bootstrap_index];
@@ -3406,6 +3518,57 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
                     require(!execution.devel_execution->owner->publication()->identity(), "failed/unknown publication exposed success identity");
                 }
             }
+            if(mode.starts_with("acquire-") || mode.ends_with("-cleanup")) {
+                require(filtered.execution && filtered.reduced_operation_result.reduction_issues.empty(), "acquisition detail broke operation correlation");
+                const auto& item = filtered.execution->work_item_results[bootstrap_index];
+                require(item.recipe_acquisition_failure && target.recipe_acquisition_failure, "runner/reducer lost typed acquisition detail");
+                const auto& failure = *item.recipe_acquisition_failure;
+                using Reason = RecipeAcquisitionFailureReason;
+                const auto reason = mode == "acquire-metadata" ? Reason::MetadataMismatch : mode == "acquire-unavailable" ? Reason::ExpectedCommitUnavailable
+                                                                                        : mode == "acquire-unsafe"        ? Reason::UnsafeFilesystem
+                                                                                        : mode.ends_with("-cleanup")      ? Reason::IdentityChanged
+                                                                                        : process_cancelled               ? Reason::Cancelled
+                                                                                                                          : Reason::GitProcessFailed;
+                require(failure.reason == reason, "acquisition reason was flattened");
+                if(mode == "acquire-launch") require(failure.process && std::holds_alternative<BoundedProcessLaunchOrSetupFailure>(failure.process->outcome), "launch detail lost");
+                if(mode == "acquire-nonzero") require(failure.process && std::get<BoundedProcessExited>(failure.process->outcome).exit_code == 42, "Git exit detail lost");
+                if(mode == "acquire-timeout") require(failure.process && std::holds_alternative<BoundedProcessTimedOut>(failure.process->outcome), "timeout detail lost");
+                if(mode == "acquire-signal") require(failure.process && std::get<BoundedProcessSignaled>(failure.process->outcome).signal_number == SIGTERM, "signal detail lost");
+                if(process_cancelled) require(failure.process && failure.process->cancellation_signal == SIGINT, "parent cancellation detail lost");
+                if(mode == "acquire-cancel-zero") require(std::get<BoundedProcessExited>(failure.process->outcome).exit_code == 0, "cancel test did not actually exit zero");
+                if(process_cancelled) {
+                    for(const bool fake_confirmation : {true, false}) {
+                        auto forged = *filtered.execution;
+                        auto& altered = forged.work_item_results[bootstrap_index];
+                        if(fake_confirmation)
+                            altered.cancellation = ConfirmationCancelled{ConfirmationCancellationReason::ExplicitToken};
+                        else
+                            altered.recipe_acquisition_failure.reset();
+                        const auto rejected = reduce_aur_update_operation_result(filtered.preflight, filtered.preparation, DevelRequiresCheckPolicy::SkipIndependentTarget, forged);
+                        require(rejected.status == AurUpdateOperationStatus::InconsistentResult && !rejected.is_success(), "acquisition cancellation accepted invented/missing cause");
+                    }
+                }
+                if(mode.ends_with("-cleanup")) require(failure.cleanup && failure.abandoned_root && fs::exists(*failure.abandoned_root) && result.has_cleanup_failure(), "cleanup consequence lost");
+                require(build_entries == 0 && execute_calls == 0 && g_bridge_publication_entries == 0, "acquisition failure fell back to old X or started S4/install/P");
+                if(mode == "acquire-cleanup")
+                    require(context_entries == 1 && item.devel_execution && item.devel_execution->owner->stage() == Stage::RecipeCleanup &&
+                                item.production_outcome->build_outcome == ProductionSourceBuildCommandOutcome::NotAttempted && fs::exists(r_directory / "1.toml"),
+                            "S3 cleanup failure continued build or rolled back R");
+                else
+                    require(context_entries == 0 && !fs::exists(r_directory / "1.toml"), "failed acquisition/review minted pin/S3");
+            }
+            if(mode == "s3-failure") {
+                require(filtered.execution && filtered.execution->work_item_results[bootstrap_index].devel_execution->owner->context_failure() &&
+                            context_entries == 1 && build_entries == 0 && execute_calls == 0 && fs::exists(r_directory / "1.toml"),
+                        "S3 failure resumed or rolled back R");
+            }
+            const bool never_acquired = skipped || mode == "cancel" || mode == "eof";
+            require(acquisition_creations == (never_acquired ? 0U : 1U), "unexpected acquisition count before/after Yes");
+            if(never_acquired)
+                require(acquisition_processes == 0 && acquisition_fetches == 0, "decline/cancel acquired recipe");
+            else
+                require(acquisition_cleanups == 1 && (mode.ends_with("-cleanup") || !fs::exists(acquisition_root)), "acquisition lifetime leaked or retried cleanup");
+            if(success) require(acquisition_fetches == 1 && context_entries == 1, "migration did not use fresh acquire/pin/S3");
             if(!success && mode != "publication-unknown") {
                 if(existing_provenance) {
                     std::ifstream file(p_directory / "1.toml");

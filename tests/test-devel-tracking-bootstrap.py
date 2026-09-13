@@ -59,6 +59,32 @@ def main():
     cases = {
         "accept": b"y\ny\n",
         "supplemental": b"y\ny\n",
+        "no-cache": b"y\ny\n",
+        "clean-cache": b"y\ny\n",
+        "dirty-pkgbuild": b"y\ny\n",
+        "overlay": b"y\ny\n",
+        "ignored": b"y\ny\n",
+        "wrong-head": b"y\ny\n",
+        "malicious-config": b"y\ny\n",
+        "supplemental-collision": b"y\ny\n",
+        "advance-after-revalidation": b"y\ny\n",
+        "acquire-cleanup": b"y\ny\n",
+        "s3-failure": b"y\ny\n",
+        "acquire-launch": b"y\n",
+        "acquire-nonzero": b"y\n",
+        "acquire-timeout": b"y\n",
+        "acquire-signal": b"y\n",
+        "acquire-cancel": b"y\n",
+        "acquire-cancel-zero": b"y\n",
+        "acquire-metadata": b"y\n",
+        "acquire-unavailable": b"y\n",
+        "acquire-unsafe": b"y\n",
+        "advance-before-revalidation": b"y\n",
+        "review-eof": b"y\n\x04",
+        "review-decline-cleanup": b"y\nn\n",
+        "review-cancel-cleanup": b"y\nq\n",
+        "multi-acquire-launch": b"y\n",
+        "multi-acquire-cancel-zero": b"y\n",
         "older": b"y\ny\n",
         "newer": b"y\n",
         "reviewed-same": b"y\ny\n",
@@ -86,10 +112,6 @@ def main():
         "multi-provider-ordinary": b"1\ny\n",
         "multi-provider-decline": b"1\n1\nn\n",
         "multi-provider-failure": b"1\n1\n\n",
-        "local-config-timeout": b"",
-        "local-status-timeout": b"",
-        "local-config-overflow": b"",
-        "local-status-overflow": b"",
         "multi-accept": b"y\ny\n",
         "multi-decline": b"n\n",
         "multi-cancel": b"q\n",
@@ -132,12 +154,15 @@ def main():
             if completed.returncode or f"S553 production {case} PASS" not in output:
                 print(output)
                 raise SystemExit(f"bootstrap fixture {case} failed: exit {completed.returncode}")
-            if case.startswith("local-") and "tracking baseline is missing" in output:
-                raise SystemExit(f"unavailable local Git observation prompted: {case}")
-            if case == "supplemental":
+            if case in ("supplemental", "supplemental-collision"):
                 for reviewed_input in ("fix.patch", "config.toml", "reviewed-patch-applied", "reviewed-config"):
                     if reviewed_input not in output:
                         raise SystemExit(f"supplemental full review omitted {reviewed_input}")
+            if "S553 lifecycle " in output:
+                if output.count("tracking baseline is missing") != 1 or output.count("Accept this full source review for devel tracking bootstrap?") != 1:
+                    raise SystemExit(f"migration/review prompt count changed on second ordinary update: {case}")
+            if "malicious-old" in output:
+                raise SystemExit(f"old cache bytes reached full review: {case}")
             for line in output.splitlines():
                 if line.startswith("S553 lifecycle "):
                     print(line)

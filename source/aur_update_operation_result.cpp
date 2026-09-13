@@ -552,7 +552,13 @@ bool failure_payload_is_consistent(
     const AurUpdateWorkItemExecutionResult& work_item) noexcept {
     if(work_item.failure_detail.valueless_by_exception()) return false;
     const bool cancelled = work_item.status == AurUpdateWorkItemExecutionStatus::Cancelled;
-    if(cancelled != work_item.cancellation.has_value()) return false;
+    const bool acquisition_cancelled = work_item.recipe_acquisition_failure &&
+                                       work_item.recipe_acquisition_failure->reason == RecipeAcquisitionFailureReason::Cancelled;
+    if(work_item.cancellation && acquisition_cancelled) return false;
+    if(cancelled != (work_item.cancellation.has_value() || acquisition_cancelled)) return false;
+    if(work_item.recipe_acquisition_failure &&
+       (!work_item.bootstrap_decision || work_item.bootstrap_decision->state != AurUpdateBootstrapDecisionState::Accepted ||
+        (work_item.status != AurUpdateWorkItemExecutionStatus::Failed && !cancelled))) return false;
     if(work_item.cancellation &&
        work_item.cancellation->reason != ConfirmationCancellationReason::ExplicitToken &&
        work_item.cancellation->reason != ConfirmationCancellationReason::EndOfInput) return false;
@@ -625,7 +631,8 @@ AurUpdateOperationExecutionContribution make_contribution(
         status,
         work_item.failure_kind,
         work_item.failure_detail,
-        work_item.diagnostic, work_item.cancellation, work_item.bootstrap_decision, work_item.bootstrap_skipped_roots};
+        work_item.diagnostic, work_item.cancellation, work_item.bootstrap_decision, work_item.bootstrap_skipped_roots,
+        work_item.recipe_acquisition_failure};
 }
 
 AurUpdateOperationExecutionContribution make_planned_contribution(
@@ -689,6 +696,7 @@ void retain_decisive_contribution(
     AurUpdateOperationTargetResult& target,
     const AurUpdateOperationExecutionContribution& contribution) {
     target.cancellation = contribution.cancellation;
+    target.recipe_acquisition_failure = contribution.recipe_acquisition_failure;
     if(contribution.bootstrap_decision) target.bootstrap_decision = contribution.bootstrap_decision;
     if(!contribution.bootstrap_skipped_roots.empty()) target.bootstrap_skipped_roots = contribution.bootstrap_skipped_roots;
     target.execution_work_item_index = contribution.work_item_index;
@@ -1158,7 +1166,7 @@ AurUpdateOperationStatus map_invocation_status(
 bool is_valid_success_target_snapshot(
     const AurUpdateOperationTargetResult& target,
     DevelRequiresCheckPolicy policy) noexcept {
-    if(target.cancellation.has_value()) return false;
+    if(target.cancellation.has_value() || target.recipe_acquisition_failure) return false;
     switch(target.status) {
         case AurUpdateOperationTargetStatus::Updated:
         case AurUpdateOperationTargetStatus::NoChange:
@@ -1352,7 +1360,8 @@ bool AurUpdateOperationResult::has_cleanup_failure() const noexcept {
     if(std::any_of(
            execution_work_items.begin(), execution_work_items.end(),
            [](const AurUpdateWorkItemExecutionResult& work_item) {
-               return is_cleanup_failure_status(work_item.status);
+               return is_cleanup_failure_status(work_item.status) ||
+                      (work_item.recipe_acquisition_failure && work_item.recipe_acquisition_failure->cleanup);
            })) {
         return true;
     }

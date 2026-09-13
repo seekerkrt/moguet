@@ -142,8 +142,9 @@ public provider/AUR/local live acceptanceやrelease approvalをdeterministic sea
 
 exact target-less ordinary `-Syu` Autoだけが、initial ProvenanceMissingの独立targetへdefault-Noの
 bootstrap確認を提示できる。試行適格性はexact recipeとcurrent local observationsに結び付くread-only値であり、
-review/build/install/publication proofではない。初期trial observerでは追加source fileの追跡・file typeを
-metadataだけから証明しないため、one Git source以外のrecipeは提示しない。
+review/build/install/publication proofではない。one Git rootとboundedなrecipe直下のrenameなしlocal inputsを候補にできる。
+追加source fileのtracked/regular/exact bytesはfull review/S3/S4で証明する。old recipe cacheのclean/dirty/HEAD/originに依存せず、
+Yes後はfresh private workspaceへexact observed recipeを取得し、取得失敗時もold cacheへfallbackしない。
 
 Yes後にもfull source reviewを要求する。既存RをMissingへ偽装せず、exact observed predecessorをCASへ保持する。
 reviewed exact recipe→S4→S5→S6を完了した場合だけ初回baselineが成立し、次回P/I/Rとsame remote OIDはUpToDate、

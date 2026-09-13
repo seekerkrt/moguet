@@ -1606,6 +1606,7 @@ moguet_add_cpp_test(
     SOURCES ${_moguet_evaluated_transport_test_sources}
         source/reviewed_devel_source_build_execution.cpp
         source/source_build.cpp
+        source/invocation_owned_recipe_acquisition.cpp
         source/reviewed_devel_source_route.cpp
         tests/stubs/aur-devel-update/query_stub.cpp
         source/aur_update_plan.cpp
@@ -1653,6 +1654,7 @@ moguet_add_cpp_test(
         tests/stubs/reviewed-source-production/execution_stub.cpp
         source/reviewed_devel_source_build_execution.cpp
         source/source_build.cpp
+        source/invocation_owned_recipe_acquisition.cpp
         source/source_install.cpp
         source/reviewed_devel_source_route.cpp
         tests/stubs/aur-devel-update/query_stub.cpp
@@ -1707,6 +1709,7 @@ moguet_add_cpp_test(
         tests/devel_build_provenance_publication_fixture.cpp
     DEFINITIONS
         MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
+        MOGUET_ENABLE_RECIPE_ACQUISITION_TEST_HOOKS
         MOGUET_ENABLE_AUR_UPDATE_EXECUTION_RUNNER_TEST_HOOKS
         MOGUET_TEST_NORMAL_REVIEWED_DEVEL_EXECUTION
         MOGUET_TEST_REVIEWED_DEVEL_SOURCE_EXECUTION

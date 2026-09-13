@@ -5,6 +5,7 @@
 
 class ValidatedCachePath;
 class PinnedReviewedSourceBuild;
+class InvocationOwnedRecipeAcquisition;
 class ProductionArtifactSourceTree;
 class PreparedReviewedDevelSourceBuildExecution;
 class ReviewedDevelSourceBuildExecutionResult;
@@ -26,14 +27,14 @@ class ReviewedDevelSourceBuildExecutionAuthority final {
     friend ReviewedProductionSourceExecution prepare_reviewed_production_source_execution(
         ReviewedProductionExecutionChoice, ValidatedCachePath, PinnedReviewedSourceBuild,
         ProductionReviewedSourceOutcome, std::optional<ReviewedSourceAbnormalStateReason>,
-        const ReviewedDevelSourceBuildIntent&);
+        const ReviewedDevelSourceBuildIntent&, InvocationOwnedRecipeAcquisition*);
     friend std::optional<ReviewedDevelSourceBuildExecutionResult> execute_reviewed_devel_source_build(
         PreparedReviewedDevelSourceBuildExecution) noexcept;
 
     static ReviewedProductionSourceExecution prepare(
         ReviewedProductionExecutionChoice, ValidatedCachePath, PinnedReviewedSourceBuild,
         ProductionReviewedSourceOutcome, std::optional<ReviewedSourceAbnormalStateReason>,
-        const ReviewedDevelSourceBuildIntent&);
+        const ReviewedDevelSourceBuildIntent&, InvocationOwnedRecipeAcquisition*);
     static std::optional<ReviewedDevelSourceBuildExecutionResult> execute(
         PreparedReviewedDevelSourceBuildExecution) noexcept;
 };

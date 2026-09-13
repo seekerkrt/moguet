@@ -552,7 +552,7 @@ void recipe_head_observation_matrix() {
         unsigned head_calls = 0;
         unsigned metadata_calls = 0;
         DevelTrackingBootstrapTestHooks hooks;
-        hooks.checkout = [](const auto&) { return true; };
+        hooks.checkout = [](const auto&) -> bool { throw std::logic_error("trial read old cache"); };
         hooks.recipe_head = [&](const ExplicitProcessInvocation& invocation, const BoundedProcessPolicy& policy) {
             ++head_calls;
             require(invocation.executable == "/usr/bin/git" && invocation.working_directory_fd && invocation.standard_input_fd,
@@ -704,29 +704,30 @@ void bootstrap_trial_observation_matrix() {
         if(mode == "multiple-source") metadata.insert(metadata.find("pkgname"), "\tsource = git+https://example.invalid/other.git\n");
         if(mode == "architecture") metadata.replace(metadata.find("source ="), 8, "source_x86_64 =");
         if(mode == "malformed") metadata = "not source metadata";
-        unsigned recipe_calls = 0;
+        unsigned recipe_calls = 0, checkout_calls = 0;
         std::string recipe = f.recipe;
         set_devel_tracking_bootstrap_test_hooks({[&](const auto&) -> std::optional<DevelTrackingBootstrapRecipeObservation> {
                                                      ++recipe_calls;
                                                      return DevelTrackingBootstrapRecipeObservation{SourceRevisionIdentity::git_commit(recipe), metadata};
                                                  },
-                                                 [&](const auto&) { return mode != "overlay"; }});
+                                                 [&](const auto&) { ++checkout_calls; return mode != "overlay"; }});
         const auto before_review = read(f.r_file());
         const auto result = observe_devel_tracking_bootstrap(f.child);
         const auto* trial = std::get_if<std::shared_ptr<const DevelTrackingBootstrapTrial>>(&result);
-        const bool positive = mode == "eligible" || mode == "binding-change" || mode == "recipe-change";
+        const bool positive = mode == "eligible" || mode == "overlay" || mode == "binding-change" || mode == "recipe-change";
         require(static_cast<bool>(trial) == positive, "bootstrap trial eligibility mismatch");
         if(trial) {
             require(revalidate_devel_tracking_bootstrap(**trial), "unchanged trial was rejected");
             if(mode == "binding-change") ++f.generation;
             if(mode == "recipe-change") recipe = std::string(40, 'c');
-            if(mode != "eligible") require(!revalidate_devel_tracking_bootstrap(**trial), "stale trial remained usable");
+            if(mode == "binding-change" || mode == "recipe-change") require(!revalidate_devel_tracking_bootstrap(**trial), "stale trial remained usable");
             require(!fs::exists(f.p_file().parent_path()), "trial created provenance");
         } else {
             static_cast<void>(arm<Unavailable>(result));
             if(mode == "corrupt" || mode == "future" || mode == "unsafe" || mode == "review-corrupt")
                 require(recipe_calls == 0, "invalid existing state reached trial network");
         }
+        require(checkout_calls == 0, "trial/revalidation used old cache authority");
         require(read(f.r_file()) == before_review, "trial changed reviewed state");
         std::cout << "S553 trial " << mode << " read-only PASS\n";
     }

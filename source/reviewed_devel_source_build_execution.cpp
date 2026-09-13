@@ -8,6 +8,8 @@
 #include <utility>
 
 struct ReviewedDevelSourceBuildExecutionState {
+    std::optional<InvocationOwnedRecipeAcquisition> acquisition;
+    std::optional<RecipeAcquisitionFailure> acquisition_failure;
     std::optional<PinnedReviewedSourceBuild> pin;
     ReviewedDevelSourceBuildIntent intent;
     ProductionSourceBuildProvenance provenance;
@@ -53,6 +55,19 @@ void enter(ReviewedDevelSourceBuildExecutionState& state, Stage stage) {
 #ifdef MOGUET_ENABLE_REVIEWED_DEVEL_SOURCE_BUILD_EXECUTION_TEST_HOOKS
     if(g_execution_hooks.before_stage) g_execution_hooks.before_stage(stage, state.built && state.built->valid() ? &*state.built : nullptr);
 #endif
+}
+
+void cleanup_recipe(ReviewedDevelSourceBuildExecutionState& state) {
+    if(!state.acquisition) return;
+    const auto& root = state.acquisition->workspace_path();
+    const auto failure = state.acquisition->cleanup();
+    if(failure) {
+        state.acquisition_failure.emplace(RecipeAcquisitionFailure{
+            RecipeAcquisitionStage::Cleanup, failure->reason, failure->error_number,
+            std::nullopt, failure, root});
+        if(!state.issue) state.issue = Issue::RecipeCleanupFailure;
+    }
+    state.acquisition.reset();
 }
 
 std::filesystem::path comparable_database_path(std::filesystem::path path) {
@@ -107,6 +122,10 @@ const InvocationOwnedSourceBuildContextFailure* ReviewedDevelSourceBuildExecutio
     const auto& value = require_state().context_failure;
     return value ? &*value : nullptr;
 }
+const RecipeAcquisitionFailure* ReviewedDevelSourceBuildExecutionResult::recipe_acquisition_failure() const {
+    const auto& value = require_state().acquisition_failure;
+    return value ? &*value : nullptr;
+}
 const EvaluatedDevelSourceBuildFailure* ReviewedDevelSourceBuildExecutionResult::build_failure() const {
     const auto& value = require_state().build_failure;
     return value ? &*value : nullptr;
@@ -130,8 +149,14 @@ const DevelBuildProvenancePublicationResult* ReviewedDevelSourceBuildExecutionRe
 ReviewedProductionSourceExecution ReviewedDevelSourceBuildExecutionAuthority::prepare(
     ReviewedProductionExecutionChoice choice, ValidatedCachePath checkout, PinnedReviewedSourceBuild reviewed,
     ProductionReviewedSourceOutcome outcome, std::optional<ReviewedSourceAbnormalStateReason> abnormal,
-    const ReviewedDevelSourceBuildIntent& intent) {
+    const ReviewedDevelSourceBuildIntent& intent, InvocationOwnedRecipeAcquisition* acquisition) {
     if(!reviewed.valid()) return ReviewedDevelSourceBuildRejected{Issue::InvalidPin};
+    if(static_cast<bool>(intent.request.devel_tracking_bootstrap) != (acquisition != nullptr))
+        return ReviewedDevelSourceBuildRejected{Issue::IdentityMismatch};
+    if(acquisition && (!intent.request.devel_tracking_bootstrap || choice != ReviewedProductionExecutionChoice::AuthoritativeDevel ||
+                       acquisition->checkout().device() != checkout.device() || acquisition->checkout().inode() != checkout.inode() ||
+                       acquisition->identity() != reviewed.identity()))
+        return ReviewedDevelSourceBuildRejected{Issue::IdentityMismatch};
     if(choice == ReviewedProductionExecutionChoice::Legacy)
         return make_reviewed_production_artifact_source_tree(std::move(checkout), std::move(reviewed), outcome, abnormal);
     if(choice != ReviewedProductionExecutionChoice::AuthoritativeDevel) return ReviewedDevelSourceBuildRejected{Issue::UnsupportedChoice};
@@ -154,8 +179,11 @@ ReviewedProductionSourceExecution ReviewedDevelSourceBuildExecutionAuthority::pr
     if(target.desired_reason != DesiredInstallReason::Explicit && target.desired_reason != DesiredInstallReason::Dependency)
         return ReviewedDevelSourceBuildRejected{Issue::InvalidInstallReason};
     // Allocate/copy the outer result storage and intent before S3/S4/S5 begin.
-    return PreparedReviewedDevelSourceBuildExecution(std::make_unique<ReviewedDevelSourceBuildExecutionState>(
-        std::move(reviewed), intent, outcome, abnormal));
+    auto state = std::make_unique<ReviewedDevelSourceBuildExecutionState>(std::move(reviewed), intent, outcome, abnormal);
+    // Only the successful prepared arm takes ownership. On rejection/exception
+    // the caller still owns acquisition and observes its explicit cleanup.
+    if(acquisition) state->acquisition.emplace(std::move(*acquisition));
+    return PreparedReviewedDevelSourceBuildExecution(std::move(state));
 }
 
 std::optional<ReviewedDevelSourceBuildExecutionResult> ReviewedDevelSourceBuildExecutionAuthority::execute(
@@ -170,10 +198,18 @@ std::optional<ReviewedDevelSourceBuildExecutionResult> ReviewedDevelSourceBuildE
         if(auto* failure = std::get_if<InvocationOwnedSourceBuildContextFailure>(&context)) {
             state.context_failure.emplace(std::move(*failure));
             state.issue = Issue::ContextFailure;
+            cleanup_recipe(state);
             return result;
         }
         state.context.emplace(std::move(std::get<InvocationOwnedSourceBuildContext>(context)));
         state.owned_root = state.context->owned_root();
+        // S3 has completed final reproof and owns its independent snapshot.
+        // Cleanup failure stops before S4 without rolling back published R.
+        if(state.acquisition) {
+            enter(state, Stage::RecipeCleanup);
+            cleanup_recipe(state);
+            if(state.issue) return result;
+        }
         enter(state, Stage::Environment);
         auto environment = state.context->make_makepkg_environment(state.intent.request.custom_environment, state.intent.request.empty_value_policy);
         if(auto* failure = std::get_if<InvocationOwnedSourceBuildContextFailure>(&environment)) {
@@ -274,14 +310,20 @@ std::optional<ReviewedDevelSourceBuildExecutionResult> ReviewedDevelSourceBuildE
     } catch(...) {
         state.issue = Issue::InternalFailure;
     }
+    try {
+        cleanup_recipe(state);
+    } catch(...) {
+        // Resource failure must not turn a failed execution into success.
+        state.issue = Issue::ResourceFailure;
+    }
     return result;
 }
 
 ReviewedProductionSourceExecution prepare_reviewed_production_source_execution(
     ReviewedProductionExecutionChoice choice, ValidatedCachePath checkout, PinnedReviewedSourceBuild reviewed,
     ProductionReviewedSourceOutcome outcome, std::optional<ReviewedSourceAbnormalStateReason> abnormal,
-    const ReviewedDevelSourceBuildIntent& intent) {
-    return ReviewedDevelSourceBuildExecutionAuthority::prepare(choice, std::move(checkout), std::move(reviewed), outcome, abnormal, intent);
+    const ReviewedDevelSourceBuildIntent& intent, InvocationOwnedRecipeAcquisition* acquisition) {
+    return ReviewedDevelSourceBuildExecutionAuthority::prepare(choice, std::move(checkout), std::move(reviewed), outcome, abnormal, intent, acquisition);
 }
 std::optional<ReviewedDevelSourceBuildExecutionResult> execute_reviewed_devel_source_build(
     PreparedReviewedDevelSourceBuildExecution prepared) noexcept {

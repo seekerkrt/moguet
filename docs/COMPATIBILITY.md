@@ -223,12 +223,14 @@ zero-I/Oとする。`upgrade-aur`と`upgrade-all`は`BlockOperation` + Strictの
 interactiveなexact target-less Auto `-Syu`では、初回P観測が
 `ProvenanceMissing` / `Stage::Provenance` / `before=Missing`の独立targetだけに、
 明示tracking bootstrapを提示できる。exact AUR recipeのread-only trial観測で、single package・
-architecture-independentなone floating HTTPS Git source・checkout overlayなしを確認する。
-追加source fileのtracked regular-file identityを確認できない場合など、試行適格性が不明なら
-提示せず従来のwarning/skipとする。この観測はS4/S5/S6 proofではない。
+one floating HTTPS Git sourceとboundedなrecipe直下のrenameなしlocal patch/config declarationsを確認する。
+multiple declared archは対応するが、architecture-qualified sourceは拒否する。local inputのtracked/regular/exact bytesは
+後段full review/S3/S4が証明する。試行適格性が不明なら従来のwarning/skipとし、この観測をS4/S5/S6 proofにしない。
+old persistent recipe checkoutのdirty/overlay/HEAD/origin/configはtrial・再検証のauthorityにしない。
 
 default-No確認は対象由来のcache/provider/dependency mutationより前に行う。Yesは開始の許可だけで、
-既存review stateがあっても別途full source reviewを要求し、reviewed exact source、対応build、
+fresh isolated workspaceへ事前観測したexact recipeを取得する。old cacheのread authority・mutation・fallbackはない。
+既存review stateがあっても別途full source reviewとexplicit acceptanceを要求し、reviewed exact source、対応build、
 actual install、fresh installed binding、S6 Completeをすべて要求する。RのMissing偽装やstate削除はしない。
 `--noedit`は利用できるが、`--nodiff` / `review.diff=Skip` / `--noconfirm` / non-TTYでは提示しない。
 declineはtyped RequiresCheck skip、cancel/EOFはtyped operation cancellation、後続は停止する。

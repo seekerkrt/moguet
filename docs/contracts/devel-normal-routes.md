@@ -119,8 +119,8 @@ source-buildやtarget grammarの一般policyを変更しない。
 - `observe_aur_devel_bootstrap_candidates`は元query index/evidence/contextを維持してtrial intentを付ける。
   RequiresCheckやVersion/GitRevision basisを変更しない。
 - trialはP/I/Rとfull installed groupingをread-onlyで観測し、recipe HEAD OIDをrepositoryless Gitで取得し、
-  そのexact idのAUR cgit metadataをboundedに読む。既存cacheは安全なread-only open/statusだけで確認する。
-  one package、exactly one floating HTTPS Git source、DefaultHead/Branch、source qualifierなし、overlayなしに限定する。
+  そのexact idのAUR cgit metadataをboundedに読む。old persistent recipe checkoutは観測しない。
+  one package、exactly one floating HTTPS Git source、DefaultHead/Branch、source qualifierなしに限定する。
   source全件を分類し、合計1..64件、Git以外はrecipe直下のrenameなしlocal basenameを最大63件まで候補にできる。
   local名は255 bytes以下のASCII英数字・`_`・`-`・`+`・`.`に限定し、dot始まり、`..`を含む名前、`PKGBUILD`を拒否する。
   `.SRCINFO`、Git metadata、private `.moguet-*` inputsもdot始まりとして除外する。extension whitelistは設けない。
@@ -161,8 +161,8 @@ source-buildやtarget grammarの一般policyを変更しない。
 ## Isolated recipe acquisition foundation (#564 Slice 3A)
 
 `acquire_invocation_owned_recipe(const DevelTrackingBootstrapTrial&)`は、initial migration用の
-取得foundationである。normal routeへの接続、trial eligibilityの変更、`clean_checkout()`の削除、
-old persistent recipe checkoutとの切離しはSlice 3Bに残る。3Aだけではdirty cache migrationは成功しない。
+取得foundationである。Slice 3Bでは上記initial Missing migrationのexplicit Yes後だけに接続する。
+clean/dirtyを問わずfresh acquisitionを使い、trialと再検証はold PackageBase checkoutのclean gateへ依存しない。
 
 入力は既存typed trialのcanonical PackageBase、事前観測済みexact recipe OID、cgit exact-idの
 raw `.SRCINFO` bytes。canonical AUR URLの検証は既存`AurReviewedSourceReviewIdentity`を再利用する。
@@ -228,4 +228,40 @@ abort cleanupが失敗した場合は`abandoned_root`を診断用に保持する
 exact-id metadata observation seam、offline Git transport substitutionを使う。productionのcanonical HTTPS
 argv/envpを検査した後、test binaryだけで取得先をlocal fixtureへ置換する。実HTTPS/AUR server policyの
 検証ではない。SHA-1/SHA-256、remote advance、actual full review/pin/S3、two-owner isolation、
-process/cancel/resource/config/filesystem/cleanup failureを覆う。通常routeのactivation evidenceにはしない。
+process/cancel/resource/config/filesystem/cleanup failureを覆う。通常routeのactivationは下記の別fixtureで検証する。
+
+## Bootstrap integration / old cache decoupling (#564 Slice 3B)
+
+runnerの既存decision順序、Yes前 / Yes後 / source実行前のP/I/R・exact recipe・metadata・source shape再検証を維持する。
+No/default-No/cancel/EOFでは取得workspaceもGit acquisitionも作らない。source実行前の最後の再検証後にremoteが
+XからYへ進んでも、取得・full review・pinはtrialのXだけを使う。X取得失敗は停止し、Yへの再観測・差替えを行わない。
+
+migrationの`source_build`はold `<cache>/moguet/<PackageBase>`を開く前に3A factoryへ分岐する。
+old contents/HEAD/refs/origin/configをeligibility・review・recipe inputに使わず、fetch/reset/clean/checkout/
+remove/reclone/config rewriteも行わない。clean cacheだけを旧経路へ戻す分岐はない。
+共有XDG cache root activationとprivate artifact root capabilityの既存preflightは別責務として維持する。
+通常valid provenance更新、non-devel、legacy/compatibilityのpersistent checkout契約は変更しない。
+
+取得したexact identityを既存`BootstrapFullReview`へ渡す。migration Yesと別のexplicit review acceptance、
+既存R publication/CAS、trial `.SRCINFO`/pin OID相関を経て、move-only acquisition ownerを
+`PreparedReviewedDevelSourceBuildExecution`のstateへ移す。borrowed pathだけでは寿命を延ばさない。
+既存S3 producerがpinを消費しfinal reproofを終えた後、取得ownerを明示cleanupしてからS4へ進む。
+S3失敗でも取得cleanupを実行する。S4が観測するupstream Git OIDはrecipe OIDとは別identityのままである。
+
+取得failureは`BootstrapRecipeAcquisitionError`でgeneric exception boundaryを越え、runner / operation resultの
+`recipe_acquisition_failure`へstage/reason/process/errno/boundary/cleanup/residueを保持する。
+review失敗にcleanup失敗が伴う場合は元のreview/confirmation exceptionをprimaryとして保つ。
+S3後cleanup失敗は`RecipeCleanupFailure`でS4前に停止し、S3 failureがあればそのprimaryも残す。
+cleanupを理由にRをrollbackせず、retry/automatic repair/old-cache fallbackを行わない。
+
+acquisitionの親signal cancellationは元の`cancellation_signal`とchild outcomeを保持し、child exit 0でも
+runnerのCancelled → operation cancellationへ投影する。q/EOFの`ConfirmationCancelled`は生成しない。
+accepted work itemのfirst failure/cancelはnonzero、completed prefixを保持し、suffixはNotAttemptedとなる。
+
+`test-devel-tracking-bootstrap`はold cacheとは独立して作ったauthoritative recipeとexact-id metadata seamを使う。
+actual Git取得、production full reviewと別Yes、pin/S3、actual makepkg/archive、既存S5 transport/installed observation
+fixtureからS6 Completeまでを通す。old cacheの全entry/regular bytes/HEAD/refs/configを前後照合し、old pathへのGit
+呼出0を確認する。dirty tracked PKGBUILD、untracked/ignored residue、wrong HEAD/origin/config、patch/config collision、
+remote advance、取得failure/cancel、review stop、S3/cleanup failureを対象とする。
+同remoteの再assessmentと2回目ordinary updateではUpToDate・取得/build/install追加0を確認する。
+このdeterministic evidenceを実AUR通信・host package DB installやSlice 6の全closureへ読み替えない。
