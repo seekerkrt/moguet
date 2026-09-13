@@ -22,6 +22,10 @@ enum class DevelTrackingBootstrapUnavailableReason {
     RecipeMetadataUnavailable,
     RecipeMetadataMalformed,
     UnsupportedSource,
+    UnsupportedSourceCount,
+    MultipleTrackingSources,
+    UnsupportedLocalSource,
+    SourceDestinationCollision,
     CheckoutOverlayOrUnavailable,
     ObservationChanged,
 };

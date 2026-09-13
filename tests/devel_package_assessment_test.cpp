@@ -632,6 +632,50 @@ void recipe_head_observation_matrix() {
     check("metadata malformed", {record(), BoundedProcessExited{0}}, Reason::RecipeMetadataMalformed, true);
     metadata = srcinfo + "pkgname = unsupported-sibling\n";
     check("unsupported topology", {record() + record(), BoundedProcessExited{0}}, Reason::UnsupportedSource, true);
+
+    const std::string git = "git+https://example.invalid/upstream.git";
+    const auto source_case = [&](const std::string& label, const std::vector<std::string>& entries,
+                                 std::optional<Reason> expected, bool qualified = false) {
+        metadata = "pkgbase = assessment\n\tpkgver = 1\n\tpkgrel = 1\n\tarch = any\n";
+        for(const auto& entry : entries)
+            *metadata += (qualified ? "\tsource_x86_64 = " : "\tsource = ") + entry + "\n";
+        *metadata += "pkgname = assessment-git\n";
+        check(label.c_str(), {record() + record(), BoundedProcessExited{0}}, expected, true);
+    };
+    source_case("one Git", {git}, std::nullopt);
+    source_case("Git + patch", {git, "fix.patch"}, std::nullopt);
+    source_case("Git + patch + config", {git, "fix.patch", "config.toml"}, std::nullopt);
+    source_case("local before Git", {"config.toml", git, "fix.patch"}, std::nullopt);
+    source_case("branch + locals", {git + "#branch=main", "fix.patch", "config.toml"}, std::nullopt);
+    source_case("Git alias + extensionless local", {"checkout::" + git, "settings"}, std::nullopt);
+    std::vector<std::string> bounded{git};
+    for(unsigned index = 0; index < 63; ++index)
+        bounded.push_back("input-" + std::to_string(index));
+    source_case("64 total", bounded, std::nullopt);
+    bounded.push_back("one-too-many");
+    source_case("65 total", bounded, Reason::UnsupportedSourceCount);
+    source_case("zero sources", {}, Reason::UnsupportedSourceCount);
+    source_case("local only", {"fix.patch"}, Reason::UnsupportedSource);
+    source_case("second Git", {git, "fix.patch", "git+https://example.invalid/other.git"}, Reason::MultipleTrackingSources);
+    for(const auto& unsupported : {"http://example.invalid/fix.patch", "https://example.invalid/config.toml",
+                                   "https://example.invalid/archive.tar.gz", "hg+https://example.invalid/repo",
+                                   "svn+https://example.invalid/repo", "fossil+https://example.invalid/repo",
+                                   "cvs+https://example.invalid/repo"})
+        source_case("remote/VCS supplemental", {git, unsupported}, Reason::UnsupportedSource);
+    for(const auto& local : {"patches/fix.patch", "configs/default.toml", "fix.patch::patches/upstream.patch",
+                             "fix.patch::upstream.patch", "../fix.patch", "./fix.patch", "/fix.patch", ".", "..",
+                             "a..b", "PKGBUILD", ".SRCINFO", ".git", ".gitmodules", ".moguet-evaluated-recipe",
+                             "$generated", "*.patch", "fix\\patch", "fix patch"})
+        source_case("unsupported local declaration: " + std::string(local), {git, local}, Reason::UnsupportedLocalSource);
+    source_case("overlong basename", {git, std::string(256, 'a')}, Reason::UnsupportedLocalSource);
+    source_case("duplicate local", {git, "fix.patch", "fix.patch"}, Reason::SourceDestinationCollision);
+    source_case("Git destination collision", {git, "upstream"}, Reason::SourceDestinationCollision);
+    source_case("Git destination collision before Git", {"upstream", git}, Reason::SourceDestinationCollision);
+    source_case("Git alias collision", {"fix.patch::" + git, "fix.patch"}, Reason::SourceDestinationCollision);
+    source_case("Git filename suffix collision", {git + ".extra/", "upstream"}, Reason::SourceDestinationCollision);
+    source_case("qualified source", {git, "fix.patch"}, Reason::UnsupportedSource, true);
+    for(const auto& malformed : {"", "::fix.patch", "fix.patch::", "git+https://example.invalid/upstream.git#branch="})
+        source_case("malformed source entry: " + std::string(malformed), {git, malformed}, Reason::RecipeMetadataMalformed);
 }
 
 void bootstrap_trial_observation_matrix() {

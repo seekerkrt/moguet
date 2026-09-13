@@ -386,6 +386,8 @@ enum class RecipeShape {
     UnsupportedVcs,
     UnsupportedSelector,
     DynamicVersionDrift,
+    MissingLocal,
+    DirectoryLocal,
 };
 
 struct ArchitectureFixture {
@@ -461,7 +463,15 @@ public:
             ".SRCINFO",
             srcinfo(shape, exact_branch, tracked_local_source));
         if(tracked_local_source) {
-            write_file("fixture.patch", "reviewed local source\n");
+            write_file("fix.patch", "--- a/payload.txt\n+++ b/payload.txt\n@@ -1 +1 @@\n-revision-one\n+reviewed-patch-applied\n");
+            write_file("config.toml", "setting = \"reviewed-config\"\n");
+            if(shape == RecipeShape::MissingLocal || shape == RecipeShape::DirectoryLocal) {
+                require(fs::remove(repository_ / "fix.patch"), "Cannot remove fixture-owned patch");
+                if(shape == RecipeShape::DirectoryLocal) {
+                    fs::create_directory(repository_ / "fix.patch");
+                    write_file("fix.patch/entry", "not a regular supplemental input\n");
+                }
+            }
         }
         recipe_oid_ = commit("reviewed recipe");
         run_git({"update-ref", "refs/remotes/origin/main", recipe_oid_});
@@ -672,7 +682,7 @@ private:
                 "\n    \"second::git+https://fixture.invalid/second.git\"";
         }
         if(tracked_local_source) {
-            second_source += "\n    \"fixture.patch\"";
+            second_source += "\n    \"fix.patch\"\n    \"config.toml\"";
         }
         std::string prepare;
         if(prepare_mutation) {
@@ -680,6 +690,16 @@ private:
                 "prepare() {\n"
                 "    cd \"$srcdir/$pkgname\"\n"
                 "    printf 'prepared\\n' >> payload.txt\n"
+                "}\n\n";
+        }
+        if(tracked_local_source) {
+            prepare =
+                "prepare() {\n"
+                "    cd \"$srcdir/$pkgname\"\n"
+                "    patch -p1 < \"$srcdir/fix.patch\"\n"
+                "}\n\n"
+                "build() {\n"
+                "    cp \"$srcdir/config.toml\" \"$srcdir/$pkgname/built-config.toml\"\n"
                 "}\n\n";
         }
         const std::string pkgver_function =
@@ -715,10 +735,11 @@ private:
                second_source + ")\n"
                                "sha256sums=('SKIP'" +
                (shape == RecipeShape::MultipleGit ? " 'SKIP'" : "") +
-               (tracked_local_source ? " 'SKIP'" : "") +
+               (tracked_local_source ? " 'SKIP' 'SKIP'" : "") +
                ")\n\n" + pkgver_function + prepare +
                "package() {\n" + architecture_.package_commands +
-               "    install -Dm644 \"$srcdir/$pkgname/payload.txt\" \"$pkgdir/usr/share/$pkgname/payload.txt\"\n"
+               "    install -Dm644 \"$srcdir/$pkgname/payload.txt\" \"$pkgdir/usr/share/$pkgname/payload.txt\"\n" +
+               (tracked_local_source ? "    install -Dm644 \"$srcdir/$pkgname/built-config.toml\" \"$pkgdir/usr/share/$pkgname/config.toml\"\n" : "") +
                "}\n";
     }
 
@@ -747,7 +768,9 @@ private:
         }
         if(tracked_local_source) {
             result +=
-                "\tsource = fixture.patch\n"
+                "\tsource = fix.patch\n"
+                "\tsha256sums = SKIP\n"
+                "\tsource = config.toml\n"
                 "\tsha256sums = SKIP\n";
         }
         result += "pkgname = " + package_name_ + "\n";
@@ -1037,15 +1060,29 @@ void test_valid_dynamic_build_and_prepare_mutation() {
     cleanup_proof(proof);
 }
 
+void require_supplemental_artifact(const EvaluatedDevelSourceBuildProof& proof, const ReviewedBuildFixture& fixture) {
+    require(proof.evaluated_source().source_count() == 3 &&
+                proof.evaluated_source().tracked_local_source_count() == 2,
+            "Supplemental input counts differ");
+    require(archive_member(proof.artifact().path(), "usr/share/" + fixture.package_name() + "/payload.txt") == "reviewed-patch-applied\n",
+            "Actual applied patch bytes did not reach the archive");
+    require(archive_member(proof.artifact().path(), "usr/share/" + fixture.package_name() + "/config.toml") == "setting = \"reviewed-config\"\n",
+            "Actual build-copied config bytes did not reach the archive");
+}
+
 void test_reviewed_local_source_remains_supported_input() {
     UpstreamGitFixture upstream("tracked-local");
+    ArchitectureFixture architecture;
+    architecture.declared = {"i686", "x86_64"};
+    architecture.effective = "x86_64";
     ReviewedBuildFixture fixture(
         "tracked-local", upstream, RecipeShape::Valid,
-        false, false, true);
+        false, true, true, true, architecture);
     EvaluatedDevelSourceBuildProof proof = build_success(fixture);
+    require_supplemental_artifact(proof, fixture);
     require(
-        proof.evaluated_source().source_count() == 2 &&
-            proof.evaluated_source().tracked_local_source_count() == 1 &&
+        *proof.artifact().evidence().identity.architecture.value() == "x86_64" &&
+            proof.evaluated_source().git_source().selector().kind() == VcsSelectorKind::Branch &&
             proof.actual_built_revision().revision().value().git_commit() !=
                 nullptr &&
             *proof.actual_built_revision()
@@ -1212,6 +1249,48 @@ void test_source_projection_fail_closed() {
             fixture,
             EvaluatedDevelSourceBuildFailureReason::UnsupportedSourceShape);
     }
+}
+
+void test_supplemental_input_fail_closed() {
+    using Reason = EvaluatedDevelSourceBuildFailureReason;
+    UpstreamGitFixture upstream("supplemental-negative");
+    for(const auto shape : {RecipeShape::MissingLocal, RecipeShape::DirectoryLocal}) {
+        ReviewedBuildFixture fixture("local-input", upstream, shape, false, false, true);
+        expect_failure(fixture, Reason::UnsupportedSourceShape);
+        std::cout << "S564 missing/non-regular local input rejected PASS\n";
+    }
+    for(const bool prepared : {false, true}) {
+        for(const std::string change : {"addition", "deletion", "replacement"}) {
+            ArchitectureFixture architecture;
+            const std::string mutation = change == "addition"   ? "source+=('extra.patch'); sha256sums+=('SKIP')"
+                                         : change == "deletion" ? "unset 'source[1]' 'sha256sums[1]'; source=(\"${source[@]}\"); sha256sums=(\"${sha256sums[@]}\")"
+                                                                : "source[1]='config.toml'";
+            architecture.recipe_suffix = prepared ? "if [[ $pkgver != 0 ]]; then " + mutation + "; fi\n" : mutation + "\n";
+            ReviewedBuildFixture fixture("source-drift", upstream, RecipeShape::Valid, false, false, true, true, architecture);
+            expect_failure(fixture, Reason::RawEvaluatedSourceMismatch);
+            std::cout << "S564 " << (prepared ? "prepared" : "initial") << " source " << change << " rejected PASS\n";
+        }
+    }
+    ReviewedBuildFixture fixture("local-replacement", upstream, RecipeShape::Valid, false, false, true);
+    bool replaced = false;
+    set_evaluated_devel_source_build_test_hook(
+        [&](EvaluatedDevelSourceBuildTestEvent event, const fs::path& root, const fs::path&) {
+            if(event != EvaluatedDevelSourceBuildTestEvent::AfterSourcePreparation) return;
+            const auto input = root / "build/.moguet-evaluated-recipe/config.toml";
+            fs::permissions(input, fs::perms::owner_write, fs::perm_options::add);
+            {
+                std::ofstream file(input);
+                file << "setting = \"unreviewed-config\"\n";
+                file.close();
+                require(file.good(), "Cannot replace working supplemental input");
+            }
+            fs::permissions(input, fs::perms::owner_read, fs::perm_options::replace);
+            replaced = true;
+        });
+    expect_failure(fixture, Reason::WorkingRecipeFailure);
+    set_evaluated_devel_source_build_test_hook({});
+    require(replaced, "Supplemental replacement boundary was not reached");
+    std::cout << "S564 reviewed local bytes replaced after preparation rejected PASS\n";
 }
 
 void test_declared_architecture_outputs() {
@@ -2789,7 +2868,7 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
         if(!normal && mode.starts_with("registered-")) continue;
         ReviewedBuildFixture fixture(bootstrap ? "bootstrap-git" : "s7c-fixture", upstream, mode == "build-failure" ? RecipeShape::RawEvaluatedMismatch : normal && mode == "legacy" ? RecipeShape::UnsupportedVcs
                                                                                                                                                                                      : RecipeShape::Valid,
-                                     false, mode == "branch");
+                                     false, mode == "branch", mode == "supplemental");
         struct ResetBridgeHooks {
             ~ResetBridgeHooks() {
                 publication_allocation::blocked = false;
@@ -2918,6 +2997,7 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
                                                                   if(stage == Stage::Build) ++build_entries;
                                                                   if(stage != Stage::Transport) return;
                                                                   require(built && built->valid(), "bridge did not retain S4 proof");
+                                                                  if(mode == "supplemental") require_supplemental_artifact(*built, fixture);
                                                                   expected.emplace(built->artifact().evidence());
                                                                   actual_oid = *built->actual_built_revision().revision().value().git_commit();
                                                                   const auto mtree = capture_process("/usr/bin/bsdtar", {"-xOf", built->artifact().path().string(), ".MTREE"}, {"PATH=/usr/bin:/bin", "LC_ALL=C"});
@@ -3058,6 +3138,20 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
                                                          return DevelTrackingBootstrapRecipeObservation{SourceRevisionIdentity::git_commit(fixture.recipe_oid()), metadata};
                                                      },
                                                      {}});
+            if(mode == "supplemental") {
+                // Keep production HEAD parsing, exact-id cgit URL construction,
+                // metadata parsing and clean_checkout; inject no trial identity.
+                set_devel_tracking_bootstrap_test_hooks({{}, {}, [&](const ExplicitProcessInvocation& invocation, const BoundedProcessPolicy&) {
+                        ++trial_calls;
+                        require(invocation.arguments.back() == "HEAD", "Supplemental trial did not observe recipe HEAD");
+                        const auto record = fixture.recipe_oid() + "\tHEAD\n";
+                        return BoundedCapturedProcessResult{record + record, BoundedProcessExited{0}}; }, [&](const std::string& url) -> std::optional<std::string> {
+                        require(url == "https://aur.archlinux.org/cgit/aur.git/plain/.SRCINFO?h=" + fixture.package_base() + "&id=" + fixture.recipe_oid(),
+                                "Supplemental trial lost exact recipe metadata URL");
+                        std::ifstream input(fixture.execution_checkout().canonical_path() / ".SRCINFO");
+                        require(input.good(), "Supplemental fixture metadata unavailable");
+                        return std::string((std::istreambuf_iterator<char>(input)), {}); }});
+            }
             AppConfig config;
             config.user_config.review.diff = mode == "diff-skip" ? ReviewPolicy::Skip : ReviewPolicy::Prompt;
             std::vector<std::string> argument_values{"moguet", "-Syu", "--noedit"};
@@ -3224,7 +3318,7 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
                 std::cout << "S553 production " << case_name << " PASS\n";
                 continue;
             }
-            const bool success = mode == "accept" || mode == "older" || mode == "reviewed-same" || mode == "reviewed-changed";
+            const bool success = mode == "accept" || mode == "older" || mode == "reviewed-same" || mode == "reviewed-changed" || mode == "supplemental";
             const bool skipped = local_failure || mode == "provider-decline" || mode == "decline" || mode == "default-no" || mode == "non-tty" || mode == "noconfirm" || mode == "nodiff" || mode == "diff-skip" ||
                                  mode == "unsupported" || mode == "invalid" || mode == "corrupt" || mode == "future" || mode == "unsafe";
             const bool cancelled = mode == "cancel" || mode == "eof" || mode == "review-cancel";
@@ -3633,6 +3727,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
         test_reviewed_local_source_remains_supported_input();
         test_sha256_upstream_revision();
         test_source_projection_fail_closed();
+        test_supplemental_input_fail_closed();
         test_two_upstream_revisions_change_dynamic_identity();
         test_dynamic_version_drift_fails_closed();
         test_git_replacement_and_grafts_rejected();

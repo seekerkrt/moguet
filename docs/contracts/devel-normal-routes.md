@@ -120,8 +120,15 @@ source-buildやtarget grammarの一般policyを変更しない。
   RequiresCheckやVersion/GitRevision basisを変更しない。
 - trialはP/I/Rとfull installed groupingをread-onlyで観測し、recipe HEAD OIDをrepositoryless Gitで取得し、
   そのexact idのAUR cgit metadataをboundedに読む。既存cacheは安全なread-only open/statusだけで確認する。
-  one package、one floating HTTPS Git source、DefaultHead/Branch、architecture-independent、overlayなしに限定する。
-  metadataだけで追加local sourceのtracked regular-file identityを証明できない場合は提示しない。
+  one package、exactly one floating HTTPS Git source、DefaultHead/Branch、source qualifierなし、overlayなしに限定する。
+  source全件を分類し、合計1..64件、Git以外はrecipe直下のrenameなしlocal basenameを最大63件まで候補にできる。
+  local名は255 bytes以下のASCII英数字・`_`・`-`・`+`・`.`に限定し、dot始まり、`..`を含む名前、`PKGBUILD`を拒否する。
+  `.SRCINFO`、Git metadata、private `.moguet-*` inputsもdot始まりとして除外する。extension whitelistは設けない。
+  duplicate名とmakepkg Git destination（明示alias、またはURL leafの`.git`以降を除去）とのcollisionを拒否する。
+  second Git、remote supplemental、nested/renamed local、他VCS、dynamic declarationは対象外。
+  localのtracked/regular/no-symlink/exact bytesはtrialでは証明せず、full review → exact reviewed tree → S3 → S4へ委譲する。
+  localはreviewed build inputであり、scalar baseline revisionは引き続きone floating Gitだけが所有する。
+  packageのmultiple declared archは既存S4契約に従い、architecture-qualified sourceとは区別する。
   source evaluation、cache作成、checkout、review authority、publicationはこの観測で発生しない。
 - trial failure/unsupported/判定不能は従来skip。P/R invalid、corrupt、future、unsafeをMissingへ丸めない。
   trial network failureは既存valid provenanceに対する#475 Unknownと別の試行適格性観測である。
@@ -129,7 +136,8 @@ source-buildやtarget grammarの一般policyを変更しない。
   同一OID・同一HEADの完全同一recordは一意化するが、異なるOID、別ref、不正・未完・余剰bytesは拒否する。
   この正規化はrecipe trial専用で、#475 upstream observerのduplicate rejectionは変更しない。
   HEAD process failure/timeout/overflow、malformed/conflicting response、HTTP metadata unavailable、
-  metadata parse failure、unsupported sourceは`DevelTrackingBootstrapUnavailableReason`で区別し、collectorが
+  metadata parse failure、unsupported source/count/local shape、multiple tracking roots、destination collisionは
+  `DevelTrackingBootstrapUnavailableReason`で区別し、collectorが
   `AurDevelUpdateObservation.bootstrap_unavailable`へ保持する。元のassessmentは変更せず、現行presentationは
   従来のgeneric warning/skipへまとめる。typed reason自体はbuild/review/provenance authorityにならない。
 - 同じcombined BuildPlanを一度解決し、既存required relation projectionを適用する。
