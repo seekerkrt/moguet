@@ -58,6 +58,7 @@ class Rpc(http.server.BaseHTTPRequestHandler):
 def main():
     cases = {
         "accept": b"y\ny\n",
+        "supplemental": b"y\ny\n",
         "older": b"y\ny\n",
         "newer": b"y\n",
         "reviewed-same": b"y\ny\n",
@@ -133,6 +134,10 @@ def main():
                 raise SystemExit(f"bootstrap fixture {case} failed: exit {completed.returncode}")
             if case.startswith("local-") and "tracking baseline is missing" in output:
                 raise SystemExit(f"unavailable local Git observation prompted: {case}")
+            if case == "supplemental":
+                for reviewed_input in ("fix.patch", "config.toml", "reviewed-patch-applied", "reviewed-config"):
+                    if reviewed_input not in output:
+                        raise SystemExit(f"supplemental full review omitted {reviewed_input}")
             for line in output.splitlines():
                 if line.startswith("S553 lifecycle "):
                     print(line)

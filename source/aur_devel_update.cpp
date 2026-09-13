@@ -17,6 +17,7 @@
 #include "package_identifier.hpp"
 #include "system_source_upgrade.hpp"
 #include <algorithm>
+#include <set>
 
 namespace {
 #ifdef MOGUET_ENABLE_AUR_DEVEL_UPDATE_TEST_HOOKS
@@ -381,7 +382,19 @@ DevelTrackingBootstrapTrial::DevelTrackingBootstrapTrial(
 }
 
 namespace {
-// Trial declaration envelope only; S4 owns evaluated metadata and outputs.
+// Declaration shape only: tracked regular bytes and their use remain owned by
+// full review, the exact S3 snapshot and S4's evaluated input correlation.
+bool supported_bootstrap_source_basename(const std::string& name) {
+    return !name.empty() && name.size() <= 255 && name.front() != '.' &&
+           name.find("..") == std::string::npos && name != "PKGBUILD" &&
+           std::all_of(name.begin(), name.end(), [](unsigned char character) {
+               return (character >= 'a' && character <= 'z') ||
+                      (character >= 'A' && character <= 'Z') ||
+                      (character >= '0' && character <= '9') ||
+                      character == '_' || character == '-' || character == '+' || character == '.';
+           });
+}
+
 std::optional<Reason> bootstrap_source_unavailable_reason(const PackageChildIdentity& package, const std::string& srcinfo) {
     const auto sources = parse_srcinfo_source_metadata(srcinfo);
     const auto metadata = parse_local_package_metadata(srcinfo);
@@ -389,27 +402,57 @@ std::optional<Reason> bootstrap_source_unavailable_reason(const PackageChildIden
     if(sources.metadata()->package_base != package.package_base().package_base() ||
        metadata.metadata()->package_base != package.package_base().package_base() ||
        metadata.metadata()->children.size() != 1 || metadata.metadata()->children.front().name != package.package_name()) return Reason::UnsupportedSource;
-    // Local supplemental files cannot be proven regular/tracked by RPC or a
-    // plain metadata response. Leave those unverified recipes unoffered.
-    if(sources.metadata()->source_entries.size() != 1) return Reason::UnsupportedSource;
-    const auto& entry = sources.metadata()->source_entries.front();
-    const auto& source = entry.parsed_source;
-    if(entry.architecture_qualifier || source.kind != ParsedSourceEntryKind::Vcs || !source.vcs ||
-       source.vcs->recognized_kind != ParsedSourceVcsKind::Git ||
-       source.vcs->declaration_kind != ParsedSourceVcsDeclarationKind::ExplicitPrefix ||
-       source.transport_scheme != std::optional<std::string>("https") || source.vcs->query) return Reason::UnsupportedSource;
-    if(source.vcs->selector) {
-        const auto& selector = *source.vcs->selector;
-        if(source.vcs->component_order != ParsedSourceVcsComponentOrder::FragmentOnly ||
-           selector.recognized_role != ParsedSourceSelectorRole::Branch || selector.key != "branch" ||
-           !std::holds_alternative<ValidatedExactGitBranch>(validate_exact_git_branch(selector.value))) return Reason::UnsupportedSource;
-    } else if(source.vcs->component_order != ParsedSourceVcsComponentOrder::None)
-        return Reason::UnsupportedSource;
-    try {
-        static_cast<void>(ValidatedHttpsGitRemote::make(source.source_location));
-    } catch(const std::invalid_argument&) {
-        return Reason::UnsupportedSource;
+    // Match S4's bounded input count without treating trial metadata as proof.
+    constexpr std::size_t MAX_BOOTSTRAP_SOURCE_ENTRIES = 64;
+    if(sources.metadata()->source_entries.empty() ||
+       sources.metadata()->source_entries.size() > MAX_BOOTSTRAP_SOURCE_ENTRIES) return Reason::UnsupportedSourceCount;
+    std::set<std::string> destinations;
+    bool has_tracking_git = false;
+    for(const auto& entry : sources.metadata()->source_entries) {
+        const auto& source = entry.parsed_source;
+        if(entry.architecture_qualifier) return Reason::UnsupportedSource;
+        if(source.kind == ParsedSourceEntryKind::Local) {
+            // No aliases or nested paths: makepkg resolves those by destination
+            // basename, which is not an exact reviewed recipe path correlation.
+            // Excluding dot-prefixed inputs also excludes .SRCINFO, Git metadata
+            // and the private .moguet-* authority/working names.
+            if(source.destination_name || !supported_bootstrap_source_basename(source.source_payload)) return Reason::UnsupportedLocalSource;
+            if(!destinations.insert(source.source_payload).second) return Reason::SourceDestinationCollision;
+            continue;
+        }
+        if(source.kind != ParsedSourceEntryKind::Vcs || !source.vcs ||
+           source.vcs->recognized_kind != ParsedSourceVcsKind::Git ||
+           source.vcs->declaration_kind != ParsedSourceVcsDeclarationKind::ExplicitPrefix ||
+           source.transport_scheme != std::optional<std::string>("https") || source.vcs->query) return Reason::UnsupportedSource;
+        if(has_tracking_git) return Reason::MultipleTrackingSources;
+        if(source.vcs->selector) {
+            const auto& selector = *source.vcs->selector;
+            if(source.vcs->component_order != ParsedSourceVcsComponentOrder::FragmentOnly ||
+               selector.recognized_role != ParsedSourceSelectorRole::Branch || selector.key != "branch" ||
+               !std::holds_alternative<ValidatedExactGitBranch>(validate_exact_git_branch(selector.value))) return Reason::UnsupportedSource;
+        } else if(source.vcs->component_order != ParsedSourceVcsComponentOrder::None)
+            return Reason::UnsupportedSource;
+        try {
+            static_cast<void>(ValidatedHttpsGitRemote::make(source.source_location));
+        } catch(const std::invalid_argument&) {
+            return Reason::UnsupportedSource;
+        }
+        std::string destination;
+        if(source.destination_name) {
+            destination = *source.destination_name;
+        } else {
+            // makepkg get_filename(git): use the parsed, selector-free URL leaf
+            // after one trailing slash, then remove the first .git and its suffix.
+            destination = source.source_location;
+            if(destination.ends_with('/')) destination.pop_back();
+            destination.erase(0, destination.find_last_of('/') + 1);
+            if(const auto suffix = destination.find(".git"); suffix != std::string::npos) destination.erase(suffix);
+        }
+        if(!supported_bootstrap_source_basename(destination)) return Reason::UnsupportedSource;
+        if(!destinations.insert(destination).second) return Reason::SourceDestinationCollision;
+        has_tracking_git = true;
     }
+    if(!has_tracking_git) return Reason::UnsupportedSource;
     return std::nullopt;
 }
 } // namespace
