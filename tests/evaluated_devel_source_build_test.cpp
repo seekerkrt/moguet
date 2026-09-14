@@ -2046,10 +2046,14 @@ void test_evaluated_artifact_transport() {
                           SealingRefusal };
     UpstreamGitFixture upstream("slice5-bridge");
     int case_index = 0;
+    int completed_cases = 0;
     for(const auto scenario : {Scenario::Positive, Scenario::DigestDrift, Scenario::SameSizeReplacement,
                                Scenario::SameBytesReplacement, Scenario::CopyRace, Scenario::Unobserved,
                                Scenario::UnknownWait, Scenario::ConsumeFailure, Scenario::SealingRefusal}) {
         const std::string label = "slice5-bridge-" + std::to_string(case_index++);
+        const auto case_started = std::chrono::steady_clock::now();
+        std::cout << "Slice 5 retained bridge: " << label << " START\n"
+                  << std::flush;
         ReviewedBuildFixture fixture(label, upstream);
         auto proof = build_success(fixture);
         const auto artifact_path = proof.artifact().path();
@@ -2257,8 +2261,13 @@ void test_evaluated_artifact_transport() {
         set_evaluated_devel_source_artifact_transport_test_hooks({});
         set_source_artifact_install_trusted_exec_test_hook({});
         set_source_artifact_install_trusted_state_test_hook({});
+        ++completed_cases;
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - case_started);
+        std::cout << "Slice 5 retained bridge: " << label << " PASS (" << elapsed.count() << " ms)\n"
+                  << std::flush;
     }
-    std::cout << "Slice 5 retained bridge: 9 cases passed\n";
+    require(completed_cases == 9, "Transport suite did not complete all nine scenarios");
+    std::cout << "Slice 5 retained bridge: " << completed_cases << " cases passed\n";
 }
 #endif
 
@@ -4257,6 +4266,19 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             return 0;
         }
 #endif
+// Every transport-capable executable has registered modes. Do not let a
+// missing/mistyped mode pass by running only the common owner suite instead.
+#ifdef MOGUET_TEST_EVALUATED_DEVEL_ARTIFACT_TRANSPORT
+        if(argc == 2 && std::string(argv[1]) == "--evaluated-artifact-transport") {
+            test_evaluated_artifact_transport();
+            require(context_root_inventory() == before, "Transport suite retained a build context");
+            std::cout << "Slice 5 retained bridge: final context inventory/cleanup PASS\n";
+            return 0;
+        }
+        throw std::invalid_argument("Transport fixture requires an explicit registered test mode.");
+#endif
+        // The default owner lane keeps every 4A0 and common S4 regression.
+        const auto selection_started = std::chrono::steady_clock::now();
         test_preprepare_selection();
         test_selection_projection_rejection();
         test_selection_resume_and_environment();
@@ -4264,6 +4286,10 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
         test_selection_process_failures();
         test_selection_explicit_branch_cancellation();
         test_selection_resume_failure_stage();
+        const auto selection_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - selection_started);
+        std::cout << "S564 4A0 owner prefix PASS (" << selection_elapsed.count() << " ms)\n"
+                  << std::flush;
+        const auto common_started = std::chrono::steady_clock::now();
         test_valid_dynamic_build_and_prepare_mutation();
         test_declared_architecture_outputs();
         test_architecture_declaration_rejection();
@@ -4284,9 +4310,6 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
         test_cross_context_environment_rejected();
         test_cleanup_failure_preserves_primary();
         test_cleanup_budgets();
-#ifdef MOGUET_TEST_EVALUATED_DEVEL_ARTIFACT_TRANSPORT
-        test_evaluated_artifact_transport();
-#endif
         set_evaluated_devel_source_build_test_hook({});
         set_evaluated_devel_source_build_process_test_hook({});
         set_exact_git_branch_validation_process_test_hook({});
@@ -4294,6 +4317,8 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
         require(
             context_root_inventory() == before,
             "Focused test left an invocation-owned context root");
+        const auto common_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - common_started);
+        std::cout << "S4 owner regressions / final inventory PASS (" << common_elapsed.count() << " ms)\n";
     } catch(const std::exception& error) {
         set_evaluated_devel_source_build_test_hook({});
         set_evaluated_devel_source_build_process_test_hook({});
