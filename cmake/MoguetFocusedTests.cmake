@@ -68,6 +68,7 @@ foreach(_moguet_direct_focus IN ITEMS
     invocation-owned-cleanup-model
     invocation-owned-recipe-acquisition
     invocation-owned-source-build-context
+    pinned-submodule-closure
     evaluated-devel-source-build
     evaluated-devel-source-artifact-transport
     exact-installed-binding

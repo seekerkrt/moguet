@@ -77,8 +77,9 @@ network隔離やhostile-code sandboxと主張しない。branch syntax validatio
 
 selectionの明示cleanupは成功・失敗ともownerを消費する。破棄時も同じcleanup policyを使い、working stateや
 empty `PKGDEST`を再証明できなければrootを保持する。cleanup failureをdestructorが再試行しない。
-Slice 4Aのtrusted root selector freeze / exact X / pinned closure、4Bのclosure review・workspace・makepkg
-hand-offは未実装。既存のgitfile、`.git/modules`、`.gitmodules`拒否とS5/S6/schemaは維持する。
+Slice 4Aの[trusted root freeze / exact acquisition / pinned closure foundation](pinned-submodule-closure.md)は
+このselectionをconsumeする専用ownerとして実装する。4Bのclosure review・workspace・makepkg hand-offは未実装。
+既存のgitfile、`.git/modules`、`.gitmodules`拒否とS5/S6/schemaは維持する。
 
 ## Makepkg phase protocol
 

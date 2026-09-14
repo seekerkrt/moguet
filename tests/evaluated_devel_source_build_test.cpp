@@ -1,3 +1,6 @@
+#ifdef MOGUET_ENABLE_PINNED_SUBMODULE_CLOSURE_TEST_HOOKS
+#include "pinned_submodule_closure.hpp"
+#endif
 #ifdef MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
 #include "aur_devel_update.hpp"
 #include "system_aur_update_operation.hpp"
@@ -337,6 +340,46 @@ public:
         run_git({"push", "-u", "origin", "main"});
         return oid_;
     }
+
+#ifdef MOGUET_ENABLE_PINNED_SUBMODULE_CLOSURE_TEST_HOOKS
+    std::string pin_tree(const std::string& modules, const std::vector<std::pair<std::string, std::string>>& pins) {
+        write_file(work_ / ".gitmodules", modules);
+        run_git({"add", "--", ".gitmodules"});
+        for(const auto& [path, oid] : pins)
+            run_git({"update-index", "--add", "--cacheinfo", "160000," + oid + "," + path});
+        run_git({"commit", "--allow-empty", "-q", "-m", "pinned tree"});
+        oid_ = output_git({"rev-parse", "HEAD"});
+        run_git({"push", "origin", "main"});
+        return oid_;
+    }
+    void modules_mode(const std::string& mode) {
+        // update-index rejects a symlink .gitmodules before the consumer can
+        // observe it. Construct the invalid raw tree only in this fixture.
+        auto tree = capture_process("/usr/bin/git", {"-C", work_.string(), "cat-file", "tree", "HEAD^{tree}"}, git_environment(home_));
+        require(tree.exit_code == 0 && !tree.stdout_capture_limit_exceeded && tree.output.starts_with("100644 .gitmodules"), "Fixture raw parent tree unavailable");
+        tree.output.replace(0, 6, mode);
+        const auto raw_tree = tree_.path() / "invalid-modules-tree";
+        write_file(raw_tree, tree.output);
+        const auto tree_oid = output_git({"hash-object", "--literally", "-t", "tree", "-w", raw_tree.string()});
+        oid_ = output_git({"commit-tree", tree_oid, "-p", oid_, "-m", "invalid modules type"});
+        run_git({"update-ref", "refs/heads/main", oid_});
+        run_git({"push", "origin", "main"});
+    }
+    void remove_modules() {
+        run_git({"update-index", "--force-remove", ".gitmodules"});
+        run_git({"commit", "-q", "-m", "missing modules"});
+        oid_ = output_git({"rev-parse", "HEAD"});
+        run_git({"push", "origin", "main"});
+    }
+    std::string annotated_tag() {
+        run_git({"tag", "-a", "closure-tag", "-m", "not a commit"});
+        run_git({"push", "origin", "refs/tags/closure-tag"});
+        return output_git({"rev-parse", "refs/tags/closure-tag"});
+    }
+    std::string object_oid(const std::string& expression) const {
+        return output_git({"rev-parse", expression});
+    }
+#endif
 
 private:
     static void write_file(
@@ -4209,11 +4252,456 @@ void test_selection_process_failures() {
     }
 }
 
+#ifdef MOGUET_ENABLE_PINNED_SUBMODULE_CLOSURE_TEST_HOOKS
+std::string module_declaration(const std::string& name, const std::string& path, const std::string& url) {
+    return "[submodule \"" + name + "\"]\n\tpath = " + path + "\n\turl = " + url + "\n";
+}
+void test_pinned_closure() {
+    using Closure = InvocationOwnedPinnedSubmoduleClosure;
+    using Reason = PinnedClosureFailureReason;
+    using Stage = PinnedClosureStage;
+    static_assert(!std::is_default_constructible_v<Closure> && !std::is_copy_constructible_v<Closure> && std::is_move_constructible_v<Closure>);
+    static_assert(!std::is_constructible_v<Closure, VcsSourceIdentity, std::string>);
+    static_assert(!std::is_constructible_v<Closure, DevelBuildProvenance>);
+    static_assert(!std::is_invocable_v<decltype(acquire_pinned_submodule_closure), VcsSourceIdentity>);
+    static_assert(!std::is_invocable_v<decltype(acquire_pinned_submodule_closure), EvaluatedDevelSourceBuildProof>);
+    unsigned completed = 0;
+    for(const std::string kind : {"single", "nested", "siblings", "freeze", "parent-move", "sha256", "branch",
+                                  "missing-declaration", "extra-declaration", "duplicate-name", "duplicate-path", "mismatch", "malformed",
+                                  "file", "ssh", "scp", "ext", "git", "http", "relative", "branch-key", "merge", "rebase", "none", "custom",
+                                  "absolute", "dotdot", "dot", "empty-component", "overlong", "component", "missing-object", "blob", "tree",
+                                  "depth-bound", "edge-bound", "declaration-bound", "aggregate-bound", "records-bound", "metadata-bound", "process-bound",
+                                  "launch", "nonzero", "timeout", "signal", "cancel", "overflow", "config", "alternates", "cleanup",
+                                  "tag", "wrong-format", "missing-modules", "symlink-modules", "gitlink-modules", "root-unavailable",
+                                  "child-cancel", "io", "cleanup-primary", "duplicate-tree", "tree-framing", "tree-mode", "tree-oid",
+                                  "limit-slack", "overlap", "missing-path", "missing-url", "duplicate-key", "quoted", "moved-input",
+                                  "duplicate-tree-record", "read-cleanup-process", "read-cleanup-exception",
+                                  "init-launch", "init-nonzero", "fetch-launch", "fetch-timeout", "fetch-signal", "fetch-overflow", "fetch-io", "fetch-nonzero",
+                                  "observation-duplicate", "observation-wrong-ref", "observation-malformed"}) {
+        const auto format = kind == "sha256" ? GitObjectFormat::Sha256 : GitObjectFormat::Sha1;
+        UpstreamGitFixture child("closure-child-" + kind, format);
+        UpstreamGitFixture root("closure-root-" + kind, format);
+        const std::string child_pin = child.oid();
+        std::unique_ptr<UpstreamGitFixture> nested;
+        std::string declaration = module_declaration("logical/A", "deps/a", child.url());
+        std::vector<std::pair<std::string, std::string>> pins{{"deps/a", child_pin}};
+        std::optional<Reason> expected;
+        if(kind == "nested") {
+            nested = std::make_unique<UpstreamGitFixture>("closure-leaf");
+            child.pin_tree(module_declaration("leaf-name", "nested/b", nested->url()), {{"nested/b", nested->oid()}});
+            pins.front().second = child.oid();
+        }
+        if(kind == "siblings") {
+            declaration += module_declaration("other-name", "deps/b", child.url());
+            pins.push_back({"deps/b", child_pin});
+        }
+        if(kind == "missing-declaration") {
+            declaration.clear();
+            expected = Reason::DeclarationMismatch;
+        }
+        if(kind == "extra-declaration") {
+            declaration += module_declaration("extra", "extra", child.url());
+            expected = Reason::DeclarationMismatch;
+        }
+        if(kind == "duplicate-name") {
+            declaration += module_declaration("logical/A", "deps/b", child.url());
+            expected = Reason::DeclarationMismatch;
+        }
+        if(kind == "duplicate-path") {
+            declaration += module_declaration("other", "deps/a", child.url());
+            expected = Reason::DeclarationMismatch;
+        }
+        if(kind == "mismatch") {
+            declaration = module_declaration("logical/A", "different", child.url());
+            expected = Reason::DeclarationMismatch;
+        }
+        if(kind == "malformed") {
+            declaration = "[broken";
+            expected = Reason::MalformedDeclaration;
+        }
+        const std::map<std::string, std::string> transports{{"file", "file:///tmp/repo"}, {"ssh", "ssh://fixture.invalid/repo"}, {"scp", "git@fixture.invalid:repo"}, {"ext", "ext::false"}, {"git", "git://fixture.invalid/repo"}, {"http", "http://fixture.invalid/repo"}, {"relative", "../repo"}};
+        if(transports.contains(kind)) {
+            declaration = module_declaration("logical/A", "deps/a", transports.at(kind));
+            expected = Reason::UnsupportedTransport;
+        }
+        if(kind == "branch-key") {
+            declaration += "branch = main\n";
+            expected = Reason::UnsupportedUpdatePolicy;
+        }
+        if(kind == "merge" || kind == "rebase" || kind == "none" || kind == "custom") {
+            declaration += "update = " + (kind == "custom" ? "!false" : kind) + "\n";
+            expected = Reason::UnsupportedUpdatePolicy;
+        }
+        const std::map<std::string, std::string> paths{{"absolute", "/deps/a"}, {"dotdot", "deps/../a"}, {"dot", "deps/./a"}, {"empty-component", "deps//a"}, {"overlong", std::string(4097, 'x')}, {"component", std::string(256, 'x')}};
+        if(paths.contains(kind)) {
+            declaration = module_declaration("logical/A", paths.at(kind), child.url());
+            expected = Reason::UnsafePath;
+        }
+        if(kind == "overlap") {
+            declaration += module_declaration("other", "deps/a/sub", child.url());
+            expected = Reason::UnsafePath;
+        }
+        if(kind == "missing-path") {
+            declaration = "[submodule \"a\"]\nurl = " + child.url() + "\n";
+            expected = Reason::DeclarationMismatch;
+        }
+        if(kind == "missing-url") {
+            declaration = "[submodule \"a\"]\npath = deps/a\n";
+            expected = Reason::DeclarationMismatch;
+        }
+        if(kind == "duplicate-key") {
+            declaration += "path = deps/a\n";
+            expected = Reason::MalformedDeclaration;
+        }
+        if(kind == "quoted") declaration = "# declaration\n[submodule \"logical/A\"]\npath = \"deps/a\" # same path\nurl = \"" + child.url() + "\"\nupdate = checkout\n";
+        if(kind == "tag") {
+            pins.front().second = child.annotated_tag();
+            expected = Reason::UnexpectedObjectType;
+        }
+        if(kind == "missing-object") {
+            pins.front().second = std::string(40, '1');
+            expected = Reason::PinnedObjectUnavailable;
+        }
+        if(kind == "blob" || kind == "tree") {
+            pins.front().second = child.object_oid(kind == "blob" ? "HEAD:payload.txt" : "HEAD^{tree}");
+            expected = Reason::UnexpectedObjectType;
+        }
+        const auto declaration_check = check_pinned_declaration_fixture(declaration);
+        if(expected && *expected != Reason::PinnedObjectUnavailable && *expected != Reason::UnexpectedObjectType && kind != "missing-declaration" && kind != "extra-declaration" && kind != "mismatch")
+            require(declaration_check && declaration_check->reason == *expected, "Pure declaration refusal mismatch: " + kind);
+        auto root_pin = root.pin_tree(declaration, pins);
+        if(kind == "missing-modules") {
+            root.remove_modules();
+            root_pin = root.oid();
+            expected = Reason::DeclarationMismatch;
+        }
+        if(kind == "symlink-modules" || kind == "gitlink-modules") {
+            root.modules_mode(kind == "symlink-modules" ? "120000" : "160000");
+            root_pin = root.oid();
+            expected = Reason::DeclarationMismatch;
+        }
+        if(kind == "parent-move") {
+            child.commit("child-second\n");
+            pins.front().second = child.oid();
+            root_pin = root.pin_tree(declaration, pins);
+        }
+        // Every success remains parent-pinned even though the child's remote
+        // default branch has already advanced before any observation begins.
+        const auto pinned_child = pins.front().second;
+        child.commit("child-remote-only-advance\n");
+        ReviewedBuildFixture fixture("closure-" + kind, root, RecipeShape::Valid, false, kind == "branch");
+        require(fixture.recipe_oid() != root_pin && root_pin != pinned_child && fixture.recipe_oid() != pinned_child, "Rr/X/SA were conflated");
+        auto context = fixture.make_context();
+        auto environment = fixture.make_environment(context);
+        unsigned phases = 0;
+        set_evaluated_devel_source_build_process_test_hook([&](const auto& invocation, const auto& policy, auto process) {
+            require(process == EvaluatedDevelSourceBuildProcess::InitialPrintSrcinfo, "4A ran prepare/build");
+            ++phases;
+            return capture_bounded_explicit_process_output_raw(invocation, policy);
+        });
+        auto selected = select_evaluated_devel_source(std::move(context), std::move(environment));
+        set_evaluated_devel_source_build_process_test_hook({});
+        auto selection = take_arm<EvaluatedDevelSourceSelection>(selected, "4A0 selection failed");
+        const auto snapshot = selection.snapshot_identity();
+        if(kind == "moved-input") {
+            auto keeper = std::move(selection);
+            unsigned calls = 0;
+            PinnedClosureTestHooks forbidden;
+            forbidden.process = [&](const auto&, const auto&) -> BoundedCapturedProcessResult { ++calls; throw std::runtime_error("moved input launched Git"); };
+            set_pinned_closure_test_hooks(std::move(forbidden));
+            auto rejected = acquire_pinned_submodule_closure(std::move(selection));
+            require(std::holds_alternative<PinnedClosureFailure>(rejected) && std::get<PinnedClosureFailure>(rejected).reason == Reason::InvalidSelection && calls == 0, "Moved input minted closure");
+            require(std::holds_alternative<InvocationOwnedSourceBuildContextCleaned>(keeper.cleanup()), "Moved input retained context");
+            set_pinned_closure_test_hooks({});
+            ++completed;
+            std::cout << "S564 4A moved-input PASS\n";
+            continue;
+        }
+        require(phases == 1, "4A0 evaluation count changed");
+        std::map<std::string, fs::path> remotes{{root.url(), root.remote()}, {child.url(), child.remote()}};
+        if(nested) remotes.emplace(nested->url(), nested->remote());
+        unsigned observations = 0, fetches = 0;
+        bool injected = false;
+        bool reading = false;
+        unsigned removal_attempts = 0;
+        std::optional<BoundedCapturedProcessResult> injected_process;
+        fs::path owned_root;
+        PinnedClosureTestHooks hooks;
+        PinnedClosureLimits limits;
+        if(kind == "depth-bound") {
+            limits.depth = 0;
+            expected = Reason::ResourceLimitExceeded;
+        }
+        if(kind == "edge-bound") {
+            limits.edges = 0;
+            expected = Reason::ResourceLimitExceeded;
+        }
+        if(kind == "declaration-bound") {
+            limits.declaration_bytes = declaration.size() - 1;
+            expected = Reason::ResourceLimitExceeded;
+        }
+        if(kind == "aggregate-bound") {
+            limits.aggregate_declaration_bytes = declaration.size() - 1;
+            expected = Reason::ResourceLimitExceeded;
+        }
+        if(kind == "records-bound") {
+            limits.tree_records = 1;
+            expected = Reason::ResourceLimitExceeded;
+        }
+        if(kind == "metadata-bound") {
+            limits.metadata_bytes = 1;
+            expected = Reason::ResourceLimitExceeded;
+        }
+        if(kind == "process-bound") {
+            limits.processes = 1;
+            expected = Reason::ResourceLimitExceeded;
+        }
+        if(kind == "limit-slack") {
+            limits.depth = 2;
+            limits.edges = 2;
+            limits.declaration_bytes = declaration.size() + 1;
+            limits.aggregate_declaration_bytes = declaration.size() + 1;
+        }
+        if(kind == "single") {
+            limits.depth = 1;
+            limits.edges = 1;
+            limits.declaration_bytes = declaration.size();
+            limits.aggregate_declaration_bytes = declaration.size();
+        }
+        hooks.limits = limits;
+        hooks.event = [&](Stage stage, const fs::path& path) {
+            owned_root = path;
+            if(!injected && stage == Stage::ChildAcquisition && (kind == "config" || kind == "alternates")) {
+                injected = true;
+                std::ofstream output(path / "node-0" / (kind == "config" ? "config" : "objects/info/alternates"), std::ios::app);
+                output << (kind == "config" ? "[include]\npath=/tmp/never\n" : "/tmp/never\n");
+            }
+        };
+        if(kind == "config" || kind == "alternates") expected = Reason::MalformedRepository;
+        hooks.process = [&](const ExplicitProcessInvocation& original, const BoundedProcessPolicy& policy) {
+            auto invocation = original;
+            const auto& argv = original.arguments;
+            auto has = [&](const std::string& value) { return std::find(argv.begin(), argv.end(), value) != argv.end(); };
+            require(original.executable == "/usr/bin/git" && original.working_directory_fd && original.standard_input_fd &&
+                        has("protocol.https.allow=always") && has("protocol.http.allow=never") && has("protocol.file.allow=never") &&
+                        has("http.followRedirects=false") && has("core.hooksPath=/dev/null"),
+                    "Trusted HTTPS argv weakened");
+            for(const auto& entry : original.environment)
+                require(!entry.starts_with("HOME=") && !entry.starts_with("GIT_CONFIG_COUNT=") && !entry.starts_with("GIT_DIR=") && !entry.starts_with("XDG_"), "Ambient environment leaked");
+            for(const auto& required : {"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null", "GIT_ASKPASS=/bin/false"})
+                require(std::find(original.environment.begin(), original.environment.end(), required) != original.environment.end(), "Trusted environment missing");
+            if(has("ls-remote")) {
+                ++observations;
+                require(argv[argv.size() - 2] == root.url() && argv.back() == (kind == "branch" ? "refs/heads/main" : "HEAD"), "Child HEAD or wrong root selector queried");
+            }
+            if(has("fetch")) {
+                ++fetches;
+                require(has("--no-replace-objects") && has("fetch.fsckObjects=true") && has("--no-write-fetch-head") && !has("--remote"), "Exact fetch policy weakened");
+                require(argv.back() == (fetches == 1 ? root_pin : fetches == 2     ? pinned_child
+                                                              : kind == "siblings" ? pinned_child
+                                                                                   : nested->oid()),
+                        "Fetch refspec did not retain parent pin");
+            }
+            const bool init_fault = kind.starts_with("init-") && has("init");
+            const bool fetch_fault = kind.starts_with("fetch-") && has("fetch") && fetches == 2;
+            if(!injected && (init_fault || fetch_fault || (reading && kind == "read-cleanup-process"))) {
+                injected = true;
+                BoundedProcessOutcome outcome = BoundedProcessExited{9};
+                if(kind.ends_with("launch")) outcome = BoundedProcessLaunchOrSetupFailure{BoundedProcessLaunchStage::Execve, ENOENT};
+                if(kind.ends_with("timeout")) outcome = BoundedProcessTimedOut{};
+                if(kind.ends_with("signal")) outcome = BoundedProcessSignaled{SIGTERM};
+                if(kind.ends_with("overflow")) outcome = BoundedProcessCaptureLimitExceeded{policy.stdout_capture_limit};
+                if(kind.ends_with("io")) outcome = BoundedProcessIoOrWaitFailure{BoundedProcessIoStage::Poll, EIO};
+                injected_process = BoundedCapturedProcessResult{"original process diagnostic", outcome};
+                return *injected_process;
+            }
+            const bool fault_boundary = (has("ls-remote") && kind != "cleanup-primary") ||
+                                        (kind == "child-cancel" && has("fetch") && fetches == 2) ||
+                                        (kind == "cleanup-primary" && has("fsck"));
+            if(!injected && fault_boundary && (kind == "launch" || kind == "nonzero" || kind == "timeout" || kind == "signal" || kind == "overflow" || kind == "cancel" || kind == "child-cancel" || kind == "io" || kind == "cleanup-primary")) {
+                if(kind == "child-cancel" && has("ls-remote")) { /* wait for child acquisition */
+                } else {
+                    injected = true;
+                    if(kind == "io") return BoundedCapturedProcessResult{{}, BoundedProcessIoOrWaitFailure{BoundedProcessIoStage::Poll, EIO}};
+                    auto fault = original;
+                    fault.executable = kind == "launch" ? "/moguet-no-such-git" : "/bin/sh";
+                    std::string script = kind == "nonzero" || kind == "cleanup-primary" ? "exit 9" : kind == "signal" ? "kill -TERM $$"
+                                                                                                 : kind == "overflow" ? "printf 012345678901234567890123456789"
+                                                                                                                      : "while :; do :; done";
+                    if(kind == "cancel" || kind == "child-cancel") script = "trap 'exit 0' INT; printf '" + root_pin + "\\tHEAD\\n'; kill -INT \"$PPID\"; while :; do :; done";
+                    fault.arguments = {"-c", script};
+                    auto bounded = policy;
+                    bounded.hard_timeout = std::chrono::milliseconds(300);
+                    bounded.termination_grace = std::chrono::milliseconds(50);
+                    if(kind == "overflow") bounded.stdout_capture_limit = 4;
+                    return capture_bounded_explicit_process_output_raw(fault, bounded);
+                }
+            }
+            for(auto& argument : invocation.arguments) {
+                if(argument == "protocol.file.allow=never")
+                    argument = "protocol.file.allow=always";
+                else if(remotes.contains(argument))
+                    argument = "file://" + remotes.at(argument).string();
+            }
+            if(kind == "root-unavailable" && has("fetch") && fetches == 1) invocation.arguments[invocation.arguments.size() - 2] = "file://" + child.remote().string();
+            auto result = capture_bounded_explicit_process_output_raw(invocation, policy);
+            if(kind == "wrong-format" && has("--show-object-format=storage")) result.output = "sha256\n";
+            if(has("ls-tree") && has("--name-only")) {
+                if(kind == "duplicate-tree" || kind == "duplicate-tree-record") {
+                    const auto end = result.output.find('\0');
+                    result.output += result.output.substr(0, end + 1);
+                }
+                if(kind == "tree-framing") result.output += "garbage";
+            }
+            if(has("ls-tree") && !has("--name-only")) {
+                if(kind == "duplicate-tree-record") {
+                    // Match the duplicated path with all four metadata fields:
+                    // record counts/framing stay valid, only uniqueness fails.
+                    std::size_t end = 0;
+                    for(unsigned field = 0; field < 4; ++field) {
+                        end = result.output.find('\0', end);
+                        require(end != std::string::npos, "Fixture metadata record incomplete");
+                        ++end;
+                    }
+                    result.output += result.output.substr(0, end);
+                }
+                if(kind == "tree-mode") result.output.replace(0, 6, "040000");
+                if(kind == "tree-oid") {
+                    auto first = result.output.find('\0');
+                    auto second = result.output.find('\0', first + 1);
+                    result.output[second + 1] = 'z';
+                }
+            }
+            if(has("ls-remote")) {
+                if(kind == "observation-duplicate") result.output += result.output;
+                if(kind == "observation-wrong-ref") result.output = root_pin + "\trefs/heads/other\n";
+                if(kind == "observation-malformed") result.output = "invalid-oid\tHEAD\n";
+            }
+            if(has("ls-remote") && (kind == "freeze" || kind == "root-unavailable")) root.commit("remote-X-to-Y\n");
+            return result;
+        };
+        if(kind == "launch" || kind == "nonzero" || kind == "timeout" || kind == "signal" || kind == "overflow") expected = Reason::GitProcessFailed;
+        if(kind == "cancel" || kind == "child-cancel") expected = Reason::Cancelled;
+        if(kind == "io" || kind == "cleanup-primary") expected = Reason::GitProcessFailed;
+        if(kind == "root-unavailable") expected = Reason::PinnedObjectUnavailable;
+        if(kind == "wrong-format") expected = Reason::ObjectFormatMismatch;
+        if(kind == "duplicate-tree" || kind == "duplicate-tree-record" || kind == "tree-framing" || kind == "tree-mode" || kind == "tree-oid") expected = Reason::MalformedTree;
+        if(kind.starts_with("init-") || kind.starts_with("fetch-")) expected = kind == "fetch-nonzero" ? Reason::PinnedObjectUnavailable : Reason::GitProcessFailed;
+        if(kind.starts_with("observation-")) expected = Reason::MalformedObservation;
+        if(kind == "cleanup" || kind == "cleanup-primary" || kind.starts_with("read-cleanup-")) hooks.before_remove = [&](const fs::path&) {
+            ++removal_attempts;
+            throw std::runtime_error("injected cleanup failure");
+        };
+        set_pinned_closure_test_hooks(std::move(hooks));
+        auto result = acquire_pinned_submodule_closure(std::move(selection));
+        require(!selection.valid(), "Selection was not consumed");
+        if(expected) {
+            const auto* failure = std::get_if<PinnedClosureFailure>(&result);
+            // Git's mandatory fetch fsck can reject unsafe .gitmodules bytes
+            // before our declaration parser. The pure parser oracle above
+            // independently checks our more specific supported-subset reason.
+            const bool fsck_rejected = failure && failure->stage == Stage::RootAcquisition &&
+                                       failure->reason == Reason::PinnedObjectUnavailable && failure->process &&
+                                       std::holds_alternative<BoundedProcessExited>(failure->process->outcome) &&
+                                       std::get<BoundedProcessExited>(failure->process->outcome).exit_code != 0 && (declaration_check || kind == "symlink-modules" || kind == "gitlink-modules");
+            if(!failure || (failure->reason != *expected && !fsck_rejected)) {
+                std::ostringstream message;
+                message << kind << " wrong failure expected=" << static_cast<int>(*expected);
+                if(failure) message << " stage=" << static_cast<int>(failure->stage) << " reason=" << static_cast<int>(failure->reason);
+                throw std::runtime_error(message.str());
+            }
+            if(kind == "cancel" || kind == "child-cancel") require(failure->process && failure->process->cancellation_signal == SIGINT && std::get<BoundedProcessExited>(failure->process->outcome).exit_code == 0, "Cancel+exit0 lost");
+            if(injected_process) require(failure->process && failure->process->outcome == injected_process->outcome && failure->process->output == injected_process->output &&
+                                             failure->stage == (kind.starts_with("init-") ? Stage::RootAcquisition : Stage::ChildAcquisition),
+                                         "Acquisition process failure lost its original stage/outcome");
+            if(kind == "cleanup-primary") {
+                require(failure->cleanup.objects && failure->process && std::get<BoundedProcessExited>(failure->process->outcome).exit_code == 9 && failure->abandoned_root == owned_root, "Cleanup erased primary failure");
+                set_pinned_closure_test_hooks({});
+                fs::remove_all(owned_root);
+            } else
+                require(failure->cleanup.succeeded() && !fs::exists(owned_root), "Failed acquisition retained root");
+        } else {
+            if(const auto* failure = std::get_if<PinnedClosureFailure>(&result)) {
+                std::ostringstream message;
+                message << kind << " acquisition failed stage=" << static_cast<int>(failure->stage) << " reason=" << static_cast<int>(failure->reason);
+                if(failure->process) message << " process=" << failure->process->outcome.index();
+                throw std::runtime_error(message.str());
+            }
+            auto closure = take_arm<Closure>(result, "No closure owner");
+            const std::size_t edge_count = kind == "nested" || kind == "siblings" ? 2 : 1;
+            require(closure.valid() && closure.nodes().size() == edge_count + 1 && closure.edges().size() == edge_count &&
+                        closure.nodes()[0].commit.value() == root_pin && closure.edges()[0].pin.value() == pinned_child &&
+                        closure.edges()[0].logical_name == "logical/A" && closure.edges()[0].path == "deps/a" && closure.selection().snapshot_identity() == snapshot,
+                    "Closure inventory/pins/lineage lost");
+            require(closure.nodes()[1].commit.format() == format && observations == 1 && fetches == edge_count + 1, "Wrong format or acquisition inventory");
+            if(kind == "siblings") require(closure.edges()[0].pin == closure.edges()[1].pin && closure.edges()[0].child != closure.edges()[1].child, "Sibling edge collapsed");
+            if(kind == "nested") require(closure.edges()[1].parent == 1 && closure.nodes()[2].commit.value() == nested->oid(), "Nested pin wrong");
+            const auto& inventory = closure.nodes()[1].inventory.entries;
+            const auto payload = std::find_if(inventory.begin(), inventory.end(), [](const auto& entry) { return entry.path().raw_bytes() == "payload.txt"; });
+            require(payload != inventory.end(), "Child source inventory incomplete");
+            const auto bytes = closure.read_blob(1, static_cast<std::size_t>(payload - inventory.begin()));
+            require(std::holds_alternative<std::string>(bytes) && std::get<std::string>(bytes) == (kind == "parent-move" ? "child-second\n" : "revision-one\n"), "Exact retained child backing unavailable");
+            if(kind.starts_with("read-cleanup-")) {
+                reading = true;
+                {
+                    auto failed_owner = std::move(closure);
+                    const auto failed_read = failed_owner.read_blob(kind == "read-cleanup-exception" ? failed_owner.nodes().size() : 1, 0);
+                    const auto* failure = std::get_if<PinnedClosureFailure>(&failed_read);
+                    require(failure && failure->cleanup.objects && !failure->cleanup.selection && failure->abandoned_root == owned_root &&
+                                fs::exists(owned_root) && !failed_owner.valid(),
+                            "Read failure lost cleanup residue or retained authority");
+                    if(kind == "read-cleanup-process")
+                        require(failure->reason == Reason::GitProcessFailed && failure->stage == Stage::ObjectProof && failure->process &&
+                                    failure->process->outcome == injected_process->outcome && failure->process->output == injected_process->output,
+                                "Read cleanup erased original process failure");
+                    else
+                        require(failure->reason == Reason::MalformedTree && !failure->process, "Read exception taxonomy changed");
+                    require(!failed_owner.cleanup().succeeded() && removal_attempts == 1, "Closed owner retried cleanup");
+                }
+                require(removal_attempts == 1 && fs::exists(owned_root), "Destructor retried abandoned cleanup");
+                set_pinned_closure_test_hooks({});
+                fs::remove_all(owned_root);
+                fixture.require_no_provenance_publication();
+                ++completed;
+                std::cout << "S564 4A " << kind << " PASS\n"
+                          << std::flush;
+                continue;
+            }
+            auto moved = std::move(closure);
+            require(!closure.valid() && moved.valid(), "Move retained duplicate authority");
+            auto cleaned = moved.cleanup();
+            require(!moved.valid(), "Cleanup left authority usable");
+            if(kind == "cleanup") {
+                require(!cleaned.succeeded() && cleaned.objects && fs::exists(owned_root), "Cleanup failure not separated");
+                set_pinned_closure_test_hooks({});
+                require(!moved.cleanup().succeeded(), "Cleanup retried without authority");
+                // Explicit fixture cleanup of this exact test-created residue.
+                fs::remove_all(owned_root);
+            } else
+                require(cleaned.succeeded() && !fs::exists(owned_root), "Closure cleanup failed");
+        }
+        set_pinned_closure_test_hooks({});
+        fixture.require_no_provenance_publication();
+        ++completed;
+        std::cout << "S564 4A " << kind << " PASS\n"
+                  << std::flush;
+    }
+    require(completed == 84, "Closure matrix coverage count changed");
+    std::cout << "S564 4A final inventory PASS: " << completed << " cases\n";
+}
+#endif
+
 } // namespace
 
 int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
     const std::vector<fs::path> before = context_root_inventory();
     try {
+#ifdef MOGUET_ENABLE_PINNED_SUBMODULE_CLOSURE_TEST_HOOKS
+        if(argc != 2 || std::string(argv[1]) != "--pinned-closure") throw std::invalid_argument("Explicit closure mode required");
+        test_pinned_closure();
+        require(context_root_inventory() == before, "Closure retained selection context");
+        return 0;
+#endif
 #ifdef MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
         if(argc == 3 && std::string(argv[1]) == "--devel-bootstrap") {
             test_reviewed_devel_execution_bridge(true, argv[2]);
