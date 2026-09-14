@@ -54,6 +54,7 @@ set(MOGUET_PRODUCTION_SOURCES
     source/dependency_spec.cpp
     source/diagnostic_projection.cpp
     source/dry_run.cpp
+    source/pinned_submodule_closure.cpp
     source/evaluated_devel_source_build.cpp
     source/exact_artifact_transaction_protocol.cpp
     source/filtered_aur_update_operation.cpp

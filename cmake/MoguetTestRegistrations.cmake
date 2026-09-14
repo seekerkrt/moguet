@@ -899,3 +899,10 @@ moguet_add_ctest(
     WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
 )
 set_tests_properties(cpp.devel_tracking_bootstrap PROPERTIES TIMEOUT 480)
+
+moguet_add_ctest(
+    NAME cpp.pinned_submodule_closure
+    TARGETS pinned-submodule-closure-test
+    COMMAND "$<TARGET_FILE:pinned-submodule-closure-test>" --pinned-closure
+)
+set_tests_properties(cpp.pinned_submodule_closure PROPERTIES TIMEOUT 300)
