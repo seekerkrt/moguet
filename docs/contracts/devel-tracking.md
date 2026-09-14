@@ -10,8 +10,8 @@ Moguet v2.7.0で導入するauthoritative devel trackingの対応範囲と安全
 
 ```text
 #411 reviewed exact AUR recipe / typed pin
-  → same-context evaluated source
   → invocation-owned recipe / PKGDEST / BUILDDIR / SRCDEST
+  → same-context evaluated source selection (4A0)
   → actual pre/post-build Git revision (S4)
   → actual dynamic-version artifact identity / archive + MTREE digest (S4)
   → exact selected-artifact Install / Upgrade receipt (S5)
@@ -26,8 +26,11 @@ Moguet v2.7.0で導入するauthoritative devel trackingの対応範囲と安全
   → new S4 → S5 → S6 publication
 ```
 
-図のevaluated sourceとbuild contextは独立inputではない。S3でpinからcontextを作り、S4がその内部で
-sourceを評価する。[S4](evaluated-devel-source-build-proof.md)がactual build authority、
+図のevaluated sourceとbuild contextは独立inputではない。S3でpinからcontextを作り、prepare前の
+`EvaluatedDevelSourceSelection`がsame-context initial evaluationとreviewed projection一致を証明して
+実行状態を所有する（Issue #564 Slice 4A0）。S4は同じownerをresumeし、初回評価を繰り返さない。
+このselectionはexact root X取得やsubmodule対応を意味せず、4Aの取得・closureと4Bのreview/workspace接続は未実装。
+[S4](evaluated-devel-source-build-proof.md)がactual build authority、
 [S5 receipt/binding](exact-installed-artifact-binding.md)と[final proof](installed-devel-source-build-proof.md)が
 実install authority、[S6](devel-build-provenance-publication.md)がhistorical publicationを所有する。
 [assessment](devel-package-assessment.md)のsnapshotはbuild authorizationやleaseではない。

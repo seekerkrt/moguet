@@ -18,14 +18,14 @@ S5/S6へ渡す。AUR assessmentは保存済みhistorical evidenceを7-Bで再検
 
 ## Input authorityとlineage
 
-唯一のproduction mintは、同じ`InvocationOwnedSourceBuildContext`が生成した
+production entryの`build_evaluated_devel_source()`は、同じ`InvocationOwnedSourceBuildContext`が生成した
 `InvocationOwnedMakepkgEnvironment`と、そのcontext自体をmoveで消費する。callerはrecipe cwd、
 `PKGDEST`、`BUILDDIR`、`SRCDEST`、makepkg path / FD、artifact path、Git OIDを個別に渡せない。
 
 Slice 3のimmutable `recipe/`はexact reviewed Git-tree snapshotとして保持する。makepkg 7.1.0はdynamic
 `pkgver()`の結果をwritable PKGBUILDへ反映して後続invocationへ渡すため、Slice 4は同じcontextのprivate
-`BUILDDIR`内へdescriptor-relativeにexact working recipeを複製する。working copyでは最初の
-`--nobuild`中だけPKGBUILDをowner-writableにし、他entryのidentity/contentを維持したまま直後にread-onlyへ
+`BUILDDIR`内へdescriptor-relativeにexact working recipeを複製する。working copyのPKGBUILDは
+initial evaluationから最初の`--nobuild`までowner-writableとし、他entryのidentity/contentを維持したまま直後にread-onlyへ
 sealする。build直前に同じfileだけを再びwritableにし、build後のdynamic bytesがpost-preparation proofとexactに
 一致する場合だけ再sealする。再評価された`pkgver()`がdriftした場合は古いpackagelist/versionを採用せず停止する。
 persistent AUR checkoutとimmutable reviewed snapshotはmakepkg cwdにならない。
@@ -52,12 +52,40 @@ initial authoritative subsetは次に限定する。
 source substitution、conditional mutation、追加/削除、architecture-qualified source、複数VCS、non-Git、
 tag / commit / query / signed selector、remote non-VCS source、generated/untracked local sourceはtyped failureである。
 
+## Prepare前のevaluated selection（Issue #564 Slice 4A0）
+
+`select_evaluated_devel_source(context, environment)`は同じcontextのworking recipeでinitial
+`makepkg --printsrcinfo`を一度実行し、上記のsource・package・architecture・local inputの照合を通す。
+reviewed `.SRCINFO`だけからsourceを推測する入口ではない。照合後にcontext、named working recipeと
+retained cwdのdevice/inode、working recipeの全entry/mode/size/digest、empty `PKGDEST`を再証明した場合だけ、
+move-onlyの`EvaluatedDevelSourceSelection`を返す。
+
+selectionはcontext、same-lineage environment、初回に確定した実効environment、working recipeとそのFD、
+reviewed metadata、evaluated source identity/selector/declarationを一体で所有する。公開accessorが返す値は
+観測値であり、それらのcopy、raw URL/OID/path、bool、decoded provenance、完成S4からlive selectionを再生成できない。
+default/copy constructionを禁止し、complete authorityのprivate producerだけが生成する。
+
+`resume_evaluated_devel_source(selection)`はこのownerだけをmoveで消費する。別context/environmentを
+追加で渡せず、retained stateを再証明してから既存の`--nobuild`以降へ進む。ambient environmentを再取得せず、
+同じworking recipe・makepkg identity・実効environmentを使う。既存`build_evaluated_devel_source()`も
+select→resumeを通り、initial evaluationの回数やprojection照合の実装を増やさない。
+
+selection成功時点ではMoguetはprepare/build/packagelist/archive proofを開始していない。
+exact upstream root X、Git object backing、recursive closureも取得していない。selectionはreview acceptance、
+R、S3生成、S4 completed proof、Pの代わりにならない。`--printsrcinfo`によるPKGBUILD top-level実行を
+network隔離やhostile-code sandboxと主張しない。branch syntax validationは既存どおりGitへ委ねる。
+
+selectionの明示cleanupは成功・失敗ともownerを消費する。破棄時も同じcleanup policyを使い、working stateや
+empty `PKGDEST`を再証明できなければrootを保持する。cleanup failureをdestructorが再試行しない。
+Slice 4Aのtrusted root selector freeze / exact X / pinned closure、4Bのclosure review・workspace・makepkg
+hand-offは未実装。既存のgitfile、`.git/modules`、`.gitmodules`拒否とS5/S6/schemaは維持する。
+
 ## Makepkg phase protocol
 
 Slice 1 characterizationとmakepkg owner contractに従い、同じworking recipe / roots / environmentで次を実行する。
 
 1. initial `--printsrcinfo`とraw/evaluated source一致
-2. empty private `PKGDEST` reproof
+2. context/working recipeとempty private `PKGDEST` reproof、selection生成（resume時にも再証明）
 3. `--nobuild --nodeps --noconfirm`
 4. dynamic PKGBUILD seal、post-preparation `--printsrcinfo`と`--packagelist`
 5. private mirror + actual worktree Git proof
@@ -147,6 +175,8 @@ phase、reason、existing parser/context/process/revision causeをtyped failure�
 descriptor-relative cleanupを明示実行し、cleanupも失敗した場合はprimary failureを置換せず
 `cleanup_consequence`へ別に保持する。retained archive queryで発生したruntime failureは狭いquery境界で
 `ArtifactMetadata / ArtifactMetadataQueryFailure`へ翻訳し、元diagnosticを保持する。
+bounded processの親cancellationは`cancellation_signal`へchild outcomeと別に保持する。
+子がsignalをtrapしてexit 0となってもselectionやbuild proofを生成しない。
 
 artifact inventory拒否、replacement、ambiguous / unsafe workspace、またはpackage build開始後のfailureでは、
 context全体を`UnprovenCleanupContent`として保持する。失敗後の再走査で未証明entryを削除対象へ採用しない。

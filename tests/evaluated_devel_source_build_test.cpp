@@ -16,6 +16,7 @@ unsigned registered_call_count() {
 #endif
 
 #include "evaluated_devel_source_build.hpp"
+#include <csignal>
 
 #ifdef MOGUET_TEST_REVIEWED_DEVEL_SOURCE_EXECUTION
 #include "reviewed_devel_source_build_execution.hpp"
@@ -3825,6 +3826,324 @@ std::vector<fs::path> context_root_inventory() {
     return roots;
 }
 
+
+void test_preprepare_selection() {
+    using Process = EvaluatedDevelSourceBuildProcess;
+    UpstreamGitFixture upstream("selection");
+    for(const std::string kind : {"default", "branch", "multi-arch", "supplemental"}) {
+        ArchitectureFixture architecture;
+        if(kind == "multi-arch") {
+            architecture.declared = {"i686", "x86_64"};
+            architecture.reviewed = std::vector<std::string>{"x86_64", "i686"};
+        }
+        architecture.recipe_suffix =
+            "prepare() { touch \"$HOME/prepare-ran\"; }\n"
+            "build() { touch \"$HOME/build-ran\"; }\n"
+            "package() { touch \"$HOME/package-ran\"; }\n";
+        ReviewedBuildFixture fixture("selection-" + kind, upstream, RecipeShape::Valid,
+                                     false, kind == "branch", kind == "supplemental", true, architecture);
+        auto context = fixture.make_context();
+        const auto root = context.owned_root();
+        const auto snapshot = context.snapshot_identity();
+        auto environment = fixture.make_environment(context);
+        unsigned initial = 0;
+        set_evaluated_devel_source_build_process_test_hook(
+            [&](const auto& invocation, const auto& policy, Process process) {
+                require(process == Process::InitialPrintSrcinfo &&
+                            invocation.arguments == std::vector<std::string>{"--printsrcinfo"} &&
+                            invocation.executable_fd && invocation.working_directory_fd,
+                        "Selection started a later phase or lost retained execution");
+                ++initial;
+                return capture_bounded_explicit_process_output_raw(invocation, policy);
+            });
+        auto result = select_evaluated_devel_source(std::move(context), std::move(environment));
+        set_evaluated_devel_source_build_process_test_hook({});
+        auto selection = take_arm<EvaluatedDevelSourceSelection>(result, "Matching evaluation did not select source");
+        require(!context.valid() && selection.valid() && initial == 1 &&
+                    selection.git_source().source_location() == upstream.url() &&
+                    selection.git_source().selector().kind() == (kind == "branch" ? VcsSelectorKind::Branch : VcsSelectorKind::DefaultHead) &&
+                    (kind != "branch" || *selection.git_source().selector().value() == "main") &&
+                    selection.snapshot_identity() == snapshot &&
+                    selection.source_count() == (kind == "supplemental" ? 3U : 1U) &&
+                    selection.tracked_local_source_count() == (kind == "supplemental" ? 2U : 0U) &&
+                    selection.source_declaration().raw_value.starts_with(fixture.package_name() + "::git+"),
+                "Selection lost identity, declaration, selector or invocation ownership");
+        require(fs::is_empty(root / "srcdest") && fs::is_empty(root / "pkgdest") &&
+                    !fs::exists(fixture.home() / "prepare-ran") && !fs::exists(fixture.home() / "build-ran") &&
+                    !fs::exists(fixture.home() / "package-ran"),
+                "Selection prepared, acquired or built source");
+        auto moved = std::move(selection);
+        require(!selection.valid() && moved.valid(), "Selection move duplicated authority");
+        bool rejected = false;
+        try {
+            static_cast<void>(selection.git_source());
+        } catch(const std::logic_error&) {
+            rejected = true;
+        }
+        require(rejected, "Moved selection still exposed authority");
+        const auto invalid = resume_evaluated_devel_source(std::move(selection));
+        require(require_arm<EvaluatedDevelSourceBuildFailure>(invalid, "Moved selection resumed").reason ==
+                        EvaluatedDevelSourceBuildFailureReason::InvalidBuildContext &&
+                    fs::exists(root),
+                "Moved selection consumed the live owner");
+        require(std::holds_alternative<InvocationOwnedSourceBuildContextCleaned>(moved.cleanup()) &&
+                    !moved.valid() && !fs::exists(root),
+                "Selection cleanup did not consume its own context");
+        fixture.require_no_provenance_publication();
+        std::cout << "S564 4A0 selection " << kind << " PASS\n";
+    }
+}
+
+void test_selection_projection_rejection() {
+    using Reason = EvaluatedDevelSourceBuildFailureReason;
+    UpstreamGitFixture upstream("selection-negative");
+    const std::vector<std::pair<std::string, std::string>> mutations{
+        {"conditional-url", "if (( PRINTSRCINFO )); then source[0]='other::git+https://other.invalid/repo'; fi\n"},
+        {"addition", "source+=('extra.patch'); sha256sums+=('SKIP')\n"},
+        {"deletion", "unset 'source[1]' 'sha256sums[1]'; source=(\"${source[@]}\"); sha256sums=(\"${sha256sums[@]}\")\n"},
+        {"replacement", "source[1]='config.toml'\n"},
+        {"selector", "source[0]+=\"#branch=changed\"\n"},
+        {"destination", "source[0]=\"other::${source[0]#*::}\"\n"},
+        {"architecture", "arch=('x86_64')\n"},
+        {"malformed", "if (( PRINTSRCINFO )); then printf 'not metadata\\n'; exit 0; fi\n"},
+        {"working-drift", "if (( PRINTSRCINFO )); then printf '\\n# drift\\n' >> \"$startdir/PKGBUILD\"; fi\n"},
+        {"local-drift", "if (( PRINTSRCINFO )); then chmod u+w \"$startdir/fix.patch\"; printf 'drift' >> \"$startdir/fix.patch\"; fi\n"},
+    };
+    for(const auto& [kind, mutation] : mutations) {
+        ArchitectureFixture architecture;
+        architecture.recipe_suffix = mutation;
+        ReviewedBuildFixture fixture("selection-" + kind, upstream, RecipeShape::Valid,
+                                     false, false, true, true, architecture);
+        auto context = fixture.make_context();
+        const auto root = context.owned_root();
+        auto environment = fixture.make_environment(context);
+        unsigned initial = 0;
+        set_evaluated_devel_source_build_process_test_hook([&](const auto& invocation, const auto& policy, auto process) {
+            require(process == EvaluatedDevelSourceBuildProcess::InitialPrintSrcinfo, "Rejected selection entered later phase");
+            ++initial;
+            return capture_bounded_explicit_process_output_raw(invocation, policy);
+        });
+        auto result = select_evaluated_devel_source(std::move(context), std::move(environment));
+        set_evaluated_devel_source_build_process_test_hook({});
+        const auto& failure = require_arm<EvaluatedDevelSourceBuildFailure>(result, "Selection accepted source/recipe drift");
+        const auto reason = kind == "malformed" ? Reason::EvaluatedSourceFailure : kind.ends_with("-drift") ? Reason::WorkingRecipeFailure
+                                                                                                            : Reason::RawEvaluatedSourceMismatch;
+        require(failure.reason == reason && initial == 1 && !fs::exists(root), "Selection rejection changed typed cause or cleanup");
+        std::cout << "S564 4A0 reject " << kind << " PASS\n";
+    }
+}
+
+void test_selection_resume_and_environment() {
+    using Process = EvaluatedDevelSourceBuildProcess;
+    UpstreamGitFixture upstream("selection-resume");
+    for(const bool staged : {false, true}) {
+        ReviewedBuildFixture fixture(staged ? "staged-selection" : "wrapper-selection", upstream, RecipeShape::Valid, true);
+        auto context = fixture.make_context();
+        auto environment = fixture.make_environment(context);
+        ScopedEnvironmentVariable initial_environment("MOGUET_SELECTION_TEST_VALUE", "initial");
+        std::optional<ScopedEnvironmentVariable> changed_environment;
+        std::vector<Process> phases;
+        std::vector<std::string> initial_effective;
+        struct stat initial_cwd{};
+        unsigned foundation_events = 0;
+        set_evaluated_devel_source_build_test_hook([&](auto event, const auto& root, const auto&) {
+            if(event == EvaluatedDevelSourceBuildTestEvent::AfterInitialSourceSelection) {
+                ++foundation_events;
+                require(phases == std::vector<Process>{Process::InitialPrintSrcinfo} &&
+                            fs::is_empty(root / "srcdest") && fs::is_empty(root / "pkgdest"),
+                        "Foundation was not before preparation");
+                changed_environment.emplace("MOGUET_SELECTION_TEST_VALUE", "changed");
+            }
+        });
+        set_evaluated_devel_source_build_process_test_hook([&](const auto& invocation, const auto& policy, Process process) {
+            if(process == Process::InitialPrintSrcinfo || process == Process::SourcePreparation ||
+               process == Process::PreparedPrintSrcinfo || process == Process::PreparedPackagelist || process == Process::PackageBuild) {
+                struct stat current{};
+                require(invocation.working_directory_fd && ::fstat(*invocation.working_directory_fd, &current) == 0,
+                        "Lost retained makepkg cwd");
+                if(phases.empty()) {
+                    initial_effective = invocation.environment;
+                    initial_cwd = current;
+                }
+                require(invocation.environment == initial_effective && current.st_dev == initial_cwd.st_dev &&
+                            current.st_ino == initial_cwd.st_ino,
+                        "Resume changed effective environment or working recipe");
+                phases.push_back(process);
+            }
+            return capture_bounded_explicit_process_output_raw(invocation, policy);
+        });
+        auto result = [&]() {
+            if(!staged) return build_evaluated_devel_source(std::move(context), std::move(environment));
+            auto selected = select_evaluated_devel_source(std::move(context), std::move(environment));
+            auto selection = take_arm<EvaluatedDevelSourceSelection>(selected, "Staged evaluation failed");
+            require(phases.size() == 1 && foundation_events == 0, "Selection producer ran prepare");
+            return resume_evaluated_devel_source(std::move(selection));
+        }();
+        set_evaluated_devel_source_build_test_hook({});
+        set_evaluated_devel_source_build_process_test_hook({});
+        auto proof = take_arm<EvaluatedDevelSourceBuildProof>(result, "Resume did not complete S4");
+        require(phases == std::vector<Process>{Process::InitialPrintSrcinfo, Process::SourcePreparation,
+                                               Process::PreparedPrintSrcinfo, Process::PreparedPackagelist, Process::PackageBuild} &&
+                    foundation_events == 1,
+                "Initial evaluation repeated or S4 phase order changed");
+        require(archive_member(proof.artifact().path(), "usr/share/" + fixture.package_name() + "/payload.txt") ==
+                    "revision-one\nprepared\n",
+                "Resume lost prepare transformation");
+        cleanup_proof(proof);
+        std::cout << "S564 4A0 " << (staged ? "resume" : "wrapper") << " phase/env PASS\n";
+    }
+}
+
+void test_selection_lifetime_and_drift() {
+    using Reason = EvaluatedDevelSourceBuildFailureReason;
+    UpstreamGitFixture upstream("selection-lifetime");
+    for(const std::string kind : {"abandon", "working-bytes", "working-name", "snapshot", "pkgdest", "cleanup"}) {
+        ReviewedBuildFixture fixture("selection-" + kind, upstream);
+        auto context = fixture.make_context();
+        const auto root = context.owned_root();
+        struct stat root_identity{};
+        require(::lstat(root.c_str(), &root_identity) == 0, "Missing selection root");
+        auto environment = fixture.make_environment(context);
+        {
+            auto result = select_evaluated_devel_source(std::move(context), std::move(environment));
+            auto selection = take_arm<EvaluatedDevelSourceSelection>(result, "Selection lifetime fixture failed");
+            if(kind != "abandon") {
+                const auto working = root / "build/.moguet-evaluated-recipe";
+                if(kind == "working-bytes") write_file(working / "PKGBUILD", "changed\n");
+                if(kind == "working-name") {
+                    fs::rename(working, root / "build/renamed");
+                    fs::create_directory(working);
+                }
+                if(kind == "snapshot") {
+                    fs::permissions(root / "recipe/PKGBUILD", fs::perms::owner_write, fs::perm_options::add);
+                    write_file(root / "recipe/PKGBUILD", "changed\n");
+                }
+                if(kind == "pkgdest") write_file(root / "pkgdest/unproven", "not an archive");
+                if(kind == "cleanup") {
+                    set_invocation_owned_source_build_context_test_hook([](auto event, const auto& owned_root) {
+                        if(event == InvocationOwnedSourceBuildContextTestEvent::BeforeCleanup) write_file(owned_root / "unexpected", "retain");
+                    });
+                    const auto cleanup = selection.cleanup();
+                    set_invocation_owned_source_build_context_test_hook({});
+                    require(std::holds_alternative<InvocationOwnedSourceBuildContextFailure>(cleanup) && !selection.valid(),
+                            "Failed cleanup left selection reusable");
+                } else {
+                    set_evaluated_devel_source_build_process_test_hook([](const auto&, const auto&, auto) -> BoundedCapturedProcessResult {
+                        throw std::runtime_error("Drifted selection started a process");
+                    });
+                    const auto resumed = resume_evaluated_devel_source(std::move(selection));
+                    set_evaluated_devel_source_build_process_test_hook({});
+                    const auto& failure = require_arm<EvaluatedDevelSourceBuildFailure>(resumed, "Drifted selection resumed");
+                    const auto expected = kind == "working-bytes" ? Reason::WorkingRecipeFailure : kind == "working-name" ? Reason::SourceContainmentFailure
+                                                                                               : kind == "snapshot"       ? Reason::ContextRevalidationFailure
+                                                                                                                          : Reason::ArtifactInventoryMismatch;
+                    require(failure.reason == expected, "Drift rejected at wrong boundary");
+                }
+            }
+        }
+        if(kind == "abandon") require(!fs::exists(root), "Abandoned selection leaked its context");
+        if(fs::exists(root)) cleanup_retained_fixture(root, root_identity);
+        std::cout << "S564 4A0 lifetime " << kind << " PASS\n";
+    }
+    // Same package/source values do not make another context's environment valid.
+    ReviewedBuildFixture first_fixture("selection-context-a", upstream);
+    auto first = first_fixture.make_context();
+    const auto first_root = first.owned_root();
+    ReviewedBuildFixture second_fixture("selection-context-b", upstream);
+    auto second = second_fixture.make_context();
+    auto wrong_environment = second_fixture.make_environment(second);
+    const auto result = select_evaluated_devel_source(std::move(first), std::move(wrong_environment));
+    require(require_arm<EvaluatedDevelSourceBuildFailure>(result, "Cross-context environment selected source").reason ==
+                    Reason::EnvironmentLineageMismatch &&
+                !fs::exists(first_root) && second.valid(),
+            "Selection mixed context lifetimes");
+    require(std::holds_alternative<InvocationOwnedSourceBuildContextCleaned>(second.cleanup()), "Other context cleanup failed");
+}
+
+void test_selection_resume_failure_stage() {
+    UpstreamGitFixture upstream("selection-stage");
+    ReviewedBuildFixture fixture("selection-stage", upstream);
+    auto context = fixture.make_context();
+    const auto root = context.owned_root();
+    struct stat root_identity{};
+    require(::lstat(root.c_str(), &root_identity) == 0, "Missing stage fixture root");
+    auto environment = fixture.make_environment(context);
+    bool injected = false;
+    set_evaluated_devel_source_build_test_hook([&](auto event, const auto&, const auto&) {
+        if(event == EvaluatedDevelSourceBuildTestEvent::AfterSourcePreparation) {
+            injected = true;
+            fs::permissions(root / "recipe/PKGBUILD", fs::perms::owner_write, fs::perm_options::add);
+            write_file(root / "recipe/PKGBUILD", "changed\n");
+        }
+    });
+    const auto result = build_evaluated_devel_source(std::move(context), std::move(environment));
+    set_evaluated_devel_source_build_test_hook({});
+    const auto& failure = require_arm<EvaluatedDevelSourceBuildFailure>(result, "Context drift produced S4");
+    require(injected && failure.stage == EvaluatedDevelSourceBuildStage::DynamicVersion &&
+                failure.reason == EvaluatedDevelSourceBuildFailureReason::ContextRevalidationFailure,
+            "Resumed context failure lost its original phase");
+    if(fs::exists(root)) cleanup_retained_fixture(root, root_identity);
+    std::cout << "S564 4A0 resumed context failure stage PASS\n";
+}
+
+void test_selection_process_failures() {
+    using Process = EvaluatedDevelSourceBuildProcess;
+    UpstreamGitFixture upstream("selection-process");
+    for(const std::string kind : {"launch", "nonzero", "timeout", "signal", "capture", "io", "cancel"}) {
+        ArchitectureFixture architecture;
+        if(kind == "cancel") architecture.recipe_suffix =
+                                 "if (( PRINTSRCINFO )); then trap 'cat \"$startdir/.SRCINFO\"; exit 0' INT; "
+                                 "kill -INT \"$PPID\"; while :; do :; done; fi\n";
+        ReviewedBuildFixture fixture("selection-" + kind, upstream, RecipeShape::Valid, false, false, false, true, architecture);
+        auto context = fixture.make_context();
+        const auto root = context.owned_root();
+        auto environment = fixture.make_environment(context);
+        std::optional<BoundedCapturedProcessResult> observed;
+        set_evaluated_devel_source_build_process_test_hook([&](const auto& invocation, const auto& policy, Process process) {
+            require(process == Process::InitialPrintSrcinfo && invocation.executable_fd &&
+                        invocation.arguments == std::vector<std::string>{"--printsrcinfo"},
+                    "Failure fixture skipped actual initial boundary");
+            if(kind == "io")
+                observed = BoundedCapturedProcessResult{"", BoundedProcessIoOrWaitFailure{BoundedProcessIoStage::Poll, EIO}};
+            else if(kind == "cancel")
+                observed = capture_bounded_explicit_process_output_raw(invocation, policy);
+            else {
+                auto injected = invocation;
+                injected.executable_fd.reset();
+                injected.executable = kind == "launch" ? "/moguet-missing-executable" : "/bin/sh";
+                injected.arguments = {"-c", kind == "nonzero" ? "exit 23" : kind == "signal" ? "kill -TERM $$"
+                                                                        : kind == "capture"  ? "printf '01234567890123456789'"
+                                                                                             : "while :; do :; done"};
+                auto bounded = policy;
+                bounded.hard_timeout = std::chrono::milliseconds(100);
+                bounded.termination_grace = std::chrono::milliseconds(20);
+                if(kind == "capture") bounded.stdout_capture_limit = 4;
+                observed = capture_bounded_explicit_process_output_raw(injected, bounded);
+            }
+            return *observed;
+        });
+        const auto result = select_evaluated_devel_source(std::move(context), std::move(environment));
+        set_evaluated_devel_source_build_process_test_hook({});
+        const auto& failure = require_arm<EvaluatedDevelSourceBuildFailure>(result, "Initial process failure selected source");
+        require(observed && failure.process == Process::InitialPrintSrcinfo && failure.process_outcome == observed->outcome &&
+                    failure.cancellation_signal == observed->cancellation_signal && !fs::exists(root),
+                "Process failure lost outcome/cancel or left context");
+        const bool expected_outcome = kind == "launch" ? std::holds_alternative<BoundedProcessLaunchOrSetupFailure>(observed->outcome) : kind == "nonzero" ? std::holds_alternative<BoundedProcessExited>(observed->outcome) && std::get<BoundedProcessExited>(observed->outcome).exit_code == 23
+                                                                                                                                     : kind == "timeout"   ? std::holds_alternative<BoundedProcessTimedOut>(observed->outcome)
+                                                                                                                                     : kind == "signal"    ? std::holds_alternative<BoundedProcessSignaled>(observed->outcome) && std::get<BoundedProcessSignaled>(observed->outcome).signal_number == SIGTERM
+                                                                                                                                     : kind == "capture"   ? std::holds_alternative<BoundedProcessCaptureLimitExceeded>(observed->outcome)
+                                                                                                                                     : kind == "io"        ? std::holds_alternative<BoundedProcessIoOrWaitFailure>(observed->outcome)
+                                                                                                                                                           : std::holds_alternative<BoundedProcessExited>(observed->outcome);
+        require(expected_outcome, "Process fixture did not reach its expected failure boundary");
+        if(kind == "cancel") {
+            require(observed->cancellation_signal == SIGINT && std::get<BoundedProcessExited>(observed->outcome).exit_code == 0 &&
+                        parse_srcinfo_source_metadata(observed->output).is_success(),
+                    "Cancel fixture did not produce valid metadata plus exit0");
+        }
+        std::cout << "S564 4A0 process " << kind << " PASS\n";
+    }
+}
+
 } // namespace
 
 int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
@@ -3882,6 +4201,12 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             return 0;
         }
 #endif
+        test_preprepare_selection();
+        test_selection_projection_rejection();
+        test_selection_resume_and_environment();
+        test_selection_lifetime_and_drift();
+        test_selection_process_failures();
+        test_selection_resume_failure_stage();
         test_valid_dynamic_build_and_prepare_mutation();
         test_declared_architecture_outputs();
         test_architecture_declaration_rejection();
@@ -3906,12 +4231,14 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
         test_evaluated_artifact_transport();
 #endif
         set_evaluated_devel_source_build_test_hook({});
+        set_evaluated_devel_source_build_process_test_hook({});
         set_invocation_owned_source_build_context_test_hook({});
         require(
             context_root_inventory() == before,
             "Focused test left an invocation-owned context root");
     } catch(const std::exception& error) {
         set_evaluated_devel_source_build_test_hook({});
+        set_evaluated_devel_source_build_process_test_hook({});
         set_invocation_owned_source_build_context_test_hook({});
         std::cerr << "evaluated devel source-build tests failed: "
                   << error.what() << '\n';
