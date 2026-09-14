@@ -3950,7 +3950,7 @@ void test_selection_resume_and_environment() {
         ReviewedBuildFixture fixture(staged ? "staged-selection" : "wrapper-selection", upstream, RecipeShape::Valid, true);
         auto context = fixture.make_context();
         auto environment = fixture.make_environment(context);
-        ScopedEnvironmentVariable initial_environment("MOGUET_SELECTION_TEST_VALUE", "initial");
+        ScopedEnvironmentVariable initial_environment("MOGUET_TEST_SELECTION_VALUE", "initial");
         std::optional<ScopedEnvironmentVariable> changed_environment;
         std::vector<Process> phases;
         std::vector<std::string> initial_effective;
@@ -3962,7 +3962,7 @@ void test_selection_resume_and_environment() {
                 require(phases == std::vector<Process>{Process::InitialPrintSrcinfo} &&
                             fs::is_empty(root / "srcdest") && fs::is_empty(root / "pkgdest"),
                         "Foundation was not before preparation");
-                changed_environment.emplace("MOGUET_SELECTION_TEST_VALUE", "changed");
+                changed_environment.emplace("MOGUET_TEST_SELECTION_VALUE", "changed");
             }
         });
         set_evaluated_devel_source_build_process_test_hook([&](const auto& invocation, const auto& policy, Process process) {
