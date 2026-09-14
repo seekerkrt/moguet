@@ -119,6 +119,31 @@ static_assert(!std::is_constructible_v<
               InstalledDatabaseRecordSha256Digest,
               InstalledPackageRecordGeneration>);
 
+static_assert(!std::is_default_constructible_v<EvaluatedDevelSourceSelection>);
+static_assert(!std::is_copy_constructible_v<EvaluatedDevelSourceSelection>);
+static_assert(!std::is_copy_assignable_v<EvaluatedDevelSourceSelection>);
+static_assert(!std::is_move_assignable_v<EvaluatedDevelSourceSelection>);
+static_assert(std::is_nothrow_move_constructible_v<EvaluatedDevelSourceSelection>);
+static_assert(!std::is_constructible_v<EvaluatedDevelSourceSelection, std::nullptr_t>);
+static_assert(!std::is_constructible_v<EvaluatedDevelSourceSelection, VcsSourceIdentity>);
+static_assert(!std::is_constructible_v<EvaluatedDevelSourceSelection, UpstreamGitRevision>);
+static_assert(!std::is_constructible_v<EvaluatedDevelSourceSelection, EvaluatedDevelSourceProjection>);
+static_assert(!std::is_constructible_v<EvaluatedDevelSourceSelection, EvaluatedDevelSourceBuildProof>);
+static_assert(!std::is_constructible_v<EvaluatedDevelSourceSelection, DevelBuildProvenanceDecoded>);
+static_assert(!std::is_constructible_v<EvaluatedDevelSourceSelection, bool>);
+static_assert(!std::is_constructible_v<EvaluatedDevelSourceSelection, std::string_view>);
+static_assert(!std::is_constructible_v<EvaluatedDevelSourceSelection, ParsedSrcinfoSourceMetadata>);
+static_assert(!std::is_constructible_v<EvaluatedDevelSourceSelection, std::string, std::string, std::filesystem::path>);
+static_assert(std::is_invocable_v<decltype(select_evaluated_devel_source), InvocationOwnedSourceBuildContext, InvocationOwnedMakepkgEnvironment>);
+static_assert(!std::is_invocable_v<decltype(select_evaluated_devel_source), VcsSourceIdentity, bool>);
+static_assert(!std::is_invocable_v<decltype(select_evaluated_devel_source), PinnedReviewedSourceBuild>);
+static_assert(std::is_invocable_v<decltype(resume_evaluated_devel_source), EvaluatedDevelSourceSelection>);
+static_assert(!std::is_invocable_v<decltype(resume_evaluated_devel_source), EvaluatedDevelSourceSelection&>);
+static_assert(!std::is_invocable_v<decltype(resume_evaluated_devel_source), EvaluatedDevelSourceProjection>);
+static_assert(!std::is_invocable_v<decltype(resume_evaluated_devel_source), EvaluatedDevelSourceSelection, InvocationOwnedSourceBuildContext, InvocationOwnedMakepkgEnvironment>);
+static_assert(!std::is_constructible_v<InvocationOwnedSourceBuildContext, EvaluatedDevelSourceSelection>);
+static_assert(!std::is_constructible_v<EvaluatedDevelSourceBuildProof, EvaluatedDevelSourceSelection>);
+
 #if defined(MOGUET_FORGE_LIFECYCLE_EXPECTED)
 class ReviewedSourceLifecycleAuthority final {
 public:
@@ -283,6 +308,22 @@ InvocationOwnedMakepkgEnvironment forge_invocation_makepkg_environment(
     return InvocationOwnedMakepkgEnvironment(
         std::move(environment), SourceEnvironmentEmptyValuePolicy::Forward,
         std::make_shared<const int>(0));
+}
+#elif defined(MOGUET_FORGE_EVALUATED_SELECTION_STATE_REDEFINITION)
+struct EvaluatedDevelSourceBuildAuthority::SelectionState {
+    static EvaluatedDevelSourceProjection forge(VcsSourceIdentity source) {
+        return EvaluatedDevelSourceProjection(std::move(source), 1, 0);
+    }
+};
+#elif defined(MOGUET_FORGE_EVALUATED_SELECTION_DATA)
+struct EvaluatedDevelSourceSelectionStateData {
+    static EvaluatedDevelSourceProjection forge(VcsSourceIdentity source) {
+        return EvaluatedDevelSourceProjection(std::move(source), 1, 0);
+    }
+};
+#elif defined(MOGUET_FORGE_EVALUATED_DEVEL_SOURCE_SELECTION)
+EvaluatedDevelSourceSelection forge_evaluated_source_selection() {
+    return EvaluatedDevelSourceSelection(nullptr);
 }
 #elif defined(MOGUET_FORGE_EVALUATED_DEVEL_SOURCE_PROJECTION)
 EvaluatedDevelSourceProjection forge_evaluated_source_projection(

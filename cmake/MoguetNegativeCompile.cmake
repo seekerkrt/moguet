@@ -145,6 +145,9 @@ set(
     REVIEWED_RECIPE_SNAPSHOT_IDENTITY
     INVOCATION_MAKEPKG_ENVIRONMENT
     EVALUATED_DEVEL_SOURCE_PROJECTION
+    EVALUATED_DEVEL_SOURCE_SELECTION
+    EVALUATED_SELECTION_STATE_REDEFINITION
+    EVALUATED_SELECTION_DATA
     FRESH_DEVEL_PACKAGE_ARTIFACT
     EVALUATED_DEVEL_SOURCE_BUILD_PROOF
 )
@@ -171,9 +174,13 @@ foreach(_moguet_authority_case IN LISTS _moguet_authority_cases)
             "compiled successfully"
         )
     endif()
+    set(_moguet_authority_expected_diagnostic "is private within this context")
+    if(_moguet_authority_case STREQUAL "EVALUATED_SELECTION_STATE_REDEFINITION")
+        set(_moguet_authority_expected_diagnostic "redefinition")
+    endif()
     if(
         NOT _moguet_authority_diagnostic
-            MATCHES "is private within this context"
+            MATCHES "${_moguet_authority_expected_diagnostic}"
     )
         message(
             FATAL_ERROR
