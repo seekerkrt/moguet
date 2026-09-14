@@ -102,6 +102,7 @@ struct AurUpdateOperationExecutionContribution {
     std::optional<ConfirmationCancelled> cancellation = std::nullopt;
     std::optional<AurUpdateBootstrapDecision> bootstrap_decision = std::nullopt;
     std::vector<std::size_t> bootstrap_skipped_roots = {};
+    std::optional<RecipeAcquisitionFailure> recipe_acquisition_failure = std::nullopt;
 };
 
 struct AurUpdateOperationTargetResult {
@@ -127,6 +128,7 @@ struct AurUpdateOperationTargetResult {
     std::optional<ConfirmationCancelled> cancellation = std::nullopt;
     std::optional<AurUpdateBootstrapDecision> bootstrap_decision = std::nullopt;
     std::vector<std::size_t> bootstrap_skipped_roots = {};
+    std::optional<RecipeAcquisitionFailure> recipe_acquisition_failure = std::nullopt;
 };
 
 struct AurUpdateOperationResult {

@@ -262,20 +262,6 @@ std::variant<SourceRevisionIdentity, DevelTrackingBootstrapUnavailable> parse_re
 DevelTrackingBootstrapTestHooks g_bootstrap_hooks;
 #endif
 
-bool clean_checkout(const PackageChildIdentity& package) {
-#ifdef MOGUET_ENABLE_DEVEL_TRACKING_BOOTSTRAP_TEST_HOOKS
-    if(g_bootstrap_hooks.checkout) return g_bootstrap_hooks.checkout(package);
-#endif
-    const auto paths = xdg_paths::resolve_cache_process_environment();
-    auto directory = xdg_directory_safety::open_existing_directory(paths);
-    if(!directory) return true;
-    const auto root = adopt_trusted_cache_root(paths, std::move(*directory));
-    const auto checkout = require_trusted_cache_path(root, paths.directory / package.package_base().package_base(),
-                                                     CachePathRequirement::ExistingOrMissing);
-    if(!checkout.exists()) return true;
-    return trusted_git_checkout_has_no_overlay(checkout, *package.package_base().source().location().value());
-}
-
 std::size_t receive_metadata(void* bytes, std::size_t size, std::size_t count, void* context) noexcept {
     auto& out = *static_cast<std::string*>(context);
     if(size != 0 && count > std::numeric_limits<std::size_t>::max() / size) return 0;
@@ -471,7 +457,8 @@ DevelTrackingBootstrapObservation observe_devel_tracking_bootstrap(const Package
         if(!installed) return DevelTrackingBootstrapUnavailable{Reason::InstalledStateUnavailable};
         const auto* reviewed = local.reviewed ? std::get_if<ReviewedSourceStateStoreRead>(&*local.reviewed) : nullptr;
         if(!reviewed || !valid_reviewed(*reviewed)) return DevelTrackingBootstrapUnavailable{Reason::ReviewedStateInvalid};
-        if(!clean_checkout(package)) return DevelTrackingBootstrapUnavailable{Reason::CheckoutOverlayOrUnavailable};
+        // Initial migration always acquires a fresh exact recipe after Yes.
+        // Persistent checkout state is neither eligibility nor recipe authority.
         const auto observed_recipe = observe_recipe(package);
         if(const auto* unavailable = std::get_if<DevelTrackingBootstrapUnavailable>(&observed_recipe)) return *unavailable;
         const auto& recipe = std::get<RecipeObservation>(observed_recipe);

@@ -752,7 +752,8 @@ AurCheckoutAuthority prepare_aur_checkout_authority(
     const std::string& branch,
     ReviewedSourcePackageBaseLease lease,
     ReviewedSourceFatalStatePreflight fatal_preflight,
-    const AppConfig& config) {
+    const AppConfig& config,
+    InvocationOwnedRecipeAcquisition* acquisition) {
     if(!request.aur_review_identity.has_value()) {
         throw std::logic_error(
             "AUR source-build request has no reviewed PackageBase identity.");
@@ -762,9 +763,11 @@ AurCheckoutAuthority prepare_aur_checkout_authority(
             std::move(lease), review_bypass_reason(config)};
     }
 
-    TrustedGitCommitResolutionResult target_result =
-        trusted_git_resolve_remote_commit(
-            checkout, request.git_url, branch);
+    // Bootstrap already acquired the exact trial revision. Never resolve a
+    // moving remote branch or reuse the old persistent checkout here.
+    TrustedGitCommitResolutionResult target_result = acquisition
+                                                         ? TrustedGitCommitResolutionResult{acquisition->identity().target_revision()}
+                                                         : trusted_git_resolve_remote_commit(checkout, request.git_url, branch);
     if(auto* failure = std::get_if<TrustedGitReviewFailure>(
            &target_result)) {
         stop_reviewed_source_route(
@@ -928,6 +931,13 @@ AurCheckoutAuthority prepare_aur_checkout_authority(
     if(auto* compatibility = std::get_if<
            ReviewedSourceCompatibilityBuildWithoutReview>(
            &disposition)) {
+        if(request.devel_tracking_bootstrap) {
+            // Fresh acquisition has no working tree until review acceptance.
+            // A declined bootstrap cannot enter even legacy preparation.
+            stop_reviewed_source_operation(
+                ReviewedSourceOperationStop::make(ReviewedSourceOperationStopReason::NonExplicitAcceptance),
+                ReviewedSourceProductionFailureStage::Acceptance);
+        }
         return AurCompatibilityCheckout{
             std::move(lease), compatibility->reason()};
     }
@@ -982,7 +992,8 @@ ReviewedProductionSourceExecution finalize_aur_checkout_authority(
     const ValidatedCachePath& checkout,
     std::optional<ReviewedSourceEditorOverlayProof> editor_overlay,
     bool editor_invoked,
-    const ReviewedDevelSourceBuildIntent* intent = nullptr) {
+    const ReviewedDevelSourceBuildIntent* intent = nullptr,
+    InvocationOwnedRecipeAcquisition* acquisition = nullptr) {
     if(auto* compatibility =
            std::get_if<AurCompatibilityCheckout>(&authority)) {
         if(intent && (intent->request.authoritative_devel_update || intent->request.devel_tracking_bootstrap))
@@ -1063,7 +1074,7 @@ ReviewedProductionSourceExecution finalize_aur_checkout_authority(
                   std::move(editor_overlay.value()));
     if(auto* pinned =
            std::get_if<PinnedReviewedSourceBuild>(&publication)) {
-        return select_normal_reviewed_source_execution(checkout, std::move(*pinned), reviewed_outcome.outcome, reviewed_outcome.abnormal_state_reason, intent);
+        return select_normal_reviewed_source_execution(checkout, std::move(*pinned), reviewed_outcome.outcome, reviewed_outcome.abnormal_state_reason, intent, acquisition);
     }
     if(std::holds_alternative<ReviewedSourcePublicationUncertain>(
            publication)) {
@@ -1342,7 +1353,8 @@ SourceBuildCheckoutPreparation prepare_source_build_checkout(
     std::optional<ReviewedSourceFatalStatePreflight>
         reviewed_state_preflight,
     const AppConfig& config,
-    const ReviewedDevelSourceBuildIntent* execution_intent) {
+    const ReviewedDevelSourceBuildIntent* execution_intent,
+    InvocationOwnedRecipeAcquisition* acquisition) {
     require_valid_package_name(request.checkout_name);
     if(update_policy == SourceBuildUpdatePolicy::OnlyIfUpdated &&
        !request.installed_snapshot.has_value()) {
@@ -1354,15 +1366,15 @@ SourceBuildCheckoutPreparation prepare_source_build_checkout(
     // TRANSLATORS: The placeholder is a package or PackageBase name.
     Logger::info(localization::format_translated_message(
         "Processing {}...", display_name));
-    ValidatedCachePath pkg_path = require_trusted_cache_path(
-        build_root, request.checkout_name,
-        CachePathRequirement::ExistingOrMissing);
+    ValidatedCachePath pkg_path = acquisition ? acquisition->checkout() : require_trusted_cache_path(build_root, request.checkout_name, CachePathRequirement::ExistingOrMissing);
 
     bool existed_before_update = false;
     std::optional<ReviewedSourcePackageBaseLease> package_base_lease;
     std::string branch;
 
-    {
+    if(acquisition) {
+        package_base_lease.emplace(acquire_package_base_lease(pkg_path, true));
+    } else {
         WorkDirGuard wd(build_root);
         bool needs_clone = true;
 
@@ -1501,7 +1513,7 @@ SourceBuildCheckoutPreparation prepare_source_build_checkout(
             request, pkg_path, branch,
             std::move(package_base_lease.value()),
             std::move(reviewed_state_preflight.value()),
-            config));
+            config, acquisition));
         package_base_lease.reset();
     } else if(reviewed_state_preflight.has_value()) {
         throw std::logic_error(
@@ -1760,7 +1772,7 @@ SourceBuildCheckoutPreparation prepare_source_build_checkout(
     ReviewedProductionSourceExecution source_tree = aur_authority.has_value()
                                                         ? finalize_aur_checkout_authority(
                                                               std::move(aur_authority.value()), pkg_path,
-                                                              std::move(editor_overlay), editor_invoked, execution_intent)
+                                                              std::move(editor_overlay), editor_invoked, execution_intent, acquisition)
                                                         : make_unreviewed_production_artifact_source_tree(
                                                               pkg_path, std::move(package_base_lease.value()),
                                                               ProductionSourceReviewStatus::NotApplicable,
@@ -1844,6 +1856,11 @@ void require_package_base_source_build_request(
 
 } // namespace
 
+BootstrapRecipeAcquisitionError::BootstrapRecipeAcquisitionError(RecipeAcquisitionFailure failure,
+                                                                 std::exception_ptr primary) noexcept
+    : failure_(std::move(failure)), primary_(std::move(primary)) {
+}
+
 std::shared_ptr<ReviewedSourceFatalStatePreflightSlot>
 preflight_reviewed_source_fatal_state_for_production(
     const SourceBuildRequest& request) {
@@ -1872,7 +1889,9 @@ SourceBuildPreparationOutcome prepare_source_build_for_execution(
     const AppConfig& config,
     const ReviewedDevelSourceBuildIntent* execution_intent) {
     if(request.devel_tracking_bootstrap &&
-       (!should_run_reviewed_source_route(config) || !revalidate_devel_tracking_bootstrap(*request.devel_tracking_bootstrap))) {
+       (!execution_intent || execution_intent->request.devel_tracking_bootstrap != request.devel_tracking_bootstrap ||
+        update_policy != SourceBuildUpdatePolicy::AlwaysBuild || !should_run_reviewed_source_route(config) ||
+        !revalidate_devel_tracking_bootstrap(*request.devel_tracking_bootstrap))) {
         throw std::runtime_error(localization::translate_message(
             "Devel tracking bootstrap observations changed; no build was started."));
     }
@@ -1921,9 +1940,36 @@ SourceBuildPreparationOutcome prepare_source_build_for_execution(
 
     SourceBuildCheckoutPreparation checkout_preparation = [&]() {
         try {
+            if(request.devel_tracking_bootstrap) {
+                auto acquired = acquire_invocation_owned_recipe(*request.devel_tracking_bootstrap);
+                if(auto* failure = std::get_if<RecipeAcquisitionFailure>(&acquired))
+                    throw BootstrapRecipeAcquisitionError(std::move(*failure));
+                auto& owner = std::get<InvocationOwnedRecipeAcquisition>(acquired);
+                const auto& root = owner.workspace_path();
+                try {
+                    auto prepared = prepare_source_build_checkout(
+                        request, display_name, update_policy, cache_root,
+                        std::move(reviewed_state_preflight), config, execution_intent, &owner);
+                    const auto* checkout = std::get_if<PreparedSourceBuildCheckout>(&prepared);
+                    if(!checkout || !std::holds_alternative<PreparedReviewedDevelSourceBuildExecution>(checkout->source_tree))
+                        throw std::runtime_error("Bootstrap requires authoritative reviewed execution; no fallback.");
+                    // The successful prepared state now owns acquisition through S3.
+                    return prepared;
+                } catch(...) {
+                    const auto primary = std::current_exception();
+                    if(const auto cleanup = owner.cleanup())
+                        throw BootstrapRecipeAcquisitionError(
+                            RecipeAcquisitionFailure{RecipeAcquisitionStage::Cleanup, cleanup->reason, cleanup->error_number,
+                                                     std::nullopt, cleanup, root},
+                            primary);
+                    std::rethrow_exception(primary);
+                }
+            }
             return prepare_source_build_checkout(
                 request, display_name, update_policy, cache_root,
-                std::move(reviewed_state_preflight), config, execution_intent);
+                std::move(reviewed_state_preflight), config, execution_intent, nullptr);
+        } catch(const BootstrapRecipeAcquisitionError&) {
+            throw;
         } catch(const ReviewedSourceProductionError&) {
             throw;
         } catch(const TrustedCacheError&) {

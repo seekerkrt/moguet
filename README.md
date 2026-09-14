@@ -535,15 +535,20 @@ For an independent target whose initial provenance observation is genuinely
 missing, interactive exact target-less `-Syu` can offer an explicit tracking
 bootstrap with a default-No confirmation. Before offering it, Moguet observes
 an exact AUR recipe without changing cache or state and checks the trial source
-shape. The initial trial supports a single architecture-independent floating
-HTTPS Git source, one package, and no checkout overlay; supplementary source
-files remain unoffered when their tracked regular-file identity cannot be
-verified by this observation. Unavailable or unsupported observations keep the
-existing warning/skip behavior. This trial is not build or provenance proof.
+shape. The trial supports one package and one floating HTTPS Git source, plus
+bounded local patch/config inputs at the recipe root without renaming. Multiple
+declared architectures are supported; architecture-qualified sources remain
+unsupported. Tracked regular-file identity and exact bytes are proved by full
+review and the isolated build stages. Unavailable or unsupported observations
+keep the existing warning/skip behavior. This trial is not build or provenance proof.
 
 Bootstrap decisions precede cache, provider, and dependency mutations for those
-targets. Acceptance still requires a full source review, including when a prior
-review exists, followed by the existing supported build, exact install, fresh
+targets. After explicit migration acceptance, Moguet acquires the exact observed
+recipe in a fresh private workspace. The old recipe cache is neither read as
+authority nor changed, regardless of its cleanliness, HEAD, origin, or leftover
+files. Acquisition failure stops without falling back to that cache. A separate
+explicit full-review acceptance is required, including when a prior review
+exists, followed by the existing supported build, exact install, fresh
 installed binding, and successful provenance publication. `--noedit` is allowed;
 `--nodiff`, `review.diff = "skip"`, `--noconfirm`, and non-TTY input do not approve
 bootstrap. Decline skips the target; cancellation or a later execution failure

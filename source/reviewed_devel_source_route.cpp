@@ -45,7 +45,7 @@ bool selects_reviewed_devel_execution(const ValidatedCachePath& checkout,
 ReviewedProductionSourceExecution select_normal_reviewed_source_execution(
     const ValidatedCachePath& checkout, PinnedReviewedSourceBuild pin,
     ProductionReviewedSourceOutcome outcome, std::optional<ReviewedSourceAbnormalStateReason> abnormal,
-    const ReviewedDevelSourceBuildIntent* intent) {
+    const ReviewedDevelSourceBuildIntent* intent, InvocationOwnedRecipeAcquisition* acquisition) {
     if(intent && intent->request.devel_tracking_bootstrap) {
         const auto& trial = *intent->request.devel_tracking_bootstrap;
         std::ifstream file(checkout.canonical_path() / ".SRCINFO");
@@ -57,7 +57,7 @@ ReviewedProductionSourceExecution select_normal_reviewed_source_execution(
     const bool authoritative = selects_reviewed_devel_execution(checkout, intent, pin.editor_overlay_status() != ReviewedSourceEditorOverlayStatus::None);
     if(!intent) return make_reviewed_production_artifact_source_tree(checkout, std::move(pin), outcome, abnormal);
     return prepare_reviewed_production_source_execution(authoritative ? ReviewedProductionExecutionChoice::AuthoritativeDevel : ReviewedProductionExecutionChoice::Legacy,
-                                                        checkout, std::move(pin), outcome, abnormal, *intent);
+                                                        checkout, std::move(pin), outcome, abnormal, *intent, acquisition);
 }
 ReviewedDevelExecutionSnapshot execute_normal_reviewed_devel(PreparedReviewedDevelSourceBuildExecution prepared) {
     auto storage = std::make_shared<std::optional<ReviewedDevelSourceBuildExecutionResult>>();
@@ -79,6 +79,7 @@ ReviewedDevelExecutionSnapshot execute_normal_reviewed_devel(PreparedReviewedDev
         out.cleanup = installed.privileged_cleanup().state;
     }
     try {
+        if(const auto* failure = result.recipe_acquisition_failure()) out.recipe_acquisition_failure = *failure;
         out.production_outcome = project_reviewed_devel_execution_outcome(result);
         if(const auto* p = result.publication(); p && p->installation().proof())
             out.artifact = p->installation().proof()->built_proof().artifact().evidence().identity;
@@ -94,7 +95,7 @@ ProductionSourceBuildStagedOutcome project_reviewed_devel_execution_outcome(cons
     out.source_provenance = result.source_provenance();
     if(result.build_completed())
         out.build_outcome = ProductionSourceBuildCommandOutcome::Succeeded;
-    else if(result.stage() != ReviewedDevelSourceBuildStage::Intent && result.stage() != ReviewedDevelSourceBuildStage::Context && result.stage() != ReviewedDevelSourceBuildStage::Environment) {
+    else if(result.stage() != ReviewedDevelSourceBuildStage::Intent && result.stage() != ReviewedDevelSourceBuildStage::Context && result.stage() != ReviewedDevelSourceBuildStage::RecipeCleanup && result.stage() != ReviewedDevelSourceBuildStage::Environment) {
         // The S4 invocation started; do not invent a terminal makepkg outcome
         // from an incomplete proof. Preserve the original typed S4 failure.
         out.build_outcome = ProductionSourceBuildCommandOutcome::Started;

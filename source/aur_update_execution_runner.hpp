@@ -110,6 +110,7 @@ using AurUpdateWorkItemFailureDetail = std::variant<
     PackageBaseArtifactIdentitySelectionFailure,
     MixedPackageBaseInstallReasonUnsupported,
     PackageMetadataFailure,
+    TrustedCacheFailure,
     AurUpdateSourceBuildFailureSnapshot,
     AurUpdatePackageTransactionFailureSnapshot,
     AurUpdateExecutionCorrelationFailure>;
@@ -177,6 +178,9 @@ struct AurUpdateWorkItemExecutionResult {
     std::optional<AurUpdateBootstrapDecision> bootstrap_decision = std::nullopt;
     // Original query-plan indices, not names or compacted work-item indices.
     std::vector<std::size_t> bootstrap_skipped_roots = {};
+    // Acquisition process cancellation is not a confirmation token. Also retains
+    // cleanup consequences accompanying review failure/cancellation or S3.
+    std::optional<RecipeAcquisitionFailure> recipe_acquisition_failure = std::nullopt;
 };
 
 enum class AurUpdateInvocationExecutionPhase { WorkItems,

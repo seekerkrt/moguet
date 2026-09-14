@@ -58,7 +58,7 @@ using RecipeAcquisitionResult = std::variant<InvocationOwnedRecipeAcquisition, R
 // full review, exact pin and S3's final recipe reproof. checkout() is borrowed;
 // copying that capability does not extend the workspace's lifetime. Explicit
 // cleanup is mandatory to observe failure; destruction is a noexcept backstop.
-// No production route consumes this foundation until Issue #564 Slice 3B.
+// Initial migration retains this owner in prepared reviewed execution through S3.
 class InvocationOwnedRecipeAcquisition final {
 public:
     InvocationOwnedRecipeAcquisition() = delete;

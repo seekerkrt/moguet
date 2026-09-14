@@ -693,6 +693,7 @@ bool AurUpdateSourceBuildExecutionResult::has_not_attempted_items()
 bool AurUpdateSourceBuildExecutionResult::has_cleanup_failure()
     const noexcept {
     for(const auto& work_item_result : work_item_results) {
+        if(work_item_result.recipe_acquisition_failure && work_item_result.recipe_acquisition_failure->cleanup) return true;
         if(work_item_result.status ==
                AurUpdateWorkItemExecutionStatus::UpdatedCleanupFailed ||
            work_item_result.status == AurUpdateWorkItemExecutionStatus::
@@ -852,12 +853,19 @@ execute_prepared_aur_update_source_build_invocation(
                     if(auto legacy = g_non_bootstrap_execution_hook(production_invocation.work_items[index])) return std::move(*legacy);
                 }
 #endif
-                return execute_prepared_package_base_source_build_work_item_typed(
-                    production_invocation.work_items[index], production_invocation.database_paths, config);
+                try {
+                    return execute_prepared_package_base_source_build_work_item_typed(
+                        production_invocation.work_items[index], production_invocation.database_paths, config);
+                } catch(const BootstrapRecipeAcquisitionError& error) {
+                    work_item_result.recipe_acquisition_failure = error.failure();
+                    if(error.primary()) std::rethrow_exception(error.primary());
+                    throw;
+                }
             }();
             if(auto* devel = std::get_if<ReviewedDevelExecutionSnapshot>(&execution)) {
                 work_item_result.devel_execution.emplace(std::move(*devel));
                 const auto& observed = *work_item_result.devel_execution;
+                work_item_result.recipe_acquisition_failure = observed.recipe_acquisition_failure;
                 work_item_result.status = observed.complete ? AurUpdateWorkItemExecutionStatus::Updated : AurUpdateWorkItemExecutionStatus::Failed;
                 work_item_result.failure_kind = observed.complete ? AurUpdateWorkItemFailureKind::None : AurUpdateWorkItemFailureKind::AuthoritativeExecutionIncomplete;
                 if(observed.artifact) {
@@ -937,6 +945,31 @@ execute_prepared_aur_update_source_build_invocation(
             result.status = AurUpdateInvocationExecutionStatus::
                 StoppedOnWorkItemFailure;
             return result;
+        } catch(const BootstrapRecipeAcquisitionError& error) {
+            work_item_result.recipe_acquisition_failure = error.failure();
+            if(error.failure().reason == RecipeAcquisitionFailureReason::Cancelled) {
+                work_item_result.status = AurUpdateWorkItemExecutionStatus::Cancelled;
+                work_item_result.failure_kind = AurUpdateWorkItemFailureKind::None;
+                result.status = AurUpdateInvocationExecutionStatus::StoppedOnWorkItemCancellation;
+                throw AurUpdateExecutionCancelled(std::move(result));
+            }
+            work_item_result.status = AurUpdateWorkItemExecutionStatus::Failed;
+            work_item_result.failure_kind = AurUpdateWorkItemFailureKind::BuildOrInstallFailed;
+            work_item_result.failure_detail = AurUpdateSourceBuildFailureSnapshot{
+                AurUpdateSourceBuildFailureCategory::Other, error.what(), std::nullopt};
+            work_item_result.diagnostic = error.what();
+            result.status = AurUpdateInvocationExecutionStatus::StoppedOnWorkItemFailure;
+            return result;
+        } catch(const ReviewedSourceProductionError& error) {
+            // A review stop accompanied by acquisition cleanup failure bypasses
+            // the generic source-build wrapper; retain its original typed cause.
+            work_item_result.status = AurUpdateWorkItemExecutionStatus::Failed;
+            work_item_result.failure_kind = AurUpdateWorkItemFailureKind::BuildOrInstallFailed;
+            work_item_result.failure_detail = AurUpdateSourceBuildFailureSnapshot{
+                AurUpdateSourceBuildFailureCategory::Other, error.what(), error.failure()};
+            work_item_result.diagnostic = error.what();
+            result.status = AurUpdateInvocationExecutionStatus::StoppedOnWorkItemFailure;
+            return result;
         } catch(const PackageMetadataError& error) {
             work_item_result.status = AurUpdateWorkItemExecutionStatus::Failed;
             work_item_result.failure_kind =
@@ -947,7 +980,17 @@ execute_prepared_aur_update_source_build_invocation(
             result.status = AurUpdateInvocationExecutionStatus::
                 StoppedOnWorkItemFailure;
             return result;
-        } catch(const TrustedCacheError&) {
+        } catch(const TrustedCacheError& error) {
+            if(work_item_result.recipe_acquisition_failure) {
+                // Retain both the unsafe review workspace and its failed
+                // cleanup instead of losing the accepted item's partial facts.
+                work_item_result.status = AurUpdateWorkItemExecutionStatus::Failed;
+                work_item_result.failure_kind = AurUpdateWorkItemFailureKind::BuildOrInstallFailed;
+                work_item_result.failure_detail = error.failure();
+                work_item_result.diagnostic = error.what();
+                result.status = AurUpdateInvocationExecutionStatus::StoppedOnWorkItemFailure;
+                return result;
+            }
             // Aggregate ownerがcache authorityのtyped payloadを転写できるよう、
             // ordinary work-item failureへcontainせずrethrowする。
             throw;
