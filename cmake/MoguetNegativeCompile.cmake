@@ -105,6 +105,12 @@ _moguet_append_arguments(
 _moguet_append_arguments(_moguet_common_arguments _moguet_project_options)
 _moguet_append_arguments(_moguet_common_arguments _moguet_cppflags)
 
+# 4B0 shares the compiler/profile inputs, with a narrow standalone mode.
+include("${CMAKE_CURRENT_LIST_DIR}/MoguetPinnedClosureReviewNegativeCompile.cmake")
+if(MOGUET_PINNED_CLOSURE_REVIEW_ONLY)
+    return()
+endif()
+
 # 4A narrow construction boundary, shared by canonical and optional focused run.
 get_filename_component(_moguet_closure_probe_dir "${MOGUET_NEGATIVE_COMPILE_PROJECT_OPTIONS_FILE}" DIRECTORY)
 set(_moguet_closure_probe "${_moguet_closure_probe_dir}/pinned-closure.cpp")

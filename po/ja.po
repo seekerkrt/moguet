@@ -9895,3 +9895,11 @@ msgstr "不明な状態ログエラーコードです。"
 #, c++-format
 #~ msgid "Failed to remove {}"
 #~ msgstr "{}を削除できませんでした"
+
+#: source/pinned_submodule_closure_review.cpp
+msgid "Exact recursive source closure review (separate from recipe review)\n"
+msgstr "固定された再帰的ソース全体のレビュー（レシピのレビューとは別です）\n"
+
+#: source/pinned_submodule_closure_review.cpp
+msgid "Accept this complete exact source closure?"
+msgstr "表示した固定ソース全体のレビューを承認しますか？"
