@@ -702,6 +702,10 @@ PinnedSubmoduleClosureResult acquire_pinned_submodule_closure(EvaluatedDevelSour
     PinnedClosureFailure failure{Stage::Input, Reason::InvalidSelection};
     try {
         if(!selection.valid()) fail(Stage::Input, Reason::InvalidSelection);
+#ifdef MOGUET_ENABLE_PINNED_SUBMODULE_CLOSURE_TEST_HOOKS
+        // Model allocation failure before the constructor can consume selection.
+        if(std::exchange(g_hooks.fail_next_backing_allocation, false)) throw std::bad_alloc();
+#endif
         data = std::make_unique<PinnedSubmoduleClosureData>(std::move(selection));
         data->create();
         const auto oid = data->observe();
@@ -720,6 +724,10 @@ PinnedSubmoduleClosureResult acquire_pinned_submodule_closure(EvaluatedDevelSour
     if(data) {
         failure.cleanup = data->cleanup();
         if(failure.cleanup.objects) failure.abandoned_root = data->root_path;
+    } else if(selection.valid()) {
+        // Backing allocation can fail while the input still owns its context.
+        const auto cleaned = selection.cleanup();
+        if(const auto* consequence = std::get_if<InvocationOwnedSourceBuildContextFailure>(&cleaned)) failure.cleanup.selection = *consequence;
     }
     return failure;
 }

@@ -4253,6 +4253,75 @@ void test_selection_process_failures() {
 }
 
 #ifdef MOGUET_ENABLE_PINNED_SUBMODULE_CLOSURE_TEST_HOOKS
+void test_pinned_closure_allocation_cleanup() {
+    UpstreamGitFixture upstream("closure-allocation");
+    for(const bool cleanup_failure : {false, true}) {
+        const std::string kind = cleanup_failure ? "allocation-cleanup-failure" : "allocation-cleanup-success";
+        ReviewedBuildFixture fixture(kind, upstream);
+        auto context = fixture.make_context();
+        const auto root = context.owned_root();
+        struct stat root_identity{};
+        require(::lstat(root.c_str(), &root_identity) == 0, "Missing selection root");
+        auto environment = fixture.make_environment(context);
+        unsigned process_calls = 0, object_events = 0, cleanup_attempts = 0;
+        {
+            auto selected = select_evaluated_devel_source(std::move(context), std::move(environment));
+            auto selection = take_arm<EvaluatedDevelSourceSelection>(selected, "Allocation fixture selection failed");
+            require(selection.valid(), "Allocation fixture needs live selection");
+            set_evaluated_devel_source_build_process_test_hook([&](const auto&, const auto&, auto) -> BoundedCapturedProcessResult {
+                ++process_calls;
+                throw std::runtime_error("Allocation failure ran makepkg");
+            });
+            set_invocation_owned_source_build_context_test_hook([&](auto event, const auto& owned_root) {
+                if(event != InvocationOwnedSourceBuildContextTestEvent::BeforeCleanup) return;
+                require(owned_root == root, "Cleanup targeted another context");
+                ++cleanup_attempts;
+                if(cleanup_failure) write_file(root / "unexpected", "retain");
+            });
+            PinnedClosureTestHooks hooks;
+            hooks.fail_next_backing_allocation = true;
+            hooks.process = [&](const auto&, const auto&) -> BoundedCapturedProcessResult {
+                ++process_calls;
+                throw std::runtime_error("Allocation failure launched Git");
+            };
+            hooks.event = [&](auto, const auto&) { ++object_events; };
+            hooks.before_remove = [&](const auto&) { ++object_events; };
+            set_pinned_closure_test_hooks(std::move(hooks));
+            const auto result = acquire_pinned_submodule_closure(std::move(selection));
+            const auto& failure = require_arm<PinnedClosureFailure>(result, "Allocation failure minted closure owner");
+            require(failure.stage == PinnedClosureStage::Input && failure.reason == PinnedClosureFailureReason::ResourceLimitExceeded &&
+                        !failure.process && !failure.error_number && !selection.valid(),
+                    "Allocation failure lost primary or retained input authority");
+            require(!failure.cleanup.objects && !failure.abandoned_root && object_events == 0 && process_calls == 0,
+                    "Allocation failure invented object cleanup or started work");
+            require(cleanup_attempts == 1, "Selection cleanup missing or retried");
+            if(cleanup_failure) {
+                require(failure.cleanup.selection && !failure.cleanup.succeeded() && fs::exists(root / "unexpected"),
+                        "Allocation failure lost typed selection cleanup consequence or residue");
+                const auto& consequence = *failure.cleanup.selection;
+                require(consequence.stage == InvocationOwnedSourceBuildContextStage::Cleanup &&
+                            consequence.reason == InvocationOwnedSourceBuildContextFailureReason::ConcurrentReplacement &&
+                            consequence.relative_path.empty() && !consequence.system_error && !consequence.binding_failure &&
+                            !consequence.git_failure && !consequence.review_failure && !consequence.checkout_failure &&
+                            !consequence.diagnostic && !consequence.construction_cleanup_failure,
+                        "Selection cleanup consequence fields changed");
+            } else {
+                require(!failure.cleanup.selection && failure.cleanup.succeeded() && !fs::exists(root),
+                        "Allocation failure did not clean selection");
+            }
+        }
+        require(cleanup_attempts == 1 && process_calls == 0 && object_events == 0 && fs::exists(root) == cleanup_failure,
+                "Destruction retried cleanup or changed residue");
+        set_pinned_closure_test_hooks({});
+        set_evaluated_devel_source_build_process_test_hook({});
+        set_invocation_owned_source_build_context_test_hook({});
+        if(cleanup_failure) cleanup_retained_fixture(root, root_identity);
+        fixture.require_no_provenance_publication();
+        std::cout << "S564 4A " << kind << " PASS\n"
+                  << std::flush;
+    }
+}
+
 std::string module_declaration(const std::string& name, const std::string& path, const std::string& url) {
     return "[submodule \"" + name + "\"]\n\tpath = " + path + "\n\turl = " + url + "\n";
 }
@@ -4698,6 +4767,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
     try {
 #ifdef MOGUET_ENABLE_PINNED_SUBMODULE_CLOSURE_TEST_HOOKS
         if(argc != 2 || std::string(argv[1]) != "--pinned-closure") throw std::invalid_argument("Explicit closure mode required");
+        test_pinned_closure_allocation_cleanup();
         test_pinned_closure();
         require(context_root_inventory() == before, "Closure retained selection context");
         return 0;

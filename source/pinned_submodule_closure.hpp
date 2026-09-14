@@ -123,6 +123,7 @@ struct PinnedClosureTestHooks {
     std::function<void(PinnedClosureStage, const std::filesystem::path&)> event;
     std::function<BoundedCapturedProcessResult(const ExplicitProcessInvocation&, const BoundedProcessPolicy&)> process;
     std::function<void(const std::filesystem::path&)> before_remove;
+    bool fail_next_backing_allocation = false;
 };
 void set_pinned_closure_test_hooks(PinnedClosureTestHooks hooks);
 #endif
