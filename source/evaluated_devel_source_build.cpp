@@ -1229,9 +1229,13 @@ SourceProjectionAnalysis analyze_source_projection(
                     EvaluatedDevelSourceBuildStage::EvaluatedSource,
                     EvaluatedDevelSourceBuildFailureReason::UnsupportedSourceShape);
             } else {
-                throw_build_failure(
+                const auto& branch_failure = std::get<ExactGitBranchValidationProcessFailure>(branch);
+                auto failure = build_failure(
                     EvaluatedDevelSourceBuildStage::EvaluatedSource,
                     EvaluatedDevelSourceBuildFailureReason::EvaluatedSourceFailure);
+                failure.process_outcome = branch_failure.process_outcome;
+                failure.cancellation_signal = branch_failure.cancellation_signal;
+                throw BuildFailureError(std::move(failure));
             }
         } else if(parsed.vcs->component_order !=
                   ParsedSourceVcsComponentOrder::None) {

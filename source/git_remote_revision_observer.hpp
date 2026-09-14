@@ -12,6 +12,10 @@
 #include <variant>
 #include <vector>
 
+#if defined(MOGUET_ENABLE_GIT_REMOTE_REVISION_OBSERVER_TEST_HOOKS) || defined(MOGUET_ENABLE_EVALUATED_DEVEL_SOURCE_BUILD_TEST_HOOKS)
+#include <functional>
+#endif
+
 inline constexpr std::size_t
     VALIDATED_HTTPS_GIT_REMOTE_MAX_INPUT_BYTES = 8U * 1024U;
 inline constexpr std::size_t
@@ -140,11 +144,15 @@ enum class ExactGitBranchValidationProcessFailureReason {
     CaptureLimitExceeded,
     Signaled,
     UnexpectedOutput,
+    Cancelled,
 };
 
 struct ExactGitBranchValidationProcessFailure {
     ExactGitBranchValidationProcessFailureReason reason;
     std::optional<int> detail;
+    // Parent cancellation does not replace the child's mechanical outcome.
+    std::optional<BoundedProcessOutcome> process_outcome = std::nullopt;
+    std::optional<int> cancellation_signal = std::nullopt;
 
     bool operator==(
         const ExactGitBranchValidationProcessFailure&) const = default;
@@ -158,8 +166,16 @@ using ExactGitBranchValidationResult = std::variant<
 // Git owns refname grammar. This producer performs only the empty/NUL/size
 // resource preflight, then delegates to fixed /usr/bin/git under the isolated
 // observer policy and accepts only an exact "<input>\n" success transcript.
+// Parent cancellation always prevents success, including when Git exits zero.
 [[nodiscard]] ExactGitBranchValidationResult validate_exact_git_branch(
     std::string_view branch_name);
+
+#if defined(MOGUET_ENABLE_GIT_REMOTE_REVISION_OBSERVER_TEST_HOOKS) || defined(MOGUET_ENABLE_EVALUATED_DEVEL_SOURCE_BUILD_TEST_HOOKS)
+// Replace only the bounded child boundary; validation and classification remain real.
+using ExactGitBranchValidationProcessTestHook = std::function<BoundedCapturedProcessResult(
+    const ExplicitProcessInvocation&, const BoundedProcessPolicy&)>;
+void set_exact_git_branch_validation_process_test_hook(ExactGitBranchValidationProcessTestHook hook);
+#endif
 
 enum class ValidatedGitRemoteSelectorKind {
     DefaultHead,

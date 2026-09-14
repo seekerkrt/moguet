@@ -55,6 +55,7 @@ extern unsigned failures;
 #endif
 
 #include "process.hpp"
+#include "git_remote_revision_observer.hpp"
 #include "reviewed_source_acceptance.hpp"
 #include "reviewed_source_presentation.hpp"
 #include "reviewed_source_review.hpp"
@@ -4086,6 +4087,61 @@ void test_selection_resume_failure_stage() {
     std::cout << "S564 4A0 resumed context failure stage PASS\n";
 }
 
+void test_selection_explicit_branch_cancellation() {
+    using Process = EvaluatedDevelSourceBuildProcess;
+    UpstreamGitFixture upstream("selection-branch-cancel");
+    ArchitectureFixture architecture;
+    architecture.recipe_suffix =
+        "prepare() { touch \"$HOME/prepare-ran\"; }\n"
+        "build() { touch \"$HOME/build-ran\"; }\n"
+        "package() { touch \"$HOME/package-ran\"; }\n";
+    ReviewedBuildFixture fixture("selection-branch-cancel", upstream, RecipeShape::Valid,
+                                 false, true, false, true, architecture);
+    auto context = fixture.make_context();
+    const auto root = context.owned_root();
+    auto environment = fixture.make_environment(context);
+    unsigned initial = 0;
+    unsigned branch_calls = 0;
+    std::optional<BoundedCapturedProcessResult> observed;
+    set_evaluated_devel_source_build_process_test_hook([&](const auto& invocation, const auto& policy, Process process) {
+        require(process == Process::InitialPrintSrcinfo, "Cancelled branch entered prepare/build");
+        ++initial;
+        return capture_bounded_explicit_process_output_raw(invocation, policy);
+    });
+    set_exact_git_branch_validation_process_test_hook([&](const auto& invocation, const auto& policy) {
+        const auto& arguments = invocation.arguments;
+        require(invocation.executable == "/usr/bin/git" && invocation.working_directory_fd &&
+                    invocation.standard_input_fd && arguments.size() >= 3 &&
+                    std::vector<std::string>(arguments.end() - 3, arguments.end()) ==
+                        std::vector<std::string>{"check-ref-format", "--branch", "main"},
+                "Cancellation fixture bypassed explicit branch helper");
+        ++branch_calls;
+        // Exercise real parent signal capture and a child that exits successfully.
+        auto injected = invocation;
+        injected.executable = "/bin/sh";
+        injected.arguments = {"-c", "trap 'printf \"main\\n\"; exit 0' INT; kill -INT \"$PPID\"; while :; do :; done"};
+        observed = capture_bounded_explicit_process_output_raw(injected, policy);
+        return *observed;
+    });
+    const auto result = select_evaluated_devel_source(std::move(context), std::move(environment));
+    set_exact_git_branch_validation_process_test_hook({});
+    set_evaluated_devel_source_build_process_test_hook({});
+    const auto& failure = require_arm<EvaluatedDevelSourceBuildFailure>(result, "Cancelled branch minted selection");
+    require(initial == 1 && branch_calls == 1 && observed && observed->output == "main\n" &&
+                observed->cancellation_signal == SIGINT &&
+                require_arm<BoundedProcessExited>(observed->outcome, "Cancellation child did not exit").exit_code == 0,
+            "Explicit branch fixture did not produce SIGINT + exit0 + valid stdout");
+    require(failure.stage == EvaluatedDevelSourceBuildStage::EvaluatedSource &&
+                failure.reason == EvaluatedDevelSourceBuildFailureReason::EvaluatedSourceFailure &&
+                failure.cancellation_signal == SIGINT && failure.process_outcome == observed->outcome,
+            "Branch cancellation lost typed signal, child outcome or phase");
+    require(!fs::exists(root) && !fs::exists(fixture.home() / "prepare-ran") &&
+                !fs::exists(fixture.home() / "build-ran") && !fs::exists(fixture.home() / "package-ran"),
+            "Cancelled branch ran prepare/build/package or retained context");
+    fixture.require_no_provenance_publication();
+    std::cout << "S564 FG-F1 explicit branch SIGINT / exit0 / selection0 / prepare0 / build0 / package0 PASS\n";
+}
+
 void test_selection_process_failures() {
     using Process = EvaluatedDevelSourceBuildProcess;
     UpstreamGitFixture upstream("selection-process");
@@ -4206,6 +4262,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
         test_selection_resume_and_environment();
         test_selection_lifetime_and_drift();
         test_selection_process_failures();
+        test_selection_explicit_branch_cancellation();
         test_selection_resume_failure_stage();
         test_valid_dynamic_build_and_prepare_mutation();
         test_declared_architecture_outputs();
@@ -4232,6 +4289,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
 #endif
         set_evaluated_devel_source_build_test_hook({});
         set_evaluated_devel_source_build_process_test_hook({});
+        set_exact_git_branch_validation_process_test_hook({});
         set_invocation_owned_source_build_context_test_hook({});
         require(
             context_root_inventory() == before,
@@ -4239,6 +4297,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
     } catch(const std::exception& error) {
         set_evaluated_devel_source_build_test_hook({});
         set_evaluated_devel_source_build_process_test_hook({});
+        set_exact_git_branch_validation_process_test_hook({});
         set_invocation_owned_source_build_context_test_hook({});
         std::cerr << "evaluated devel source-build tests failed: "
                   << error.what() << '\n';
