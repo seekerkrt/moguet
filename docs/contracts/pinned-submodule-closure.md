@@ -129,11 +129,13 @@ not an atomic sandbox or guaranteed residue-free execution contract.
 ## Slice 4B0 review transition
 
 The separate [exact closure review](pinned-submodule-closure-review.md)
-producer consumes this live whole owner, reads and presents a complete bounded
-text closure, and obtains its own explicit confirmation. The resulting
+producer consumes this live whole owner, presents the complete bounded
+identity/topology metadata, and obtains its own explicit snapshot acceptance
+(as redefined in Slice 6). Upstream blob contents are not rendered. The resulting
 `AcceptedPinnedSubmoduleClosure` retains this owner, including the selection
 and backing. Recipe acceptance and migration Yes do not authorize this step.
-Binary, oversized or unsupported content cannot be accepted. The
+Binary/large regular blobs do not alone prevent acceptance; invalid identity,
+unsupported topology and resource failures still stop. The
 [workspace consumer](pinned-submodule-workspace.md) retains Accepted whole
 ownership and immutable backing through native makepkg/common S4 (4B2).
 Production activation is limited to the existing typed initial-Missing
@@ -145,4 +147,5 @@ SourceReady, prepared and post-build closure proofs are phase-point evidence,
 not continuous attestation or a general sandbox. Only the typed SourceReady
 path replaces the normal single-root gates. S3 recipe Gitlink refusal,
 S5/S6 and provenance schema v1/27 keys remain unchanged.
-Issue #564 Slice 5 split group and Slice 6 representative coverage remain.
+Issue #564 Slice 5 supplies split group authority; Slice 6 adds representative
+production coverage without changing this acquisition owner.

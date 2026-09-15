@@ -1,6 +1,7 @@
 # Exact pinned closure review authority
 
-Issue #564 Slice 4B0 adds a separate, invocation-local review of the
+Issue #564 Slice 6 defines explicit upstream snapshot acceptance in the existing
+Slice 4B0 owner of the
 [4A complete object closure](pinned-submodule-closure.md). Recipe acceptance
 is not closure acceptance. Neither migration Yes nor recipe review Yes can
 substitute for the closure producer's own explicit confirmation.
@@ -17,25 +18,32 @@ evaluation → evaluated selection → 4A exact acquisition → closure review.
 No second initial evaluation, worktree materialization or makepkg phase is
 introduced by the review producer.
 
-## Small complete text subset
+## Exact snapshot acceptance
 
-Every regular/executable blob occurrence, including exact `.gitmodules`, is
-read from the owned 4A backing. NUL/binary content and other modes, including
-symlinks, are unsupported. Gitlinks are presented as edges to the exact child
-node whose complete contents are included in the same review; the existing
-recipe review's metadata-only Gitlink rejection is unchanged.
+The user authorizes this exact upstream snapshot as input to this build. This
+is not an audit of all upstream source contents or a claim that they are safe.
+Git identity proves which bytes are selected and materialized, not whether the
+code is malicious. The PKGBUILD, recipe-local patches, config and other owned
+recipe inputs retain their separate full content review semantics.
 
-The existing review constants bound 4096 inventory entries, 8 MiB per text
-blob, 32 MiB aggregate text, 1 MiB per logical line, and 32 MiB rendered output.
-Occurrences are counted separately without content deduplication. The rendered
-bound includes framing and escaped metadata/content. A limit failure stops;
-there is no truncation, pagination acceptance or manual-inspection bypass.
+The presentation includes the selected remote and selector, resolved root X,
+each node's commit/tree/object format, every inventory entry's path/mode/object
+ID/blob size, and all submodule logical names, paths, URLs and exact parent pins.
+Locators describe transport; parent Gitlinks own child revision authority.
+All values are terminal-safe. Each occurrence is shown even for reused children.
 
-All required blobs are collected and classified, and the complete body is
-rendered, before any review body is written. Root X, each node commit/tree and
-object format, closure path, parent edge, logical name, path, locator and pin
-are shown with terminal-safe escaping. Locators are transport metadata, not
-revision authority. Missing final newlines and executable modes remain visible.
+Upstream blob bodies are not read or rendered by this owner. Regular binary or
+large blobs do not require a viewer, preview or content-specific approval.
+The immutable 4A backing already proves hashes, connectivity and inventories;
+materialization and common S4 retain their phase-point correlation.
+
+The inventory count is bounded by the existing 4A tree-record budget (262144),
+not the recipe content-review entry limit. Rendered identity metadata retains
+its 32 MiB bound, including escaping and framing. All metadata is rendered
+before any body is written; incomplete/oversized metadata cannot be accepted.
+Acquisition, materialization and build resource budgets remain independent.
+Symlinks remain unsupported by the current workspace. Invalid topology,
+ambiguous identity and unsupported transport remain fail-closed.
 
 ## Presentation and explicit acceptance
 
@@ -48,9 +56,8 @@ write/flush cannot mint acceptance. Only explicit `y`/`yes` can succeed.
 `--noconfirm` return typed failures. Decline, explicit cancellation, EOF and
 input failure remain distinct. No legacy continuation or fallback is produced.
 
-All object reads precede the human prompt. Acceptance does not read objects
-again after a potentially long human wait or extend 4A's acquisition/read
-deadline. Object transfer/reproof budgets belong to the future 4B1 consumer.
+Acceptance does not perform blob reads or reacquire objects, before or after
+the human prompt. Object transfer/reproof budgets belong to the 4B1 consumer.
 
 ## Ownership and failure
 
@@ -59,12 +66,10 @@ retains the whole 4A owner and the confirmation from this session, preserving
 the same selection lineage, object backing, nodes, edges and exact pins.
 Observations borrowed from it cannot reconstruct acceptance authority.
 
-Read failure preserves the original `PinnedClosureFailure`, including process
-outcome, parent cancellation, cleanup and any abandoned-root diagnostic.
-Because 4A already cleans up on read failure, the review layer does not repeat
-that cleanup. Other review failures explicitly delegate cleanup once and keep
-its consequence separately from the primary reason. Accepted ownership stays
-live until explicit cleanup or destruction, using the same 4A no-retry policy.
+Acquisition/read failures remain owned by 4A and cannot reach acceptance.
+Presentation, interaction and allocation failures delegate cleanup once and
+retain its consequence separately from the primary reason. Accepted ownership
+stays live until explicit cleanup or destruction, using the same no-retry policy.
 
 ## Remaining scope
 
@@ -78,7 +83,8 @@ is not authority, and persistent user cache is untouched.
 SourceReady consumer on the exact initial-Missing bootstrap route. Normal
 single-root gates remain for inputs without that authority; the S3 recipe
 Gitlink gate remains closed. S5/S6 and provenance schema v1/27 keys are unchanged.
-Split group authority (Slice 5) and representative coverage (Slice 6) remain.
+Slice 5 supplies split group authority. Slice 6 adds the
+[production-representative fixtures](../../tests/fixtures/devel-production-topologies.md).
 
 The focused `test-pinned-submodule-closure-review` target uses real local 4A
 fixtures and runs only the review lane. It does not execute the existing 4A,

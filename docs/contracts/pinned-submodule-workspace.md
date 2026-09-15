@@ -127,11 +127,12 @@ child pinsはwhole owner内のinvocation-local evidenceでありprovenance v1 / 
 
 production activationはexact target-less ordinary `-Syu` Auto + initial ProvenanceMissing + current typed bootstrap intentだけ。
 package名や`-git` suffixでこのbranchを選択しない。通常のvalid-provenance / non-devel経路を変更しない。
-Slice 5のsplit PackageBase group、Slice 6の代表3topology全coverageは未完了。unknown auxiliary input、Cargo取得、
-一般sandbox、persistent cache manager、continuous監視を今回の対応に含めない。
+Slice 5はsplit PackageBase groupを、Slice 6は代表3topologyのdeterministic coverageを接続する。
+[fixtureの範囲](../../tests/fixtures/devel-production-topologies.md)を参照する。live Cargo取得、一般sandbox、
+persistent cache manager、continuous監視を今回の対応に含めない。
 
 `test-pinned-submodule-s4-integration`は既存bootstrap fixtureのproduction ownerを使い、新しいrecursive casesだけを
 実行する。native prepareによる正当な変更、childを実際に利用したartifact、S6 Complete、root/child remoteの
 steady-state、prepared/post-build drift、cancellation/build failure/cleanup refusalを確認する。
 new consumer negative compileはborrowed owner、foreign context、private selection extractionを拒否する。
-4A86、4B043、4B136、bootstrap68、transport、canonicalの全suiteを前置きで起動しない。
+4A、closure acceptance、bootstrap、transport、canonical等の他suiteを前置きで起動しない。

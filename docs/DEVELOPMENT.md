@@ -604,3 +604,8 @@ Issue #564 Slice 5のsplit authorityは、追加したfocused target
 `python3 tests/test-devel-tracking-bootstrap.py build/cmake-testing/tests/devel-tracking-bootstrap-test --split`
 を実行する。D/I/T/B、非連続artifact index、partial binding/publication、mixed eligibility、#545を対象とする。
 既存S5/S6 coreのfocused evidenceを併用し、canonical/actual/container evidenceへ読み替えない。
+
+Issue #564 Slice 6の代表recipeは同じfixtureの`--topologies`選択で確認する。
+`python3 tests/test-devel-tracking-bootstrap.py build/cmake-testing/tests/devel-tracking-bootstrap-test --topologies`
+は3 topologyを既存production chainへ通す。既定の`make test-devel-tracking-bootstrap`にも含まれる。
+[実recipe evidence・fixtureの縮約範囲](../tests/fixtures/devel-production-topologies.md)を参照する。

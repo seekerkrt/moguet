@@ -147,9 +147,11 @@ def main():
         "split-partial", "split-partial-update", "split-both", "split-both-mixed-version", "split-partial-reordered", "split-both-reordered", "split-both-selected-missing", "split-both-nonzero", "split-both-binding-failure", "split-both-publication-failure")}
     split_cases["multi-split-review-cancel"] = b"y\nq\n"
     split_cases["split-both-mixed-decline"] = b"n\n"
-    cases |= split_cases
+    topology_cases = {name: b"y\ny\ny\n" for name in (
+        "topology-tree-sitter", "topology-wezterm", "topology-xpadneo")}
+    cases |= split_cases | topology_cases
     if len(sys.argv) > 2:
-        cases = (split_cases if sys.argv[2] == "--split" else interaction_cases if sys.argv[2] == "--closure-interaction" else pinned_cases if sys.argv[2] == "--pinned-s4"
+        cases = (topology_cases if sys.argv[2] == "--topologies" else split_cases if sys.argv[2] == "--split" else interaction_cases if sys.argv[2] == "--closure-interaction" else pinned_cases if sys.argv[2] == "--pinned-s4"
                  else {sys.argv[2]: (cases | pinned_cases | split_cases)[sys.argv[2]]})
     with http.server.ThreadingHTTPServer(("127.0.0.1", 0), Rpc) as server:
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -181,8 +183,18 @@ def main():
             if completed.returncode or f"S553 production {case} PASS" not in output:
                 print(output)
                 raise SystemExit(f"bootstrap fixture {case} failed: exit {completed.returncode}")
+            if case in topology_cases:
+                if output.count("Use this exact upstream source snapshot as build input?") != 1:
+                    raise SystemExit(f"representative snapshot acceptance was skipped/repeated: {case}")
+                second = output.split("S564 second ordinary begin\n", 1)[1].split("S564 second ordinary end\n", 1)[0]
+                if any(word in second for word in ("Warning:", "tracking baseline is missing", "Accept this", "Use this exact", "[y/N]")):
+                    raise SystemExit(f"steady-state warning/prompt: {case}: {second}")
+                if "The repository system upgrade and normal AUR update completed." not in second:
+                    raise SystemExit(f"steady-state normal success presentation missing: {case}")
+                if f"S564 topology {case} migration=Complete" not in output:
+                    raise SystemExit(f"representative authority-chain oracle missing: {case}")
             if case in interaction_cases:
-                if f"S564 FG1 {case.removeprefix('multi-')} PASS" not in output or output.count("Accept this complete exact source closure?") != 1:
+                if f"S564 FG1 {case.removeprefix('multi-')} PASS" not in output or output.count("Use this exact upstream source snapshot as build input?") != 1:
                     raise SystemExit(f"closure interaction oracle missing: {case}")
                 expected = "review could not produce explicit acceptance" if case == "multi-pinned-review-no" else "AUR update: Cancelled"
                 if expected not in output or "authoritative execution incomplete" in output:
@@ -191,7 +203,7 @@ def main():
             if case.startswith("pinned-"):
                 if f"S564 4B2 {case} PASS" not in output:
                     raise SystemExit(f"missing closure integration oracle: {case}")
-                if output.count("Accept this complete exact source closure?") != 1:
+                if output.count("Use this exact upstream source snapshot as build input?") != 1:
                     raise SystemExit(f"closure review was skipped/repeated: {case}")
             if case in ("supplemental", "supplemental-collision"):
                 for reviewed_input in ("fix.patch", "config.toml", "reviewed-patch-applied", "reviewed-config"):
@@ -203,7 +215,7 @@ def main():
             if "malicious-old" in output:
                 raise SystemExit(f"old cache bytes reached full review: {case}")
             for line in output.splitlines():
-                if line.startswith(("S553 lifecycle ", "S564 4B2 ", "S564 FG1 ")):
+                if line.startswith(("S553 lifecycle ", "S564 4B2 ", "S564 FG1 ", "S564 topology ")):
                     print(line)
             print(f"S553 production {case} PASS")
         server.shutdown()

@@ -19,10 +19,7 @@ PinnedClosureReviewTestHooks g_hooks;
 #endif
 
 struct Limits {
-    std::size_t entries = REVIEWED_SOURCE_REVIEW_ENTRY_LIMIT;
-    std::size_t blob = REVIEWED_SOURCE_LINE_REVIEWABLE_BLOB_LIMIT;
-    std::size_t aggregate = REVIEWED_SOURCE_AGGREGATE_LINE_REVIEWABLE_BLOB_LIMIT;
-    std::size_t line = REVIEWED_SOURCE_LOGICAL_LINE_LIMIT;
+    std::size_t entries = PinnedClosureLimits{}.tree_records;
     std::size_t rendered = REVIEWED_SOURCE_RENDERED_OUTPUT_LIMIT;
 };
 
@@ -37,7 +34,7 @@ struct ReviewBody {
     std::string text;
 
     [[noreturn]] void stop(Reason reason) const {
-        throw ReviewStopped{{stage, reason, node, entry, {}, {}, {}, {}}};
+        throw ReviewStopped{{stage, reason, node, entry, {}, {}, {}}};
     }
     void append(std::string_view bytes) {
         if(bytes.size() > limits.rendered - text.size()) stop(Reason::ResourceLimitExceeded);
@@ -57,83 +54,22 @@ struct ReviewBody {
     }
 };
 
-struct CollectedBlob {
-    std::size_t node, entry;
-    std::string bytes;
-};
-
-std::vector<CollectedBlob> collect_content(InvocationOwnedPinnedSubmoduleClosure& closure, ReviewBody& body) {
-    std::size_t entries = 0, aggregate = 0;
-    // Inventory sizes are known from 4A: reject unsupported/oversized input
-    // before asking read_blob to allocate or consuming any terminal output.
-    body.stage = Stage::Classification;
-    for(std::size_t node = 0; node < closure.nodes().size(); ++node) {
-        body.node = node;
-        const auto& inventory = closure.nodes()[node].inventory.entries;
-        for(std::size_t entry = 0; entry < inventory.size(); ++entry) {
-            body.entry = entry;
-            if(++entries > body.limits.entries) body.stop(Reason::ResourceLimitExceeded);
-            const auto& file = inventory[entry];
-            if(file.mode() == ReviewedSourceFileMode::Gitlink) continue;
-            if(file.mode() != ReviewedSourceFileMode::Regular && file.mode() != ReviewedSourceFileMode::Executable)
-                body.stop(Reason::UnsupportedContent);
-            if(!file.blob_size()) body.stop(Reason::UnsupportedContent);
-            if(*file.blob_size() > body.limits.blob || *file.blob_size() > body.limits.aggregate - aggregate)
-                body.stop(Reason::ResourceLimitExceeded);
-            aggregate += *file.blob_size();
-        }
-    }
-    std::vector<CollectedBlob> blobs;
-    blobs.reserve(entries);
-    for(std::size_t node = 0; node < closure.nodes().size(); ++node) {
-        body.node = node;
-        const auto& inventory = closure.nodes()[node].inventory.entries;
-        for(std::size_t entry = 0; entry < inventory.size(); ++entry) {
-            body.entry = entry;
-            if(inventory[entry].mode() == ReviewedSourceFileMode::Gitlink) continue;
-            body.stage = Stage::ContentRead;
-            auto read = closure.read_blob(node, entry);
-            if(auto* failure = std::get_if<PinnedClosureFailure>(&read)) {
-                // read_blob already consumed cleanup authority. Preserve the
-                // original process/cancel and both cleanup consequences.
-                PinnedClosureReviewFailure stopped{body.stage,
-                                                   failure->reason == PinnedClosureFailureReason::Cancelled ? Reason::Cancelled : Reason::ReadFailure,
-                                                   node,
-                                                   entry,
-                                                   {},
-                                                   {},
-                                                   {},
-                                                   failure->cleanup};
-                stopped.read_failure.emplace(std::move(*failure));
-                throw ReviewStopped{std::move(stopped)};
-            }
-            auto bytes = std::get<std::string>(std::move(read));
-            body.stage = Stage::Classification;
-            if(bytes.find('\0') != std::string::npos) body.stop(Reason::UnsupportedContent);
-            for(std::size_t start = 0; start < bytes.size();) {
-                const auto end = bytes.find('\n', start);
-                const auto length = (end == std::string::npos ? bytes.size() : end) - start;
-                if(length > body.limits.line) body.stop(Reason::ResourceLimitExceeded);
-                if(end == std::string::npos) break;
-                start = end + 1;
-            }
-            blobs.push_back({node, entry, std::move(bytes)});
-        }
-    }
-    return blobs;
-}
-
-void render_content(const InvocationOwnedPinnedSubmoduleClosure& closure,
-                    const std::vector<CollectedBlob>& blobs, ReviewBody& body) {
+// The live 4A owner already proves object hashes, connectivity and complete
+// inventories. Acceptance selects that exact build input; it does not attest
+// to source-code safety. Keep recipe content review in its separate owner.
+void render_identity(const InvocationOwnedPinnedSubmoduleClosure& closure, ReviewBody& body) {
     body.stage = Stage::Presentation;
-    body.node.reset();
-    body.entry.reset();
 #ifdef MOGUET_ENABLE_PINNED_CLOSURE_REVIEW_TEST_HOOKS
     if(g_hooks.before_render) g_hooks.before_render();
 #endif
-    body.append(localization::translate_message("Exact recursive source closure review (separate from recipe review)\n"));
+    body.append(localization::translate_message("Exact upstream source snapshot (separate from recipe review)\n"));
+    body.append(localization::translate_message("Acceptance authorizes this snapshot as build input; it does not certify source-code safety. Upstream blob contents are not displayed.\n"));
+    const auto& source = closure.selection().git_source();
     // NO_TRANSLATE: Stable technical inventory field labels; all values are escaped.
+    body.field("remote: ", source.source_location());
+    body.field("selector: ", source.selector().kind() == VcsSelectorKind::DefaultHead ? "HEAD" : "refs/heads/" + *source.selector().value());
     body.field("root X: ", closure.nodes().front().commit.value());
+    std::size_t entries = 0;
     std::vector<std::string> paths(closure.nodes().size());
     for(std::size_t node = 0; node < closure.nodes().size(); ++node) {
         body.node = node;
@@ -156,7 +92,13 @@ void render_content(const InvocationOwnedPinnedSubmoduleClosure& closure,
         body.field("locator: ", value.locator);
         for(std::size_t entry = 0; entry < value.inventory.entries.size(); ++entry) {
             body.entry = entry;
+            if(++entries > body.limits.entries) body.stop(Reason::ResourceLimitExceeded);
             const auto& file = value.inventory.entries[entry];
+            // The existing workspace only supports regular/executable content
+            // and proven Gitlinks. Binary regular blobs share that same mode.
+            if(file.mode() != ReviewedSourceFileMode::Gitlink &&
+               file.mode() != ReviewedSourceFileMode::Regular && file.mode() != ReviewedSourceFileMode::Executable)
+                body.stop(Reason::UnsupportedContent);
             body.field("file: ", file.path().raw_bytes());
             body.field("mode: ", file.mode() == ReviewedSourceFileMode::Gitlink ? "160000" : file.mode() == ReviewedSourceFileMode::Executable ? "100755"
                                                                                                                                                : "100644");
@@ -167,25 +109,10 @@ void render_content(const InvocationOwnedPinnedSubmoduleClosure& closure,
                 });
                 if(edge == closure.edges().end() || edge->pin != file.object_id() ||
                    closure.nodes().at(edge->child).commit != edge->pin) body.stop(Reason::InvalidClosure);
-                body.field("complete child review node: ", std::to_string(edge->child));
-                continue;
-            }
-            const auto blob = std::find_if(blobs.begin(), blobs.end(), [&](const auto& candidate) {
-                return candidate.node == node && candidate.entry == entry;
-            });
-            if(blob == blobs.end()) body.stop(Reason::InvalidClosure);
-            body.field("bytes: ", std::to_string(blob->bytes.size()));
-            if(blob->bytes.empty()) body.append("  | <empty blob>\n");
-            for(std::size_t start = 0; start < blob->bytes.size();) {
-                const auto end = blob->bytes.find('\n', start);
-                body.append("  | ");
-                body.escaped(std::string_view(blob->bytes).substr(start, end == std::string::npos ? end : end - start));
-                body.append("\n");
-                if(end == std::string::npos) {
-                    body.append("  \\ No newline at end of file\n");
-                    break;
-                }
-                start = end + 1;
+                body.field("exact child node: ", std::to_string(edge->child));
+            } else {
+                if(!file.blob_size()) body.stop(Reason::InvalidClosure);
+                body.field("bytes: ", std::to_string(*file.blob_size()));
             }
         }
     }
@@ -213,7 +140,7 @@ ExplicitConfirmationResult present_and_confirm(ReviewBody& body, std::istream& i
         // Complete, flushed presentation is the private Presented state.
         body.stage = Stage::Confirmation;
         auto confirmation = request_explicit_confirmation(
-            localization::translate_message("Accept this complete exact source closure?"),
+            localization::translate_message("Use this exact upstream source snapshot as build input?"),
             false, true, input, checked);
         checked.flush();
         return confirmation;
@@ -222,7 +149,6 @@ ExplicitConfirmationResult present_and_confirm(ReviewBody& body, std::istream& i
             return ConfirmationCancelled{ConfirmationCancellationReason::EndOfInput};
         PinnedClosureReviewFailure failure{body.stage,
                                            !checked || body.stage == Stage::Output ? Reason::OutputFailure : Reason::InputFailure,
-                                           {},
                                            {},
                                            {},
                                            {},
@@ -270,28 +196,24 @@ PinnedClosureReviewResult review_pinned_submodule_closure(
         if(override_value) value = std::min(value, *override_value);
     };
     limit(body.limits.entries, g_hooks.entries);
-    limit(body.limits.blob, g_hooks.blob_bytes);
-    limit(body.limits.aggregate, g_hooks.aggregate_bytes);
-    limit(body.limits.line, g_hooks.line_bytes);
     limit(body.limits.rendered, g_hooks.rendered_bytes);
 #endif
-    PinnedClosureReviewFailure failure{Stage::Input, Reason::InvalidClosure, {}, {}, {}, {}, {}, {}};
+    PinnedClosureReviewFailure failure{Stage::Input, Reason::InvalidClosure, {}, {}, {}, {}, {}};
     try {
         if(!closure.valid()) body.stop(Reason::InvalidClosure);
         if(diff_policy != ReviewPolicy::Prompt) body.stop(Reason::ReviewSkipped);
         if(no_confirm) body.stop(Reason::NoConfirm);
         if(!interactive) body.stop(Reason::NonInteractiveInput);
-        const auto blobs = collect_content(closure, body);
-        render_content(closure, blobs, body);
-        // The token is obtained here, never accepted from a caller. All reads
-        // and rendering are finished; human wait does not extend 4A's deadline.
+        render_identity(closure, body);
+        // The token is obtained here, never accepted from a caller. Complete
+        // identity output precedes the prompt; no upstream blobs are read.
         auto confirmation = present_and_confirm(body, *input, *output);
         if(auto* accepted = std::get_if<ExplicitConfirmationAcceptance>(&confirmation)) {
             if(!accepted->valid()) body.stop(Reason::InvalidClosure);
             return AcceptedPinnedSubmoduleClosure(std::move(closure), std::move(*accepted));
         }
         if(const auto* cancelled = std::get_if<ConfirmationCancelled>(&confirmation)) {
-            failure = {Stage::Confirmation, Reason::Cancelled, {}, {}, {}, cancelled->reason, {}, {}};
+            failure = {Stage::Confirmation, Reason::Cancelled, {}, {}, cancelled->reason, {}, {}};
         } else if(std::holds_alternative<ConfirmationDeclined>(confirmation)) {
             body.stop(Reason::Declined);
         } else {
@@ -300,13 +222,13 @@ PinnedClosureReviewResult review_pinned_submodule_closure(
     } catch(ReviewStopped& stopped) {
         failure = std::move(stopped.failure);
     } catch(const std::bad_alloc&) {
-        failure = {body.stage, Reason::ResourceLimitExceeded, body.node, body.entry, {}, {}, {}, {}};
+        failure = {body.stage, Reason::ResourceLimitExceeded, body.node, body.entry, {}, {}, {}};
     } catch(const std::ios_base::failure& error) {
-        failure = {body.stage, body.stage == Stage::Confirmation && !*input && *output ? Reason::InputFailure : Reason::OutputFailure, body.node, body.entry, {}, {}, error.code(), {}};
+        failure = {body.stage, body.stage == Stage::Confirmation && !*input && *output ? Reason::InputFailure : Reason::OutputFailure, body.node, body.entry, {}, error.code(), {}};
     } catch(...) {
-        failure = {body.stage, body.stage == Stage::Output || body.stage == Stage::Confirmation ? Reason::OutputFailure : Reason::RenderFailure, body.node, body.entry, {}, {}, {}, {}};
+        failure = {body.stage, body.stage == Stage::Output || body.stage == Stage::Confirmation ? Reason::OutputFailure : Reason::RenderFailure, body.node, body.entry, {}, {}, {}};
     }
-    if(!failure.read_failure && closure.valid()) failure.cleanup = closure.cleanup();
+    if(closure.valid()) failure.cleanup = closure.cleanup();
     return failure;
 }
 

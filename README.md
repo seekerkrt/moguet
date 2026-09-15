@@ -549,7 +549,12 @@ authority nor changed, regardless of its cleanliness, HEAD, origin, or leftover
 files. Acquisition failure stops without falling back to that cache. A separate
 explicit full-review acceptance is required, including when a prior review
 exists, followed by the existing supported build, exact install, fresh
-installed binding, and successful provenance publication. `--noedit` is allowed;
+installed binding, and successful provenance publication. A separate explicit
+acceptance selects the exact upstream snapshot (remote, selector, root/tree,
+file identities and submodule pins) as build input. It does not certify
+source-code safety or require reading every upstream blob; binary and large
+assets do not alone make the snapshot unsupported. Recipe-local inputs retain
+full content review. `--noedit` is allowed;
 `--nodiff`, `review.diff = "skip"`, `--noconfirm`, and non-TTY input do not approve
 bootstrap. Decline skips the target; cancellation or a later execution failure
 stops subsequent work without rollback. Invalid, corrupt, future, mismatched,
