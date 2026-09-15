@@ -478,6 +478,9 @@ struct ArchitectureFixture {
     std::string package_commands;
     std::string reviewed_child_arch;
     bool qualified_source = false;
+    bool split_children = false;
+    std::string sibling_arch;
+    std::string sibling_suffix = "-tools";
 };
 
 class ReviewedBuildFixture final {
@@ -820,26 +823,37 @@ private:
         for(const auto& arch : architecture_.declared)
             arch_declaration += "'" + arch + "' ";
         arch_declaration += ")\n";
-        return "pkgbase=" + package_base_ + "\n"
-                                            "pkgname=" +
-               package_name_ + "\n"
-                               "pkgver=0\n"
-                               "pkgrel=" +
-               architecture_.pkgrel + "\n" +
-               (architecture_.epoch.empty() ? "" : "epoch=" + architecture_.epoch + "\n") +
-               "pkgdesc='Moguet Slice 4 fixture'\n" + arch_declaration +
-               "license=('GPL-3.0-or-later')\n"
-               "source=(\"" +
-               effective_source + "\"" +
-               second_source + ")\n"
-                               "sha256sums=('SKIP'" +
-               (shape == RecipeShape::MultipleGit ? " 'SKIP'" : "") +
-               (tracked_local_source ? " 'SKIP' 'SKIP'" : "") +
-               ")\n\n" + pkgver_function + prepare +
-               "package() {\n" + architecture_.package_commands +
-               "    install -Dm644 \"$srcdir/$pkgname/payload.txt\" \"$pkgdir/usr/share/$pkgname/payload.txt\"\n" +
-               (tracked_local_source ? "    install -Dm644 \"$srcdir/$pkgname/built-config.toml\" \"$pkgdir/usr/share/$pkgname/config.toml\"\n" : "") +
-               "}\n";
+        std::string recipe = "pkgbase=" + package_base_ + "\n"
+                                                          "pkgname=" +
+                             package_name_ + "\n"
+                                             "pkgver=0\n"
+                                             "pkgrel=" +
+                             architecture_.pkgrel + "\n" +
+                             (architecture_.epoch.empty() ? "" : "epoch=" + architecture_.epoch + "\n") +
+                             "pkgdesc='Moguet Slice 4 fixture'\n" + arch_declaration +
+                             "license=('GPL-3.0-or-later')\n"
+                             "source=(\"" +
+                             effective_source + "\"" +
+                             second_source + ")\n"
+                                             "sha256sums=('SKIP'" +
+                             (shape == RecipeShape::MultipleGit ? " 'SKIP'" : "") +
+                             (tracked_local_source ? " 'SKIP' 'SKIP'" : "") +
+                             ")\n\n" + pkgver_function + prepare +
+                             "package() {\n" + architecture_.package_commands +
+                             "    install -Dm644 \"$srcdir/$pkgname/payload.txt\" \"$pkgdir/usr/share/$pkgname/payload.txt\"\n" +
+                             (tracked_local_source ? "    install -Dm644 \"$srcdir/$pkgname/built-config.toml\" \"$pkgdir/usr/share/$pkgname/config.toml\"\n" : "") +
+                             "}\n";
+        if(architecture_.split_children) {
+            const auto function = recipe.find("package() {");
+            require(function != std::string::npos, "split fixture package function missing");
+            recipe.replace(function, 9, "package_" + package_name_ + "()");
+            recipe += "\npkgname=('" + package_name_ + "' '" + package_name_ + architecture_.sibling_suffix + "')\n";
+            recipe += "package_" + package_name_ + architecture_.sibling_suffix + "() {\n" +
+                      (architecture_.sibling_arch.empty() ? "" : "arch=(\'" + architecture_.sibling_arch + "\')\n") +
+                      "install -Dm644 \"$srcdir/" +
+                      package_name_ + "/payload.txt\" \"$pkgdir/usr/share/$pkgname/payload.txt\"\n}\n";
+        }
+        return recipe;
     }
 
     [[nodiscard]] std::string srcinfo(
@@ -874,6 +888,10 @@ private:
         }
         result += "pkgname = " + package_name_ + "\n";
         result += architecture_.reviewed_child_arch;
+        if(architecture_.split_children) {
+            result += "pkgname = " + package_name_ + architecture_.sibling_suffix + "\n";
+            if(!architecture_.sibling_arch.empty()) result += "\tarch = " + architecture_.sibling_arch + "\n";
+        }
         return result;
     }
 
@@ -2096,6 +2114,127 @@ void test_cleanup_budgets() {
     cleanup_retained_fixture(root, created_root);
 }
 
+void test_split_artifact_authority() {
+    using Phase = EvaluatedDevelSourceBuildProcess;
+    using Reason = EvaluatedDevelSourceBuildFailureReason;
+    UpstreamGitFixture upstream("split-artifacts");
+    for(const std::string kind : {"both", "prefix-overlap", "architecture-skip", "initial-add", "initial-remove", "initial-rename", "initial-arch",
+                                  "prepared-add", "prepared-remove", "prepared-rename", "prepared-arch",
+                                  "duplicate", "unterminated", "undeclared", "wrong-version", "wrong-arch", "missing", "extra", "replacement",
+                                  "foreign-base", "archive-version", "archive-arch"}) {
+        ArchitectureFixture shape;
+        shape.split_children = true;
+        if(kind == "prefix-overlap") shape.sibling_suffix = "-1.r1.g" + upstream.oid().substr(0, 12) + "-1";
+        if(kind == "initial-arch" || kind == "prepared-arch") {
+            shape.declared = {"x86_64", "i686"};
+            shape.effective = "x86_64";
+            shape.sibling_arch = "x86_64";
+        }
+        if(kind == "architecture-skip") {
+            shape.declared = {"x86_64", "moguet_other_arch"};
+            shape.effective = "x86_64";
+            shape.sibling_arch = "moguet_other_arch";
+        }
+        ReviewedBuildFixture fixture("split-" + kind, upstream, RecipeShape::Valid, false, false, false, true, shape);
+        const auto sibling = fixture.package_name() + shape.sibling_suffix;
+        TemporaryTree rewritten("split-archive-metadata");
+        unsigned evaluations = 0, builds = 0;
+        set_evaluated_devel_source_build_process_test_hook([&](const auto& invocation, const auto& policy, auto phase) {
+            if(phase == Phase::InitialPrintSrcinfo) ++evaluations;
+            if(phase == Phase::PackageBuild) ++builds;
+            auto result = capture_bounded_explicit_process_output_raw(invocation, policy);
+            if((kind.starts_with("initial-") && phase == Phase::InitialPrintSrcinfo) ||
+               (kind.starts_with("prepared-") && phase == Phase::PreparedPrintSrcinfo)) {
+                const auto name = result.output.find("pkgname = " + sibling);
+                require(name != std::string::npos, "split evaluated declaration missing");
+                if(kind.ends_with("-add")) result.output += "pkgname = unexpected\n";
+                if(kind.ends_with("-remove")) result.output.erase(name);
+                if(kind.ends_with("-rename")) result.output.replace(name + 10, sibling.size(), sibling + "-renamed");
+                if(kind.ends_with("-arch")) {
+                    const auto arch = result.output.rfind("arch = x86_64");
+                    require(arch != std::string::npos && arch > name, "split child architecture override missing");
+                    result.output.replace(arch + 7, 6, "i686");
+                }
+            }
+            if(phase == Phase::PreparedPackagelist) {
+                const auto end = result.output.find('\n');
+                const auto first = result.output.substr(0, end + 1);
+                if(kind == "duplicate") result.output += first;
+                if(kind == "unterminated") result.output.pop_back();
+                if(kind == "undeclared") result.output += "/tmp/undeclared-1-1-any.pkg.tar\n";
+                if(kind == "wrong-version") result.output.replace(result.output.find(fixture.package_name()) + fixture.package_name().size() + 1, 1, "9");
+                if(kind == "wrong-arch") {
+                    const auto arch = result.output.find("-any.pkg.tar");
+                    require(arch != std::string::npos, "split packagelist any arch missing");
+                    result.output.replace(arch + 1, 3, "x86_64");
+                }
+            }
+            return result;
+        });
+        set_evaluated_devel_source_build_test_hook([&](auto event, const auto& root, const auto& artifact) {
+            if(event == EvaluatedDevelSourceBuildTestEvent::AfterPackageBuild) {
+                if(kind == "missing") fs::remove(fs::directory_iterator(root / "pkgdest")->path());
+                if(kind == "extra") write_file(root / "pkgdest/extra", "unexplained");
+                if(kind == "foreign-base" || kind == "archive-version" || kind == "archive-arch") {
+                    fs::path sibling_path;
+                    for(const auto& entry : fs::directory_iterator(root / "pkgdest"))
+                        if(entry.path().filename().string().starts_with(sibling + "-")) sibling_path = entry.path();
+                    require(!sibling_path.empty(), "unselected sibling archive missing");
+                    auto metadata = archive_member(sibling_path, ".PKGINFO");
+                    const std::string field = kind == "foreign-base" ? "pkgbase = " : kind == "archive-version" ? "pkgver = "
+                                                                                                                : "arch = ";
+                    const auto begin = metadata.find(field);
+                    require(begin != std::string::npos, "archive metadata field missing");
+                    const auto end = metadata.find('\n', begin);
+                    metadata.replace(begin + field.size(), end - begin - field.size(),
+                                     kind == "foreign-base" ? "foreign-base" : kind == "archive-version" ? "9-1"
+                                                                                                         : "x86_64");
+                    write_file(rewritten.path() / ".PKGINFO", metadata);
+                    write_file(rewritten.path() / ".MTREE", archive_member(sibling_path, ".MTREE"));
+                    const auto replacement = rewritten.path() / "replacement.pkg.tar";
+                    require_process_success("/usr/bin/bsdtar", {"-cf", replacement.string(), ".PKGINFO", ".MTREE"},
+                                            git_environment(fixture.home()), &rewritten.path());
+                    fs::copy_file(replacement, sibling_path, fs::copy_options::overwrite_existing);
+                }
+            }
+            if(kind == "replacement" && event == EvaluatedDevelSourceBuildTestEvent::AfterArtifactInventory) {
+                fs::rename(artifact, artifact.string() + ".old");
+                fs::copy_file(artifact.string() + ".old", artifact);
+            }
+        });
+        if(kind == "both" || kind == "prefix-overlap" || kind == "architecture-skip") {
+            auto context = fixture.make_context();
+            auto environment = fixture.make_environment(context);
+            auto result = build_evaluated_devel_source(std::move(context), std::move(environment));
+            auto proof = take_arm<EvaluatedDevelSourceBuildProof>(result, "split build failed");
+            require(proof.declared_children().size() == 2 && proof.artifacts().size() == (kind == "architecture-skip" ? 1U : 2U),
+                    "D and architecture-selected B were conflated");
+            require(evaluations == 1 && builds == 1, "split created multiple S4 phases");
+            for(const auto& artifact : proof.artifacts()) {
+                require(artifact.package().package_base() == proof.package_base() &&
+                            artifact.evidence().identity.package_name == artifact.package().package_name() &&
+                            archive_member(artifact.path(), "usr/share/" + artifact.package().package_name() + "/payload.txt") == "revision-one\n",
+                        "split artifact child/base/retained payload differs");
+            }
+            cleanup_proof(proof);
+        } else {
+            const bool metadata_mismatch = kind == "foreign-base" || kind == "archive-version" || kind == "archive-arch";
+            const auto reason = kind == "initial-remove" || kind == "initial-add" || kind == "prepared-remove" || kind == "prepared-add"
+                                    ? Reason::UnsupportedSourceShape
+                                : kind.starts_with("initial-") || kind.starts_with("prepared-") ? Reason::RawEvaluatedSourceMismatch
+                                : kind == "wrong-arch"                                          ? Reason::UnsupportedSourceShape
+                                : kind == "missing" || kind == "extra"                          ? Reason::ArtifactInventoryMismatch
+                                : kind == "replacement"                                         ? Reason::ArtifactReplacement
+                                : metadata_mismatch                                             ? Reason::ArtifactMetadataMismatch
+                                                                                                : Reason::DynamicVersionUnavailable;
+            expect_failure(fixture, reason, kind == "missing" || kind == "extra" || kind == "replacement" || metadata_mismatch);
+        }
+        set_evaluated_devel_source_build_test_hook({});
+        set_evaluated_devel_source_build_process_test_hook({});
+        std::cout << "S564 split artifact " << kind << " PASS\n";
+    }
+}
+
 #ifdef MOGUET_TEST_EVALUATED_DEVEL_ARTIFACT_TRANSPORT
 static_assert(!std::is_default_constructible_v<EvaluatedDevelSourceArtifactTransport>);
 static_assert(!std::is_copy_constructible_v<EvaluatedDevelSourceArtifactTransport>);
@@ -2103,7 +2242,7 @@ static_assert(!std::is_copy_assignable_v<EvaluatedDevelSourceArtifactTransport>)
 static_assert(std::is_nothrow_move_constructible_v<EvaluatedDevelSourceArtifactTransport>);
 static_assert(!std::is_constructible_v<EvaluatedDevelSourceArtifactTransport, fs::path>);
 static_assert(!std::is_constructible_v<EvaluatedDevelSourceArtifactTransport, InstalledArtifactBinding>);
-static_assert(!std::is_invocable_v<decltype(prepare_evaluated_devel_source_artifact_transport),
+static_assert(!std::is_invocable_v<decltype(static_cast<EvaluatedDevelSourceArtifactTransport (*)(EvaluatedDevelSourceBuildProof)>(&prepare_evaluated_devel_source_artifact_transport)),
                                    const EvaluatedDevelSourceBuildProof&>);
 
 // Real Slice 4 producer and real sealed helper state; only the privileged
@@ -2880,8 +3019,11 @@ void test_exact_installed_binding(std::string_view finalization = {}) {
 
 #ifdef MOGUET_TEST_REVIEWED_DEVEL_SOURCE_EXECUTION
 unsigned g_bridge_publication_entries = 0;
+bool g_split_publication_failure = false;
 void count_bridge_publication(DevelBuildProvenancePublicationStage stage) {
     if(stage == DevelBuildProvenancePublicationStage::Projection) ++g_bridge_publication_entries;
+    if(g_split_publication_failure && stage == DevelBuildProvenancePublicationStage::StorePublication && g_bridge_publication_entries == 2)
+        fail_next_xdg_generation_store_operation_for_test(XdgGenerationStoreTestFailurePoint::Write);
 }
 
 void deny_after_bridge_publication(const XdgGenerationStoreTestRaceContext&) {
@@ -2976,6 +3118,14 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
         if(outer && !normal) continue;
         if(!normal && mode.starts_with("registered-")) continue;
         ArchitectureFixture integration_recipe;
+        const bool split_group = mode.starts_with("split-");
+        const bool split_both = mode.starts_with("split-both");
+        integration_recipe.split_children = split_group;
+        if(mode == "split-both-selected-missing") {
+            integration_recipe.declared = {"x86_64", "moguet_other_arch"};
+            integration_recipe.effective = "x86_64";
+            integration_recipe.sibling_arch = "moguet_other_arch";
+        }
 #ifdef MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
         const bool pinned = mode.starts_with("pinned-");
         const bool closure_interaction = mode.starts_with("pinned-review-");
@@ -3112,7 +3262,13 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
                 cancelled.arguments = {"-c", mode == "pinned-cancel" ? "trap 'exit 0' INT; kill -INT $PPID; while :; do :; done" : "exit 42"};
                 return capture_bounded_explicit_process_output_raw(cancelled, policy);
             }
-            return capture_bounded_explicit_process_output_raw(invocation, policy);
+            auto observed = capture_bounded_explicit_process_output_raw(invocation, policy);
+            if(split_group && mode.ends_with("-reordered") && phase == EvaluatedDevelSourceBuildProcess::PreparedPackagelist) {
+                const auto newline = observed.output.find('\n');
+                require(newline != std::string::npos && newline + 1 < observed.output.size(), "split packagelist cannot be reordered");
+                observed.output = observed.output.substr(newline + 1) + observed.output.substr(0, newline + 1);
+            }
+            return observed;
         });
         set_evaluated_devel_source_build_test_hook([&](auto event, const auto& root, const auto&) {
             if(event == EvaluatedDevelSourceBuildTestEvent::AfterInitialSourceSelection) {
@@ -3133,9 +3289,14 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
         unsigned generation = 1, prepare_calls = 0, execute_calls = 0, consumes = 0, aborts = 0, build_entries = 0;
         g_bridge_publication_entries = 0;
         set_devel_build_provenance_publication_test_hook(&count_bridge_publication);
-        const std::string token(64, 'c');
+        g_split_publication_failure = mode == "split-both-publication-failure";
+        std::string token(64, 'c');
         std::optional<BuiltPackageArtifactEvidence> expected;
         std::string actual_oid, raw_mtree;
+        std::map<std::string, BuiltPackageArtifactEvidence> split_evidence;
+        std::map<std::string, std::string> split_mtrees;
+        fs::path sibling_record;
+        const std::string sibling_name = fixture.package_name() + "-tools";
         fs::path installed_record;
         const bool existing = bootstrap || mode == "upgrade-explicit" || mode == "upgrade-dependency" || mode == "dependency-keeps-explicit" || mode == "promotion" || mode.starts_with("registered-");
         const bool dependency_reason = mode == "upgrade-dependency" || mode == "promotion";
@@ -3147,6 +3308,15 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
                                                       "\n\n%VERSION%\n" + version + "\n\n%ARCH%\nany\n\n%REASON%\n" + (dependency_reason ? "1" : "0") + "\n\n");
             write_file(installed_record / "files", "%FILES%\nusr/share/moguet-test\n\n");
             write_file(installed_record / "mtree", raw_mtree.empty() ? "old-mtree" : raw_mtree);
+            if(split_both) {
+                if(!sibling_record.empty() && fs::exists(sibling_record)) fs::remove_all(sibling_record);
+                sibling_record = db / "local" / (sibling_name + "-" + version);
+                fs::create_directory(sibling_record);
+                write_file(sibling_record / "desc", "%NAME%\n" + sibling_name + "\n\n%BASE%\n" + fixture.package_base() +
+                                                        "\n\n%VERSION%\n" + version + "\n\n%ARCH%\nany\n\n%REASON%\n1\n\n");
+                write_file(sibling_record / "files", "%FILES%\nusr/share/moguet-test-tools\n\n");
+                write_file(sibling_record / "mtree", split_mtrees.contains(sibling_name) ? split_mtrees.at(sibling_name) : "old-sibling-mtree");
+            }
         };
         if(existing) write_package(mode.starts_with("required-") || mode == "shared-base" ? "2-1" : "0-1");
         InstalledRecordObservationTestHooks record_hooks;
@@ -3179,9 +3349,18 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
                                                                           SourceArtifactInstallRootPrepareRequest request{helper.transaction_token, helper.package_base, helper.directive, helper.needed, helper.no_confirm,
                                                                                                                           helper.artifacts, SourceArtifactInstallTrustedPurpose::ExactInstalledBinding};
                                                                           require(expected && !request.needed && request.directive == SourceArtifactInstallTrustedDirective::PreserveExistingReason &&
-                                                                                      request.artifacts.size() == 1 && request.artifacts[0].archive_sha256 == expected->archive_digest.value() &&
+                                                                                      request.artifacts.size() == (split_both ? 2U : 1U) && request.artifacts[0].archive_sha256 == expected->archive_digest.value() &&
                                                                                       request.artifacts[0].raw_mtree_sha256 == expected->mtree_digest.value(),
                                                                                   "bridge changed S4 identity/S5 intent");
+                                                                          if(split_group)
+                                                                              for(const auto& selected : request.artifacts) {
+                                                                                  require(split_evidence.contains(selected.package_name), "foreign install child");
+                                                                                  const auto& evidence = split_evidence.at(selected.package_name);
+                                                                                  require(selected.archive_sha256 == evidence.archive_digest.value() &&
+                                                                                              selected.raw_mtree_sha256 == evidence.mtree_digest.value() &&
+                                                                                              (selected.package_name == fixture.package_name() || split_both),
+                                                                                          "split selected identity/digest or sibling authorization differs");
+                                                                              }
                                                                           return {serialize_source_artifact_install_root_prepare_response(store.prepare(request, *invocation.standard_input_fd), request), 0, false};
                                                                       }
                                                                       if(verb == "execution-status") return {serialize_source_artifact_install_execution_observation(store.execution_status(token)), 0, false};
@@ -3202,15 +3381,20 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
                                                                       return {ExplicitProcessExecutionStatus::StartedKnownOutcome, status};
                                                                   },
                                                                   {}});
-        set_source_artifact_install_trusted_exec_test_hook([&](const auto&) {
+        set_source_artifact_install_trusted_exec_test_hook([&](const auto& arguments) {
             store.observe_execution(token);
-            if(mode == "nonzero") return 42;
+            if(split_group) {
+                require(std::count_if(arguments.begin(), arguments.end(), [](const auto& value) { return value.find(".pkg.tar") != std::string::npos; }) ==
+                            (split_both ? 2 : 1),
+                        "pacman argv contains an unselected sibling or misses a selected child");
+            }
+            if(mode == "nonzero" || mode == "split-both-nonzero") return 42;
             ++generation;
             write_package(expected->identity.full_version);
             if(mode == "no-post") return 0;
             int fds[2];
             require(pipe(fds) == 0, "bridge NeedsTargets pipe");
-            const auto targets = fixture.package_name() + "\n";
+            const auto targets = fixture.package_name() + "\n" + (split_both ? sibling_name + "\n" : "");
             require(write(fds[1], targets.data(), targets.size()) == static_cast<ssize_t>(targets.size()), "bridge NeedsTargets write");
             static_cast<void>(close(fds[1]));
             if(existing)
@@ -3219,57 +3403,71 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
                 store.record_install(token, fds[0]);
             static_cast<void>(close(fds[0]));
             if(mode == "binding-failure") write_file(installed_record / "mtree", raw_mtree + "changed");
+            if(mode == "split-both-binding-failure") write_file(sibling_record / "mtree", split_mtrees.at(sibling_name) + "changed");
             return 0;
         });
         set_source_artifact_install_trusted_state_test_hook([&](auto event, int, const auto&) {
             if((mode == "cleanup-failure" && event == SourceArtifactInstallTrustedStateTestEvent::BeforeExactCleanup) ||
                (mode == "retirement-failure" && event == SourceArtifactInstallTrustedStateTestEvent::BeforeExactRetirement)) throw std::bad_alloc();
         });
-        set_reviewed_devel_source_build_execution_test_hooks({[&](Stage stage, const EvaluatedDevelSourceBuildProof* built) {
+        auto bridge_hooks = ReviewedDevelSourceBuildExecutionTestHooks{[&](Stage stage, const EvaluatedDevelSourceBuildProof* built) {
 #ifdef MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
-                                                                  if(bootstrap && !acquisition_root.empty()) {
-                                                                      if(stage == Stage::Context) {
-                                                                          ++context_entries;
-                                                                          require(fs::exists(acquisition_root / "moguet/example-base/.git"), "acquisition died before S3");
-                                                                          const auto fresh = acquisition_root / "moguet/example-base";
-                                                                          for(const auto& entry : fs::directory_iterator(fresh)) {
-                                                                              require(entry.path().filename() != "evil.patch" && entry.path().filename() != "random-file" && entry.path().filename() != "ignored-residue" && entry.path().filename() != "wrong-head", "old overlay reached pin/S3");
-                                                                              if(entry.is_regular_file()) {
-                                                                                  std::ifstream input(entry.path());
-                                                                                  require(std::string((std::istreambuf_iterator<char>(input)), {}).find("malicious-old") == std::string::npos, "old bytes reached pin/S3");
-                                                                              }
-                                                                          }
-                                                                          if(mode == "s3-failure") write_file(fresh / "PKGBUILD", "changed after pin\n");
-                                                                      }
-                                                                      if(stage == Stage::Build) require(!fs::exists(acquisition_root) && acquisition_cleanups == 1, "S4 began before acquisition cleanup");
-                                                                  }
+                                                                           if(stage == Stage::Context) ++context_entries;
+                                                                           if(bootstrap && !acquisition_root.empty() && build_entries == 0) {
+                                                                               if(stage == Stage::Context) {
+                                                                                   require(fs::exists(acquisition_root / "moguet/example-base/.git"), "acquisition died before S3");
+                                                                                   const auto fresh = acquisition_root / "moguet/example-base";
+                                                                                   for(const auto& entry : fs::directory_iterator(fresh)) {
+                                                                                       require(entry.path().filename() != "evil.patch" && entry.path().filename() != "random-file" && entry.path().filename() != "ignored-residue" && entry.path().filename() != "wrong-head", "old overlay reached pin/S3");
+                                                                                       if(entry.is_regular_file()) {
+                                                                                           std::ifstream input(entry.path());
+                                                                                           require(std::string((std::istreambuf_iterator<char>(input)), {}).find("malicious-old") == std::string::npos, "old bytes reached pin/S3");
+                                                                                       }
+                                                                                   }
+                                                                                   if(mode == "s3-failure") write_file(fresh / "PKGBUILD", "changed after pin\n");
+                                                                               }
+                                                                               if(stage == Stage::Build) require(!fs::exists(acquisition_root) && acquisition_cleanups == 1, "S4 began before acquisition cleanup");
+                                                                           }
 #endif
-                                                                  if(stage == Stage::Build) ++build_entries;
-                                                                  if(stage != Stage::Transport) return;
-                                                                  require(built && built->valid(), "bridge did not retain S4 proof");
-                                                                  if(mode == "supplemental" || mode == "supplemental-collision") require_supplemental_artifact(*built, fixture);
+                                                                           if(stage == Stage::Build) ++build_entries;
+                                                                           if(stage != Stage::Transport) return;
+                                                                           require(built && built->valid(), "bridge did not retain S4 proof");
+                                                                           if(mode == "supplemental" || mode == "supplemental-collision") require_supplemental_artifact(*built, fixture);
 #ifdef MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
-                                                                  if(pinned) {
-                                                                      auto payload = capture_process("/usr/bin/bsdtar", {"-xOf", built->artifact().path().string(), "usr/share/" + fixture.package_name() + "/payload.txt"}, {"PATH=/usr/bin:/bin", "LC_ALL=C"});
-                                                                      require(payload.exit_code == 0 && payload.output == "revision-one\nprepared\nchild-accepted\nrevision-one\nchild-accepted\ngenerated\n",
-                                                                              "Artifact did not use prepared root, both children and nested source");
-                                                                      require(*built->actual_built_revision().revision().value().git_commit() == upstream.oid(), "S4 lost accepted root X");
-                                                                  }
+                                                                           if(pinned) {
+                                                                               auto payload = capture_process("/usr/bin/bsdtar", {"-xOf", built->artifact().path().string(), "usr/share/" + fixture.package_name() + "/payload.txt"}, {"PATH=/usr/bin:/bin", "LC_ALL=C"});
+                                                                               require(payload.exit_code == 0 && payload.output == "revision-one\nprepared\nchild-accepted\nrevision-one\nchild-accepted\ngenerated\n",
+                                                                                       "Artifact did not use prepared root, both children and nested source");
+                                                                               require(*built->actual_built_revision().revision().value().git_commit() == upstream.oid(), "S4 lost accepted root X");
+                                                                           }
 #endif
-                                                                  expected.emplace(built->artifact().evidence());
-                                                                  actual_oid = *built->actual_built_revision().revision().value().git_commit();
-                                                                  const auto mtree = capture_process("/usr/bin/bsdtar", {"-xOf", built->artifact().path().string(), ".MTREE"}, {"PATH=/usr/bin:/bin", "LC_ALL=C"});
-                                                                  require(mtree.exit_code == 0 && xdg_generation_store_raw_contents_sha256(mtree.output) == expected->mtree_digest.value(), "bridge MTREE oracle mismatch");
-                                                                  raw_mtree = mtree.output;
-                                                                  if(mode == "snapshot-failure") {
-                                                                      std::ofstream file(built->artifact().path(), std::ios::app);
-                                                                      file << 'x';
-                                                                  }
-                                                                  if(mode == "publication-failure") fail_next_xdg_generation_store_operation_for_test(XdgGenerationStoreTestFailurePoint::Write);
-                                                                  if(mode == "publication-unknown") fail_next_xdg_generation_store_operation_for_test(XdgGenerationStoreTestFailurePoint::DirectorySync);
-                                                                  if(mode == "no-allocation") run_xdg_generation_store_race_once_for_test(XdgGenerationStoreTestRacePoint::AfterVerifiedPublication, &deny_after_bridge_publication);
-                                                              },
-                                                              token});
+                                                                           const auto primary = std::find_if(built->artifacts().begin(), built->artifacts().end(),
+                                                                                                             [&](const auto& artifact) { return artifact.package().package_name() == fixture.package_name(); });
+                                                                           require(primary != built->artifacts().end(), "primary build artifact absent");
+                                                                           if(split_group) {
+                                                                               require(built->artifacts().size() == 2, "split S4 lost declared output");
+                                                                               split_evidence.clear();
+                                                                               split_mtrees.clear();
+                                                                               for(const auto& artifact : built->artifacts()) {
+                                                                                   split_evidence.emplace(artifact.package().package_name(), artifact.evidence());
+                                                                                   split_mtrees.emplace(artifact.package().package_name(), archive_member(artifact.path(), ".MTREE"));
+                                                                               }
+                                                                           }
+                                                                           expected.emplace(primary->evidence());
+                                                                           actual_oid = *built->actual_built_revision().revision().value().git_commit();
+                                                                           const auto mtree = capture_process("/usr/bin/bsdtar", {"-xOf", primary->path().string(), ".MTREE"}, {"PATH=/usr/bin:/bin", "LC_ALL=C"});
+                                                                           require(mtree.exit_code == 0 && xdg_generation_store_raw_contents_sha256(mtree.output) == expected->mtree_digest.value(), "bridge MTREE oracle mismatch");
+                                                                           raw_mtree = mtree.output;
+                                                                           if(mode == "snapshot-failure") {
+                                                                               std::ofstream file(built->artifact().path(), std::ios::app);
+                                                                               file << 'x';
+                                                                           }
+                                                                           if(mode == "publication-failure") fail_next_xdg_generation_store_operation_for_test(XdgGenerationStoreTestFailurePoint::Write);
+                                                                           if(mode == "publication-unknown") fail_next_xdg_generation_store_operation_for_test(XdgGenerationStoreTestFailurePoint::DirectorySync);
+                                                                           if(mode == "no-allocation") run_xdg_generation_store_race_once_for_test(XdgGenerationStoreTestRacePoint::AfterVerifiedPublication, &deny_after_bridge_publication);
+                                                                       },
+                                                                       token};
+        set_reviewed_devel_source_build_execution_test_hooks(bridge_hooks);
 
 #ifdef MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
         if(bootstrap) {
@@ -3421,7 +3619,7 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
                                                              metadata.replace(name_position, 10 + fixture.package_name().size(), "pkgname = " + requested.package_name());
                                                              metadata.replace(base_position, 10 + fixture.package_base().size(), "pkgbase = " + requested.package_base().package_base());
                                                          }
-                                                         if(mode == "unsupported") metadata += "pkgname = unsupported-sibling\n";
+                                                         if(mode == "unsupported") metadata.insert(metadata.find("pkgname"), "\tsource = git+https://fixture.invalid/second.git\n");
                                                          return DevelTrackingBootstrapRecipeObservation{SourceRevisionIdentity::git_commit(recipe_x), metadata};
                                                      },
                                                      {}});
@@ -3436,7 +3634,9 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
                         return BoundedCapturedProcessResult{record + record, BoundedProcessExited{0}}; }, [&](const std::string& url) -> std::optional<std::string> {
                         require(url == "https://aur.archlinux.org/cgit/aur.git/plain/.SRCINFO?h=" + fixture.package_base() + "&id=" + (mode == "advance-before-revalidation" && trial_calls >= 3 ? fixture.recipe_oid() : recipe_x),
                                 "Supplemental trial lost exact recipe metadata URL");
-                        return authoritative_metadata + (mode == "unsupported" ? "pkgname = unsupported-sibling\n" : ""); }});
+                        auto metadata = authoritative_metadata;
+                        if(mode == "unsupported") metadata.insert(metadata.find("pkgname"), "\tsource = git+https://fixture.invalid/second.git\n");
+                        return metadata; }});
             }
             AppConfig config;
             config.user_config.review.diff = mode == "diff-skip" ? ReviewPolicy::Skip : ReviewPolicy::Prompt;
@@ -3514,11 +3714,164 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
             const auto& filtered = *result.aur.operation_result;
             const auto& targets = filtered.reduced_operation_result.targets;
             const std::size_t bootstrap_index = multi ? 1 : 0;
-            require(targets.size() == (multi ? 3U : 1U) && targets[bootstrap_index].update.installed_name == fixture.package_name(), "bootstrap lost original query target correlation");
+            require(targets.size() == (multi ? 3U : split_both ? 2U
+                                                               : 1U) &&
+                        targets[bootstrap_index].update.installed_name == fixture.package_name(),
+                    "bootstrap lost original query target correlation");
             const auto& target = targets[bootstrap_index];
             if(migration_cache_case) {
                 require(cache_before == bootstrap_cache_snapshot(old_cache), "migration changed old checkout bytes/inventory/HEAD/refs/config");
                 require(!fs::exists(old_git_calls), "migration invoked Git on old checkout");
+            }
+            if(split_group) {
+                for(const auto& issue : filtered.reduced_operation_result.reduction_issues)
+                    std::cerr << "split reduction: " << issue.diagnostic << '\n';
+                require(filtered.reduced_operation_result.reduction_issues.empty() &&
+                            filtered.reduced_operation_result.status != AurUpdateOperationStatus::InconsistentResult,
+                        "valid split outcome became a reducer correlation failure");
+                present_filtered_aur_update_execution_result(filtered);
+                const bool cancelled_split = mode == "split-review-cancel";
+                const bool failed_install = mode == "split-both-nonzero";
+                const bool failed_binding = mode == "split-both-binding-failure";
+                const bool failed_publication = mode == "split-both-publication-failure";
+                const bool complete = !cancelled_split && !failed_install && !failed_binding && !failed_publication && mode != "split-both-selected-missing" && mode != "split-both-mixed-decline";
+                require(filtered.execution && filtered.execution->work_item_results.size() == (multi ? 3U : 1U),
+                        "split PackageBase was scheduled more than once");
+                const auto& work = filtered.execution->work_item_results[bootstrap_index];
+                if(mode != "split-both-mixed-decline") {
+                    const auto expected_status = complete          ? AurUpdateOperationStatus::Completed
+                                                 : cancelled_split ? AurUpdateOperationStatus::StoppedOnWorkItemCancellation
+                                                                   : AurUpdateOperationStatus::StoppedOnWorkItemFailure;
+                    require(filtered.reduced_operation_result.status == expected_status,
+                            "split failure/cancellation/publication classification was flattened");
+                }
+                require(work.child_results.size() == (split_both ? 2U : 1U), "D/I expanded the selected child set");
+                if(mode == "split-both-mixed-decline") {
+                    require(!result.is_success() && work.bootstrap_decision &&
+                                work.bootstrap_decision->state == AurUpdateBootstrapDecisionState::Declined &&
+                                targets.front().status == AurUpdateOperationTargetStatus::Skipped &&
+                                targets.back().status == AurUpdateOperationTargetStatus::NotAttempted &&
+                                acquisition_creations == 0 && build_entries == 0 && execute_calls == 0,
+                            "mixed selected group decline erased intent or became success");
+                    std::cout << "S564 split " << mode << " PASS\nS553 production " << case_name << " PASS\n";
+                    continue;
+                }
+                require(work.bootstrap_decision && work.bootstrap_decision->state == AurUpdateBootstrapDecisionState::Accepted,
+                        "split migration decision missing");
+                require(result.is_success() == complete, "split partial/cancellation aggregate became success");
+                if(mode == "split-both-selected-missing") {
+                    require(!result.is_success() && work.devel_execution && work.devel_execution->owner &&
+                                work.devel_execution->owner->issue() == Issue::ArtifactMismatch &&
+                                work.devel_execution->owner->build_completed() && !work.devel_execution->owner->publication() &&
+                                build_entries == 1 && package_builds == 1 && prepare_calls == 0 && execute_calls == 0,
+                            "selected child missing from B reached install/provenance");
+                    std::cout << "S564 split " << mode << " PASS\nS553 production " << case_name << " PASS\n";
+                    continue;
+                }
+                if(cancelled_split) {
+                    require(work.status == AurUpdateWorkItemExecutionStatus::Cancelled && work.cancellation &&
+                                build_entries == 0 && execute_calls == 0,
+                            "split recipe cancellation lost formal result or mutated");
+                    require(multi && targets.front().status == AurUpdateOperationTargetStatus::Updated &&
+                                targets.back().status == AurUpdateOperationTargetStatus::NotAttempted && sidecar_calls.size() == 1,
+                            "#545 split cancellation lost prefix or executed suffix");
+                } else {
+                    require(build_entries == 1 && initial_evaluations == 1 && package_builds == 1 &&
+                                acquisition_creations == 1 && acquisition_fetches == 1 && context_entries == 1 &&
+                                closure_reviews == 1 && prepare_calls == 1 && execute_calls == 1,
+                            "split repeated acquisition/review/S3/S4/install");
+                    require(work.devel_execution && work.devel_execution->owner && work.devel_execution->owner->publication(),
+                            "split lost whole group execution owner");
+                    const auto& publication = *work.devel_execution->owner->publication();
+                    const auto& installed = publication.installation();
+                    require(installed.built_proof().artifacts().size() == 2, "build B was reduced to T");
+                    require(installed.operation() == (failed_install ? Operation::Failed : Operation::Succeeded),
+                            "transaction outcome was guessed per child");
+                    const auto& bindings = installed.binding_observations();
+                    require(bindings.size() == (split_both ? 2U : 1U), "unselected child binding slot minted");
+                    if(mode.ends_with("-reordered")) require(bindings.front().artifact_index == 1 &&
+                                                                 (!split_both || bindings.back().artifact_index == 0),
+                                                             "manifest index was replaced with vector position");
+                    if(!failed_install) {
+                        auto reasons = PackageMetadataSession::open({"/", db});
+                        require(std::get<InstalledPackageMetadata>(reasons.query_installed_package(fixture.package_name())).reason == InstalledPackageReason::Explicit,
+                                "primary installed reason changed");
+                        if(split_both) require(std::get<InstalledPackageMetadata>(reasons.query_installed_package(sibling_name)).reason == InstalledPackageReason::Dependency,
+                                               "sibling dependency reason was promoted");
+                    }
+                    if(failed_install)
+                        require(!installed.proof() && publication.children().empty(), "failed transaction minted S5/S6");
+                    else if(failed_binding) {
+                        require(installed.proof_state() == DevelSourceArtifactInstallProof::Incomplete &&
+                                    bindings.front().binding && !bindings.back().binding && bindings.back().issue &&
+                                    publication.children().empty(),
+                                "partial fresh binding lost success/failure or minted group proof");
+                    } else {
+                        require(installed.proof() && publication.children().size() == bindings.size(), "split S5/S6 child count differs");
+                        require(publication.children().front().state == Pub::Complete, "first selected child not published");
+                        if(failed_publication) require(publication.state() == Pub::Failed && publication.children().back().state == Pub::Failed,
+                                                       "partial publication became Complete or rolled back first child");
+                        for(const auto& record : publication.children()) {
+                            if(record.state != Pub::Complete) continue;
+                            const auto selected_child = PackageChildIdentity::make(base, record.package_name);
+                            const auto readback = read_devel_build_provenance(selected_child);
+                            const auto& saved = require_arm<DevelBuildProvenanceStoreLoaded>(readback, "selected child provenance readback failed");
+                            require(saved.provenance.installed_binding().package() == selected_child &&
+                                        saved.provenance.artifact().identity.package_name == record.package_name &&
+                                        *saved.provenance.actual_built_revision().revision().value().git_commit() == actual_oid,
+                                    "child record used a sibling binding/revision");
+                        }
+                    }
+                    if(!split_both) {
+                        auto session = PackageMetadataSession::open({"/", db});
+                        require(std::holds_alternative<PackageNotFound>(session.query_installed_package(sibling_name)) &&
+                                    std::holds_alternative<DevelBuildProvenanceStoreMissing>(read_devel_build_provenance(PackageChildIdentity::make(base, sibling_name))),
+                                "unrequested sibling was installed/published");
+                        require(work.unselected_artifacts.size() == 1 && work.unselected_artifacts.front().package_name == sibling_name,
+                                "unselected B child attribution lost");
+                    }
+                    if(complete) {
+                        set_devel_package_assessment_test_hooks({{}, [&](const auto& request) {
+                                                                     return parse_git_remote_revision_observation(request, 0, upstream.oid() + "\tHEAD\n");
+                                                                 }});
+                        const auto before = std::tuple{trial_calls, build_entries, execute_calls, acquisition_creations};
+                        auto next_request = make_compatible_system_aur_update_request(std::get<AutoSystemUpdateRouteCandidate>(classify_sync_invocation_route(*parsed)));
+                        auto next = execute_prepared_system_aur_update_operation(prepare_system_aur_update_operation(*next_request), config);
+                        require(next.is_success() && before == std::tuple{trial_calls, build_entries, execute_calls, acquisition_creations},
+                                "same remote repeated split migration/build/install");
+                        for(const auto& selected : next.aur.operation_result->reduced_operation_result.targets)
+                            require(selected.update.devel_assessment.state() == DevelUpdateAssessmentState::UpToDate,
+                                    "steady state failed a selected child's own provenance");
+                        if(mode == "split-partial-update") {
+                            upstream.commit("split upstream advanced\n");
+                            token.assign(64, 'd');
+                            bridge_hooks.exact_transaction_token = token;
+                            set_reviewed_devel_source_build_execution_test_hooks(bridge_hooks);
+                            // Subsequent valid-provenance updates use the existing
+                            // reviewed cache path. The bootstrap-only old-cache guard
+                            // has already been checked above.
+                            script(bin / "recipe-git", "#!/bin/sh\nfor argument do if [ \"$argument\" = fetch ]; then exit 0; fi; done\nexec /usr/bin/git \"$@\"\n");
+                            auto update_request = make_compatible_system_aur_update_request(
+                                std::get<AutoSystemUpdateRouteCandidate>(classify_sync_invocation_route(*parsed)));
+                            auto updated = execute_prepared_system_aur_update_operation(prepare_system_aur_update_operation(*update_request), config);
+                            if(!updated.is_success() && updated.aur.operation_result)
+                                present_filtered_aur_update_execution_result(*updated.aur.operation_result);
+                            require(updated.is_success() && context_entries == 2 && build_entries == 2 && package_builds == 2 &&
+                                        execute_calls == 2 && acquisition_creations == 1 && trial_calls == std::get<0>(before),
+                                    "ordinary GitRevision update repeated migration or failed the shared split build");
+                            const auto current = read_devel_build_provenance(child);
+                            const auto& saved = require_arm<DevelBuildProvenanceStoreLoaded>(current, "updated child record missing");
+                            require(saved.observed.generation == 2 &&
+                                        *saved.provenance.actual_built_revision().revision().value().git_commit() == upstream.oid() &&
+                                        std::holds_alternative<DevelBuildProvenanceStoreMissing>(
+                                            read_devel_build_provenance(PackageChildIdentity::make(base, sibling_name))),
+                                    "ordinary update lost CAS/root revision or published an unselected sibling");
+                            present_filtered_aur_update_execution_result(*updated.aur.operation_result);
+                        }
+                    }
+                }
+                std::cout << "S564 split " << mode << " PASS\nS553 production " << case_name << " PASS\n";
+                continue;
             }
             if(closure_interaction) {
                 const bool declined = mode == "pinned-review-no";
@@ -4059,7 +4412,7 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
                     std::cout << "S7C " << mode << " branch / authoritative-build0 / publication0 PASS\n";
                     continue;
                 }
-                if(mode == "needed" || mode == "split" || mode == "rmdeps" || mode == "only-if-updated" || mode == "overlay") {
+                if(mode == "needed" || mode == "rmdeps" || mode == "only-if-updated" || mode == "overlay") {
                     require(std::holds_alternative<ReviewedDevelSourceBuildRejected>(selected) && build_entries == 0 && prepare_calls == 0, "unsupported intent entered S4/S5");
                     fixture.require_no_provenance_publication();
                     if(mode == "overlay") require(std::get<ReviewedDevelSourceBuildRejected>(selected).issue == Issue::EditorOverlay, "overlay admitted");
@@ -4082,7 +4435,7 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
             require(observed, "missing execution observation");
             const auto& moved = *observed;
             const auto* publication = moved.publication();
-            const bool early = mode == "environment" || mode == "build-failure" || mode == "artifact-mismatch" || mode == "database-world" || mode == "new-dependency" || mode == "promotion";
+            const bool early = mode == "split" || mode == "environment" || mode == "build-failure" || mode == "artifact-mismatch" || mode == "database-world" || mode == "new-dependency" || mode == "promotion";
             if(early) {
                 require(!publication && prepare_calls == 0 && execute_calls == 0, "early failure reached S5/S6");
                 if(mode == "build-failure") require(moved.build_failure() && !moved.build_completed(), "S4 failure lost");
@@ -5720,6 +6073,11 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
         }
         throw std::invalid_argument("Transport fixture requires an explicit registered test mode.");
 #endif
+        if(argc == 2 && std::string(argv[1]) == "--split-artifacts") {
+            test_split_artifact_authority();
+            require(context_root_inventory() == before, "split artifact test retained a context");
+            return 0;
+        }
         // The default owner lane keeps every 4A0 and common S4 regression.
         const auto selection_started = std::chrono::steady_clock::now();
         test_preprepare_selection();

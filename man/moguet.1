@@ -401,7 +401,7 @@ interactive exact target-less Auto updates may offer an explicit tracking
 bootstrap with a default-No confirmation. A read-only observation of the exact
 AUR recipe must first establish trial eligibility; unsupported or unverifiable
 source shapes and checkout overlays remain skipped. The initial trial admits
-one package and one architecture-independent floating HTTPS Git source.
+one declared PackageBase child set and one architecture-independent floating HTTPS Git source.
 Additional source files remain unoffered when their tracked regular-file
 identity cannot be verified by the trial observation.
 .PP
@@ -412,6 +412,12 @@ and successful provenance publication. No skips the target; cancel or a later
 failure stops subsequent work without rollback. Invalid, corrupt, future and
 unsafe state are not repaired. --noedit is allowed; --nodiff, review.diff=skip,
 --noconfirm and non-TTY input do not approve bootstrap.
+.PP
+Ordinary updates build a supported split PackageBase once and install only the
+selected children in one transaction. Declared siblings that were not selected
+are not installed or given installed bindings. Each selected child has its own
+schema-v1 provenance record; a partial binding or publication failure keeps the
+installation result and exits non-zero without rollback.
 .
 .PP
 The phases are sequential, not atomic. A repository failure leaves the AUR

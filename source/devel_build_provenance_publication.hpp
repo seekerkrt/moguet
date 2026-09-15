@@ -41,6 +41,22 @@ struct DevelBuildProvenancePublicationIdentity {
     PackageBaseIdentity package_base;
     std::uint64_t generation;
     std::string document_sha256;
+    std::string package_name;
+};
+
+// Historical diagnostics for one selected child. The enclosing closed result
+// owns the live installation and publishes at most once, in selected order.
+struct DevelBuildProvenanceChildPublication {
+    std::string package_name;
+    DevelBuildProvenancePublicationState state = DevelBuildProvenancePublicationState::NotAttempted;
+    DevelBuildProvenancePublicationStage stage = DevelBuildProvenancePublicationStage::Eligibility;
+    std::optional<DevelBuildProvenancePublicationIssue> issue;
+    std::optional<DevelBuildProvenanceFailure> projection_issue;
+    std::optional<DevelBuildProvenance> projected;
+    std::string encoded;
+    std::optional<DevelBuildProvenancePublicationIdentity> identity;
+    std::optional<DevelBuildProvenanceStoreReadResult> read;
+    std::optional<DevelBuildProvenanceStorePublishResult> publication;
 };
 
 // Owns the original S5 product even on local/store failure. Public access is
@@ -64,6 +80,7 @@ public:
     [[nodiscard]] const DevelBuildProvenanceStoreReadResult* store_read_result() const;
     [[nodiscard]] const DevelBuildProvenanceStorePublishResult* store_publish_result() const;
     [[nodiscard]] const DevelBuildProvenancePublicationIdentity* identity() const noexcept;
+    [[nodiscard]] const std::vector<DevelBuildProvenanceChildPublication>& children() const;
 
 private:
     friend class DevelBuildProvenancePublicationAuthority;
@@ -75,12 +92,7 @@ private:
     DevelBuildProvenancePublicationState state_ = DevelBuildProvenancePublicationState::NotAttempted;
     DevelBuildProvenancePublicationStage stage_ = DevelBuildProvenancePublicationStage::Eligibility;
     std::optional<DevelBuildProvenancePublicationIssue> issue_;
-    std::optional<DevelBuildProvenanceFailure> projection_issue_;
-    std::optional<DevelBuildProvenance> projected_;
-    std::string encoded_;
-    std::optional<DevelBuildProvenancePublicationIdentity> identity_;
-    std::optional<DevelBuildProvenanceStoreReadResult> read_;
-    std::optional<DevelBuildProvenanceStorePublishResult> publication_;
+    std::vector<DevelBuildProvenanceChildPublication> children_;
 };
 
 // One-shot ownership transfer. Invalid/moved-from input returns nullopt with

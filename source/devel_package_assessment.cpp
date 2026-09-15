@@ -4,6 +4,8 @@
 #include "package_identifier.hpp"
 
 #include <stdexcept>
+#include <algorithm>
+#include <set>
 #include <utility>
 
 namespace {
@@ -112,20 +114,32 @@ DevelPackageAssessment DevelPackageAssessmentAuthority::assess(const DevelPackag
         requires_check(result, Check::SourceIdentityChanged);
         return result;
     }
-    if(target.installed_children.size() != 1) {
-        result.issue = target.installed_children.empty() ? Issue::NoInstalledChild : Issue::MultipleInstalledChildren;
-        requires_check(result, target.installed_children.empty() ? Check::InstalledArtifactDrift : Check::BuildSourceProofUnavailable);
+    if(target.installed_children.empty()) {
+        result.issue = Issue::NoInstalledChild;
+        requires_check(result, Check::InstalledArtifactDrift);
         return result;
     }
-    const auto& child = target.installed_children.front();
-    if(child.package_base() != base || !is_valid_package_name(child.package_name())) {
+    const auto selected_name = target.selected_child ? *target.selected_child : (target.installed_children.size() == 1 ? target.installed_children.front().package_name() : std::string{});
+    const PackageChildIdentity* selected_child = nullptr;
+    std::set<std::string> names;
+    for(const auto& candidate : target.installed_children) {
+        if(candidate.package_base() != base || !is_valid_package_name(candidate.package_name()) ||
+           !names.insert(candidate.package_name()).second) {
+            result.issue = Issue::InvalidTarget;
+            requires_check(result, Check::SourceIdentityChanged);
+            return result;
+        }
+        if(candidate.package_name() == selected_name) selected_child = &candidate;
+    }
+    if(!selected_child) {
         result.issue = Issue::InvalidTarget;
         requires_check(result, Check::SourceIdentityChanged);
         return result;
     }
+    const auto& child = *selected_child;
 
     enter(result, Stage::Provenance);
-    result.before.provenance = read_devel_build_provenance(base);
+    result.before.provenance = read_devel_build_provenance(child);
     if(!provenance_loaded(result, *result.before.provenance)) {
         if(std::holds_alternative<DevelBuildProvenanceStoreMissing>(*result.before.provenance) && !target.known_devel_context &&
            !DevelPackageSuffixEvidence::classify(base.package_base(), {child.package_name()}).has_candidate())
@@ -212,7 +226,7 @@ DevelPackageAssessment DevelPackageAssessmentAuthority::assess(const DevelPackag
     // with no retry/rebase/history search even when that set rejects the tip.
     result.post_check = DevelPackagePostCheck::Rejected;
     enter(result, Stage::PostProvenance);
-    result.after.provenance = read_devel_build_provenance(base);
+    result.after.provenance = read_devel_build_provenance(child);
     enter(result, Stage::PostInstalled);
     result.after.installed = observe_current_installed_artifact_binding(child);
     enter(result, Stage::PostReviewed);
@@ -269,7 +283,7 @@ void set_devel_package_assessment_test_hooks(DevelPackageAssessmentTestHooks hoo
 
 DevelPackageLocalObservations observe_devel_bootstrap_local_state(const PackageChildIdentity& child) {
     DevelPackageLocalObservations out;
-    out.provenance = read_devel_build_provenance(child.package_base());
+    out.provenance = read_devel_build_provenance(child);
     if(!std::holds_alternative<DevelBuildProvenanceStoreMissing>(*out.provenance)) return out;
     out.installed = observe_current_installed_artifact_binding(child);
     if(!std::holds_alternative<CurrentInstalledArtifactBindingObserved>(*out.installed)) return out;

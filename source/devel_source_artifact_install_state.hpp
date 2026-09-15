@@ -15,7 +15,8 @@ struct DevelSourceArtifactInstallState {
     std::optional<std::string> transaction_token;
     std::optional<ExactArtifactTransactionReceipt> receipt;
     std::optional<ExactArtifactReceiptIssue> receipt_issue;
-    std::optional<FreshInstalledArtifactBinding> fresh_binding;
+    std::vector<DevelSourceArtifactBindingObservation> bindings;
+    std::vector<std::size_t> selected_indices;
     std::optional<InstalledRecordObservationIssue> binding_issue;
     std::optional<SourceArtifactInstallTrustedExecutionResult> execution;
     DevelSourceArtifactInstallOperation operation = DevelSourceArtifactInstallOperation::NotAttempted;
@@ -30,6 +31,6 @@ struct DevelSourceArtifactInstallState {
 #endif
 
     explicit DevelSourceArtifactInstallState(EvaluatedDevelSourceBuildProof value)
-        : proof(std::move(value)) {
+        : proof(std::move(value)), built_artifact_count(proof.artifacts().size()) {
     }
 };

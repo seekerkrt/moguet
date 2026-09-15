@@ -441,7 +441,8 @@ void require_coherent_work_item(
            (!child_status_matches_work_item(work_item.status, child.status) &&
             !(work_item.devel_execution && work_item.status == AurUpdateWorkItemExecutionStatus::Failed &&
               work_item.devel_execution->operation == DevelSourceArtifactInstallOperation::Succeeded &&
-              work_item.devel_execution->proof == DevelSourceArtifactInstallProof::Complete && child.status == AurUpdateChildExecutionStatus::Installed))) {
+              work_item.devel_execution->receipt == DevelSourceArtifactInstallReceipt::Complete &&
+              child.status == AurUpdateChildExecutionStatus::Installed))) {
             throw std::logic_error(localization::format_translated_message(
                 // TRANSLATORS: AUR is a runtime project identity.
                 "{} child presentation snapshot is incoherent.", "AUR"));
@@ -509,7 +510,7 @@ void require_coherent_work_item(
     if((work_item.status == AurUpdateWorkItemExecutionStatus::Cancelled ||
         work_item.status == AurUpdateWorkItemExecutionStatus::Failed ||
         work_item.status == AurUpdateWorkItemExecutionStatus::NotAttempted) &&
-       !work_item.unselected_artifacts.empty()) {
+       !work_item.unselected_artifacts.empty() && !work_item.devel_execution) {
         throw std::logic_error(localization::format_translated_message(
             // TRANSLATORS: AUR is a runtime project identity.
             "Uncompleted {} work item retained unselected artifacts.",

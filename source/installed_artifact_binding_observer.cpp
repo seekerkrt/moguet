@@ -94,17 +94,22 @@ std::size_t FreshInstalledArtifactBinding::artifact_index() const noexcept {
 }
 
 FreshInstalledArtifactBindingObservation InstalledArtifactBindingObserver::observe(
-    const ExactArtifactTransactionReceipt& receipt, const EvaluatedDevelSourceBuildProof& built) noexcept {
+    const ExactArtifactTransactionReceipt& receipt, const EvaluatedDevelSourceBuildProof& built, std::size_t artifact_index) noexcept {
     try {
-        // The generic transport/receipt retains N records. This live source
-        // binding consumes the already-fixed one-artifact Slice 4 subset only.
-        if(!built.valid() || !receipt.active() || !receipt.built_lineage_ || receipt.built_lineage_ != built.lineage_ || !receipt.transaction_lineage_ || receipt.operations().size() != 1 || receipt.manifest().artifacts.size() != 1)
+        if(!built.valid() || !receipt.active() || !receipt.built_lineage_ ||
+           receipt.built_lineage_ != built.lineage_ || !receipt.transaction_lineage_ ||
+           artifact_index >= built.artifacts().size()) throw Issue::MetadataMismatch;
+        const auto operation_entry = std::find_if(receipt.operations().begin(), receipt.operations().end(),
+                                                  [&](const auto& item) { return item.artifact.artifact_index == artifact_index; });
+        const auto manifest_entry = std::find_if(receipt.manifest().artifacts.begin(), receipt.manifest().artifacts.end(),
+                                                 [&](const auto& item) { return item.artifact_index == artifact_index; });
+        if(operation_entry == receipt.operations().end() || manifest_entry == receipt.manifest().artifacts.end())
             throw Issue::MetadataMismatch;
-        const auto& operation = receipt.operations().front();
+        const auto& operation = *operation_entry;
         const auto& selected = operation.artifact;
-        const auto& artifact = built.artifact();
+        const auto& artifact = built.artifacts()[artifact_index];
         const auto& expected = artifact.evidence();
-        if(selected != receipt.manifest().artifacts.front() ||
+        if(selected != *manifest_entry ||
            selected.package_name != expected.identity.package_name || selected.full_version != expected.identity.full_version ||
            !expected.identity.package_base.value() || selected.package_base != *expected.identity.package_base.value() ||
            !expected.identity.architecture.value() || selected.architecture != *expected.identity.architecture.value() ||

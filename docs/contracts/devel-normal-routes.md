@@ -13,7 +13,7 @@ normal AUR RPC VersionとGit revisionは独立したauthorityである。
 - Same/Olderだけを7-Bでrefineする。PackageBase/sourceはAUR resolutionから作り、provenance自身からコピーしない。
 - configured pacman inventoryが7-Bのfixed trusted system DB worldと一致することを確認する。
 - full installed inventoryを読み、同baseの全childをtargetへ渡す。selected/foreign subsetからsingletonを捏造しない。
-- 不完全なgrouping、別DB context、splitはpositiveを作らない。元のworld/inventory evidenceをquery resultへ保持する。
+- 不完全なgrouping、別DB contextはpositiveを作らない。各childのP/I/Rを照合する。元のworld/inventory evidenceをquery resultへ保持する。
 - suffixはMissingをNotApplicableへ落とさないhintだけ。Git approvalは7-BのP/I/R gatesだけが所有する。
 - current tipのみ。history fallback/adoption、repair、global cache、retryは追加しない。
 
@@ -51,7 +51,7 @@ Legacyだけが既存type erasureへ進む。Reject/authoritative failureからl
 GitRevisionのautomatic candidateは対応するroot childにだけauthoritative selection intentを付ける。
 そのdependencyへ同じflagを無差別伝播しない。flagはproofでもOIDでもない。
 explicit buildはreviewed .SRCINFOのsyntaxをselection hintにできるが、evaluated source proofは既存S4だけが作る。
-no-overlay、one pkgname/artifact/installed child、one floating HTTPS Git、DefaultHead/Branch、architecture-independentを維持する。
+no-overlay、one floating HTTPS Git、DefaultHead/Branch、architecture-independentを維持する。ordinary split集合対応は下記に従う。
 needed/rmdeps/AsDeps/promotion等の非対応intentをS5 Defaultへ偽装しない。
 
 既存#411のinteraction policyを維持する。--noconfirm/non-TTY/explicit diff bypassからreviewed pinをfabricateしない。
@@ -120,7 +120,7 @@ source-buildやtarget grammarの一般policyを変更しない。
   RequiresCheckやVersion/GitRevision basisを変更しない。
 - trialはP/I/Rとfull installed groupingをread-onlyで観測し、recipe HEAD OIDをrepositoryless Gitで取得し、
   そのexact idのAUR cgit metadataをboundedに読む。old persistent recipe checkoutは観測しない。
-  one package、exactly one floating HTTPS Git source、DefaultHead/Branch、source qualifierなしに限定する。
+  complete declared/installed child集合、exactly one floating HTTPS Git source、DefaultHead/Branch、source qualifierなしに限定する。
   source全件を分類し、合計1..64件、Git以外はrecipe直下のrenameなしlocal basenameを最大63件まで候補にできる。
   local名は255 bytes以下のASCII英数字・`_`・`-`・`+`・`.`に限定し、dot始まり、`..`を含む名前、`PKGBUILD`を拒否する。
   `.SRCINFO`、Git metadata、private `.moguet-*` inputsもdot始まりとして除外する。extension whitelistは設けない。
@@ -265,3 +265,23 @@ fixtureからS6 Completeまでを通す。old cacheの全entry/regular bytes/HEA
 remote advance、取得failure/cancel、review stop、S3/cleanup failureを対象とする。
 同remoteの再assessmentと2回目ordinary updateではUpToDate・取得/build/install追加0を確認する。
 このdeterministic evidenceを実AUR通信・host package DB installやSlice 6の全closureへ読み替えない。
+
+## Ordinary split activation（Issue #564 Slice 5）
+
+- Dはexact recipeの全declared children、I_dbはtrusted installed DBの同base children、IはDとのintersection。
+  staleなI_db−Dは黙って捨てずtrialを拒否する。Tはexact RPC entryと既存request/update eligibility/required attribution。
+- 同じbaseのMissing candidatesは1 trialを共有する。D/I_db/Missing候補のchild observationsを別保持する。
+  最終Tは既存required targetsが所有し、同baseの独立したVersion/GitRevision更新候補も含められる。
+  shared migrationをdeclineした場合、Missing候補は従来skip、通常更新候補はNotAttemptedとしてnonzeroを保持する。
+  entryのない未installed siblingをTへ入れず、invalid/corrupt/futureをbootstrapへ昇格しない。
+- 1 migration decision → 1 acquisition/full review/S3 → 必要な1 closure review/SourceReady →
+  1 common S4でBを証明 → Tだけの1 transaction → selected child別S5/S6とする。
+- requestのordinary_devel_package_baseは既存SkipIndependentTarget policyのpreparationから付与・再照合する。
+  split execution activationはordinary updateと既存typed bootstrapに限定する。new explicit bootstrap、
+  standalone upgrade-aur/upgrade-allのsplit execution拡張、dry-run再設計、#554を追加しない。
+- required dependency/provider/child blockerとexact self-root exemptionを維持する。shared baseだけでcross-root relationを免除しない。
+- 1 work itemがN selected child結果とshared execution ownerを保持する。install成功＋S5 incomplete/S6 partialはlosslessなnonzero。
+  先行group完了→後続groupのformal cancel→suffix NotAttemptedを保持し、rollbackしない。
+
+`test-devel-tracking-bootstrap.py --split`がpartial/both installed、same-remote steady state、
+nonzero transaction、partial binding/publication、#545 cancellationをproduction-connected fixtureで確認する。

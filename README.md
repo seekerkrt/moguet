@@ -535,7 +535,7 @@ For an independent target whose initial provenance observation is genuinely
 missing, interactive exact target-less `-Syu` can offer an explicit tracking
 bootstrap with a default-No confirmation. Before offering it, Moguet observes
 an exact AUR recipe without changing cache or state and checks the trial source
-shape. The trial supports one package and one floating HTTPS Git source, plus
+shape. The trial supports a declared PackageBase child set and one floating HTTPS Git source, plus
 bounded local patch/config inputs at the recipe root without renaming. Multiple
 declared architectures are supported; architecture-qualified sources remain
 unsupported. Tracked regular-file identity and exact bytes are proved by full
@@ -571,7 +571,10 @@ versions may be refined by the validated Git assessment. Git revision difference
 are displayed separately from package-version changes.
 
 The initial authoritative execution path requires a real reviewed pin and the
-existing single-child HTTPS Git subset. It consumes S4/S5/S6 once, with no legacy
+supported HTTPS Git subset. Ordinary updates build a split PackageBase once,
+install only selected children, and keep one v1 provenance record per selected
+installed child. Unrequested siblings are never installed automatically.
+It consumes S4/S5/S6 once, with no legacy
 fallback after starting. Installation success and provenance publication failure
 remain separate partial outcomes and produce a non-zero result. Registered
 `RequiresCheck` uses an explicit default-No rebuild confirmation; this does not

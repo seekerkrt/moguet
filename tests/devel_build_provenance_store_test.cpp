@@ -177,7 +177,8 @@ DevelBuildProvenance provenance(
     PackageBaseIdentity package_base = aur_package_base(),
     std::string built_oid = std::string(SHA1_BUILT),
     std::string recipe_oid = std::string(SHA1_RECIPE),
-    std::uint64_t reviewed_generation = 9) {
+    std::uint64_t reviewed_generation = 9,
+    std::string child_name = "moguet-provenance-fixture") {
     const VcsSourceIdentity source = upstream_source();
     const std::string package_base_name = package_base.package_base();
     ReviewedSourceStateRecordBinding reviewed =
@@ -189,7 +190,7 @@ DevelBuildProvenance provenance(
     InstalledArtifactBinding installed =
         make_installed_artifact_binding_fixture_for_test(
             PackageChildIdentity::make(
-                package_base, "moguet-provenance-fixture"),
+                package_base, child_name),
             PackageVersionIdentity::composite("1.r2.g222222222222-1"),
             InstalledPackageArchitectureIdentity::known("any"),
             AlpmMtreeSha256Digest::make(std::string(MTREE_DIGEST)),
@@ -199,7 +200,7 @@ DevelBuildProvenance provenance(
                 "ext4:opaque-generation"));
     BuiltPackageArtifactEvidence artifact{
         ArtifactPackageIdentity{
-            "moguet-provenance-fixture", "1.r2.g222222222222-1",
+            child_name, "1.r2.g222222222222-1",
             ArtifactPackageBaseIdentity::known(
                 package_base_name),
             ArtifactPackageArchitectureIdentity::known("any")},
@@ -674,10 +675,69 @@ void test_publication_resource_boundary() {
     std::cout << "semantic publication terminal allocation firewall PASS\n";
 }
 
+void test_child_tips_and_legacy_compatibility() {
+    StoreHome home;
+    const auto base = aur_package_base();
+    const auto a = PackageChildIdentity::make(base, "first-child");
+    const auto b = PackageChildIdentity::make(base, "second-child");
+    const auto make = [&](const PackageChildIdentity& child, std::string oid = std::string(SHA1_BUILT)) {
+        return provenance(base, std::move(oid), std::string(SHA1_RECIPE), 9, child.package_name());
+    };
+    require_arm<DevelBuildProvenanceStoreMissing>(read_devel_build_provenance(a), "initial child not Missing");
+    require(!fs::exists(devel_build_provenance_store_directory()), "child lookup created namespace");
+    const auto legacy = require_arm<DevelBuildProvenanceStorePublished>(
+        publish_devel_build_provenance(make(a), {}), "legacy different-name child fixture failed");
+    require(require_arm<DevelBuildProvenanceStoreLoaded>(read_devel_build_provenance(a), "legacy child lost").observed == legacy.observed,
+            "legacy exact token was changed");
+    require_arm<DevelBuildProvenanceStoreMissing>(read_devel_build_provenance(b), "legacy record was reused for sibling");
+    const auto second = require_arm<DevelBuildProvenanceStorePublished>(
+        publish_child_devel_build_provenance(make(b), {}), "second child publication failed");
+    require(second.observed.generation == 1 &&
+                require_arm<DevelBuildProvenanceStoreLoaded>(read_devel_build_provenance(a), "first child lost after sibling").observed == legacy.observed &&
+                require_arm<DevelBuildProvenanceStoreLoaded>(read_devel_build_provenance(b), "second child readback failed").provenance == make(b),
+            "sibling publication replaced first child or shared its generation");
+    const auto advanced = require_arm<DevelBuildProvenanceStorePublished>(
+        publish_child_devel_build_provenance(make(b, std::string(SHA1_OTHER)), second.observed), "child CAS failed");
+    require(advanced.observed.generation == 2 &&
+                require_arm<DevelBuildProvenanceStoreLoaded>(read_devel_build_provenance(a), "unselected child disappeared").observed == legacy.observed,
+            "unselected record advanced with selected sibling");
+    require_arm<DevelBuildProvenanceStoreCasConflict>(
+        publish_child_devel_build_provenance(make(b), second.observed), "stale child CAS succeeded");
+    const auto legacy_advanced = require_arm<DevelBuildProvenanceStorePublished>(
+        publish_child_devel_build_provenance(make(a, std::string(SHA1_OTHER)), legacy.observed), "legacy child CAS failed");
+    require(legacy_advanced.observed.generation == 2, "legacy generation restarted");
+
+    const auto unused = PackageChildIdentity::make(base, "third-child");
+    const auto legacy_file = devel_build_provenance_store_entry_path(base) / legacy_advanced.observed.leaf_name;
+    write_bytes(legacy_file, "not TOML = [", 0600);
+    require_arm<DevelBuildProvenanceStoreCorruptRecord>(read_devel_build_provenance(unused), "invalid legacy became Missing");
+    require_arm<DevelBuildProvenanceStoreOverwriteRefused>(
+        publish_child_devel_build_provenance(make(unused), {}), "invalid legacy silently bootstrapped");
+    // Existing child tip is independent. There is no scan of older history.
+    require(require_arm<DevelBuildProvenanceStoreLoaded>(read_devel_build_provenance(b), "independent child tip lost").observed == advanced.observed,
+            "child lookup adopted legacy history");
+    auto future = legacy_advanced.observed.raw_contents;
+    replace_once(future, "schema_version = 1", "schema_version = 2");
+    write_bytes(legacy_file, future, 0600);
+    require_arm<DevelBuildProvenanceStoreFutureSchema>(read_devel_build_provenance(unused), "future legacy became Missing");
+    require_arm<DevelBuildProvenanceStoreFutureSchemaOverwriteRefused>(
+        publish_child_devel_build_provenance(make(unused), {}), "future legacy was overwritten");
+    const auto child_namespace = xdg_paths::resolve_devel_build_provenance_children_process_environment().directory;
+    const auto child_unit = fs::directory_iterator(child_namespace)->path();
+    write_bytes(child_unit / advanced.observed.leaf_name, encode_devel_build_provenance(make(a)), 0600);
+    const auto wrong_child = require_arm<DevelBuildProvenanceStoreInvalidDocument>(
+        read_devel_build_provenance(b), "wrong child at exact key became Loaded/Missing");
+    require_arm<DevelBuildProvenanceStoreOverwriteRefused>(
+        publish_child_devel_build_provenance(make(b), wrong_child.observed),
+        "wrong child record was automatically rebound with its raw token");
+    std::cout << "S564 child tips / exact legacy identity / independent CAS / invalid-future PASS\n";
+}
+
 } // namespace
 
 int main() {
     try {
+        test_child_tips_and_legacy_compatibility();
         test_publication_resource_boundary();
         test_codec_roundtrip_and_strict_failures();
         test_store_read_publish_cas_and_namespaces();

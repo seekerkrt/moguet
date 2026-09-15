@@ -766,7 +766,7 @@ execute_prepared_aur_update_source_build_invocation(
             } else {
                 auto answer = request_confirmation(localization::format_translated_message(
                                                        "{}: devel tracking baseline is missing. Fully review the source, rebuild and install it to establish {} tracking?",
-                                                       trial.package().package_name(), "Git"),
+                                                       trial.package().package_base().package_base(), "Git"),
                                                    ConfirmationDefault::No, false);
                 if(const auto* cancelled = std::get_if<ConfirmationCancelled>(&answer)) {
                     item_result.status = AurUpdateWorkItemExecutionStatus::Cancelled;
@@ -899,12 +899,25 @@ execute_prepared_aur_update_source_build_invocation(
                 }
                 work_item_result.status = observed.complete ? AurUpdateWorkItemExecutionStatus::Updated : AurUpdateWorkItemExecutionStatus::Failed;
                 work_item_result.failure_kind = observed.complete ? AurUpdateWorkItemFailureKind::None : AurUpdateWorkItemFailureKind::AuthoritativeExecutionIncomplete;
-                if(observed.artifact) {
-                    if(work_item_result.child_results.size() != 1 || observed.artifact->package_name != work_item_result.child_results.front().required_package_name)
+                for(const auto& artifact : observed.selected_artifacts) {
+                    const auto child = std::find_if(work_item_result.child_results.begin(), work_item_result.child_results.end(),
+                                                    [&](const auto& value) { return value.required_package_name == artifact.package_name; });
+                    if(child == work_item_result.child_results.end() || child->selected_artifact ||
+                       observed.operation != DevelSourceArtifactInstallOperation::Succeeded)
+                        throw std::logic_error("Authoritative execution child correlation failed.");
+                    child->selected_artifact = artifact;
+                    child->status = AurUpdateChildExecutionStatus::Installed;
+                }
+                // Compatibility snapshots in pure runner tests retain a single
+                // artifact; production fills the exact selected vector above.
+                if(observed.selected_artifacts.empty() && observed.artifact) {
+                    if(work_item_result.child_results.size() != 1 ||
+                       observed.artifact->package_name != work_item_result.child_results.front().required_package_name)
                         throw std::logic_error("Authoritative execution child correlation failed.");
                     work_item_result.child_results.front().selected_artifact = observed.artifact;
                     work_item_result.child_results.front().status = AurUpdateChildExecutionStatus::Installed;
                 }
+                work_item_result.unselected_artifacts = observed.unselected_artifacts;
                 if(!observed.complete) {
                     work_item_result.diagnostic = "Authoritative devel execution incomplete; installation/publication details retained.";
                     result.status = AurUpdateInvocationExecutionStatus::StoppedOnWorkItemFailure;

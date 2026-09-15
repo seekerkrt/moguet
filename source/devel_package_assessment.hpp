@@ -18,6 +18,7 @@ struct DevelPackageAssessmentTarget {
     PackageBaseIdentity package_base;
     std::vector<PackageChildIdentity> installed_children;
     bool known_devel_context = false;
+    std::optional<std::string> selected_child = std::nullopt;
 };
 
 enum class DevelPackageAssessmentStage {

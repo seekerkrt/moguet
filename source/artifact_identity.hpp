@@ -146,6 +146,7 @@ struct ArtifactPackageIdentity {
 };
 
 class ArtifactPackageIdentitySet;
+class EvaluatedDevelSourceBuildProof;
 
 // ValidatedPackageArtifactSet内のstable positionと、archiveから取得したidentity。
 // pathやfilesystem cleanup capabilityは保持しない。
@@ -190,6 +191,7 @@ class ArtifactPackageIdentitySet final {
 
     void require_active() const;
 
+    friend ArtifactPackageIdentitySet query_artifact_package_identities(const EvaluatedDevelSourceBuildProof& proof);
     friend ArtifactPackageIdentitySet query_artifact_package_identities(
         const ValidatedPackageArtifactSet& artifacts);
 #ifdef MOGUET_ENABLE_ARTIFACT_IDENTITY_TEST_HOOKS

@@ -63,11 +63,11 @@ installed versionがAUR/.SRCINFOと等しくても、全P/I/R gatesが成立しr
 ## Initial authoritative subset / compatibility
 
 AUR、valid #411 exact reviewed pin、observed editor overlayなし、architecture-independentなone floating
-HTTPS Git source、DefaultHead/exact Branch、one pkgname / selected child / produced artifact / actual installed childに
-限定する。追加sourceはreviewed tracked regular local fileだけ。full split provenance、他VCS/transport、
+HTTPS Git source、DefaultHead/exact Branchに限定する。ordinary #564 routeではsplit childrenを集合対応し、
+selected child別のv1 provenanceを保持する。追加sourceはreviewed tracked regular local fileだけ。他VCS/transport、
 arbitrary PKGBUILD shell proof、external history adoptionは含まない。
 
-単一artifact制約はpost-preparationの`--packagelist`とactual inventoryの両方へ適用する。
+post-preparationの`--packagelist`とactual inventoryの集合を照合し、required subsetだけをinstallする。
 makepkgのdebug設定による追加outputも対象外で、Moguetがdebug policyを暗黙に上書きすることはない。
 deterministic positive fixtureはreviewed recipeに`options=('!debug')`を明示し、Archのglobal defaultへ依存しない。
 
@@ -80,7 +80,7 @@ deterministic positive fixtureはreviewed recipeに`options=('!debug')`を明示
 | Unknown | remote observation failureを保持、automatic buildなし／nonzero |
 | Unsupported / unsupported devel source | automatic authoritative buildなし。suffixだけでVCSを確定しない。local proof不足はRequiresCheck |
 | ordinary non-devel AUR | normal version policy。missing provenanceからGit baselineを生成しない |
-| overlay / split PackageBase / legacy source build | eligibleなauthoritative routeへ偽装しない。explicit supported legacy intentは既存route、publicationなし |
+| overlay / legacy source build | eligibleなauthoritative routeへ偽装しない。explicit supported legacy intentは既存route、publicationなし |
 | registered AUR OnlyIfUpdated | version-only shortcutより先に共通current assessment。RequiresCheckはdefault-Noの明示rebuild確認、source reviewは別途必要 |
 | registered repository / local source | 既存source/version policy、#476 provenanceへ昇格しない |
 | repo-only -Syu / standalone plan・deps | #476 Git query、build、publicationを追加しない |
@@ -175,5 +175,5 @@ root `ActualBuiltGitRevision == X`を既存producerで証明し、child pinsはi
 root treeのgitlinksがchild/nested pinsをtransitively固定するため、schema v1 / 27 keysは変更しない。
 root X不変のchild remote-only advanceはUpToDate、root X→YはGitRevision updateという既存root trackingを維持する。
 
-Slice 5 split PackageBase、Slice 6代表topologyの全coverageは未完了。unknown auxiliary input/Cargo取得、
+Slice 5はordinary split PackageBase authorityを接続する。Slice 6代表topologyの全coverageは未完了。unknown auxiliary input/Cargo取得、
 live wezterm対応、汎用sandbox/network firewall/cache managerはこのSliceの保証に含めない。

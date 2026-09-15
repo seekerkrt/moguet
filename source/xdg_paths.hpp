@@ -147,6 +147,8 @@ ReviewedSourceStatePaths resolve_reviewed_source_state(
 
 // Devel build provenance uses a separate state namespace from reviewed source
 // state. PackageBase leaves remain the semantic store's responsibility.
+DevelBuildProvenancePaths resolve_devel_build_provenance_children(const EnvironmentSnapshot& environment);
+DevelBuildProvenancePaths resolve_devel_build_provenance_children_process_environment();
 DevelBuildProvenancePaths resolve_devel_build_provenance(
     const EnvironmentSnapshot& environment);
 

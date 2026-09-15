@@ -23,6 +23,7 @@
 #include <limits>
 #include <map>
 #include <optional>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -1036,7 +1037,7 @@ struct SourceProjectionAnalysis {
     VcsSourceIdentity git_source;
     std::size_t source_count = 0;
     std::size_t tracked_local_source_count = 0;
-    std::string package_name;
+    std::vector<std::string> package_names;
     ParsedSrcinfoSourceEntry git_declaration;
 };
 
@@ -1081,11 +1082,9 @@ struct DeclaredArchitectureContract {
 };
 
 DeclaredArchitectureContract declared_architecture_contract(
-    const LocalPackageMetadata& metadata) {
-    // The strict metadata parser owns token, duplicate and any/native
-    // validation. Callers have also established exactly one child. Compare
-    // sets, including the base declaration even when the child overrides it.
-    const auto& child = metadata.children.front();
+    const LocalPackageMetadata& metadata, const LocalPackageMetadataChild& child) {
+    // Compare each named child, including the base declaration even when
+    // that child overrides it. Declaration membership is not install intent.
     DeclaredArchitectureContract contract{
         metadata.architectures,
         child.has_architecture_override ? child.architectures : metadata.architectures};
@@ -1152,21 +1151,26 @@ SourceProjectionAnalysis analyze_source_projection(
         *evaluated_package_result.metadata();
     if(reviewed_package.package_base != package_base.package_base() ||
        evaluated_package.package_base != package_base.package_base() ||
-       reviewed_package.children.size() != 1 ||
-       evaluated_package.children.size() != 1 ||
-       reviewed_package.children.front().name !=
-           evaluated_package.children.front().name) {
+       reviewed_package.children.empty() ||
+       reviewed_package.children.size() != evaluated_package.children.size()) {
         throw_build_failure(
             EvaluatedDevelSourceBuildStage::EvaluatedSource,
             EvaluatedDevelSourceBuildFailureReason::UnsupportedSourceShape);
     }
 
-    if(declared_architecture_contract(reviewed_package) !=
-       declared_architecture_contract(evaluated_package)) {
-        throw_build_failure(
-            EvaluatedDevelSourceBuildStage::EvaluatedSource,
-            EvaluatedDevelSourceBuildFailureReason::RawEvaluatedSourceMismatch);
+    std::vector<std::string> package_names;
+    for(const auto& child : reviewed_package.children) {
+        const auto evaluated = std::find_if(evaluated_package.children.begin(), evaluated_package.children.end(),
+                                            [&](const auto& candidate) { return candidate.name == child.name; });
+        if(evaluated == evaluated_package.children.end() ||
+           declared_architecture_contract(reviewed_package, child) !=
+               declared_architecture_contract(evaluated_package, *evaluated)) {
+            throw_build_failure(EvaluatedDevelSourceBuildStage::EvaluatedSource,
+                                EvaluatedDevelSourceBuildFailureReason::RawEvaluatedSourceMismatch);
+        }
+        package_names.push_back(child.name);
     }
+    std::sort(package_names.begin(), package_names.end());
 
     std::optional<VcsSourceIdentity> git_source;
     std::optional<ParsedSrcinfoSourceEntry> git_declaration;
@@ -1266,7 +1270,7 @@ SourceProjectionAnalysis analyze_source_projection(
     return SourceProjectionAnalysis{
         std::move(*git_source),
         evaluated_source.source_entries.size(), local_source_count,
-        evaluated_package.children.front().name, std::move(*git_declaration)};
+        std::move(package_names), std::move(*git_declaration)};
 }
 
 struct PreparedPackageExpectation {
@@ -1275,7 +1279,7 @@ struct PreparedPackageExpectation {
     DeclaredArchitectureContract declared_architectures;
 };
 
-PreparedPackageExpectation prepared_package_expectation(
+std::vector<PreparedPackageExpectation> prepared_package_expectations(
     std::string_view prepared_srcinfo,
     std::string_view reviewed_srcinfo,
     const SourceProjectionAnalysis& initial,
@@ -1289,7 +1293,7 @@ PreparedPackageExpectation prepared_package_expectation(
        prepared.source_count != initial.source_count ||
        prepared.tracked_local_source_count !=
            initial.tracked_local_source_count ||
-       prepared.package_name != initial.package_name) {
+       prepared.package_names != initial.package_names) {
         throw_build_failure(
             EvaluatedDevelSourceBuildStage::DynamicVersion,
             EvaluatedDevelSourceBuildFailureReason::RawEvaluatedSourceMismatch);
@@ -1302,13 +1306,6 @@ PreparedPackageExpectation prepared_package_expectation(
             *metadata_result.failure());
     }
     const LocalPackageMetadata& metadata = *metadata_result.metadata();
-    if(metadata.children.size() != 1 ||
-       metadata.children.front().name != initial.package_name) {
-        throw_build_failure(
-            EvaluatedDevelSourceBuildStage::DynamicVersion,
-            EvaluatedDevelSourceBuildFailureReason::DynamicVersionUnavailable);
-    }
-    const LocalPackageMetadataChild& child = metadata.children.front();
     PackageVersionIdentity version = PackageVersionIdentity::pkgver_pkgrel(
         metadata.epoch, metadata.pkgver, metadata.pkgrel);
     if(version.full_version() == nullptr) {
@@ -1316,11 +1313,14 @@ PreparedPackageExpectation prepared_package_expectation(
             EvaluatedDevelSourceBuildStage::DynamicVersion,
             EvaluatedDevelSourceBuildFailureReason::DynamicVersionUnavailable);
     }
-    return PreparedPackageExpectation{
-        child.name, *version.full_version(), declared_architecture_contract(metadata)};
+    std::vector<PreparedPackageExpectation> expectations;
+    for(const auto& child : metadata.children)
+        expectations.push_back({child.name, *version.full_version(), declared_architecture_contract(metadata, child)});
+    return expectations;
 }
 
 struct SelectedPackageOutput {
+    PreparedPackageExpectation package;
     fs::path path;
     std::string architecture;
 };
@@ -1361,7 +1361,51 @@ SelectedPackageOutput parse_expected_package_output(
             EvaluatedDevelSourceBuildStage::DynamicVersion,
             EvaluatedDevelSourceBuildFailureReason::UnsupportedSourceShape);
     }
-    return SelectedPackageOutput{path, architecture};
+    return SelectedPackageOutput{package, path, architecture};
+}
+
+std::vector<SelectedPackageOutput> parse_expected_package_outputs(
+    std::string_view output, const InvocationOwnedSourceBuildContext& context,
+    const std::vector<PreparedPackageExpectation>& packages) {
+    std::vector<SelectedPackageOutput> outputs;
+    std::set<std::string> children;
+    while(!output.empty()) {
+        const auto newline = output.find('\n');
+        const std::string line(output.substr(0, newline));
+        if(newline == std::string_view::npos)
+            throw_build_failure(EvaluatedDevelSourceBuildStage::DynamicVersion,
+                                EvaluatedDevelSourceBuildFailureReason::DynamicVersionUnavailable);
+        output.remove_prefix(newline + 1);
+        const std::string filename = fs::path(line).filename().string();
+        std::optional<SelectedPackageOutput> match;
+        std::optional<EvaluatedDevelSourceBuildFailure> rejected;
+        for(const auto& package : packages) {
+            if(!filename.starts_with(package.package_name + "-" + package.full_version + "-")) continue;
+            std::optional<SelectedPackageOutput> candidate;
+            try {
+                candidate = parse_expected_package_output(line + "\n", context, package);
+            } catch(BuildFailureError& error) {
+                if(!rejected) rejected = error.release();
+                continue;
+            }
+            // A child's name can contain another child's version prefix.
+            // Only the complete existing filename/architecture contract selects it.
+            if(match) throw_build_failure(EvaluatedDevelSourceBuildStage::DynamicVersion,
+                                          EvaluatedDevelSourceBuildFailureReason::DynamicVersionUnavailable);
+            match = std::move(candidate);
+        }
+        if(!match && rejected) throw BuildFailureError(std::move(*rejected));
+        // In particular, undeclared debug output is not a split child.
+        if(!match || !children.insert(match->package.package_name).second)
+            throw_build_failure(EvaluatedDevelSourceBuildStage::DynamicVersion,
+                                EvaluatedDevelSourceBuildFailureReason::DynamicVersionUnavailable);
+        outputs.push_back(std::move(*match));
+    }
+    if(outputs.empty()) throw_build_failure(EvaluatedDevelSourceBuildStage::DynamicVersion,
+                                            EvaluatedDevelSourceBuildFailureReason::DynamicVersionUnavailable);
+    // makepkg may omit children for a different architecture. Selection T is
+    // checked against these proven outputs by the existing artifact selector.
+    return outputs;
 }
 
 struct RetainedDirectory {
@@ -2001,6 +2045,7 @@ OpenedArtifact open_fresh_artifact(
     int pkgdest_descriptor,
     const fs::path& pkgdest_path,
     const fs::path& expected_path,
+    const std::vector<std::string>& expected_names,
     std::uintmax_t root_device,
     const fs::path& owned_root) {
     const std::vector<std::string> names = directory_names(
@@ -2008,16 +2053,15 @@ OpenedArtifact open_fresh_artifact(
         EvaluatedDevelSourceBuildStage::ArtifactInventory,
         EvaluatedDevelSourceBuildFailureReason::ArtifactInventoryMismatch,
         MAX_SOURCE_ENTRIES);
-    if(names.size() != 1 ||
-       names.front() != expected_path.filename().string()) {
+    if(names != expected_names) {
         throw_build_failure(
             EvaluatedDevelSourceBuildStage::ArtifactInventory,
             EvaluatedDevelSourceBuildFailureReason::ArtifactInventoryMismatch);
     }
-    const fs::path artifact_path = pkgdest_path / names.front();
+    const fs::path artifact_path = pkgdest_path / expected_path.filename().string();
     struct stat named_status{};
     if(::fstatat(
-           pkgdest_descriptor, names.front().c_str(), &named_status,
+           pkgdest_descriptor, expected_path.filename().string().c_str(), &named_status,
            AT_SYMLINK_NOFOLLOW) != 0) {
         throw_build_failure(
             EvaluatedDevelSourceBuildStage::ArtifactInventory,
@@ -2041,7 +2085,7 @@ OpenedArtifact open_fresh_artifact(
     int descriptor;
     do {
         descriptor = ::openat(
-            pkgdest_descriptor, names.front().c_str(),
+            pkgdest_descriptor, expected_path.filename().string().c_str(),
             O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
     } while(descriptor < 0 && errno == EINTR);
     if(descriptor < 0) {
@@ -2064,13 +2108,14 @@ OpenedArtifact open_fresh_artifact(
         EvaluatedDevelSourceBuildTestEvent::AfterArtifactOpen,
         owned_root, artifact_path);
     return OpenedArtifact{
-        artifact_path, names.front(), std::move(opened), named};
+        artifact_path, expected_path.filename().string(), std::move(opened), named};
 }
 
 void require_artifact_unchanged(
     int pkgdest_descriptor,
     const OpenedArtifact& artifact,
-    const fs::path& owned_root) {
+    const fs::path& owned_root,
+    const std::vector<std::string>& expected_names) {
     notify_test_event(
         EvaluatedDevelSourceBuildTestEvent::BeforeFinalArtifactReproof,
         owned_root, artifact.path);
@@ -2095,7 +2140,7 @@ void require_artifact_unchanged(
            EvaluatedDevelSourceBuildStage::ArtifactInventory,
            EvaluatedDevelSourceBuildFailureReason::ArtifactReplacement,
            MAX_SOURCE_ENTRIES) !=
-           std::vector<std::string>{artifact.leaf_name}) {
+           expected_names) {
         throw_build_failure(
             EvaluatedDevelSourceBuildStage::ArtifactInventory,
             EvaluatedDevelSourceBuildFailureReason::ArtifactReplacement);
@@ -2242,22 +2287,23 @@ struct EvaluatedDevelSourceBuildProof::State {
     std::optional<PinnedWorkspaceCleanupResult> workspace_cleanup;
     EvaluatedDevelSourceProjection evaluated_source;
     ActualBuiltGitRevision actual_revision;
-    FreshDevelPackageArtifact artifact;
+    std::vector<FreshDevelPackageArtifact> artifacts;
+    std::vector<std::string> declared_children;
 
     State(
         InvocationOwnedSourceBuildContext value_context,
         EvaluatedDevelSourceProjection value_evaluated_source,
         ActualBuiltGitRevision value_actual_revision,
-        FreshDevelPackageArtifact value_artifact) noexcept
+        std::vector<FreshDevelPackageArtifact> value_artifacts, std::vector<std::string> children) noexcept
         : owner(std::move(value_context)), context(std::get<InvocationOwnedSourceBuildContext>(owner)),
           evaluated_source(std::move(value_evaluated_source)),
           actual_revision(std::move(value_actual_revision)),
-          artifact(std::move(value_artifact)) {
+          artifacts(std::move(value_artifacts)), declared_children(std::move(children)) {
     }
     State(SourceReadyPinnedSubmoduleWorkspace workspace, InvocationOwnedSourceBuildContext& value_context,
-          EvaluatedDevelSourceProjection projection, ActualBuiltGitRevision revision, FreshDevelPackageArtifact value_artifact) noexcept
+          EvaluatedDevelSourceProjection projection, ActualBuiltGitRevision revision, std::vector<FreshDevelPackageArtifact> value_artifacts, std::vector<std::string> children) noexcept
         : owner(std::move(workspace)), context(value_context), evaluated_source(std::move(projection)),
-          actual_revision(std::move(revision)), artifact(std::move(value_artifact)) {
+          actual_revision(std::move(revision)), artifacts(std::move(value_artifacts)), declared_children(std::move(children)) {
     }
 };
 
@@ -2344,7 +2390,7 @@ EvaluatedDevelSourceBuildProof::~EvaluatedDevelSourceBuildProof() noexcept =
 
 bool EvaluatedDevelSourceBuildProof::valid() const noexcept {
     return state_ != nullptr && state_->context.valid() &&
-           state_->artifact.descriptor_ >= 0;
+           !state_->artifacts.empty() && std::all_of(state_->artifacts.begin(), state_->artifacts.end(), [](const auto& artifact) { return artifact.descriptor_ >= 0; });
 }
 
 const EvaluatedDevelSourceBuildProof::State&
@@ -2392,7 +2438,18 @@ EvaluatedDevelSourceBuildProof::actual_built_revision() const {
 
 const FreshDevelPackageArtifact&
 EvaluatedDevelSourceBuildProof::artifact() const {
-    return require_state().artifact;
+    const auto& values = require_state().artifacts;
+    if(values.size() != 1) throw std::logic_error("A singular artifact was requested from a split build.");
+    return values.front();
+}
+
+const std::vector<FreshDevelPackageArtifact>& EvaluatedDevelSourceBuildProof::artifacts() const {
+    return require_state().artifacts;
+}
+
+
+const std::vector<std::string>& EvaluatedDevelSourceBuildProof::declared_children() const {
+    return require_state().declared_children;
 }
 
 InvocationOwnedSourceBuildContextCleanupResult
@@ -2418,10 +2475,11 @@ EvaluatedDevelSourceBuildProof::cleanup() noexcept {
     } else
         result = state_->context.cleanup();
     if(std::holds_alternative<InvocationOwnedSourceBuildContextCleaned>(
-           result) &&
-       state_->artifact.descriptor_ >= 0) {
-        static_cast<void>(::close(state_->artifact.descriptor_));
-        state_->artifact.descriptor_ = -1;
+           result)) {
+        for(auto& artifact : state_->artifacts) {
+            if(artifact.descriptor_ >= 0) static_cast<void>(::close(artifact.descriptor_));
+            artifact.descriptor_ = -1;
+        }
     }
     return result;
 }
@@ -2737,19 +2795,19 @@ EvaluatedDevelSourceBuildResult EvaluatedDevelSourceBuildAuthority::execute(Sele
             EvaluatedDevelSourceBuildStage::DynamicVersion,
             EvaluatedDevelSourceBuildProcess::PreparedPrintSrcinfo,
             METADATA_PROCESS_TIMEOUT, MAX_SRCINFO_BYTES);
-        PreparedPackageExpectation package_expectation =
-            prepared_package_expectation(
+        const auto package_expectations =
+            prepared_package_expectations(
                 prepared_srcinfo, data.reviewed_srcinfo,
                 source_analysis, context.recipe_descriptor(),
                 context.root_device(), context.package_base());
-        const SelectedPackageOutput selected_output =
-            parse_expected_package_output(
+        const auto selected_outputs =
+            parse_expected_package_outputs(
                 run_makepkg(
                     {"--packagelist"},
                     EvaluatedDevelSourceBuildStage::DynamicVersion,
                     EvaluatedDevelSourceBuildProcess::PreparedPackagelist,
                     METADATA_PROCESS_TIMEOUT, MAX_PACKAGELIST_BYTES),
-                context, package_expectation);
+                context, package_expectations);
         require_empty_pkgdest(
             context.pkgdest_descriptor(),
             EvaluatedDevelSourceBuildStage::DynamicVersion);
@@ -2853,89 +2911,99 @@ EvaluatedDevelSourceBuildResult EvaluatedDevelSourceBuildAuthority::execute(Sele
             std::get<ActualBuiltGitRevision>(
                 std::move(revision_result));
 
-        OpenedArtifact opened_artifact = open_fresh_artifact(
-            context.pkgdest_descriptor(), context.pkgdest(),
-            selected_output.path, context.root_device(),
-            context.owned_root());
-        PackageArchiveSha256Digest archive_digest =
-            hash_artifact_archive(opened_artifact);
-        FixedExecutable bsdtar("/usr/bin/bsdtar");
-        validate_archive_metadata_inventory(
-            bsdtar, opened_artifact, root_directory);
+        std::vector<std::string> expected_names;
+        for(const auto& output : selected_outputs)
+            expected_names.push_back(output.path.filename().string());
+        std::sort(expected_names.begin(), expected_names.end());
+        std::vector<FreshDevelPackageArtifact> artifacts;
+        artifacts.reserve(selected_outputs.size());
+        for(const auto& selected_output : selected_outputs) {
+            const auto& package_expectation = selected_output.package;
+            OpenedArtifact opened_artifact = open_fresh_artifact(
+                context.pkgdest_descriptor(), context.pkgdest(),
+                selected_output.path, expected_names, context.root_device(),
+                context.owned_root());
+            PackageArchiveSha256Digest archive_digest =
+                hash_artifact_archive(opened_artifact);
+            FixedExecutable bsdtar("/usr/bin/bsdtar");
+            validate_archive_metadata_inventory(
+                bsdtar, opened_artifact, root_directory);
 
-        ArtifactPackageIdentity artifact_identity = [&]() {
-            try {
-                artifact_archive_metadata::RetainedDescriptorQueryAuthority
-                    metadata_authority(opened_artifact.descriptor.get());
-                return artifact_archive_metadata::query_with_libalpm(metadata_authority);
-            } catch(const std::runtime_error& error) {
-                // Only the retained archive query boundary owns this translation.
-                // Allocation/logic errors and unrelated phases keep their own layer.
-                auto failure = build_failure(
+            ArtifactPackageIdentity artifact_identity = [&]() {
+                try {
+                    artifact_archive_metadata::RetainedDescriptorQueryAuthority
+                        metadata_authority(opened_artifact.descriptor.get());
+                    return artifact_archive_metadata::query_with_libalpm(metadata_authority);
+                } catch(const std::runtime_error& error) {
+                    // Only the retained archive query boundary owns this translation.
+                    // Allocation/logic errors and unrelated phases keep their own layer.
+                    auto failure = build_failure(
+                        EvaluatedDevelSourceBuildStage::ArtifactMetadata,
+                        EvaluatedDevelSourceBuildFailureReason::ArtifactMetadataQueryFailure);
+                    failure.diagnostic = error.what();
+                    throw BuildFailureError(std::move(failure));
+                }
+            }();
+            const std::string* artifact_package_base =
+                artifact_identity.package_base.value();
+            const std::string* artifact_architecture =
+                artifact_identity.architecture.value();
+            if(artifact_identity.package_name !=
+                   package_expectation.package_name ||
+               artifact_identity.full_version !=
+                   package_expectation.full_version ||
+               artifact_identity.package_base.state() !=
+                   ArtifactMetadataValueState::Known ||
+               artifact_package_base == nullptr ||
+               *artifact_package_base != context.package_base().package_base() ||
+               artifact_identity.architecture.state() !=
+                   ArtifactMetadataValueState::Known ||
+               artifact_architecture == nullptr ||
+               *artifact_architecture != selected_output.architecture) {
+                throw_build_failure(
                     EvaluatedDevelSourceBuildStage::ArtifactMetadata,
-                    EvaluatedDevelSourceBuildFailureReason::ArtifactMetadataQueryFailure);
-                failure.diagnostic = error.what();
-                throw BuildFailureError(std::move(failure));
+                    EvaluatedDevelSourceBuildFailureReason::ArtifactMetadataMismatch);
             }
-        }();
-        const std::string* artifact_package_base =
-            artifact_identity.package_base.value();
-        const std::string* artifact_architecture =
-            artifact_identity.architecture.value();
-        if(artifact_identity.package_name !=
-               package_expectation.package_name ||
-           artifact_identity.full_version !=
-               package_expectation.full_version ||
-           artifact_identity.package_base.state() !=
-               ArtifactMetadataValueState::Known ||
-           artifact_package_base == nullptr ||
-           *artifact_package_base != context.package_base().package_base() ||
-           artifact_identity.architecture.state() !=
-               ArtifactMetadataValueState::Known ||
-           artifact_architecture == nullptr ||
-           *artifact_architecture != selected_output.architecture) {
-            throw_build_failure(
-                EvaluatedDevelSourceBuildStage::ArtifactMetadata,
-                EvaluatedDevelSourceBuildFailureReason::ArtifactMetadataMismatch);
+
+            const std::string mtree_bytes = extract_mtree_bytes(
+                bsdtar, opened_artifact, root_directory);
+            AlpmMtreeSha256Digest mtree_digest =
+                AlpmMtreeSha256Digest::make(
+                    xdg_generation_store_raw_contents_sha256(mtree_bytes));
+            require_artifact_unchanged(
+                context.pkgdest_descriptor(), opened_artifact,
+                context.owned_root(), expected_names);
+
+            PackageChildIdentity package = PackageChildIdentity::make(
+                context.package_base(), package_expectation.package_name);
+            BuiltPackageArtifactEvidence evidence{
+                std::move(artifact_identity), std::move(archive_digest),
+                std::move(mtree_digest)};
+            FreshDevelPackageArtifact artifact(
+                std::move(package), std::move(evidence),
+                std::move(opened_artifact.path),
+                std::move(opened_artifact.leaf_name),
+                opened_artifact.descriptor.release(),
+                opened_artifact.identity.device,
+                opened_artifact.identity.inode,
+                opened_artifact.identity.owner,
+                opened_artifact.identity.size);
+            artifacts.push_back(std::move(artifact));
         }
-
-        const std::string mtree_bytes = extract_mtree_bytes(
-            bsdtar, opened_artifact, root_directory);
-        AlpmMtreeSha256Digest mtree_digest =
-            AlpmMtreeSha256Digest::make(
-                xdg_generation_store_raw_contents_sha256(mtree_bytes));
-        require_artifact_unchanged(
-            context.pkgdest_descriptor(), opened_artifact,
-            context.owned_root());
-
-        PackageChildIdentity package = PackageChildIdentity::make(
-            context.package_base(), package_expectation.package_name);
-        BuiltPackageArtifactEvidence evidence{
-            std::move(artifact_identity), std::move(archive_digest),
-            std::move(mtree_digest)};
-        FreshDevelPackageArtifact artifact(
-            std::move(package), std::move(evidence),
-            std::move(opened_artifact.path),
-            std::move(opened_artifact.leaf_name),
-            opened_artifact.descriptor.release(),
-            opened_artifact.identity.device,
-            opened_artifact.identity.inode,
-            opened_artifact.identity.owner,
-            opened_artifact.identity.size);
         EvaluatedDevelSourceProjection evaluated_projection(
             std::move(source_analysis.git_source),
             source_analysis.source_count,
             source_analysis.tracked_local_source_count);
         if(pinned_workspace) {
             auto proof_state = std::make_unique<EvaluatedDevelSourceBuildProof::State>(
-                std::move(*pinned_workspace), context, std::move(evaluated_projection), std::move(actual_revision), std::move(artifact));
+                std::move(*pinned_workspace), context, std::move(evaluated_projection), std::move(actual_revision), std::move(artifacts), std::move(source_analysis.package_names));
             data.build_completed = true;
             return EvaluatedDevelSourceBuildProof(std::move(proof_state));
         }
         return EvaluatedDevelSourceBuildProof(
             std::make_unique<EvaluatedDevelSourceBuildProof::State>(
                 std::move(context), std::move(evaluated_projection),
-                std::move(actual_revision), std::move(artifact)));
+                std::move(actual_revision), std::move(artifacts), std::move(source_analysis.package_names)));
     } catch(BuildFailureError& error) {
         auto failure = error.release();
         cleanup(failure);

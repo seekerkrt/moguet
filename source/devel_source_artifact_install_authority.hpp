@@ -3,6 +3,8 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
+struct RequiredPackageArtifactTarget;
 
 class EvaluatedDevelSourceArtifactTransport;
 class EvaluatedDevelSourceBuildProof;
@@ -114,6 +116,8 @@ public:
 private:
     friend EvaluatedDevelSourceArtifactTransport
     prepare_evaluated_devel_source_artifact_transport(EvaluatedDevelSourceBuildProof proof);
+    friend EvaluatedDevelSourceArtifactTransport prepare_evaluated_devel_source_artifact_transport(
+        EvaluatedDevelSourceBuildProof proof, const std::vector<RequiredPackageArtifactTarget>& targets);
 
 #ifdef MOGUET_ENABLE_DEVEL_SOURCE_ARTIFACT_INSTALL_TEST_HOOKS
     friend class DevelSourceArtifactInstallFixture;

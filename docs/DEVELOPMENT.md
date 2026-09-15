@@ -392,7 +392,7 @@ S5-only targetはpublication-noneを引き続き要求する。#475 comparison�
 [VALIDATION](VALIDATION.md)を参照する。S4/S5/S6のowner contractは変更しない。
 詳細は[`exact-installed-artifact-binding.md`](contracts/exact-installed-artifact-binding.md)を正とする。
 
-S5-Cのfinal construction/lineage/N=1は`test-installed-devel-source-build-proof`、lossless aggregateとcleanup consequenceは
+S5-Cのsingle-child coreのfinal construction/lineageは`test-installed-devel-source-build-proof`、lossless aggregateとcleanup consequenceは
 `test-devel-source-artifact-install-result`で確認する。同じS5-B fixtureの出力を消費し、41-case matrixは複製しない。
 同一fixture executableをbuildするfocused targetは別invocationで実行し、同じbuild outputへの重複buildを避ける。
 finalizerのcomplete private authority、raw tuple/decoded binding/contradictory resultのconstruction firewallも
@@ -597,3 +597,10 @@ placeholderの`<tag-object-sha>`には手順5で確認したGitHub tag object SH
 Issue #476 Slice 7-Dのnormal routingは`test-aur-devel-route`、normal finalizerのS4/S5/S6結合は
 `test-normal-reviewed-devel-execution`で確認する。normal routeの既存query/preflight/runner/reducer/CLI/dry-run tests、
 construction firewalls、frontendを併用する。contractは[devel normal routes](contracts/devel-normal-routes.md)。
+
+Issue #564 Slice 5のsplit authorityは、追加したfocused target
+`make test-split-devel-artifact-authority`と、同じproduction bootstrap fixtureの`--split`選択で確認する。
+後者は`devel-tracking-bootstrap-test`をbuildしたうえで
+`python3 tests/test-devel-tracking-bootstrap.py build/cmake-testing/tests/devel-tracking-bootstrap-test --split`
+を実行する。D/I/T/B、非連続artifact index、partial binding/publication、mixed eligibility、#545を対象とする。
+既存S5/S6 coreのfocused evidenceを併用し、canonical/actual/container evidenceへ読み替えない。

@@ -2,6 +2,7 @@
 #include "devel_tracking_bootstrap.hpp"
 #include "srcinfo_source_metadata.hpp"
 #include <fstream>
+#include <algorithm>
 #include <iterator>
 namespace {
 // Syntax only selects an execution path. This does not mint evaluated source
@@ -86,8 +87,23 @@ ReviewedDevelExecutionSnapshot execute_normal_reviewed_devel(PreparedReviewedDev
                 out.required_review_decline = ReviewedSourceOperationStop::make(ReviewedSourceOperationStopReason::NonExplicitAcceptance);
         }
         out.production_outcome = project_reviewed_devel_execution_outcome(result);
-        if(const auto* p = result.publication(); p && p->installation().proof())
-            out.artifact = p->installation().proof()->built_proof().artifact().evidence().identity;
+        if(const auto* p = result.publication()) {
+            const auto& installed = p->installation();
+            const auto& outputs = installed.built_proof().artifacts();
+            for(std::size_t index = 0; index < outputs.size(); ++index) {
+                const auto& identity = outputs[index].evidence().identity;
+                const auto& bindings = installed.binding_observations();
+                const auto selected = std::find_if(bindings.begin(), bindings.end(), [&](const auto& child) {
+                    return child.artifact_index == index && child.package_name == identity.package_name;
+                });
+                if(selected == bindings.end())
+                    out.unselected_artifacts.push_back(identity);
+                else if(installed.operation() == DevelSourceArtifactInstallOperation::Succeeded &&
+                        installed.receipt_state() == DevelSourceArtifactInstallReceipt::Complete)
+                    out.selected_artifacts.push_back(identity);
+            }
+            if(out.selected_artifacts.size() == 1) out.artifact = out.selected_artifacts.front();
+        }
     } catch(...) {
         out.projection_failed = true;
         out.complete = false;

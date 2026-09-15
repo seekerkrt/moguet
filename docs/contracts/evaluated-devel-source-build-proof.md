@@ -42,7 +42,7 @@ source projectionがstructuralに一致する場合だけ`EvaluatedDevelSourcePr
 initial authoritative subsetは次に限定する。
 
 - AUR PackageBase、valid exact #411 binding、editor overlayなし
-- exactly one package child
+- exact recipeが宣言するcomplete child set（既存strict parserでchild名とarchitectureを照合）
 - exactly one floating Git source
 - HTTPS transport
 - default HEADまたはGitが`check-ref-format --branch`で受理するexact branch
@@ -106,13 +106,13 @@ archive metadataのchild、PackageBase、full version、architectureが一致す
 
 ## Package architecture authority（Issue #564 Slice 2A）
 
-packageのsupported architecture宣言集合と、今回の単一artifactのarchitectureは別の値である。
+packageのsupported architecture宣言集合と、今回の各artifactのarchitectureは別の値である。
 reviewed `.SRCINFO`、initial evaluation、prepared evaluationについて、base宣言集合とchild overrideを
 適用した宣言集合がそれぞれ一致することを要求する。集合の順序には意味を持たせず、dynamic `pkgver()`の
 更新を許すため`.SRCINFO`全体のbyte一致は要求しない。空、重複、不正token、`any`とnativeの混在は
 既存strict metadata parserとmakepkgのvalidationで拒否し、空のchild overrideもS4では拒否する。
 
-post-preparation `--packagelist`の単一absolute pathは同じcontextのprivate `PKGDEST`直下でなければならない。
+post-preparation `--packagelist`の各absolute pathは同じcontextのprivate `PKGDEST`直下でなければならない。
 prepared metadataの既知child名とfull version（nonzero epochを含む）からexact filename prefixを構成し、
 その後のarchitecture tokenとmakepkgの`PKGEXT`契約である`.pkg.tar…`を分離する。package名のhyphenや
 versionのdotを区切りとして推測せず、compression suffixを固定しない。
@@ -125,8 +125,9 @@ packagelistは出力期待値でありfinal proofではない。fresh retained-F
 selected archと厳密一致した場合だけS4へ進む。`package()`中のCARCH変更等によりactual archが別の宣言要素へ
 変化した場合も拒否する。uname、宣言の先頭要素、旧installed archを今回の選択authorityにしない。
 
-この拡張は単一artifactのS4 subsetだけを広げる。architecture-qualified source、split、submodule、trialの
-supplemental source対応を追加せず、S5/S6のscalar arch、schema、storage、review/install/publication順序は維持する。
+Issue #564 Slice 5は同じarchitecture契約をchild名ごとに適用する。makepkgが実効architectureに対応しない
+childを生成しない場合、DとBの一致は要求しない。selected child欠落はT/B相関で拒否する。
+architecture-qualified sourceとundeclared debug outputのunsupported境界を維持する。
 
 ## Git proof
 
@@ -166,7 +167,7 @@ clean statusやordinary file bytes一致を要求しない。
 
 ## Artifact proofとownership
 
-private `PKGDEST`はbuild前にempty、build後にpost-preparation packagelistと同じleafのregular file 1件だけを
+private `PKGDEST`はbuild前にempty、build後にpost-preparation packagelistと同じleaf集合のregular filesだけを
 許す。symlink、hardlink、foreign owner、group/other writable file、別device、zero/oversized file、signatureを含む
 追加entryを拒否する。
 
@@ -181,7 +182,7 @@ ctimeをmetadata/hash/MTREE読取の後にも再証明する。libalpm metadata�
 - Slice 3 contextと#411 reviewed binding / recipe tree identity
 - evaluated source projection
 - `ActualBuiltGitRevision`
-- retained artifact descriptor、`PackageChildIdentity`、`BuiltPackageArtifactEvidence`
+- complete declared child set D、およびactual outputs Bの各retained descriptor、`PackageChildIdentity`、`BuiltPackageArtifactEvidence`
 - SourceReady inputではaccepted closure/child pins/backingを含むwhole owner（invocation内だけのseparate evidence）
 
 artifact pathはdiagnostic/presentation valueでありauthorityではない。proof破棄または明示cleanupまでcontextと
@@ -227,3 +228,14 @@ Slice 4はpacman、sudo、installed local DB、installed binding、provenance st
 `observe_git_remote_revision()`を呼ばない。
 
 Refs #476
+
+## Split PackageBase集合対応（Issue #564 Slice 5）
+
+reviewed → initial → prepared metadataでchild追加・削除・rename・architecture driftを拒否する。
+preparedのname/version/architectureとpackagelistを一意に相関し、duplicate・undeclared・wrong version/architecture・empty outputを拒否する。
+build後はexpected leaf集合とPKGDEST全inventoryを比較し、各archiveをretained FDで検査する。
+known declared unselected siblingの生成は許可し、unexplained extraを拒否する。
+
+1 context / 1 initial evaluation / 1 prepare / 1 build / 1 root ActualBuiltGitRevisionを維持する。
+`artifacts()`はB全体、`declared_children()`はDを同じownerで保持する。singular accessor `artifact()`は
+Bが1件の場合だけ使用でき、先頭childを暗黙選択しない。S4はTを増やさず、後段が既存required targetsとBを相関する。

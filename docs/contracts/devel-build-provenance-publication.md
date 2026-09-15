@@ -54,7 +54,7 @@ retained FD/lease、PID、ALPM pointer/session、shared_ptr lineageは保存し�
 exact encoded bytesとそのSHA-256、PackageBase identity storageをstore write前に確保する。
 既存store APIは同じimmutable semantic valueを同じdeterministic v1 codecでencodeする。
 この限定されたencodeの重複により、raw documentを受ける新しいstore/mint APIを作らない。
-CompleteのidentityはPackageBase、verified store generation、exact encoded document SHA-256である。
+各child CompleteのidentityはPackageBase、child name、verified store generation、exact encoded document SHA-256である。
 identity自体はcopyableなhistorical diagnosticsであり、raw identityからtrusted resultをconstructできない。
 
 ## Historical installed binding
@@ -115,3 +115,14 @@ destructor結果を事前にCompleteとしない。destructorにprivileged trans
 
 S5 publication-none testsは残す。今回のtestsはisolated temporary HOME/XDG_STATE_HOMEとexisting trusted helper seamを使う。
 actual package transaction/container publicationは6-Cで別途検証し、このcontractのdeterministic PASSをその代替にしない。
+
+## Child別v1 projection（Issue #564 Slice 5）
+
+sealed S5のselected bindingごとに、同じS4 ownerのexact artifact、fresh binding、共通root revision/source/selectorを
+既存v1へprojectionする。1 record = 1 artifact child + 1 installed binding、schema version 1 / CURRENT_KEYS 27を維持する。
+未selected siblingはprojection/publicationしない。
+
+group結果はchild名付きpublication集合と元S5 whole ownerを保持する。全selected childがPublishedの場合だけgroup Complete。
+a Published後にb Failed/OutcomeUnknownとなった場合、aのrecordとinstall成功を保持し、
+bの元のstore failureと未実行suffixを残してnon-Completeにする。rollback/history search/retry/atomic group transactionは追加しない。
+singular diagnostic accessorは1件の場合だけscalarを返し、複数を先頭recordへflattenしない。

@@ -1,6 +1,8 @@
 #include "reviewed_devel_source_build_execution.hpp"
 
 #include "package_identifier.hpp"
+#include "artifact_identity_selection.hpp"
+#include <set>
 
 #include <new>
 #include <stdexcept>
@@ -24,7 +26,7 @@ struct ReviewedDevelSourceBuildExecutionState {
     std::optional<PinnedClosureFailure> closure_failure;
     std::optional<PinnedClosureReviewFailure> closure_review_failure;
     std::optional<InstalledDatabaseWorldResult> world;
-    std::optional<InstalledPackageQueryResult> policy_query;
+    std::vector<std::pair<std::string, InstalledPackageQueryResult>> policy_queries;
     std::optional<InstallReasonDirective> directive;
     std::optional<EvaluatedDevelSourceArtifactTransport> transport;
     std::optional<DevelBuildProvenancePublicationResult> publication;
@@ -145,8 +147,8 @@ const InstalledDatabaseWorldResult* ReviewedDevelSourceBuildExecutionResult::dat
     return value ? &*value : nullptr;
 }
 const InstalledPackageQueryResult* ReviewedDevelSourceBuildExecutionResult::install_policy_observation() const {
-    const auto& value = require_state().policy_query;
-    return value ? &*value : nullptr;
+    const auto& values = require_state().policy_queries;
+    return values.size() == 1 ? &values.front().second : nullptr;
 }
 std::optional<InstallReasonDirective> ReviewedDevelSourceBuildExecutionResult::install_reason_directive() const {
     return require_state().directive;
@@ -178,16 +180,21 @@ ReviewedProductionSourceExecution ReviewedDevelSourceBuildExecutionAuthority::pr
     if(intent.request.needed) return ReviewedDevelSourceBuildRejected{Issue::NeededRequested};
     if(intent.rm_deps) return ReviewedDevelSourceBuildRejected{Issue::DependencyCleanupRequested};
     if(intent.request.only_if_updated) return ReviewedDevelSourceBuildRejected{Issue::UpdateSelectionRequired};
-    if(intent.required_targets.size() != 1) return ReviewedDevelSourceBuildRejected{Issue::UnsupportedCardinality};
-    const auto& target = intent.required_targets.front();
+    if(intent.required_targets.empty()) return ReviewedDevelSourceBuildRejected{Issue::UnsupportedCardinality};
     const auto& base = reviewed.identity().package_base();
     if(!intent.request.aur_review_identity || *intent.request.aur_review_identity != base ||
-       intent.request.checkout_name != base.package_base() || target.package_base != base.package_base() ||
-       !is_valid_package_name(target.package_name) || (!intent.request.package_name.empty() && intent.request.package_name != target.package_name) ||
+       intent.request.checkout_name != base.package_base() ||
        !base.source().location().value() || intent.request.git_url != *base.source().location().value())
         return ReviewedDevelSourceBuildRejected{Issue::IdentityMismatch};
-    if(target.desired_reason != DesiredInstallReason::Explicit && target.desired_reason != DesiredInstallReason::Dependency)
-        return ReviewedDevelSourceBuildRejected{Issue::InvalidInstallReason};
+    std::set<std::string> selected_names;
+    for(const auto& target : intent.required_targets) {
+        if(target.package_base != base.package_base() || !is_valid_package_name(target.package_name) ||
+           !selected_names.insert(target.package_name).second ||
+           (intent.required_targets.size() == 1 && !intent.request.package_name.empty() && intent.request.package_name != target.package_name))
+            return ReviewedDevelSourceBuildRejected{Issue::IdentityMismatch};
+        if(target.desired_reason != DesiredInstallReason::Explicit && target.desired_reason != DesiredInstallReason::Dependency)
+            return ReviewedDevelSourceBuildRejected{Issue::InvalidInstallReason};
+    }
     // Allocate/copy the outer result storage and intent before S3/S4/S5 begin.
     auto state = std::make_unique<ReviewedDevelSourceBuildExecutionState>(std::move(reviewed), intent, outcome, abnormal);
     // Only the successful prepared arm takes ownership. On rejection/exception
@@ -265,10 +272,15 @@ std::optional<ReviewedDevelSourceBuildExecutionResult> ReviewedDevelSourceBuildE
         state.built.emplace(std::move(std::get<EvaluatedDevelSourceBuildProof>(built)));
         state.build_completed = true;
         enter(state, Stage::ArtifactCorrelation);
-        const auto& target = state.intent.required_targets.front();
-        const auto& artifact = state.built->artifact();
-        if(state.built->package_base() != *state.intent.request.aur_review_identity || artifact.package().package_base() != state.built->package_base() ||
-           artifact.package().package_name() != target.package_name) {
+        if(state.built->declared_children().size() > 1 && !state.intent.request.devel_tracking_bootstrap &&
+           !state.intent.request.ordinary_devel_package_base) {
+            state.issue = Issue::UnsupportedCardinality;
+            return result;
+        }
+        const auto selection = correlate_package_base_artifact_identities(
+            state.built->package_base().package_base(), state.intent.required_targets, query_artifact_package_identities(*state.built));
+        if(state.built->package_base() != *state.intent.request.aur_review_identity || !selection.is_success() ||
+           selection.success()->selected_artifacts.empty()) {
             state.issue = Issue::ArtifactMismatch;
             return result;
         }
@@ -285,24 +297,29 @@ std::optional<ReviewedDevelSourceBuildExecutionResult> ReviewedDevelSourceBuildE
             return result;
         }
         {
-            // Match the ordinary artifact install reducer, with a fresh session
-            // after build. S5's fixed Default/needed=false semantics are not widened.
             auto session = PackageMetadataSession::open({world->root_directory, world->database_path});
-            state.policy_query.emplace(session.query_installed_package(target.package_name));
+            for(const auto& selected : selection.success()->selected_artifacts)
+                state.policy_queries.emplace_back(selected.identity.package_name, session.query_installed_package(selected.identity.package_name));
         }
-        if(std::holds_alternative<PackageMetadataFailure>(*state.policy_query)) {
-            state.issue = Issue::InstallPolicyFailure;
-            return result;
-        }
-        const auto policy = map_installed_artifact_policy_state(artifact.evidence().identity, *state.policy_query);
-        state.directive = resolve_install_reason_directive(target.desired_reason, policy.version_state, policy.existing_reason, false);
-        if(*state.directive != InstallReasonDirective::Default) {
-            state.issue = Issue::InstallReasonUnsupported;
-            return result;
+        for(const auto& selected : selection.success()->selected_artifacts) {
+            const auto query = std::find_if(state.policy_queries.begin(), state.policy_queries.end(),
+                                            [&](const auto& value) { return value.first == selected.identity.package_name; });
+            if(query == state.policy_queries.end() || std::holds_alternative<PackageMetadataFailure>(query->second)) {
+                state.issue = Issue::InstallPolicyFailure;
+                return result;
+            }
+            const auto policy = map_installed_artifact_policy_state(selected.identity, query->second);
+            state.directive = resolve_install_reason_directive(selected.desired_reason, policy.version_state, policy.existing_reason, false);
+            // Existing Default/needed=false preserves each installed reason in
+            // the shared transaction. No promotion or dependency install is inferred.
+            if(*state.directive != InstallReasonDirective::Default) {
+                state.issue = Issue::InstallReasonUnsupported;
+                return result;
+            }
         }
 
         enter(state, Stage::Transport);
-        state.transport.emplace(prepare_evaluated_devel_source_artifact_transport(std::move(*state.built)));
+        state.transport.emplace(prepare_evaluated_devel_source_artifact_transport(std::move(*state.built), state.intent.required_targets));
         try {
 #ifdef MOGUET_ENABLE_REVIEWED_DEVEL_SOURCE_BUILD_EXECUTION_TEST_HOOKS
             if(g_execution_hooks.exact_transaction_token)
@@ -337,7 +354,7 @@ std::optional<ReviewedDevelSourceBuildExecutionResult> ReviewedDevelSourceBuildE
     } catch(const PackageMetadataError& error) {
         state.issue = Issue::InstallPolicyFailure;
         try {
-            state.policy_query.emplace(error.failure());
+            state.policy_queries.emplace_back(std::string{}, error.failure());
         } catch(...) {
             state.issue = Issue::ResourceFailure;
         }

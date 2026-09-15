@@ -5,7 +5,7 @@
 Issue #476 Slice 7-Bのread-only coordinatorは
 `assess_current_devel_package(const DevelPackageAssessmentTarget&)`だけをproduction入口にする。
 targetは解決済みPackageBase/AUR source identity、同じbaseに属するinstalled child集合、既知develのhintを保持する。
-normal query callerがsource resolutionとinventory groupingを所有する。空集合、複数child、source/base不一致はremote前に拒否する。
+normal query callerがsource resolutionとinventory groupingを所有する。空集合、重複child、選択child不明、source/base不一致はremote前に拒否する。
 hintはMissing時の保守的な分類にだけ使用し、network authorityを与えない。
 
 callerはprovenance、current installed observation、reviewed state、raw OID、parser resultを入力できない。
@@ -13,15 +13,15 @@ historical provenanceからexpected sourceをコピーする自己比較は行�
 local DBはAUR URLを証明せず、#411 recordもevaluated Git URL/branchを保存していない。
 
 initial subsetは既存schema v1のS4/S6 projectionに限定する。
-exact reviewed recipeから得たone-pkgname/one-floating-Git-source、HTTPS、DefaultHeadまたはexact Branch、
-architecture-independent sourceと、今回のsingleton installed targetを照合する。
+exact reviewed recipeから得たone-child-record/one-floating-Git-source、HTTPS、DefaultHeadまたはexact Branch、
+architecture-independent sourceと、今回のexact installed childを照合する。
 S4で許可されたcontained local ancillary filesの意味は変更しない。
-split/multi-floating-source/architecture-qualified/non-Git/tag/fixed/SSH/file/localへ拡張せず、PKGBUILD再評価もしない。
+multi-floating-source/architecture-qualified/non-Git/tag/fixed/SSH/file/localへ拡張せず、PKGBUILD再評価もしない。
 schema v1で表現できないsource形態は通常provenance decode時点でInvalidとして拒否される。
 
 ## P0 / I0 / R0 local gates
 
-1. P0: `read_devel_build_provenance`でPackageBaseのcurrent tipだけを読む。
+1. P0: `read_devel_build_provenance`でrequested childのcurrent tipだけを読む。legacy identity照合はstore contractに従う。
 2. I0: 7-A `observe_current_installed_artifact_binding`でfresh DB observationを取り、
    P0のhistorical installed bindingと既存pure comparatorでexact比較する。
 3. R0: `read_reviewed_source_state`でfresh current #411 stateを読み、
@@ -115,3 +115,10 @@ public upstreamへのlive queryは行わない。
 
 canonical negative compileはS5/S6/S7-Aを維持し、S7-B narrow baselines3、positive1、negative17を追加する。
 raw/parser/tuple bypass、approved-source constructor、same-name/reverse/late/namespace/inheritanceを拒否する。
+
+## Split observation（Issue #564 Slice 5）
+
+normal adapterはtrusted DB上のcomplete installed group I_dbを保持し、exact AUR child名をselected_childへ渡す。
+複数installed childをsingleton理由で拒否せず、各childのprovenance/binding/sourceを独立確認する。
+group内suffix候補はMissing分類のhintとして共有できるが、entryのないsiblingをupdate対象に追加しない。
+complete Dはassessmentから復元したと主張せず、exact recipe trial/review/S4が所有する。

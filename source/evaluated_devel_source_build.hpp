@@ -270,7 +270,10 @@ public:
         const;
     [[nodiscard]] const ActualBuiltGitRevision& actual_built_revision()
         const;
+    // Singular compatibility accessor rejects a multi-artifact owner.
     [[nodiscard]] const FreshDevelPackageArtifact& artifact() const;
+    [[nodiscard]] const std::vector<FreshDevelPackageArtifact>& artifacts() const;
+    [[nodiscard]] const std::vector<std::string>& declared_children() const;
 
     // Explicit cleanup is available to tests and abandoned future installs.
     // Refusal keeps the root; the context owns whether a safe retry is allowed.

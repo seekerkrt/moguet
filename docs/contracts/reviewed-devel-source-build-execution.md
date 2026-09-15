@@ -29,17 +29,17 @@ Git UpdateAvailableをpackage version constraint成立の根拠にしない。
 ## Initial subset / intent policy
 
 authoritative preparationはvalid typed pinと同じcheckout identity、AUR source/base、required childを照合する。
-editor overlay、multiple required children、needed、rm-deps、未解決OnlyIfUpdated intentは開始前に拒否する。
+editor overlay、empty/duplicate required children、needed、rm-deps、未解決OnlyIfUpdated intentは開始前に拒否する。
 Legacyを明示選択した場合は既存factory/compatibility semanticsを維持し、S6 publicationを開始しない。
 
-one-pkgname/one-produced-artifact/one-floating-Git-source、HTTPS、DefaultHead/exact Branch、
+exact declared/output child setsとone-floating-Git-source、HTTPS、DefaultHead/exact Branch、
 architecture-independent/no-overlayは既存S3/S4契約に委ねる。bridgeはPKGBUILDやcurrent source definitionを
 別に再評価せず、S4の既存evaluation/build protocolをそのまま使う。
 S4がunsupported shapeを返した後にlegacy buildへretryする経路はない。
 
-S4 artifact取得後はrequired childとsealed artifact identityを照合する。
+S4 artifact set取得後は既存N-artifact selectorでrequired Tとsealed Bを照合する。
 trusted fixed DB worldとnormal intentのDB pathsが一致する場合だけ、fresh PackageMetadataSessionで
-installed reason/versionを観測し、既存`map_installed_artifact_policy_state`と
+selected child名ごとにinstalled reason/versionを観測し、既存`map_installed_artifact_policy_state`と
 `resolve_install_reason_directive`を適用する。
 
 S5の`needed=false / PreserveExistingReason`を変更せず、reducerがDefaultを返す場合だけS5へ進む。
@@ -102,7 +102,7 @@ SourceReady whole ownerもS6→S5→S4 resultの寿命まで保持する。
 
 対象はexact target-less ordinary `-Syu` Autoのinitial Missingだけ。normal valid-provenance、non-devel、
 `-Su`、upgrade-aur/all、dry-run、explicit targetにはactivationを追加しない。
-provenance v1 / 27 keysは不変。Slice 5 split groupとSlice 6代表topologyのcoverage closureは残る。
+provenance v1 / 27 keysは不変。Slice 5はordinary split groupを既存chainへ接続する。Slice 6代表topologyのcoverage closureは残る。
 
 ## Lossless result / lifetime
 

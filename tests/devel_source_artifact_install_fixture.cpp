@@ -10,7 +10,7 @@ void DevelSourceArtifactInstallFixture::mismatch(EvaluatedDevelSourceArtifactTra
                                                  DevelSourceArtifactInstallTestMismatch mismatch) {
     auto& state = *transport.state_;
     auto& receipt = *state.receipt;
-    auto& fresh = *state.fresh_binding;
+    auto& fresh = *state.bindings.front().binding;
     auto& selected = receipt.manifest_.artifacts.front();
     using M = DevelSourceArtifactInstallTestMismatch;
     switch(mismatch) {
@@ -55,7 +55,7 @@ void DevelSourceArtifactInstallFixture::exchange_receipts(EvaluatedDevelSourceAr
                                                           EvaluatedDevelSourceArtifactTransport& right,
                                                           bool include_binding) {
     exchange(left.state_->receipt, right.state_->receipt);
-    if(include_binding) exchange(left.state_->fresh_binding, right.state_->fresh_binding);
+    if(include_binding) exchange(left.state_->bindings.front().binding, right.state_->bindings.front().binding);
 }
 
 void DevelSourceArtifactInstallFixture::replace_built(EvaluatedDevelSourceArtifactTransport& transport,
@@ -68,17 +68,17 @@ void DevelSourceArtifactInstallFixture::replace_built(EvaluatedDevelSourceArtifa
 
 void DevelSourceArtifactInstallFixture::exchange_bindings(EvaluatedDevelSourceArtifactTransport& left,
                                                           EvaluatedDevelSourceArtifactTransport& right) {
-    exchange(left.state_->fresh_binding, right.state_->fresh_binding);
+    exchange(left.state_->bindings.front().binding, right.state_->bindings.front().binding);
 }
 
 bool DevelSourceArtifactInstallFixture::check_component_moves(EvaluatedDevelSourceArtifactTransport& transport) {
     auto& state = *transport.state_;
     ExactArtifactTransactionReceipt receipt(std::move(*state.receipt));
-    FreshInstalledArtifactBinding fresh(std::move(*state.fresh_binding));
-    const bool inactive = !state.receipt->active() && !state.fresh_binding->active();
+    FreshInstalledArtifactBinding fresh(std::move(*state.bindings.front().binding));
+    const bool inactive = !state.receipt->active() && !state.bindings.front().binding->active();
     state.receipt.reset();
-    state.fresh_binding.reset();
+    state.bindings.front().binding.reset();
     state.receipt.emplace(std::move(receipt));
-    state.fresh_binding.emplace(std::move(fresh));
-    return inactive && !receipt.active() && !fresh.active() && state.receipt->active() && state.fresh_binding->active();
+    state.bindings.front().binding.emplace(std::move(fresh));
+    return inactive && !receipt.active() && !fresh.active() && state.receipt->active() && state.bindings.front().binding->active();
 }

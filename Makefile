@@ -92,6 +92,7 @@ CMAKE_FOCUSED_ALIASES := \
 	test-pinned-submodule-workspace \
 	test-pinned-submodule-s4-integration \
 	test-evaluated-devel-source-build \
+	test-split-devel-artifact-authority \
 	test-evaluated-devel-source-artifact-transport \
 	test-remote-aur-cleanup-collector \
 	test-source-artifact-install-trusted-transport \

@@ -290,3 +290,9 @@ unset(_moguet_preflight_case)
 unset(_moguet_preflight_integration_tests)
 unset(_moguet_repository_query_case)
 unset(_moguet_repository_query_tests)
+
+moguet_add_focused_ctest_alias(
+    test-split-devel-artifact-authority
+    TESTS cpp.split_devel_artifact_authority
+    TARGETS evaluated-devel-source-build-test
+)
