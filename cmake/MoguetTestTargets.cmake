@@ -1582,6 +1582,29 @@ moguet_add_cpp_test(
     FORBIDDEN_SOURCES ${_moguet_pinned_closure_forbidden_sources}
 )
 
+# 4B0 uses real selection/closure fixtures, but runs only the review lane.
+set(_moguet_pinned_closure_review_test_sources
+    ${_moguet_pinned_closure_test_sources}
+    source/pinned_submodule_closure_review.cpp)
+_moguet_test_production_complement(_moguet_pinned_closure_review_forbidden_sources ${_moguet_pinned_closure_review_test_sources})
+moguet_add_cpp_test(
+    pinned-submodule-closure-review-test
+    FIREWALL
+    ALPM_COMPILE REAL_ALPM CURL
+    SOURCES ${_moguet_pinned_closure_review_test_sources}
+    DEFINITIONS
+        MOGUET_ENABLE_TEST_OVERRIDES
+        MOGUET_ENABLE_REVIEWED_SOURCE_PRESENTATION_TEST_HOOKS
+        MOGUET_ENABLE_REVIEWED_SOURCE_ACCEPTANCE_TEST_HOOKS
+        MOGUET_ENABLE_REVIEWED_SOURCE_STATE_STORE_TEST_HOOKS
+        MOGUET_ENABLE_INVOCATION_OWNED_SOURCE_BUILD_CONTEXT_TEST_HOOKS
+        MOGUET_ENABLE_EVALUATED_DEVEL_SOURCE_BUILD_TEST_HOOKS
+        MOGUET_ENABLE_PINNED_SUBMODULE_CLOSURE_TEST_HOOKS
+        MOGUET_ENABLE_PINNED_CLOSURE_REVIEW_TEST_HOOKS
+    INCLUDE_DIRECTORIES "${_moguet_test_source_include_dir}" "${_moguet_test_support_include_dir}"
+    FORBIDDEN_SOURCES ${_moguet_pinned_closure_review_forbidden_sources}
+)
+
 # S5-A reuses the actual Slice 4 build fixture and the existing transport
 # implementation. Only privileged transport processes are intercepted; the
 # original Slice 4 target keeps its independent no-transport link firewall.
@@ -3342,6 +3365,7 @@ set(
     invocation-owned-recipe-acquisition-test
     evaluated-devel-source-artifact-transport-test
     pinned-submodule-closure-test
+    pinned-submodule-closure-review-test
     evaluated-devel-source-build-test
     reviewed-source-production-connection-test
     reviewed-source-projection-test
@@ -3439,6 +3463,7 @@ set(
 
 set(
     MOGUET_EXPECTED_CPP_TEST_FIREWALL_TARGETS
+    pinned-submodule-closure-review-test
     pinned-submodule-closure-test
     moguet-aur-update-command-test
     moguet-upgrade-all-command-test
@@ -3492,62 +3517,63 @@ set(
     evaluated-devel-source-build-test
 )
 
-# These hashes are an independent fail-closed ledger for the 51 link
+# These hashes are an independent fail-closed ledger for the 52 link
 # firewalls.  Before changing any entry, compare the target's complete CMake
 # source/link profile with the legacy Make closure and re-establish parity;
 # never derive or update this expected ledger from the configure-time actual
 # descriptors automatically.
 set(
     MOGUET_EXPECTED_CPP_TEST_FIREWALL_DESCRIPTORS
-    pinned-submodule-closure-test=aacd47bc11581bd58dc21c51f96986c2b3d218985ff7aa2ae113c4e6b19d61e9
-    evaluated-devel-source-build-test=a4b5d2f2ef8175d6a5c5330e366dff83c558ea79fb590dba0a885decff40ab04
-    moguet-aur-update-command-test=57c88390b2f4d439ace2e9af62cc410064dc5a0b62a567f5f3e804632d3d0fe9
-    moguet-upgrade-all-command-test=dec287a2461a9be65c1ad04a631e8bbad40207a45d8437206bf8faf4ee71d060
-    moguet-commands-sync-test=da053878d576cf7318308ed384a13b7103790f4d8cc42da7743ccd9b9036ef5b
-    moguet-commands-inspect-test=cfcbac040f7d00c08c90487ce0a100dbb8e9eb9cd81a365072a614eed1f2c587
-    moguet-test=3971b5bba13967571ecaca8d791a4d29bc0a59911b46019a6fd484b294e9dcee
-    moguet-cli-localization-test=09b0fc799675defd250b7d0bab536c8992a3c2c10eb117db2258368fcce6b641
-    moguet-app-config-test=4762ebc40595b1daa9fe50056bbf33be42e95bc94d0f3ff9db81e789b5047123
-    moguet-aur-rpc-validation-test=0e72c170d6dc5a162ea827bfe90f388b938fb5749c41ffef661423782f8da4ee
-    moguet-source-install-characterization-test=1e9eb619bb11b2d55d9d1fb04c83b46ae819fb616a4a788badc1eed9d8437cc0
-    moguet-upgrade-baseline-metadata-test=729a88abc29252368913a73bf68f73c316277e796f0b0f56c3ab952fdfea7dac
-    root-package-candidate-test=73d303eddf50959b227dd6fe6963dea3f3120bfae2b8b1aad30066cf2e462df7
-    root-package-search-test=a9ffb75426e0d71d0cb137ddc7ef3f92e121dae60b6dfbb8dfba2c6a83e17757
-    root-package-selection-test=31cc8176e4b76de53309092100bac6dcba393704132243bafff40aa5fdd0c981
-    root-package-route-projection-test=89e4454873141f4ab99113e7d4ed340f74eccb58c2338d3ba65703ce6b413ecd
-    local-package-metadata-test=8d7296d059a1d487f2984354b43b4b2731d5706013f5c76eb9ceddc2a4294c11
-    local-source-root-test=f79733cde4f6f37109b44428b01a11b9b4e2e68c896d05d887a6e836b0d39100
-    local-dependency-plan-projection-test=0d06ee0da1e04a761e15a2d41b5117fc151c9f99b5f84a36dea948211404018a
-    local-source-workspace-test=8a10e8838e037b97d4da64f6be11e7476f0354e4551aea6d6814aa664d1243c9
-    local-source-build-test=1373c4603c04c5e95583b385accb0d48310fba1386ff341afa18dbe73a321ce7
-    source-package-identity-projection-test=5c803582c6884e8d1a1a55ff959ff690310c182f84e8e7a00c50ff858ebc22a4
-    multiple-artifact-workspace-test=8c207ba57f4706d3fc3ad34c6bd1713b70c6e18461051118c9f560e61892aa36
-    makepkg-assignment-precedence-test=77c5e2573c8302d22a31e874dcdca6b5940747b014f4148f3e073c94c9341b1f
-    multiple-artifact-identity-test=be3eb4f110317ef058014af7fedf3be8ae81460014d5623ad94580bc3da62850
-    package-base-artifact-install-plan-test=9c2a47804dbac4f1aa401e5157013d927e2d3b859d088733d5f6c7467468b8a8
-    package-base-artifact-install-executor-test=496a97353855c3c560cdad77dd5a9ded4fcaaf0ca18e82030c22e801221539b1
-    separated-package-base-source-build-test=1d2f2470300dc098b9daced90662f4cb9a186a48a73081ab3113692415f0f51f
-    upgrade-all-plan-test=acb7c9c60b6e8397893992051c51e085295f74a3539b06060683e3bd34b21bc5
-    system-source-upgrade-test=44287f972cc745d686e8ca20fa2745a3a246dd07556d22278165259d11f7f8f0
+    pinned-submodule-closure-review-test=6fd7ec4dbbdb05d141468a0b3f537bdf46f5d0a5d5c7d98b35c53ed072b5109e
+    pinned-submodule-closure-test=c60b145a4b11e7e01e4a4396e66606bdba551f3d739d67e7f545cbbfb12a81be
+    evaluated-devel-source-build-test=4d91744ce0a7d2cd8ba06da94ee56ebf553d1da9a40b5148225377014255b88e
+    moguet-aur-update-command-test=daebdba6c7c88287a3ec7450b194a1ad5fad75c6ece83df057e975ad9bb4b3b2
+    moguet-upgrade-all-command-test=e353defca10666423a8fff3f53024fd99c4416fcda33887bd7d5ceb2fe929e7c
+    moguet-commands-sync-test=2b0eddeaf4beb47a4eb735ccdbfb062d31e60e4e279fce2ac66d7138c85b8102
+    moguet-commands-inspect-test=d1904f493fda5fcbaa5cf5d17608d9ab0b2063be3934c693516b4b12eb7da9f4
+    moguet-test=8f9e40b111081d82cf59802a2ce11a6deee91e100092138684d08ec7796c74c2
+    moguet-cli-localization-test=450b3a007159920ac9f95d898a3014b0ee831f6046a3119ed326b6b8ba62491a
+    moguet-app-config-test=7d23bac4d17246c67af789884c3d4b3663e1452e1998581ad5b3a4674a77582f
+    moguet-aur-rpc-validation-test=9413d077b93fb7d73000a079daa0abaadad29617d835d4ac9ce544fbf900c4b9
+    moguet-source-install-characterization-test=4fa429b362814e9cd26bb2341293249487bfecce0b0350e7f9ab877789d0367a
+    moguet-upgrade-baseline-metadata-test=d19b7109badcb207d965ea26a1110c21e9c4d6c5c673737fd132c01cf32ff66c
+    root-package-candidate-test=475e2ee183211fd3a1c47aaf2449bd195a6e1ebef09d0147f432282713c05759
+    root-package-search-test=116da21a3f8550841f62e89ca3eed466dd222b4f57ea4f3dd73872b13b8ef459
+    root-package-selection-test=e187279ec226b5637f11e69e056cf5668a26d352b0a69dacf45835586537c8e1
+    root-package-route-projection-test=0ce2082f12139b0a58d67af74926a4243a412a667f0f8d950c49e10e2e93cba2
+    local-package-metadata-test=c0ea2c4294103d2a0eef0022b633cd38cba1a3a687f086a6baa72c59c000c3ed
+    local-source-root-test=d0aa4a9c7a3b3747c43de7c3c62471411e1ae952f9883bcf02a12400fcb48c53
+    local-dependency-plan-projection-test=b1101a364dc1b7e32c6bb285a8b3b342e885bf08a16102698963c9543e5078ca
+    local-source-workspace-test=240044c22f7bada2df63da77c1d96b47782b69202b8776ba0d41d9ce0415eae3
+    local-source-build-test=0b6c4f6a8d1ee2e963bc80a50e34ef56c845659856ace65e187c83d8981851a5
+    source-package-identity-projection-test=6cbd01da0b630a79996405e7ba8e5e6a8034f12b777e24d61e87aae9a273aa74
+    multiple-artifact-workspace-test=ec8b4f4a1426a29cbf326a0b32bc9e03b21efe5b05b4aa7a2b529a1b05b6439f
+    makepkg-assignment-precedence-test=c099ab40a331ba418e55fcd5ae7abe0d3ed8491f905a0682cd5a23622c5d6905
+    multiple-artifact-identity-test=77f6fbae4222b12bf692a9e87b511f0675064fce0462379c80b1e9f83307f5df
+    package-base-artifact-install-plan-test=1e8ff255b5581b7d0a90e299e71399b19870cd0a9ca46f53a7fb76079bcf52b4
+    package-base-artifact-install-executor-test=9871d049511056d9b93d74acde1fe9c76ca7a339c37fdfc8fcda40f4729d83fe
+    separated-package-base-source-build-test=d0882c7dc9889a4bb6618e4ccff1a377548e8364358e5d2f2c0cac03f990e2de
+    upgrade-all-plan-test=cd90bf5c9140c7444b07a4b2cd69a3344e553c8b0e75293dbf9d19f8063d003f
+    system-source-upgrade-test=f66b6d7ddaf5bec2fcc77f0506ee326e7a5582655a1fdfac33ddce6e38e0927c
     aur-update-execution-preflight-test=167eca6cef76a54712dd3281a015d38e406ae9fde1a264919d69b115a743cfd3
     aur-update-execution-runner-test=8766d5d10a5444e6ecb04ff945f2ef39341e4a0d99352817a0ab93c3fabb6197
     aur-update-operation-result-test=794c70c37241de19fa40d3e5369fadebe282fb321fd0e3771b8b3d89e0a369d2
     filtered-aur-update-operation-test=2fbb1691ee4f1411c698d7ddc7a5a064b65d05b46fd07fb1acc595c27c13662f
-    upgrade-all-operation-test=b8e3e9f0ae36c0b1a439e9b406c98bd66ec5766ed7c1347921d5cfada90995ac
-    cli-diagnostic-model-test=5dac16b5d1389fa218a97104ca8864a1198322516f9f5f4471c1d5cf74ffb925
-    runtime-cli-connection-test=257c8177f4e479531d0d874a3ca2ec3fcace8a64232dcff5ee7640691527f58b
-    dependency-plan-model-test=b82bc788c44a1781713f232984de3dc1ed68e542100f694c3499e34c20aec409
-    build-plan-artifact-target-projection-test=b0bb8735cf0ca9090cf905f078fbae7c59f157d37d31fb3d82ad86130d49df29
-    unified-plan-observation-test=74f330d403ef042bafb3c5c6780b04d2a88f3d51ddbec6fc6602e9d42e8f08a4
-    unified-plan-projection-test=19b8fdc68d40fff67c3f6539b0e5ec69e0fe049cfca0acbdf4fe9138c8f28978
-    unified-plan-renderer-test=747052c688be91199c8f58ab35a3ae6738a96c1d89b6e026128434200f6ccea4
-    artifact-selection-model-test=ba2f3e893ac5cda00602408d6c14ca6515e60453a39e191227125f54490b219a
-    artifact-identity-selection-test=cbaa696884be994fc617d485b1e61583013a8c66224898b97a7ad164b9dbb711
-    provider-installed-state-test=3ec061a40e4fe62799d0ec2de1c3b9b6be90ea7f496ee17064de6ff53d7f6c67
-    dependency-constraint-test=0a2fbec857abbcc02302d6ff9f339fa4555f54d1072f21fab7a9ba7b38539b47
-    package-relation-test=101bde75fdec17a430bf093dd38c7181f65002f278b4f0846d9b9c2a75a4b5f9
-    package-relation-observation-test=f2291c726df965e9321618d29a6ca08e5f8ae151aef755818ff0e5c8928d1a24
-    package-relation-assessment-test=b74d1c7477800b849ac736cc78352270447d9032b2774421d9f365b806c220e8
-    package-constraint-metadata-test=79eab627c5390a72d9c95d8d82417024dbf60f3b75209b3e74793c4fe3d8d94b
-    aur-constraint-metadata-test=c79beb476f9a7ce5f75bd365f8aa72fb7c7ae9504dd3bdf222b1b28db9e88866
+    upgrade-all-operation-test=8a4f3ff68911419621474a09e9a3732da5f72e3e16beb82fd9c397bd92e6755b
+    cli-diagnostic-model-test=55fed98a2a49687d6de57306774f02a25087b09a4277a0a000fd5a6e0a04bd66
+    runtime-cli-connection-test=21ba5c3bf0ef5074f6caa4da463a67b57a8523280f3056d30724309a0c2b3199
+    dependency-plan-model-test=6b58a7bfd77f4db41886fb835f5343c645c0a40c863532691ae7eaf79d8f7123
+    build-plan-artifact-target-projection-test=2a6a3e998e4d5eeb47068b74dc9460801903fa6c9cb5d50a984bc15b64058106
+    unified-plan-observation-test=67a117159e6c9daf18466bf3605bc3421e843c778bf3bb79c25a8b6d90b76675
+    unified-plan-projection-test=bb5cc5948c49a7f983248ccb4ed526395a8d492bcce94e0df0aca010fed6020c
+    unified-plan-renderer-test=d61f8ee176cabfb847e717cced28eafae78f9dd5cdc284290dc1691b8c6a1861
+    artifact-selection-model-test=a561e9376cf390163744243f221722c3797e7b1b1a7251e70c1ec0310a2dd2b6
+    artifact-identity-selection-test=ec83a4167d2f32f83858f52de4253cfd5612cec052a4926cb08df5010cc1e168
+    provider-installed-state-test=74c83169ead8be41cc24b6c36d08c342bfc611475d9a31f0b811fd1ecb0bec9d
+    dependency-constraint-test=c77263dbec66779e9b45f643d77b4b09601dc79fb47e293283f5c1209aeda8df
+    package-relation-test=82a10a74e0afa387979bd8244959a9398f284a4e751e84b5318a242f1b3edec3
+    package-relation-observation-test=c4df21a0d1cdcb9c4bc5cee66fd084336c406988932c4a3613d536aef06f47ce
+    package-relation-assessment-test=377ca7ac495144d9aeef8abc5d9f2f08ff7cfbc953408460bc49beda8b7bba6a
+    package-constraint-metadata-test=71a93b7be90118d7477dc44f071b881fa990e4b4916f453fd028760798213b3a
+    aur-constraint-metadata-test=27249f0e80c921c3d22d1aec608efded592972b607ab595fcc0ee15bb61135aa
 )

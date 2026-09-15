@@ -126,10 +126,20 @@ when object cleanup fails. Cleanup is not
 retried by destruction. Same-UID concurrent mutation, SIGKILL and power loss are
 not an atomic sandbox or guaranteed residue-free execution contract.
 
+## Slice 4B0 review transition
+
+The separate [exact closure review](pinned-submodule-closure-review.md)
+producer consumes this live whole owner, reads and presents a complete bounded
+text closure, and obtains its own explicit confirmation. The resulting
+`AcceptedPinnedSubmoduleClosure` retains this owner, including the selection
+and backing. Recipe acceptance and migration Yes do not authorize this step.
+Binary, oversized or unsupported content cannot be accepted. Production
+consumers and workspace/materialization remain pending 4B1/4B2.
+
 ## Remaining Slice 4B
 
-Separate explicit closure review, source-byte presentation/materialization,
-submodule gitfile/modules correlation, SRCDEST preseed, native makepkg hand-off,
+Source worktree materialization, submodule gitfile/modules correlation,
+SRCDEST preseed, native makepkg hand-off,
 network/input policy, source-ready and actual S4 closure reproof remain unimplemented.
 Existing production submodule gates, recipe acquisition/cache boundaries,
 S5/S6 and provenance schema remain unchanged.

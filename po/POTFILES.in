@@ -38,6 +38,7 @@ source/package_base_artifact_install_executor.cpp
 source/package_identifier.cpp
 source/package_metadata.cpp
 source/package_relation_presentation.cpp
+source/pinned_submodule_closure_review.cpp
 source/pkgbuild_export.cpp
 source/process.cpp
 source/provider_selection.cpp

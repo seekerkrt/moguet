@@ -906,3 +906,11 @@ moguet_add_ctest(
     COMMAND "$<TARGET_FILE:pinned-submodule-closure-test>" --pinned-closure
 )
 set_tests_properties(cpp.pinned_submodule_closure PROPERTIES TIMEOUT 300)
+
+# 4B0 foundation only; no production bootstrap/S4 integration is run here.
+moguet_add_ctest(
+    NAME cpp.pinned_submodule_closure_review
+    TARGETS pinned-submodule-closure-review-test
+    COMMAND "$<TARGET_FILE:pinned-submodule-closure-review-test>" --pinned-closure-review
+)
+set_tests_properties(cpp.pinned_submodule_closure_review PROPERTIES TIMEOUT 300)

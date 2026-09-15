@@ -1,6 +1,9 @@
 #ifdef MOGUET_ENABLE_PINNED_SUBMODULE_CLOSURE_TEST_HOOKS
 #include "pinned_submodule_closure.hpp"
 #endif
+#ifdef MOGUET_ENABLE_PINNED_CLOSURE_REVIEW_TEST_HOOKS
+#include "pinned_submodule_closure_review.hpp"
+#endif
 #ifdef MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
 #include "aur_devel_update.hpp"
 #include "system_aur_update_operation.hpp"
@@ -378,6 +381,21 @@ public:
     }
     std::string object_oid(const std::string& expression) const {
         return output_git({"rev-parse", expression});
+    }
+#endif
+#ifdef MOGUET_ENABLE_PINNED_CLOSURE_REVIEW_TEST_HOOKS
+    void review_payload(const std::string& bytes, bool symlink = false, bool executable = false) {
+        if(symlink) {
+            fs::remove(work_ / "payload.txt");
+            fs::create_symlink("target", work_ / "payload.txt");
+        } else {
+            write_file(work_ / "payload.txt", bytes);
+        }
+        run_git({"add", "--", "payload.txt"});
+        if(executable) run_git({"update-index", "--chmod=+x", "payload.txt"});
+        run_git({"commit", "--allow-empty", "-q", "-m", "review payload"});
+        oid_ = output_git({"rev-parse", "HEAD"});
+        run_git({"push", "origin", "main"});
     }
 #endif
 
@@ -4760,11 +4778,299 @@ void test_pinned_closure() {
 }
 #endif
 
+#ifdef MOGUET_ENABLE_PINNED_CLOSURE_REVIEW_TEST_HOOKS
+class ClosureReviewInputFailure final : public std::streambuf {
+    int_type underflow() override {
+        throw std::runtime_error("fixture input failure");
+    }
+};
+
+class ClosureReviewOutput final : public std::stringbuf {
+public:
+    std::string fault;
+    unsigned flushes = 0;
+    std::function<void()> on_flush;
+
+protected:
+    std::streamsize xsputn(const char* bytes, std::streamsize count) override {
+        if(fault == "write") return std::stringbuf::xsputn(bytes, count > 0 ? count - 1 : 0);
+        if(fault == "throw-write") throw std::runtime_error("fixture output failure");
+        return std::stringbuf::xsputn(bytes, count);
+    }
+    int sync() override {
+        ++flushes;
+        if(on_flush) on_flush();
+        if(fault == "flush" || (fault == "prompt-flush" && flushes == 2)) return -1;
+        if(fault == "throw-flush") throw std::runtime_error("fixture flush failure");
+        return 0;
+    }
+};
+
+void test_pinned_closure_review() {
+    using Closure = InvocationOwnedPinnedSubmoduleClosure;
+    using Accepted = AcceptedPinnedSubmoduleClosure;
+    using Failure = PinnedClosureReviewFailure;
+    using Reason = PinnedClosureReviewFailureReason;
+    using Stage = PinnedClosureReviewStage;
+    static_assert(!std::is_default_constructible_v<Accepted> && !std::is_copy_constructible_v<Accepted>);
+    static_assert(std::is_nothrow_move_constructible_v<Accepted>);
+    static_assert(!std::is_constructible_v<Accepted, Closure, ExplicitConfirmationAcceptance>);
+    static_assert(!std::is_invocable_v<decltype(review_pinned_submodule_closure), Closure, ExplicitConfirmationAcceptance>);
+    static_assert(!std::is_invocable_v<decltype(resume_evaluated_devel_source), Accepted>);
+    const std::vector<std::string> cases{
+        "single", "nested", "siblings", "escaped", "empty", "executable", "no-newline", "yes", "blank-then-yes", "freeze", "bounds-exact",
+        "binary", "symlink", "blob-limit", "aggregate-limit", "entry-limit", "line-limit", "render-limit", "render-failure",
+        "write", "throw-write", "flush", "throw-flush", "prompt-flush", "decline", "no", "cancel", "cancel-word", "eof", "input-failure", "throw-input",
+        "non-tty", "noconfirm", "nodiff", "config-skip", "recipe-token", "migration-token", "moved", "read-failure", "read-cancel",
+        "cleanup-failure", "read-cleanup-failure", "destructor"};
+    for(const auto& kind : cases) {
+        struct HookReset {
+            ~HookReset() {
+                set_pinned_closure_review_test_hooks({});
+                set_pinned_closure_test_hooks({});
+                set_evaluated_devel_source_build_process_test_hook({});
+                set_invocation_owned_source_build_context_test_hook({});
+            }
+        } reset;
+        UpstreamGitFixture child("review-child-" + kind), root("review-root-" + kind);
+        std::unique_ptr<UpstreamGitFixture> leaf;
+        if(kind == "single" || kind == "nested" || kind == "siblings") {
+            root.review_payload("root first line\nroot last line\n");
+            child.review_payload("child first line\nchild last line\n");
+        }
+        if(kind == "binary") child.review_payload(std::string("a\0b", 3));
+        if(kind == "escaped") child.review_payload("tab\t esc\x1b[31m slash\\ bidi\xe2\x80\xae\n");
+        if(kind == "empty") child.review_payload("");
+        if(kind == "executable") child.review_payload("executable\n", false, true);
+        if(kind == "symlink") child.review_payload("", true);
+        if(kind == "no-newline") child.review_payload("no final newline");
+        if(kind == "nested") {
+            leaf = std::make_unique<UpstreamGitFixture>("review-leaf");
+            leaf->review_payload("nested first line\nnested last line\n");
+            child.pin_tree(module_declaration("leaf-name", "nested/b", leaf->url()), {{"nested/b", leaf->oid()}});
+        }
+        std::string declaration = module_declaration("logical/A", "deps/a", child.url());
+        std::vector<std::pair<std::string, std::string>> pins{{"deps/a", child.oid()}};
+        if(kind == "siblings") {
+            declaration += module_declaration("other-name", "deps/b", child.url());
+            pins.emplace_back("deps/b", child.oid());
+        }
+        root.pin_tree(declaration, pins);
+        const auto root_pin = root.oid(), child_pin = child.oid();
+        ReviewedBuildFixture fixture("review-" + kind, root);
+        auto context = fixture.make_context();
+        const auto context_root = context.owned_root();
+        auto environment = fixture.make_environment(context);
+        unsigned initial = 0;
+        set_evaluated_devel_source_build_process_test_hook([&](const auto& invocation, const auto& policy, auto phase) {
+            require(phase == EvaluatedDevelSourceBuildProcess::InitialPrintSrcinfo, "Review entered makepkg prepare/build");
+            ++initial;
+            return capture_bounded_explicit_process_output_raw(invocation, policy);
+        });
+        auto selected = select_evaluated_devel_source(std::move(context), std::move(environment));
+        auto selection = take_arm<EvaluatedDevelSourceSelection>(selected, "Review selection failed");
+        const auto snapshot = selection.snapshot_identity();
+        std::map<std::string, fs::path> remotes{{root.url(), root.remote()}, {child.url(), child.remote()}};
+        if(leaf) remotes.emplace(leaf->url(), leaf->remote());
+        fs::path object_root;
+        bool reviewing = false, injected = false, prompted = false;
+        unsigned reads = 0, removal_attempts = 0;
+        PinnedClosureTestHooks acquisition;
+        acquisition.event = [&](auto, const auto& path) { object_root = path; };
+        acquisition.process = [&](const ExplicitProcessInvocation& original, const BoundedProcessPolicy& policy) {
+            auto invocation = original;
+            const auto& args = original.arguments;
+            const auto has = [&](const std::string& value) { return std::find(args.begin(), args.end(), value) != args.end(); };
+            require(original.executable == "/usr/bin/git" && original.working_directory_fd && original.standard_input_fd &&
+                        has("protocol.https.allow=always") && has("protocol.file.allow=never") && has("http.followRedirects=false"),
+                    "Review fixture bypassed HTTPS acquisition policy");
+            if(reviewing) {
+                require(!prompted && !has("fetch") && !has("ls-remote") && !has("init") && !has("submodule"),
+                        "Review reacquired source or read backing after prompt");
+                if(has("blob")) ++reads;
+                if(!injected && (reads >= 2 || kind != "read-failure") && (kind == "read-failure" || kind == "read-cancel" || kind == "read-cleanup-failure")) {
+                    injected = true;
+                    return BoundedCapturedProcessResult{"original review read failure", BoundedProcessExited{kind == "read-cancel" ? 0 : 19},
+                                                        kind == "read-cancel" ? std::optional<int>(SIGINT) : std::nullopt};
+                }
+            }
+            for(auto& arg : invocation.arguments) {
+                if(arg == "protocol.file.allow=never")
+                    arg = "protocol.file.allow=always";
+                else if(remotes.contains(arg))
+                    arg = "file://" + remotes.at(arg).string();
+            }
+            return capture_bounded_explicit_process_output_raw(invocation, policy);
+        };
+        if(kind == "cleanup-failure" || kind == "read-cleanup-failure") acquisition.before_remove = [&](const auto&) {
+            ++removal_attempts;
+            throw std::runtime_error("fixture cleanup refusal");
+        };
+        set_pinned_closure_test_hooks(acquisition);
+        auto acquired = acquire_pinned_submodule_closure(std::move(selection));
+        auto closure = take_arm<Closure>(acquired, "Review closure acquisition failed");
+        const auto* retained_selection = &closure.selection();
+        const auto* retained_nodes = &closure.nodes();
+        const auto* retained_edges = &closure.edges();
+        std::size_t expected_blobs = 0, aggregate_bytes = 0, inventory_entries = 0;
+        for(const auto& node : closure.nodes())
+            for(const auto& file : node.inventory.entries) {
+                ++inventory_entries;
+                if(file.mode() != ReviewedSourceFileMode::Gitlink) {
+                    ++expected_blobs;
+                    aggregate_bytes += *file.blob_size();
+                }
+            }
+        if(kind == "freeze") {
+            root.commit("advanced root\n");
+            child.commit("advanced child\n");
+        }
+        std::string answer = kind == "eof" ? "" : kind == "cancel-word"                                                                               ? "cancel\n"
+                                              : kind == "cancel"                                                                                      ? "q\n"
+                                              : kind == "yes"                                                                                         ? "yes\n"
+                                              : kind == "blank-then-yes"                                                                              ? "\ny\n"
+                                              : kind == "no"                                                                                          ? "no\n"
+                                              : kind == "decline" || kind == "recipe-token" || kind == "migration-token" || kind == "cleanup-failure" ? "n\n"
+                                                                                                                                                      : "y\n";
+        std::istringstream input(answer);
+        ClosureReviewInputFailure failing_buffer;
+        std::istream failing_input(&failing_buffer);
+        failing_input.exceptions(std::ios::badbit);
+        if(kind == "input-failure") input.setstate(std::ios::badbit);
+        ClosureReviewOutput buffer;
+        buffer.fault = kind;
+        std::ostream output(&buffer);
+        buffer.on_flush = [&] {
+            if(buffer.str().find("Accept this complete exact source closure?") != std::string::npos) {
+                prompted = true;
+                require(reads == expected_blobs, "Prompt preceded complete content collection");
+            }
+        };
+        PinnedClosureReviewTestHooks review;
+        review.input = &input;
+        review.output = &output;
+        review.interactive = kind != "non-tty";
+        if(kind == "throw-input") review.input = &failing_input;
+        if(kind == "bounds-exact") {
+            review.entries = inventory_entries;
+            review.aggregate_bytes = aggregate_bytes;
+            review.blob_bytes = std::max(declaration.size(), std::string("revision-one\n").size());
+        }
+        if(kind == "blob-limit") review.blob_bytes = 1;
+        if(kind == "aggregate-limit") review.aggregate_bytes = aggregate_bytes - 1;
+        if(kind == "entry-limit") review.entries = inventory_entries - 1;
+        if(kind == "line-limit") review.line_bytes = 3;
+        if(kind == "render-limit") review.rendered_bytes = 1;
+        if(kind == "render-failure") review.before_render = [] { throw std::runtime_error("fixture render failure"); };
+        set_pinned_closure_review_test_hooks(review);
+        if(kind == "recipe-token" || kind == "migration-token") {
+            std::istringstream prior_input("y\n");
+            std::ostringstream prior_output;
+            auto prior = request_explicit_confirmation(kind, false, true, prior_input, prior_output);
+            require(std::holds_alternative<ExplicitConfirmationAcceptance>(prior), "Prior confirmation fixture failed");
+            // There is deliberately no API to pass this valid token into review.
+        }
+        std::optional<Closure> moved;
+        if(kind == "moved") moved.emplace(std::move(closure));
+        reviewing = true;
+        {
+            auto result = review_pinned_submodule_closure(std::move(closure),
+                                                          kind == "nodiff" || kind == "config-skip" ? ReviewPolicy::Skip : ReviewPolicy::Prompt, kind == "noconfirm");
+            require(!closure.valid() && initial == 1, "Review duplicated selection ownership/evaluation");
+            const bool success = kind == "single" || kind == "nested" || kind == "siblings" || kind == "escaped" ||
+                                 kind == "empty" || kind == "executable" || kind == "no-newline" || kind == "yes" ||
+                                 kind == "blank-then-yes" || kind == "freeze" || kind == "destructor" || kind == "bounds-exact";
+            const auto rendered = buffer.str();
+            if(success) {
+                auto accepted = take_arm<Accepted>(result, "Complete review did not accept");
+                require(accepted.valid() && &accepted.closure().selection() == retained_selection &&
+                            &accepted.closure().nodes() == retained_nodes && &accepted.closure().edges() == retained_edges &&
+                            accepted.closure().selection().snapshot_identity() == snapshot && accepted.closure().nodes()[0].commit.value() == root_pin &&
+                            accepted.closure().edges()[0].pin.value() == child_pin && fs::exists(object_root) && fs::exists(context_root),
+                        "Accepted review lost whole owner/backing/lineage/pins");
+                require(prompted && reads == expected_blobs && rendered.find(root_pin) != std::string::npos &&
+                            rendered.find(child_pin) != std::string::npos && rendered.find("logical/A") != std::string::npos &&
+                            rendered.find("deps/a") != std::string::npos && rendered.find(".gitmodules") != std::string::npos &&
+                            rendered.find("complete child review node:") != std::string::npos,
+                        "Review omitted identity/declaration context");
+                if(kind == "single" || kind == "nested" || kind == "siblings") {
+                    require(rendered.find("  | root first line\n  | root last line\n") != std::string::npos &&
+                                rendered.find("  | child first line\n  | child last line\n") != std::string::npos &&
+                                rendered.find("  | [submodule \"logical/A\"]\n") != std::string::npos &&
+                                rendered.find("  | \\x09path = deps/a\n") != std::string::npos &&
+                                rendered.find("  | \\x09url = " + child.url() + "\n") != std::string::npos,
+                            "Complete review omitted source/declaration bytes");
+                }
+                if(kind == "nested") require(rendered.find("  | nested first line\n  | nested last line\n") != std::string::npos, "Nested content omitted");
+                if(kind == "siblings") {
+                    const auto first = rendered.find("  | child first line\n");
+                    require(rendered.find("  | child first line\n", first + 1) != std::string::npos, "Sibling content occurrence omitted");
+                }
+                if(kind == "nested") require(rendered.find("deps/a/nested/b") != std::string::npos && rendered.find(leaf->oid()) != std::string::npos, "Nested review missing");
+                if(kind == "siblings") require(accepted.closure().edges().size() == 2 && rendered.find("deps/b") != std::string::npos && rendered.find("node: 2") != std::string::npos, "Sibling occurrence collapsed");
+                if(kind == "escaped") require(rendered.find('\x1b') == std::string::npos && rendered.find("\\x1B") != std::string::npos && rendered.find("\\xE2\\x80\\xAE") != std::string::npos, "Unsafe terminal bytes escaped incorrectly");
+                if(kind == "no-newline") require(rendered.find("No newline at end of file") != std::string::npos, "Final newline distinction lost");
+                if(kind == "executable") require(rendered.find("100755") != std::string::npos, "Executable mode lost");
+                if(kind == "freeze") require(rendered.find("advanced root") == std::string::npos && rendered.find("advanced child") == std::string::npos, "Review followed moved remote");
+                auto transferred = std::move(accepted);
+                require(!accepted.valid() && transferred.valid(), "Accepted move duplicated authority");
+                if(kind != "destructor") require(transferred.cleanup().succeeded() && !transferred.valid(), "Accepted cleanup failed");
+            } else {
+                const auto& failure = require_arm<Failure>(result, "Rejected review minted Accepted");
+                Reason expected = Reason::ResourceLimitExceeded;
+                if(kind == "binary" || kind == "symlink") expected = Reason::UnsupportedContent;
+                if(kind == "render-failure") expected = Reason::RenderFailure;
+                if(kind == "write" || kind == "throw-write" || kind == "flush" || kind == "throw-flush" || kind == "prompt-flush") expected = Reason::OutputFailure;
+                if(kind == "decline" || kind == "no" || kind == "recipe-token" || kind == "migration-token" || kind == "cleanup-failure") expected = Reason::Declined;
+                if(kind == "cancel" || kind == "cancel-word" || kind == "eof" || kind == "read-cancel") expected = Reason::Cancelled;
+                if(kind == "input-failure" || kind == "throw-input") expected = Reason::InputFailure;
+                if(kind == "non-tty") expected = Reason::NonInteractiveInput;
+                if(kind == "noconfirm") expected = Reason::NoConfirm;
+                if(kind == "nodiff" || kind == "config-skip") expected = Reason::ReviewSkipped;
+                if(kind == "moved") expected = Reason::InvalidClosure;
+                if(kind == "read-failure" || kind == "read-cleanup-failure") expected = Reason::ReadFailure;
+                require(failure.reason == expected, "Review failure taxonomy changed: " + kind + " reason=" + std::to_string(static_cast<int>(failure.reason)));
+                if(kind == "cancel" || kind == "cancel-word" || kind == "eof") require(failure.cancellation == (kind == "eof" ? ConfirmationCancellationReason::EndOfInput : ConfirmationCancellationReason::ExplicitToken), "Cancellation detail lost");
+                if(kind.starts_with("read-")) require(failure.read_failure && failure.read_failure->process &&
+                                                          failure.read_failure->process->output == "original review read failure" &&
+                                                          failure.read_failure->process->cancellation_signal == (kind == "read-cancel" ? std::optional<int>(SIGINT) : std::nullopt),
+                                                      "4A read cause flattened");
+                if(failure.stage == Stage::Input || failure.stage == Stage::ContentRead || failure.stage == Stage::Classification || failure.stage == Stage::Presentation)
+                    require(rendered.empty() && input.rdbuf()->in_avail() == static_cast<std::streamsize>(answer.size()), "Failed collection/presentation consumed input or displayed prefix");
+                if(expected == Reason::OutputFailure) require(input.rdbuf()->in_avail() == static_cast<std::streamsize>(answer.size()), "Output failure consumed Yes");
+                if(kind == "cleanup-failure" || kind == "read-cleanup-failure")
+                    require(failure.cleanup.objects && !failure.cleanup.selection && removal_attempts == 1, "Cleanup consequence lost");
+                else
+                    require(failure.cleanup.succeeded(), "Unexpected cleanup failure");
+            }
+        }
+        if(moved) require(moved->valid() && moved->cleanup().succeeded(), "Invalid moved input consumed another owner");
+        require(!fs::exists(context_root), "Review retained selection context");
+        if(kind == "cleanup-failure" || kind == "read-cleanup-failure") {
+            require(removal_attempts == 1 && fs::exists(object_root), "Destructor retried refused cleanup");
+            set_pinned_closure_test_hooks({});
+            fs::remove_all(object_root); // Exact fixture-created residue, after assertions.
+        } else
+            require(!fs::exists(object_root), "Review retained object backing");
+        fixture.require_no_provenance_publication();
+        std::cout << "S564 4B0 " << kind << " PASS\n"
+                  << std::flush;
+    }
+    std::cout << "S564 4B0 final inventory PASS: " << cases.size() << " cases\n";
+}
+#endif
+
 } // namespace
 
 int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
     const std::vector<fs::path> before = context_root_inventory();
     try {
+#ifdef MOGUET_ENABLE_PINNED_CLOSURE_REVIEW_TEST_HOOKS
+        if(argc != 2 || std::string(argv[1]) != "--pinned-closure-review") throw std::invalid_argument("Explicit closure review mode required");
+        test_pinned_closure_review();
+        require(context_root_inventory() == before, "Closure review retained selection context");
+        return 0;
+#endif
 #ifdef MOGUET_ENABLE_PINNED_SUBMODULE_CLOSURE_TEST_HOOKS
         if(argc != 2 || std::string(argv[1]) != "--pinned-closure") throw std::invalid_argument("Explicit closure mode required");
         test_pinned_closure_allocation_cleanup();
