@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.7.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-15 06:40+0900\n"
+"POT-Creation-Date: 2026-09-15 13:51+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -1507,6 +1507,9 @@ msgstr ""
 
 #, c++-format
 msgid "{}: devel tracking baseline is missing. Fully review the source, rebuild and install it to establish {} tracking?"
+msgstr ""
+
+msgid "The required confirmation was declined. Any earlier completed phases remain unchanged."
 msgstr ""
 
 msgid "Preparation target snapshot does not match the targets eligible in this preflight phase."
@@ -5185,9 +5188,6 @@ msgid "(type {} to cancel)"
 msgstr ""
 
 msgid "Please answer yes, no, or cancel."
-msgstr ""
-
-msgid "The required confirmation was declined. Any earlier completed phases remain unchanged."
 msgstr ""
 
 msgid "The current operation was cancelled because interactive input ended. Any earlier completed phases remain unchanged."
