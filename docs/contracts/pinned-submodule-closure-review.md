@@ -68,10 +68,15 @@ live until explicit cleanup or destruction, using the same 4A no-retry policy.
 
 ## Remaining scope
 
-This is a production-disconnected foundation. There is no production consumer
-of the Accepted owner yet. All production gitfile, `.git/modules`,
+The [4B1 workspace producer](pinned-submodule-workspace.md) consumes Accepted
+whole ownership into a move-only SourceReady owner, using fresh local derived
+Git state and phase-point proof. The immutable 4A backing and same selection
+lineage survive. This is not continuous attestation; disposable workspace/cache
+is not authority, and persistent user cache is untouched.
+
+This remains a production-disconnected foundation. All production gitfile, `.git/modules`,
 `.gitmodules`, workspace-cardinality and S3 recipe Gitlink gates remain closed.
-4B1 materialization and 4B2 common S4 integration remain pending. S5/S6,
+4B2 native makepkg/common S4 integration remains pending. S5/S6,
 provenance schema v1/27 keys, cache policy and CLI routing are unchanged.
 
 The focused `test-pinned-submodule-closure-review` target uses real local 4A

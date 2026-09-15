@@ -2,6 +2,7 @@
 
 #include "evaluated_devel_source_build.hpp"
 #include "reviewed_source_git_parser.hpp"
+#include "pinned_submodule_workspace_authority.hpp"
 
 // Object-level acquisition limits, independent of recipe/build budgets.
 struct PinnedClosureLimits {
@@ -110,6 +111,7 @@ public:
     [[nodiscard]] PinnedClosureCleanupResult cleanup() noexcept;
 
 private:
+    friend class PinnedSubmoduleWorkspaceAuthority;
     explicit InvocationOwnedPinnedSubmoduleClosure(std::unique_ptr<PinnedSubmoduleClosureData>) noexcept;
     friend PinnedSubmoduleClosureResult acquire_pinned_submodule_closure(EvaluatedDevelSourceSelection selection);
     std::unique_ptr<PinnedSubmoduleClosureData> data_;

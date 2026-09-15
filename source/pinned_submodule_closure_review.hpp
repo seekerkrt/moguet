@@ -62,6 +62,7 @@ public:
     [[nodiscard]] PinnedClosureCleanupResult cleanup() noexcept;
 
 private:
+    friend class PinnedSubmoduleWorkspaceAuthority;
     AcceptedPinnedSubmoduleClosure(InvocationOwnedPinnedSubmoduleClosure closure,
                                    ExplicitConfirmationAcceptance confirmation) noexcept;
     friend PinnedClosureReviewResult review_pinned_submodule_closure(

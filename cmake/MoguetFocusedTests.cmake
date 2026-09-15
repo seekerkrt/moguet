@@ -70,6 +70,7 @@ foreach(_moguet_direct_focus IN ITEMS
     invocation-owned-source-build-context
     pinned-submodule-closure
     pinned-submodule-closure-review
+    pinned-submodule-workspace
     evaluated-devel-source-build
     evaluated-devel-source-artifact-transport
     exact-installed-binding

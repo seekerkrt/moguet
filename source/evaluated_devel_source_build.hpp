@@ -165,6 +165,7 @@ public:
 
 private:
     friend class EvaluatedDevelSourceBuildAuthority;
+    friend class PinnedSubmoduleWorkspaceAuthority;
     explicit EvaluatedDevelSourceSelection(
         std::unique_ptr<EvaluatedDevelSourceBuildAuthority::SelectionState> state) noexcept;
     [[nodiscard]] const EvaluatedDevelSourceSelectionStateData& require_state() const;

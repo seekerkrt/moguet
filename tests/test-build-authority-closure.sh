@@ -392,8 +392,8 @@ assert_contains "$repo_root/.gitignore" '/compile_commands.json'
 
 # Compare the historical Make aliases with the actual CMake focused targets.
 # This checks the frontend mapping without duplicating either inventory here.
-[ "$#" -eq 130 ] ||
-    fail "Make focused alias inventory is $#, expected 130"
+[ "$#" -eq 131 ] ||
+    fail "Make focused alias inventory is $#, expected 131"
 make_aliases=$test_root/make-focused-aliases.txt
 cmake_aliases=$test_root/cmake-focused-aliases.txt
 cmake_help=$test_root/cmake-target-help.txt
@@ -401,15 +401,15 @@ missing_aliases=$test_root/missing-focused-aliases.txt
 unexpected_aliases=$test_root/unexpected-focused-aliases.txt
 
 printf '%s\n' "$@" | LC_ALL=C sort > "$make_aliases"
-[ "$(LC_ALL=C sort -u "$make_aliases" | wc -l)" -eq 130 ] ||
+[ "$(LC_ALL=C sort -u "$make_aliases" | wc -l)" -eq 131 ] ||
     fail 'Make focused alias inventory contains duplicates'
 
 "$cmake_command" --build "$cmake_build_dir" --target help > "$cmake_help"
 sed -n \
     's/.*moguet-focus-\(test-[a-z0-9-][a-z0-9-]*\).*/\1/p' \
     "$cmake_help" | LC_ALL=C sort -u > "$cmake_aliases"
-[ "$(wc -l < "$cmake_aliases")" -eq 130 ] ||
-    fail "CMake focused target inventory is $(wc -l < "$cmake_aliases"), expected 130"
+[ "$(wc -l < "$cmake_aliases")" -eq 131 ] ||
+    fail "CMake focused target inventory is $(wc -l < "$cmake_aliases"), expected 131"
 
 LC_ALL=C comm -23 "$make_aliases" "$cmake_aliases" > "$missing_aliases"
 LC_ALL=C comm -13 "$make_aliases" "$cmake_aliases" > "$unexpected_aliases"
@@ -441,5 +441,5 @@ assert_contains "$phony_marker" 'test-cmake'
 assert_contains "$phony_marker" 'test-repository'
 
 printf '%s\n' \
-    'build-authority-closure-test: Make aliases=130, CMake targets=130, missing=0, unexpected=0'
+    'build-authority-closure-test: Make aliases=131, CMake targets=131, missing=0, unexpected=0'
 printf '%s\n' 'build-authority-closure-test: all checks passed'

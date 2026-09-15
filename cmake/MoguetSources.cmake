@@ -56,6 +56,7 @@ set(MOGUET_PRODUCTION_SOURCES
     source/dry_run.cpp
     source/pinned_submodule_closure.cpp
     source/pinned_submodule_closure_review.cpp
+    source/pinned_submodule_workspace.cpp
     source/evaluated_devel_source_build.cpp
     source/exact_artifact_transaction_protocol.cpp
     source/filtered_aur_update_operation.cpp

@@ -914,3 +914,11 @@ moguet_add_ctest(
     COMMAND "$<TARGET_FILE:pinned-submodule-closure-review-test>" --pinned-closure-review
 )
 set_tests_properties(cpp.pinned_submodule_closure_review PROPERTIES TIMEOUT 300)
+
+# Source-ready foundation; no makepkg preparation/build or existing suites.
+moguet_add_ctest(
+    NAME cpp.pinned_submodule_workspace
+    TARGETS pinned-submodule-workspace-test
+    COMMAND "$<TARGET_FILE:pinned-submodule-workspace-test>" --pinned-submodule-workspace
+)
+set_tests_properties(cpp.pinned_submodule_workspace PROPERTIES TIMEOUT 300)

@@ -105,6 +105,15 @@ _moguet_append_arguments(
 _moguet_append_arguments(_moguet_common_arguments _moguet_project_options)
 _moguet_append_arguments(_moguet_common_arguments _moguet_cppflags)
 
+# 4B1 has a standalone mode so focused implementation checks do not rerun
+# the existing closure/review/recipe authority suites.
+if(NOT MOGUET_PINNED_CLOSURE_REVIEW_ONLY)
+    include("${CMAKE_CURRENT_LIST_DIR}/MoguetPinnedWorkspaceNegativeCompile.cmake")
+endif()
+if(MOGUET_PINNED_WORKSPACE_ONLY)
+    return()
+endif()
+
 # 4B0 shares the compiler/profile inputs, with a narrow standalone mode.
 include("${CMAKE_CURRENT_LIST_DIR}/MoguetPinnedClosureReviewNegativeCompile.cmake")
 if(MOGUET_PINNED_CLOSURE_REVIEW_ONLY)
