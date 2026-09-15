@@ -80,6 +80,11 @@ ReviewedDevelExecutionSnapshot execute_normal_reviewed_devel(PreparedReviewedDev
     }
     try {
         if(const auto* failure = result.recipe_acquisition_failure()) out.recipe_acquisition_failure = *failure;
+        if(const auto* failure = result.closure_review_failure()) {
+            out.closure_review_failure = *failure;
+            if(failure->reason == PinnedClosureReviewFailureReason::Declined)
+                out.required_review_decline = ReviewedSourceOperationStop::make(ReviewedSourceOperationStopReason::NonExplicitAcceptance);
+        }
         out.production_outcome = project_reviewed_devel_execution_outcome(result);
         if(const auto* p = result.publication(); p && p->installation().proof())
             out.artifact = p->installation().proof()->built_proof().artifact().evidence().identity;
@@ -93,6 +98,12 @@ ReviewedDevelExecutionSnapshot execute_normal_reviewed_devel(PreparedReviewedDev
 ProductionSourceBuildStagedOutcome project_reviewed_devel_execution_outcome(const ReviewedDevelSourceBuildExecutionResult& result) {
     ProductionSourceBuildStagedOutcome out;
     out.source_provenance = result.source_provenance();
+    if(const auto* review = result.closure_review_failure(); review &&
+                                                             (review->reason == PinnedClosureReviewFailureReason::Cancelled || review->reason == PinnedClosureReviewFailureReason::Declined)) {
+        // Initial evaluation and recipe publication may already have completed;
+        // the required closure acceptance stopped before source/build execution.
+        return out;
+    }
     if(result.build_completed())
         out.build_outcome = ProductionSourceBuildCommandOutcome::Succeeded;
     else if(result.stage() != ReviewedDevelSourceBuildStage::Intent && result.stage() != ReviewedDevelSourceBuildStage::Context && result.stage() != ReviewedDevelSourceBuildStage::RecipeCleanup && result.stage() != ReviewedDevelSourceBuildStage::Environment) {

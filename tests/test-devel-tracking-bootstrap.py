@@ -134,8 +134,16 @@ def main():
         "pinned-recursive", "pinned-branch", "pinned-prepared-root", "pinned-prepared-child",
         "pinned-post-child", "pinned-gitlink", "pinned-declaration", "pinned-missing",
         "pinned-extra", "pinned-cancel", "pinned-build-failure", "pinned-cleanup-refusal")}
+    interaction_cases = {
+        "multi-pinned-review-q": b"y\ny\nq\n",
+        "multi-pinned-review-eof": b"y\ny\n\x04",
+        "multi-pinned-review-no": b"y\ny\nn\n",
+        "multi-pinned-review-q-cleanup": b"y\ny\nq\n",
+    }
+    pinned_cases |= interaction_cases
     if len(sys.argv) > 2:
-        cases = pinned_cases if sys.argv[2] == "--pinned-s4" else {sys.argv[2]: (cases | pinned_cases)[sys.argv[2]]}
+        cases = (interaction_cases if sys.argv[2] == "--closure-interaction" else pinned_cases if sys.argv[2] == "--pinned-s4"
+                 else {sys.argv[2]: (cases | pinned_cases)[sys.argv[2]]})
     with http.server.ThreadingHTTPServer(("127.0.0.1", 0), Rpc) as server:
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
@@ -162,6 +170,13 @@ def main():
             if completed.returncode or f"S553 production {case} PASS" not in output:
                 print(output)
                 raise SystemExit(f"bootstrap fixture {case} failed: exit {completed.returncode}")
+            if case in interaction_cases:
+                if f"S564 FG1 {case.removeprefix('multi-')} PASS" not in output or output.count("Accept this complete exact source closure?") != 1:
+                    raise SystemExit(f"closure interaction oracle missing: {case}")
+                expected = "review could not produce explicit acceptance" if case == "multi-pinned-review-no" else "AUR update: Cancelled"
+                if expected not in output or "authoritative execution incomplete" in output:
+                    print(output)
+                    raise SystemExit(f"closure interaction presentation was flattened: {case}")
             if case.startswith("pinned-"):
                 if f"S564 4B2 {case} PASS" not in output:
                     raise SystemExit(f"missing closure integration oracle: {case}")
@@ -177,7 +192,7 @@ def main():
             if "malicious-old" in output:
                 raise SystemExit(f"old cache bytes reached full review: {case}")
             for line in output.splitlines():
-                if line.startswith(("S553 lifecycle ", "S564 4B2 ")):
+                if line.startswith(("S553 lifecycle ", "S564 4B2 ", "S564 FG1 ")):
                     print(line)
             print(f"S553 production {case} PASS")
         server.shutdown()

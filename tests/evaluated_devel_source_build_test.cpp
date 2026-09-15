@@ -2978,6 +2978,7 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
         ArchitectureFixture integration_recipe;
 #ifdef MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
         const bool pinned = mode.starts_with("pinned-");
+        const bool closure_interaction = mode.starts_with("pinned-review-");
         std::unique_ptr<UpstreamGitFixture> submodule, nested;
         std::string old_child;
         if(pinned) {
@@ -3045,7 +3046,8 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
 #ifdef MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
         unsigned acquisition_fetches = 0, acquisition_processes = 0, acquisition_creations = 0, acquisition_cleanups = 0, context_entries = 0;
         fs::path acquisition_root, closure_root, integration_root;
-        std::optional<struct stat> integration_identity;
+        std::optional<struct stat> integration_identity, closure_identity;
+        unsigned source_preparations = 0, package_builds = 0, closure_cleanup_attempts = 0;
         unsigned initial_evaluations = 0, root_observations = 0, closure_reviews = 0, workspace_clones = 0, closure_phase_points = 0;
         std::map<std::string, fs::path> closure_remotes{{upstream.url(), upstream.remote()}};
         if(pinned) {
@@ -3053,7 +3055,17 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
             closure_remotes.emplace(nested->url(), nested->remote());
         }
         PinnedClosureTestHooks closure_hooks;
-        closure_hooks.event = [&](auto, const auto& path) { closure_root = path; };
+        closure_hooks.event = [&](auto, const auto& path) {
+            closure_root = path;
+            if(closure_interaction && !closure_identity) {
+                struct stat identity{};
+                if(::lstat(path.c_str(), &identity) == 0) closure_identity = identity;
+            }
+        };
+        if(mode == "pinned-review-q-cleanup") closure_hooks.before_remove = [&](const auto&) {
+            ++closure_cleanup_attempts;
+            throw std::runtime_error("closure cleanup fixture refusal");
+        };
         closure_hooks.process = [&](const auto& original, const auto& policy) {
             require(closure_reviews == 0, "SourceReady reacquired/reviewed closure");
             auto invocation = original;
@@ -3087,6 +3099,8 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
         set_pinned_workspace_test_hooks(workspace_hooks);
         set_evaluated_devel_source_build_process_test_hook([&](const auto& invocation, const auto& policy, auto phase) {
             if(phase == EvaluatedDevelSourceBuildProcess::InitialPrintSrcinfo) ++initial_evaluations;
+            if(phase == EvaluatedDevelSourceBuildProcess::SourcePreparation) ++source_preparations;
+            if(phase == EvaluatedDevelSourceBuildProcess::PackageBuild) ++package_builds;
             if(pinned && phase == EvaluatedDevelSourceBuildProcess::SourcePreparation) {
                 require(std::find(invocation.arguments.begin(), invocation.arguments.end(), "--holdver") != invocation.arguments.end(), "Native preparation lost holdver");
                 require(std::find(invocation.arguments.begin(), invocation.arguments.end(), "--noextract") == invocation.arguments.end(), "Native prepare() was skipped");
@@ -3505,6 +3519,82 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
             if(migration_cache_case) {
                 require(cache_before == bootstrap_cache_snapshot(old_cache), "migration changed old checkout bytes/inventory/HEAD/refs/config");
                 require(!fs::exists(old_git_calls), "migration invoked Git on old checkout");
+            }
+            if(closure_interaction) {
+                const bool declined = mode == "pinned-review-no";
+                const bool cleanup_failed = mode == "pinned-review-q-cleanup";
+                const auto cancellation_reason = mode == "pinned-review-eof" ? ConfirmationCancellationReason::EndOfInput : ConfirmationCancellationReason::ExplicitToken;
+                require(!result.is_success() && filtered.execution && filtered.reduced_operation_result.reduction_issues.empty(),
+                        "Closure interaction lost coherent partial result");
+                const auto& execution = *filtered.execution;
+                const auto& item = execution.work_item_results[bootstrap_index];
+                require(item.devel_execution && item.devel_execution->owner && item.bootstrap_decision &&
+                            item.bootstrap_decision->state == AurUpdateBootstrapDecisionState::Accepted,
+                        "Closure stop lost the live owner or accepted migration");
+                const auto& owner = *item.devel_execution->owner;
+                const auto* review = owner.closure_review_failure();
+                require(review && review->reason == (declined ? PinnedClosureReviewFailureReason::Declined : PinnedClosureReviewFailureReason::Cancelled),
+                        "Original closure disposition was lost");
+                require(item.production_outcome && item.production_outcome == item.devel_execution->production_outcome &&
+                            item.production_outcome->build_outcome == ProductionSourceBuildCommandOutcome::NotAttempted &&
+                            item.production_outcome->install_outcome == ProductionSourceInstallOutcome::NotAttempted &&
+                            item.production_outcome->source_provenance.reviewed_outcome == ProductionReviewedSourceOutcome::BootstrapFullReview &&
+                            fs::exists(r_directory / "1.toml") && !fs::exists(p_directory / "1.toml"),
+                        "Closure stop lost prior R facts or invented build/publication");
+                require(initial_evaluations == 1 && root_observations == 1 && closure_reviews == 1 && acquisition_creations == 1 && acquisition_cleanups == 1 &&
+                            workspace_clones == 0 && closure_phase_points == 0 && source_preparations == 0 && package_builds == 0 &&
+                            prepare_calls == 0 && execute_calls == 0 && g_bridge_publication_entries == 0 && !owner.build_completed() && !owner.publication(),
+                        "Closure interaction began downstream work or repeated authority");
+                if(declined) {
+                    require(execution.status == AurUpdateInvocationExecutionStatus::StoppedOnWorkItemFailure &&
+                                target.status == AurUpdateOperationTargetStatus::Failed && !item.cancellation &&
+                                item.failure_kind == AurUpdateWorkItemFailureKind::BuildOrInstallFailed,
+                            "Required review decline changed operation policy");
+                    const auto& detail = std::get<AurUpdateSourceBuildFailureSnapshot>(item.failure_detail);
+                    require(detail.category == AurUpdateSourceBuildFailureCategory::Other && detail.reviewed_source_failure &&
+                                detail.reviewed_source_failure->stage == ReviewedSourceProductionFailureStage::Acceptance &&
+                                detail.reviewed_source_failure->reason == ReviewedSourceProductionFailureReason::ReviewOperationStopped &&
+                                std::get<ReviewedSourceOperationStop>(detail.reviewed_source_failure->detail).reason() == ReviewedSourceOperationStopReason::NonExplicitAcceptance &&
+                                detail.diagnostic == confirmation_stop_diagnostic(ConfirmationDeclined{ConfirmationDecisionOrigin::ExplicitToken}),
+                            "Decline became an actual build/internal/external failure");
+                } else {
+                    require(execution.status == AurUpdateInvocationExecutionStatus::StoppedOnWorkItemCancellation &&
+                                filtered.reduced_operation_result.status == AurUpdateOperationStatus::StoppedOnWorkItemCancellation &&
+                                item.status == AurUpdateWorkItemExecutionStatus::Cancelled && target.status == AurUpdateOperationTargetStatus::Cancelled &&
+                                item.failure_kind == AurUpdateWorkItemFailureKind::None && item.cancellation && item.cancellation->reason == cancellation_reason &&
+                                target.cancellation == item.cancellation && review->cancellation == cancellation_reason,
+                            "Closure q/EOF was flattened or lost its reason");
+                    for(const std::string fault : {"owner", "reason", "completed"}) {
+                        auto forged = execution;
+                        auto& altered = forged.work_item_results[bootstrap_index];
+                        if(fault == "owner") altered.devel_execution->owner.reset();
+                        if(fault == "reason") altered.cancellation->reason = cancellation_reason == ConfirmationCancellationReason::ExplicitToken ? ConfirmationCancellationReason::EndOfInput : ConfirmationCancellationReason::ExplicitToken;
+                        if(fault == "completed") altered.devel_execution->build_completed = true;
+                        const auto reduced = reduce_aur_update_operation_result(filtered.preflight, filtered.preparation, DevelRequiresCheckPolicy::SkipIndependentTarget, forged);
+                        require(reduced.status == AurUpdateOperationStatus::InconsistentResult, "Cancellation adopted an unrelated execution snapshot");
+                    }
+                }
+                require(review->cleanup.succeeded() == !cleanup_failed && execution.has_cleanup_failure() == cleanup_failed && result.has_cleanup_failure() == cleanup_failed,
+                        "Cleanup consequence replaced/lost primary interaction");
+                require(!fs::exists(owner.owned_root()), "Closure stop leaked selection context");
+                if(cleanup_failed) {
+                    require(review->cleanup.objects && closure_cleanup_attempts == 1 && closure_identity && fs::exists(closure_root), "Expected bounded cleanup refusal missing");
+                    struct stat retained{};
+                    require(::lstat(closure_root.c_str(), &retained) == 0 && retained.st_dev == closure_identity->st_dev &&
+                                retained.st_ino == closure_identity->st_ino && retained.st_uid == closure_identity->st_uid && S_ISDIR(retained.st_mode),
+                            "Fixture closure root was replaced");
+                    // Same fixture-owned backing cleanup as the 4B0/4B1 lanes;
+                    // the source-context helper intentionally excludes this root.
+                    fs::remove_all(closure_root);
+                } else
+                    require(!fs::exists(closure_root), "Closure stop leaked object backing");
+                require(multi && targets.front().status == AurUpdateOperationTargetStatus::Updated && targets.back().status == AurUpdateOperationTargetStatus::NotAttempted &&
+                            sidecar_calls == std::vector<std::string>{first_name},
+                        "Closure stop lost completed prefix or executed suffix");
+                present_filtered_aur_update_execution_result(filtered);
+                std::cout << "S564 FG1 " << mode << " PASS materialize=0 prepare=0 build=0 install=0 publication=0\n";
+                std::cout << "S553 production " << case_name << " PASS\n";
+                continue;
             }
             if(provider_case) {
                 require(filtered.execution.has_value(), "provider fixture has no execution");

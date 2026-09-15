@@ -397,7 +397,8 @@ void require_coherent_work_item(
                                      work_item.cancellation->reason == ConfirmationCancellationReason::ExplicitToken ||
                                      work_item.cancellation->reason == ConfirmationCancellationReason::EndOfInput);
     if(!valid_cancellation ||
-       (cancelled && (work_item.production_outcome || work_item.devel_execution || work_item.diagnostic)) ||
+       (cancelled && (work_item.production_outcome || work_item.devel_execution || work_item.diagnostic) &&
+        !has_consistent_closure_review_cancellation(work_item)) ||
        work_item.package_base.empty() || work_item.child_results.empty() ||
        work_item.child_results.size() != work_item.plan_package_names.size() ||
        !failure_kind_matches_work_item(work_item.status, work_item.failure_kind)) {
