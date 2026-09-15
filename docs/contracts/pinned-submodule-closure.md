@@ -134,12 +134,14 @@ text closure, and obtains its own explicit confirmation. The resulting
 `AcceptedPinnedSubmoduleClosure` retains this owner, including the selection
 and backing. Recipe acceptance and migration Yes do not authorize this step.
 Binary, oversized or unsupported content cannot be accepted. Production
-consumers and workspace/materialization remain pending 4B1/4B2.
+routes remain disconnected. [4B1](pinned-submodule-workspace.md) now consumes
+Accepted whole ownership into an exact local source-ready workspace, without
+mutating this backing; 4B2 integration remains pending.
 
 ## Remaining Slice 4B
 
-Source worktree materialization, submodule gitfile/modules correlation,
-SRCDEST preseed, native makepkg hand-off,
-network/input policy, source-ready and actual S4 closure reproof remain unimplemented.
+SRCDEST preseed, native makepkg hand-off and common S4 closure integration
+remain unimplemented. Source-ready phase-point proof belongs to 4B1; it is
+not continuous attestation or a general sandbox.
 Existing production submodule gates, recipe acquisition/cache boundaries,
 S5/S6 and provenance schema remain unchanged.

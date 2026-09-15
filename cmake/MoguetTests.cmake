@@ -1154,10 +1154,10 @@ list(
     MOGUET_EXPECTED_CPP_TEST_FIREWALL_DESCRIPTORS
     _moguet_expected_firewall_descriptor_count
 )
-if(NOT _moguet_expected_target_count EQUAL 119)
+if(NOT _moguet_expected_target_count EQUAL 120)
     message(
         FATAL_ERROR
-        "Expected C++ test target inventory must contain 119 entries, got "
+        "Expected C++ test target inventory must contain 120 entries, got "
         "${_moguet_expected_target_count}"
     )
 endif()
@@ -1168,17 +1168,17 @@ if(NOT _moguet_expected_support_count EQUAL 32)
         "${_moguet_expected_support_count}"
     )
 endif()
-if(NOT _moguet_expected_firewall_count EQUAL 52)
+if(NOT _moguet_expected_firewall_count EQUAL 53)
     message(
         FATAL_ERROR
-        "Expected link firewall inventory must contain 52 entries, got "
+        "Expected link firewall inventory must contain 53 entries, got "
         "${_moguet_expected_firewall_count}"
     )
 endif()
-if(NOT _moguet_expected_firewall_descriptor_count EQUAL 52)
+if(NOT _moguet_expected_firewall_descriptor_count EQUAL 53)
     message(
         FATAL_ERROR
-        "Expected link firewall descriptor inventory must contain 52 "
+        "Expected link firewall descriptor inventory must contain 53 "
         "entries, got ${_moguet_expected_firewall_descriptor_count}"
     )
 endif()
@@ -1241,9 +1241,9 @@ list(
 list(LENGTH MOGUET_CTEST_NAMES _moguet_ctest_count)
 message(
     STATUS
-    "Moguet C++ tests: targets=${_moguet_test_target_count}/119, "
+    "Moguet C++ tests: targets=${_moguet_test_target_count}/120, "
     "support=${_moguet_test_support_count}/32, "
-    "firewalls=${_moguet_test_firewall_count}/52, "
-    "descriptors=${_moguet_test_firewall_descriptor_count}/52, "
+    "firewalls=${_moguet_test_firewall_count}/53, "
+    "descriptors=${_moguet_test_firewall_descriptor_count}/53, "
     "CTest registrations=${_moguet_ctest_count}"
 )

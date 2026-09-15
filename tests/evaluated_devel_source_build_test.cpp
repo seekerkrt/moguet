@@ -4,6 +4,10 @@
 #ifdef MOGUET_ENABLE_PINNED_CLOSURE_REVIEW_TEST_HOOKS
 #include "pinned_submodule_closure_review.hpp"
 #endif
+#ifdef MOGUET_ENABLE_PINNED_SUBMODULE_WORKSPACE_TEST_HOOKS
+#include "pinned_submodule_workspace.hpp"
+#include <set>
+#endif
 #ifdef MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
 #include "aur_devel_update.hpp"
 #include "system_aur_update_operation.hpp"
@@ -355,6 +359,15 @@ public:
         run_git({"push", "origin", "main"});
         return oid_;
     }
+#ifdef MOGUET_ENABLE_PINNED_SUBMODULE_WORKSPACE_TEST_HOOKS
+    void workspace_attributes() {
+        write_file(work_ / ".gitattributes", "payload.txt text eol=crlf\n");
+        run_git({"add", "--", ".gitattributes"});
+        run_git({"commit", "-qm", "native checkout attributes"});
+        oid_ = output_git({"rev-parse", "HEAD"});
+        run_git({"push", "origin", "main"});
+    }
+#endif
     void modules_mode(const std::string& mode) {
         // update-index rejects a symlink .gitmodules before the consumer can
         // observe it. Construct the invalid raw tree only in this fixture.
@@ -5060,11 +5073,332 @@ void test_pinned_closure_review() {
 }
 #endif
 
+
+#ifdef MOGUET_ENABLE_PINNED_SUBMODULE_WORKSPACE_TEST_HOOKS
+void test_pinned_submodule_workspace() {
+    using Ready = SourceReadyPinnedSubmoduleWorkspace;
+    using Accepted = AcceptedPinnedSubmoduleClosure;
+    using Reason = PinnedWorkspaceFailureReason;
+    static_assert(!std::is_default_constructible_v<Ready> && !std::is_copy_constructible_v<Ready>);
+    static_assert(std::is_nothrow_move_constructible_v<Ready>);
+    static_assert(!std::is_constructible_v<Ready, fs::path, bool>);
+    static_assert(!std::is_invocable_v<decltype(materialize_pinned_submodule_workspace), InvocationOwnedPinnedSubmoduleClosure>);
+    static_assert(!std::is_invocable_v<decltype(resume_evaluated_devel_source), Ready>);
+    const std::vector<std::string> cases{
+        "single", "nested", "siblings", "sha256", "attributes", "root-only", "move", "destructor", "explicit-reproof",
+        "wrong-root", "wrong-child", "gitfile", "absolute-gitfile", "symlink-gitfile", "missing-gitdir", "wrong-name", "extra-module",
+        "missing-child", "index-drift", "declaration-drift", "unexpected-repo", "workspace-replaced", "root-gitdir-replaced",
+        "cleanup-refusal", "object-cleanup-refusal", "cancel", "git-failure", "allocation", "moved-input", "object-transfer-failure",
+        "config-drift", "object-alternate", "name-collision", "preexisting-workspace", "unclean-source", "partial-cleanup-replacement"};
+    const auto read = [](const fs::path& path) {
+        std::ifstream input(path, std::ios::binary);
+        require(input.good(), "Workspace fixture read failed: " + path.string());
+        return std::string(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
+    };
+    const auto fingerprint = [&](const fs::path& root) {
+        std::map<fs::path, std::pair<ino_t, std::string>> result;
+        for(const auto& entry : fs::recursive_directory_iterator(root)) {
+            struct stat identity{};
+            require(::lstat(entry.path().c_str(), &identity) == 0, "Fingerprint stat failed");
+            result.emplace(entry.path().lexically_relative(root), std::make_pair(identity.st_ino, entry.is_regular_file() ? read(entry.path()) : std::string()));
+        }
+        return result;
+    };
+    for(const auto& kind : cases) {
+        struct Reset {
+            ~Reset() {
+                set_pinned_workspace_test_hooks({});
+                set_pinned_closure_test_hooks({});
+                set_pinned_closure_review_test_hooks({});
+                set_evaluated_devel_source_build_process_test_hook({});
+                set_invocation_owned_source_build_context_test_hook({});
+            }
+        } reset;
+        const auto format = kind == "sha256" ? GitObjectFormat::Sha256 : GitObjectFormat::Sha1;
+        UpstreamGitFixture child("workspace-child-" + kind, format), upstream("workspace-root-" + kind, format);
+        const auto old_child = child.oid(), old_root = upstream.oid();
+        child.commit("child exact content\n");
+        std::unique_ptr<UpstreamGitFixture> leaf;
+        if(kind == "nested") {
+            leaf = std::make_unique<UpstreamGitFixture>("workspace-nested");
+            child.pin_tree(module_declaration("leaf-name", "nested/b", leaf->url()), {{"nested/b", leaf->oid()}});
+        }
+        if(kind == "attributes") child.workspace_attributes();
+        auto declaration = module_declaration("logical/A", "deps/a", child.url());
+        std::vector<std::pair<std::string, std::string>> pins{{"deps/a", child.oid()}};
+        if(kind == "siblings" || kind == "name-collision") {
+            declaration += module_declaration(kind == "siblings" ? "other-name" : "logical/A/hooks", "deps/b", child.url());
+            pins.emplace_back("deps/b", child.oid());
+        }
+        if(kind != "root-only") upstream.pin_tree(declaration, pins);
+        const auto exact_root = upstream.oid(), exact_child = child.oid();
+        ReviewedBuildFixture fixture("workspace-" + kind, upstream);
+        auto context = fixture.make_context();
+        const auto context_root = context.owned_root(), builddir = context.builddir();
+        struct stat context_identity{};
+        require(::lstat(context_root.c_str(), &context_identity) == 0, "Missing fixture context");
+        struct FailureCleanup {
+            fs::path root;
+            struct stat identity;
+            ~FailureCleanup() noexcept {
+                if(std::uncaught_exceptions() && fs::exists(root)) try {
+                        cleanup_retained_fixture(root, identity);
+                    } catch(...) {
+                    }
+            }
+        } failure_cleanup{context_root, context_identity};
+        auto environment = fixture.make_environment(context);
+        unsigned initial = 0, workspace_calls = 0, clones = 0, cleanup_attempts = 0, object_cleanup_attempts = 0;
+        set_evaluated_devel_source_build_process_test_hook([&](const auto& invocation, const auto& policy, auto phase) {
+            require(phase == EvaluatedDevelSourceBuildProcess::InitialPrintSrcinfo, "4B1 entered makepkg preparation/build");
+            ++initial;
+            return capture_bounded_explicit_process_output_raw(invocation, policy);
+        });
+        auto selected = select_evaluated_devel_source(std::move(context), std::move(environment));
+        auto selection = take_arm<EvaluatedDevelSourceSelection>(selected, "Workspace selection failed");
+        std::map<std::string, fs::path> remotes{{upstream.url(), upstream.remote()}, {child.url(), child.remote()}};
+        if(leaf) remotes.emplace(leaf->url(), leaf->remote());
+        fs::path object_root;
+        bool accepted_phase = false;
+        PinnedClosureTestHooks acquisition;
+        acquisition.event = [&](auto, const auto& path) { object_root = path; };
+        acquisition.process = [&](const auto& original, const auto& policy) {
+            require(!accepted_phase, "4B1 reused acquisition/read runner after acceptance");
+            auto invocation = original;
+            const auto& args = original.arguments;
+            require(std::find(args.begin(), args.end(), "protocol.file.allow=never") != args.end(), "Acquisition fixture lost original policy");
+            for(auto& arg : invocation.arguments) {
+                if(arg == "protocol.file.allow=never")
+                    arg = "protocol.file.allow=always";
+                else if(remotes.contains(arg))
+                    arg = "file://" + remotes.at(arg).string();
+            }
+            return capture_bounded_explicit_process_output_raw(invocation, policy);
+        };
+        if(kind == "object-cleanup-refusal") acquisition.before_remove = [&](const auto&) {
+            ++object_cleanup_attempts;
+            throw std::runtime_error("fixture object cleanup refusal");
+        };
+        set_pinned_closure_test_hooks(acquisition);
+        auto acquired = acquire_pinned_submodule_closure(std::move(selection));
+        auto closure = take_arm<InvocationOwnedPinnedSubmoduleClosure>(acquired, "Workspace acquisition failed");
+        const auto* selection_address = &closure.selection();
+        const auto* nodes_address = &closure.nodes();
+        const auto* edges_address = &closure.edges();
+        std::istringstream input("y\n");
+        std::ostringstream output;
+        PinnedClosureReviewTestHooks review;
+        review.input = &input;
+        review.output = &output;
+        review.interactive = true;
+        set_pinned_closure_review_test_hooks(review);
+        auto reviewed = review_pinned_submodule_closure(std::move(closure));
+        auto accepted = take_arm<Accepted>(reviewed, "Workspace review did not accept");
+        accepted_phase = true;
+        const auto original_backing = fingerprint(object_root);
+        // The already accepted pins, not advanced remote tips, must be used.
+        upstream.commit("remote root moved after acceptance\n");
+        child.commit("remote child moved after acceptance\n");
+        const auto git = [&](const fs::path& cwd, std::vector<std::string> args) {
+            args.insert(args.begin(), {"-C", cwd.string()});
+            auto environment = git_environment(fixture.home());
+            environment.emplace_back("GIT_OPTIONAL_LOCKS=0");
+            auto result = capture_process("/usr/bin/git", std::move(args), std::move(environment));
+            require(result.exit_code == 0 && !result.stdout_capture_limit_exceeded, "Workspace fixture Git failed: " + result.output);
+            if(!result.output.empty() && result.output.back() == '\n') result.output.pop_back();
+            return result.output;
+        };
+        PinnedWorkspaceTestHooks workspace;
+        workspace.process = [&](const auto& invocation, const auto& policy) {
+            ++workspace_calls;
+            const auto& args = invocation.arguments;
+            const auto has = [&](const std::string& value) { return std::find(args.begin(), args.end(), value) != args.end(); };
+            require(invocation.executable == "/usr/bin/git" && invocation.working_directory_fd && invocation.standard_input_fd &&
+                        has("protocol.file.allow=never") && has("--no-replace-objects") && !has("ls-remote") && !has("fetch") && !has("update"),
+                    "4B1 used remote/ref fallback or lost fixed process policy");
+            if(has("clone")) {
+                ++clones;
+                require(has("--local") && has("--no-hardlinks") && has("--no-checkout") && has("protocol.file.allow=always") && has("protocol.https.allow=never"), "Object transfer shared mutable backing");
+            }
+            if(kind == "partial-cleanup-replacement" && has("clone") && clones == 2)
+                return BoundedCapturedProcessResult{"partial transfer failure", BoundedProcessExited{19}};
+            if(workspace_calls == 1 && (kind == "cancel" || kind == "git-failure"))
+                return BoundedCapturedProcessResult{"workspace original outcome", BoundedProcessExited{kind == "cancel" ? 0 : 19},
+                                                    kind == "cancel" ? std::optional<int>(SIGINT) : std::nullopt};
+            return capture_bounded_explicit_process_output_raw(invocation, policy);
+        };
+        workspace.before_cleanup = [&](const auto& root) {
+            ++cleanup_attempts;
+            if(kind == "cleanup-refusal") throw std::runtime_error("fixture cleanup refusal");
+            if(kind == "partial-cleanup-replacement") {
+                fs::rename(root / ".git", root / "saved-gitdir");
+                fs::create_directory(root / ".git");
+                write_file(root / ".git/user-marker", "retain\n");
+            }
+        };
+        workspace.fail_next_allocation = kind == "allocation";
+        bool tampered = false;
+        const auto tamper = [&](const fs::path& root) {
+            if(std::exchange(tampered, true)) return;
+            const auto child_path = root / "deps/a", child_gitdir = root / ".git/modules/logical/A";
+            if(kind == "wrong-root" || kind == "cleanup-refusal" || kind == "object-cleanup-refusal") git(root, {"update-ref", "HEAD", old_root});
+            if(kind == "wrong-child") git(child_path, {"update-ref", "HEAD", old_child});
+            if(kind == "gitfile") write_file(child_path / ".git", "gitdir: ../../.git\n");
+            if(kind == "absolute-gitfile") write_file(child_path / ".git", "gitdir: " + child_gitdir.string() + "\n");
+            if(kind == "symlink-gitfile") {
+                fs::remove(child_path / ".git");
+                fs::create_symlink(root / ".git", child_path / ".git");
+            }
+            if(kind == "missing-gitdir") fs::rename(child_gitdir, root / "saved-child-gitdir");
+            if(kind == "wrong-name") fs::rename(child_gitdir, root / ".git/modules/logical/wrong");
+            if(kind == "extra-module") fs::create_directory(root / ".git/modules/extra");
+            if(kind == "missing-child") fs::remove_all(child_path);
+            if(kind == "index-drift") git(root, {"update-index", "--cacheinfo", "160000," + old_child + ",deps/a"});
+            if(kind == "declaration-drift") write_file(root / ".gitmodules", declaration + "# drift\n");
+            if(kind == "unexpected-repo") {
+                fs::create_directories(root / "ignored/.git");
+                write_file(root / ".gitignore", "ignored/\n");
+            }
+            if(kind == "workspace-replaced") {
+                fs::rename(root, root.parent_path() / "saved-workspace");
+                fs::create_directory(root);
+                write_file(root / "user-marker", "retain\n");
+            }
+            if(kind == "root-gitdir-replaced") {
+                fs::rename(root / ".git", root / "saved-metadata");
+                fs::create_directory(root / ".git");
+                write_file(root / ".git/user-marker", "retain\n");
+            }
+            if(kind == "config-drift") git(child_path, {"config", "core.worktree", "../wrong"});
+            if(kind == "object-alternate") write_file(child_gitdir / "objects/info/alternates", (object_root / "node-1/objects").string() + "\n");
+            if(kind == "unclean-source") write_file(child_path / "payload.txt", "unaccepted source\n");
+        };
+        const std::set<std::string> positives{"single", "nested", "siblings", "sha256", "attributes", "root-only", "move", "destructor", "explicit-reproof"};
+        if(!positives.contains(kind)) workspace.before_reproof = tamper;
+        if(kind == "object-transfer-failure") write_file(object_root / "node-0/config", "[core]\n bare = false\n");
+        if(kind == "preexisting-workspace") {
+            fs::create_directory(builddir / "pinned-submodule-workspace");
+            write_file(builddir / "pinned-submodule-workspace/user-marker", "retain\n");
+        }
+        set_pinned_workspace_test_hooks(workspace);
+        std::optional<Accepted> moved;
+        if(kind == "moved-input") moved.emplace(std::move(accepted));
+        {
+            auto result = materialize_pinned_submodule_workspace(std::move(accepted));
+            require(!accepted.valid() && initial == 1, "Workspace duplicated Accepted/selection authority");
+            if(positives.contains(kind)) {
+                if(const auto* error = std::get_if<PinnedWorkspaceFailure>(&result)) {
+                    std::cerr << "Workspace failure stage=" << static_cast<int>(error->stage) << " reason=" << static_cast<int>(error->reason);
+                    if(error->process) std::cerr << " process=" << error->process->output;
+                    if(error->acquisition && error->acquisition->process) {
+                        const auto& process = *error->acquisition->process;
+                        std::cerr << " transfer=" << process.output << " outcome=" << process.outcome.index();
+                        if(const auto* exited = std::get_if<BoundedProcessExited>(&process.outcome)) std::cerr << " exit=" << exited->exit_code;
+                        if(const auto* launch = std::get_if<BoundedProcessLaunchOrSetupFailure>(&process.outcome)) std::cerr << " launch=" << static_cast<int>(launch->stage) << " errno=" << launch->error_number;
+                    }
+                    std::cerr << '\n';
+                }
+                auto ready = take_arm<Ready>(result, "Workspace did not become source-ready: " + kind);
+                const auto root = ready.root();
+                require(&ready.accepted().closure().selection() == selection_address && &ready.accepted().closure().nodes() == nodes_address &&
+                            &ready.accepted().closure().edges() == edges_address && fingerprint(object_root) == original_backing,
+                        "Workspace copied owner lineage or mutated 4A backing");
+                require(git(root, {"rev-parse", "HEAD"}) == exact_root && git(root, {"status", "--porcelain", "--ignore-submodules=none"}).empty(), "Wrong/unclean exact root");
+                require(clones == ready.accepted().closure().nodes().size(), "Occurrence stores were deduplicated");
+                if(kind != "root-only") {
+                    require(read(root / ".gitmodules") == declaration && git(root / "deps/a", {"rev-parse", "HEAD"}) == exact_child &&
+                                fs::is_directory(root / ".git/modules/logical/A") && fs::is_regular_file(root / "deps/a/.git") &&
+                                read(root / "deps/a/.git") == "gitdir: ../../.git/modules/logical/A\n" &&
+                                git(root, {"ls-files", "--stage", "deps/a"}) == "160000 " + exact_child + " 0\tdeps/a",
+                            "Native logical name/path/gitfile/gitlink mismatch");
+                }
+                if(kind == "nested") require(fs::is_directory(root / ".git/modules/logical/A/modules/leaf-name") &&
+                                                 read(root / "deps/a/nested/b/.git") == "gitdir: ../../../../.git/modules/logical/A/modules/leaf-name\n" &&
+                                                 git(root / "deps/a/nested/b", {"rev-parse", "HEAD"}) == leaf->oid(),
+                                             "Nested native shape mismatch");
+                if(kind == "siblings") {
+                    struct stat a{}, b{};
+                    require(::lstat((root / "deps/a").c_str(), &a) == 0 && ::lstat((root / "deps/b").c_str(), &b) == 0 && a.st_ino != b.st_ino &&
+                                git(root / "deps/b", {"rev-parse", "HEAD"}) == exact_child && fs::is_directory(root / ".git/modules/other-name"),
+                            "Sibling occurrence collapsed");
+                }
+                if(kind == "attributes") require(read(root / "deps/a/payload.txt") == "child exact content\r\n", "Native attribute checkout semantics lost");
+                if(kind == "explicit-reproof") {
+                    workspace.before_reproof = [&](const auto& path) { git(path, {"update-ref", "HEAD", old_root}); };
+                    set_pinned_workspace_test_hooks(workspace);
+                    auto failure = ready.reprove();
+                    require(failure && failure->reason == Reason::RevisionDrift && !ready.valid(), "Explicit phase-point drift was accepted");
+                } else {
+                    auto transferred = std::move(ready);
+                    require(!ready.valid() && transferred.valid(), "SourceReady move duplicated authority");
+                    const auto dead = ready.reprove();
+                    require(dead && dead->reason == Reason::InvalidAcceptedClosure && transferred.valid(), "Moved owner consumed live workspace");
+                    if(kind == "move") require(!transferred.reprove(), "Live moved owner reproof failed");
+                    if(kind != "destructor") {
+                        const auto cleaned = transferred.cleanup();
+                        if(!cleaned.succeeded()) {
+                            std::cerr << "Cleanup workspace=" << cleaned.workspace.has_value();
+                            if(cleaned.closure.selection) std::cerr << " context=" << static_cast<int>(cleaned.closure.selection->reason);
+                            std::cerr << '\n';
+                        }
+                        require(cleaned.succeeded() && !transferred.valid(), "Owned source-ready cleanup failed");
+                    }
+                }
+            } else {
+                const auto& failure = require_arm<PinnedWorkspaceFailure>(result, "Drift/invalid workspace minted SourceReady: " + kind);
+                Reason expected = Reason::RevisionDrift;
+                if(kind == "gitfile" || kind == "absolute-gitfile") expected = Reason::GitfileMismatch;
+                if(kind == "symlink-gitfile" || kind == "workspace-replaced" || kind == "root-gitdir-replaced" || kind == "preexisting-workspace") expected = Reason::UnsafeFilesystem;
+                if(kind == "missing-gitdir" || kind == "missing-child") expected = Reason::MissingModule;
+                if(kind == "wrong-name" || kind == "extra-module" || kind == "unexpected-repo") expected = Reason::UnexpectedModule;
+                if(kind == "declaration-drift") expected = Reason::DeclarationDrift;
+                if(kind == "config-drift" || kind == "object-alternate" || kind == "name-collision") expected = Reason::GitdirMismatch;
+                if(kind == "allocation") expected = Reason::ResourceLimitExceeded;
+                if(kind == "moved-input") expected = Reason::InvalidAcceptedClosure;
+                if(kind == "object-transfer-failure" || kind == "git-failure" || kind == "partial-cleanup-replacement") expected = Reason::MaterializationFailed;
+                if(kind == "cancel") expected = Reason::Cancelled;
+                require(failure.reason == expected, "Workspace failure taxonomy: " + kind + " reason=" + std::to_string(static_cast<int>(failure.reason)));
+                if(kind == "cancel" || kind == "git-failure") require(failure.acquisition && failure.acquisition->process &&
+                                                                          failure.acquisition->process->output == "workspace original outcome" &&
+                                                                          failure.acquisition->process->cancellation_signal == (kind == "cancel" ? std::optional<int>(SIGINT) : std::nullopt),
+                                                                      "Transfer process/cancel flattened");
+                if(kind == "object-transfer-failure") require(failure.acquisition && failure.acquisition->reason == PinnedClosureFailureReason::MalformedRepository, "4A source failure flattened");
+                if(kind == "cleanup-refusal" || kind == "workspace-replaced" || kind == "preexisting-workspace" || kind == "partial-cleanup-replacement") require(failure.cleanup.workspace && failure.cleanup.closure.selection &&
+                                                                                                                                                                      failure.cleanup.closure.selection->reason == InvocationOwnedSourceBuildContextFailureReason::UnprovenCleanupContent && failure.abandoned_workspace,
+                                                                                                                                                                  "Workspace refusal was lost to parent cleanup");
+                if(kind == "object-cleanup-refusal") require(failure.cleanup.closure.objects && object_cleanup_attempts == 1, "4A cleanup consequence lost");
+                if(kind == "workspace-replaced" || kind == "preexisting-workspace") require(read(builddir / "pinned-submodule-workspace/user-marker") == "retain\n", "Unknown replacement/user content deleted");
+                if(kind == "partial-cleanup-replacement") require(read(builddir / "pinned-submodule-workspace/.git/user-marker") == "retain\n", "Partial cleanup adopted replacement metadata");
+            }
+        }
+        require(cleanup_attempts <= 1 && object_cleanup_attempts <= 1, "Destructor retried cleanup");
+        if(moved) require(moved->valid() && moved->cleanup().succeeded(), "Invalid input consumed another Accepted owner");
+        if(positives.contains(kind) && kind != "explicit-reproof")
+            require(cleanup_attempts == 1 && !fs::exists(context_root) && !fs::exists(object_root), "Positive owner cleanup was left to the fixture");
+        if(fs::exists(context_root)) cleanup_retained_fixture(context_root, context_identity);
+        if(fs::exists(object_root)) {
+            require(kind == "object-cleanup-refusal", "Unexpected backing residue");
+            fs::remove_all(object_root);
+        }
+        fixture.require_no_provenance_publication();
+        std::cout << "S564 4B1 " << kind << " PASS\n"
+                  << std::flush;
+    }
+    std::cout << "S564 4B1 final inventory PASS: " << cases.size() << " cases\n";
+}
+#endif
+
 } // namespace
 
 int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
     const std::vector<fs::path> before = context_root_inventory();
     try {
+#ifdef MOGUET_ENABLE_PINNED_SUBMODULE_WORKSPACE_TEST_HOOKS
+        if(argc != 2 || std::string(argv[1]) != "--pinned-submodule-workspace") throw std::invalid_argument("Explicit workspace mode required");
+        test_pinned_submodule_workspace();
+        require(context_root_inventory() == before, "Workspace retained selection context");
+        return 0;
+#endif
 #ifdef MOGUET_ENABLE_PINNED_CLOSURE_REVIEW_TEST_HOOKS
         if(argc != 2 || std::string(argv[1]) != "--pinned-closure-review") throw std::invalid_argument("Explicit closure review mode required");
         test_pinned_closure_review();

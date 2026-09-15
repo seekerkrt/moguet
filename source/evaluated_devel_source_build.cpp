@@ -2549,6 +2549,16 @@ InvocationOwnedSourceBuildContextCleanupResult EvaluatedDevelSourceSelection::cl
     return state_->data->context.cleanup();
 }
 
+const InvocationOwnedSourceBuildContext& PinnedSubmoduleWorkspaceAuthority::context(const EvaluatedDevelSourceSelection& selection) {
+    return selection.require_state().context;
+}
+int PinnedSubmoduleWorkspaceAuthority::builddir_descriptor(const EvaluatedDevelSourceSelection& selection) {
+    return context(selection).builddir_descriptor();
+}
+void PinnedSubmoduleWorkspaceAuthority::refuse_context_cleanup(const EvaluatedDevelSourceSelection& selection) noexcept {
+    if(selection.valid()) selection.state_->data->context.refuse_unproven_cleanup();
+}
+
 EvaluatedDevelSourceSelectionResult EvaluatedDevelSourceBuildAuthority::select(
     InvocationOwnedSourceBuildContext context, InvocationOwnedMakepkgEnvironment environment) {
     std::unique_ptr<SelectionState> state;

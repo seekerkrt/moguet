@@ -422,9 +422,9 @@ struct PinnedSubmoduleClosureData {
         root_identity = status(root.get(), active);
         lineage();
     }
-    void inspect() {
+    void inspect(std::optional<Clock::time_point> phase_deadline = std::nullopt) {
         lineage();
-        Budget budget(deadline);
+        Budget budget(phase_deadline.value_or(deadline));
         std::vector<Inventory> entries;
         inventory(root.get(), root.get(), {}, root_identity.st_dev, 0, budget, active, entries);
         for(const auto& entry : entries) {
@@ -658,6 +658,49 @@ struct PinnedSubmoduleClosureData {
         return cleanup_result;
     }
 };
+
+std::optional<PinnedClosureFailure> PinnedSubmoduleWorkspaceAuthority::clone_objects(
+    const InvocationOwnedPinnedSubmoduleClosure& closure, std::size_t node,
+    const fs::path& target, int parent_descriptor, Clock::time_point deadline,
+    BoundedCapturedProcessResult (*runner)(const ExplicitProcessInvocation&, const BoundedProcessPolicy&)) {
+    if(!closure.valid()) return PinnedClosureFailure{Stage::Input, Reason::InvalidSelection};
+    auto& data = *closure.data_;
+    try {
+        // Human review does not extend the acquisition/read deadline. This
+        // local transfer has its own phase budget and never writes the source.
+        data.inspect(deadline);
+        const auto& repo = data.repositories.at(node);
+        auto arguments = trusted_git_recipe_acquisition_process_arguments();
+        // Git checks protocol.file even for --local's direct object copy.
+        // Only this private source/target-bound transfer enables it.
+        arguments.insert(arguments.end(), {"-c", "protocol.https.allow=never", "-c", "protocol.file.allow=always"});
+        arguments.insert(arguments.end(), {"clone", "--local", "--no-hardlinks", "--no-checkout", "--quiet", "--template=",
+                                           "--", (data.root_path / repo.leaf).string(), target.string()});
+        Descriptor input(::open("/dev/null", O_RDONLY | O_CLOEXEC | O_NOFOLLOW));
+        if(input.get() < 0) fail(Stage::ObjectProof, Reason::IoFailure, errno);
+        ExplicitProcessInvocation invocation{"/usr/bin/git", std::move(arguments),
+                                             trusted_git_process_environment(TrustedGitProcessEnvironmentMode::ManagedOperation)};
+        invocation.working_directory_fd = parent_descriptor;
+        invocation.standard_input_fd = input.get();
+        const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - Clock::now());
+        if(remaining.count() <= 0) fail(Stage::ObjectProof, Reason::ResourceLimitExceeded);
+        auto result = runner(invocation, BoundedProcessPolicy{remaining, std::chrono::milliseconds(200), 65536, false, true});
+        const auto* exited = std::get_if<BoundedProcessExited>(&result.outcome);
+        if(result.cancellation_signal || !exited || exited->exit_code != 0) {
+            PinnedClosureFailure failure{Stage::ObjectProof, result.cancellation_signal ? Reason::Cancelled : Reason::GitProcessFailed};
+            failure.process = std::move(result);
+            return failure;
+        }
+        data.inspect(deadline);
+        return std::nullopt;
+    } catch(Failure& error) {
+        return std::move(error.detail);
+    } catch(const std::bad_alloc&) {
+        return PinnedClosureFailure{Stage::ObjectProof, Reason::ResourceLimitExceeded};
+    } catch(const std::exception&) {
+        return PinnedClosureFailure{Stage::ObjectProof, Reason::MalformedRepository};
+    }
+}
 
 InvocationOwnedPinnedSubmoduleClosure::InvocationOwnedPinnedSubmoduleClosure(std::unique_ptr<PinnedSubmoduleClosureData> data) noexcept : data_(std::move(data)) {
 }
