@@ -137,10 +137,10 @@ static_assert(!std::is_constructible_v<EvaluatedDevelSourceSelection, std::strin
 static_assert(std::is_invocable_v<decltype(select_evaluated_devel_source), InvocationOwnedSourceBuildContext, InvocationOwnedMakepkgEnvironment>);
 static_assert(!std::is_invocable_v<decltype(select_evaluated_devel_source), VcsSourceIdentity, bool>);
 static_assert(!std::is_invocable_v<decltype(select_evaluated_devel_source), PinnedReviewedSourceBuild>);
-static_assert(std::is_invocable_v<decltype(resume_evaluated_devel_source), EvaluatedDevelSourceSelection>);
-static_assert(!std::is_invocable_v<decltype(resume_evaluated_devel_source), EvaluatedDevelSourceSelection&>);
-static_assert(!std::is_invocable_v<decltype(resume_evaluated_devel_source), EvaluatedDevelSourceProjection>);
-static_assert(!std::is_invocable_v<decltype(resume_evaluated_devel_source), EvaluatedDevelSourceSelection, InvocationOwnedSourceBuildContext, InvocationOwnedMakepkgEnvironment>);
+static_assert(std::is_invocable_v<EvaluatedDevelSourceBuildResult (*)(EvaluatedDevelSourceSelection), EvaluatedDevelSourceSelection>);
+static_assert(!std::is_invocable_v<EvaluatedDevelSourceBuildResult (*)(EvaluatedDevelSourceSelection), EvaluatedDevelSourceSelection&>);
+static_assert(!std::is_invocable_v<EvaluatedDevelSourceBuildResult (*)(EvaluatedDevelSourceSelection), EvaluatedDevelSourceProjection>);
+static_assert(!std::is_invocable_v<EvaluatedDevelSourceBuildResult (*)(EvaluatedDevelSourceSelection), EvaluatedDevelSourceSelection, InvocationOwnedSourceBuildContext, InvocationOwnedMakepkgEnvironment>);
 static_assert(!std::is_constructible_v<InvocationOwnedSourceBuildContext, EvaluatedDevelSourceSelection>);
 static_assert(!std::is_constructible_v<EvaluatedDevelSourceBuildProof, EvaluatedDevelSourceSelection>);
 

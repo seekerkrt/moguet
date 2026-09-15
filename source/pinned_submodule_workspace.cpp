@@ -1,6 +1,7 @@
 #include "pinned_submodule_workspace.hpp"
 #include "trusted_git_process_policy.hpp"
 #include "logging.hpp"
+#include "reviewed_source_git_parser.hpp"
 
 #include <algorithm>
 #include <array>
@@ -122,7 +123,7 @@ struct DirectoryCloser {
         ::closedir(value);
     }
 };
-void scan(int root, const fs::path& prefix, dev_t device, std::size_t depth, Stage stage, ScanBudget& budget, Inventory& result) {
+void scan(int root, const fs::path& prefix, dev_t device, std::size_t depth, Stage stage, ScanBudget& budget, Inventory& result, bool mutable_content = false) {
     if(depth > MAX_DEPTH || Clock::now() >= budget.deadline) fail(stage, Reason::ResourceLimitExceeded);
     auto fd = open_beneath(root, prefix.empty() ? fs::path(".") : prefix, true, stage);
     const int scan_fd = ::fcntl(fd.get(), F_DUPFD_CLOEXEC, 3);
@@ -145,15 +146,15 @@ void scan(int root, const fs::path& prefix, dev_t device, std::size_t depth, Sta
         const auto path = prefix / name;
         struct stat identity{};
         if(::fstatat(fd.get(), name.c_str(), &identity, AT_SYMLINK_NOFOLLOW) != 0) fail(stage, Reason::UnsafeFilesystem, errno);
-        if((!S_ISDIR(identity.st_mode) && !S_ISREG(identity.st_mode)) || identity.st_dev != device ||
-           identity.st_uid != ::geteuid() || (identity.st_mode & 0022) || (S_ISREG(identity.st_mode) && identity.st_nlink != 1))
+        if((!S_ISDIR(identity.st_mode) && !S_ISREG(identity.st_mode) && !(mutable_content && S_ISLNK(identity.st_mode))) || identity.st_dev != device ||
+           identity.st_uid != ::geteuid() || (!mutable_content && ((identity.st_mode & 0022) || (S_ISREG(identity.st_mode) && identity.st_nlink != 1))))
             fail(stage, Reason::UnsafeFilesystem);
         if(S_ISREG(identity.st_mode)) {
             if(identity.st_size < 0 || static_cast<std::uintmax_t>(identity.st_size) > MAX_BYTES - budget.bytes) fail(stage, Reason::ResourceLimitExceeded);
             budget.bytes += static_cast<std::uintmax_t>(identity.st_size);
         }
         result.emplace(path, identity);
-        if(S_ISDIR(identity.st_mode)) scan(root, path, device, depth + 1, stage, budget, result);
+        if(S_ISDIR(identity.st_mode)) scan(root, path, device, depth + 1, stage, budget, result, mutable_content);
     }
 }
 bool within(const fs::path& path, const fs::path& parent) {
@@ -182,6 +183,10 @@ struct PinnedSubmoduleWorkspaceData {
     std::optional<Retained> root;
     std::vector<Binding> bindings;
     Inventory cleanup_inventory;
+    std::optional<Retained> native_base, native_src, mirror, mirror_objects;
+    std::string mirror_config;
+    Descriptor build_parent, source_parent;
+    bool native_prepared = false, execution_started = false;
     bool inventory_sealed = false, created = false, closed = false, ready = false, refuse_cleanup = false;
     PinnedWorkspaceCleanupResult cleanup_result;
     Stage active = Stage::Input;
@@ -197,8 +202,12 @@ struct PinnedSubmoduleWorkspaceData {
         Inventory result;
         if(!root) fail(active, Reason::UnsafeFilesystem);
         require_retained(parent.get(), *root, active);
+        if(native_base) require_retained(build_parent.get(), *native_base, active);
+        if(native_src) require_retained(native_base->descriptor.get(), *native_src, active);
+        if(mirror) require_retained(source_parent.get(), *mirror, active);
+        if(mirror_objects) require_retained(mirror->descriptor.get(), *mirror_objects, active);
         ScanBudget budget{end};
-        scan(root->descriptor.get(), {}, root->identity.st_dev, 0, active, budget, result);
+        scan(root->descriptor.get(), {}, root->identity.st_dev, 0, active, budget, result, execution_started);
         return result;
     }
     std::string run(int cwd, std::vector<std::string> operation, std::size_t limit = MAX_CAPTURE) {
@@ -246,8 +255,9 @@ struct PinnedSubmoduleWorkspaceData {
         cleanup_inventory = inventory(deadline);
         inventory_sealed = true;
     }
-    void prove() {
-        active = Stage::SourceReadyReproof;
+    void prove(Stage stage = Stage::SourceReadyReproof) {
+        active = stage;
+        const bool clean = stage == Stage::SourceReadyReproof;
         check();
 #ifdef MOGUET_ENABLE_PINNED_SUBMODULE_WORKSPACE_TEST_HOOKS
         if(g_hooks.before_reproof) g_hooks.before_reproof(root_path);
@@ -263,6 +273,15 @@ struct PinnedSubmoduleWorkspaceData {
         for(const auto& [path, identity] : entries) {
             static_cast<void>(identity);
             if(path.filename() == ".git" && !gitfiles.contains(path)) fail(active, Reason::UnexpectedModule);
+        }
+        if(native_src) {
+            Inventory sources;
+            ScanBudget budget{deadline};
+            scan(native_src->descriptor.get(), {}, root->identity.st_dev, 0, active, budget, sources, execution_started);
+            for(const auto& [path, identity] : sources) {
+                static_cast<void>(identity);
+                if(path.filename() == ".git" && !gitfiles.contains(path.lexically_relative(root->path))) fail(active, Reason::UnexpectedModule);
+            }
         }
         // Namespace directories lead to exactly the expected direct children.
         // Stop at a child gitdir; its nested modules are checked as a parent
@@ -326,14 +345,50 @@ struct PinnedSubmoduleWorkspaceData {
             run(cwd, {"fsck", "--strict", "--no-reflogs", "--no-dangling", node.commit.value()});
             // Exact tree equality includes every index mode160000 path/pin,
             // rather than accepting child HEAD alone as parent gitlink proof.
-            if(run(cwd, {"write-tree"}) != node.tree.value() + "\n") fail(active, Reason::RevisionDrift);
+            if(clean) {
+                if(run(cwd, {"write-tree"}) != node.tree.value() + "\n") fail(active, Reason::RevisionDrift);
+            } else {
+                // Ordinary staged content may change. Only the complete index
+                // gitlink set is revision authority at prepared/build points.
+                const auto index = run(cwd, {"ls-files", "--stage", "-z"});
+                std::map<std::string, std::string> links;
+                bool declaration_index = false;
+                std::size_t begin = 0;
+                while(begin < index.size()) {
+                    const auto end = index.find('\0', begin);
+                    const auto tab = index.find('\t', begin);
+                    if(end == std::string::npos || tab == std::string::npos || tab >= end) fail(active, Reason::RevisionDrift);
+                    const auto header = index.substr(begin, tab - begin);
+                    const auto path = index.substr(tab + 1, end - tab - 1);
+                    if(path == ".gitmodules") {
+                        const auto found = std::find_if(node.inventory.entries.begin(), node.inventory.entries.end(), [](const auto& entry) {
+                            return entry.path().raw_bytes() == ".gitmodules";
+                        });
+                        if(found == node.inventory.entries.end() || declaration_index) fail(active, Reason::DeclarationDrift);
+                        const std::string mode = found->mode() == ReviewedSourceFileMode::Executable ? "100755 " : "100644 ";
+                        if(header != mode + found->object_id().value() + " 0") fail(active, Reason::DeclarationDrift);
+                        declaration_index = true;
+                    }
+                    if(header.starts_with("160000 ")) {
+                        if(!header.ends_with(" 0") || !links.emplace(index.substr(tab + 1, end - tab - 1), header.substr(7, header.size() - 9)).second)
+                            fail(active, Reason::RevisionDrift);
+                    }
+                    begin = end + 1;
+                }
+                if(declaration_index != binding.declaration.has_value()) fail(active, Reason::DeclarationDrift);
+                std::map<std::string, std::string> expected;
+                for(const auto& edge : edges)
+                    if(edge.parent == i) expected.emplace(edge.path, edge.pin.value());
+                if(links != expected) fail(active, Reason::RevisionDrift);
+            }
             const auto declaration_path = (binding.worktree.path / ".gitmodules").lexically_normal();
             if(binding.declaration) {
                 if(!entries.contains(declaration_path) || read_regular(fd, declaration_path, active) != *binding.declaration) fail(active, Reason::DeclarationDrift);
             } else if(entries.contains(declaration_path))
                 fail(active, Reason::DeclarationDrift);
-            if(!run(cwd, {"status", "--porcelain=v1", "--untracked-files=all", "--ignored=matching", "--ignore-submodules=none"}).empty()) fail(active, Reason::RevisionDrift);
+            if(clean && !run(cwd, {"status", "--porcelain=v1", "--untracked-files=all", "--ignored=matching", "--ignore-submodules=none"}).empty()) fail(active, Reason::RevisionDrift);
         }
+        if(mirror && read_regular(mirror->descriptor.get(), "config", active) != mirror_config) fail(active, Reason::GitdirMismatch);
         check();
     }
 };
@@ -341,6 +396,116 @@ struct PinnedSubmoduleWorkspaceData {
 BoundedCapturedProcessResult PinnedSubmoduleWorkspaceAuthority::execute(const ExplicitProcessInvocation& invocation, const BoundedProcessPolicy& policy) {
     return execute_git(invocation, policy);
 }
+
+EvaluatedDevelSourceSelection& PinnedSubmoduleWorkspaceAuthority::selection(SourceReadyPinnedSubmoduleWorkspace& workspace) {
+    if(!workspace.valid()) throw std::logic_error("Pinned workspace is inactive");
+    return selection(workspace.data_->accepted.closure_);
+}
+
+std::optional<PinnedWorkspaceFailure> PinnedSubmoduleWorkspaceAuthority::prepare_native(SourceReadyPinnedSubmoduleWorkspace& workspace) {
+    if(!workspace.valid()) return PinnedWorkspaceFailure{Stage::Input, Reason::InvalidAcceptedClosure};
+    auto& data = *workspace.data_;
+    try {
+        data.deadline = Clock::now() + PHASE_TIMEOUT;
+        data.processes = 0;
+        if(data.native_prepared) fail(Stage::NativePreparation, Reason::InvalidAcceptedClosure);
+        data.prove();
+        data.active = Stage::NativePreparation;
+        auto& selected = selection(workspace);
+        const auto& ctx = context(selected);
+        const auto& source = selected.source_declaration().parsed_source;
+        std::string name;
+        if(source.destination_name)
+            name = *source.destination_name;
+        else {
+            auto location = source.source_location;
+            if(location.ends_with('/')) location.pop_back();
+            name = location.substr(location.rfind('/') + 1);
+            const auto suffix = name.find(".git");
+            if(suffix != std::string::npos) name.erase(suffix);
+        }
+        if(name.empty() || name == "." || name == ".." || name == ".git" || fs::path(name).filename() != name)
+            fail(data.active, Reason::UnsafeFilesystem);
+        data.build_parent = Descriptor(::fcntl(builddir_descriptor(selected), F_DUPFD_CLOEXEC, 3));
+        data.source_parent = Descriptor(::fcntl(srcdest_descriptor(selected), F_DUPFD_CLOEXEC, 3));
+        if(data.build_parent.get() < 0 || data.source_parent.get() < 0) fail(data.active, Reason::UnsafeFilesystem, errno);
+        Inventory source_inventory;
+        ScanBudget budget{data.deadline};
+        scan(data.source_parent.get(), {}, data.root->identity.st_dev, 0, data.active, budget, source_inventory);
+        if(!source_inventory.empty()) {
+            data.refuse_cleanup = true;
+            fail(data.active, Reason::UnexpectedModule);
+        }
+        // Native makepkg uses BUILDDIR/pkgbase/src when startdir is the
+        // separate working recipe. Relocate the retained closure once, never
+        // rematerialize it; all relative child bindings remain unchanged.
+        const auto base = ctx.package_base().package_base();
+        if(::mkdirat(data.build_parent.get(), base.c_str(), 0700) != 0) {
+            data.refuse_cleanup = true;
+            fail(data.active, Reason::UnsafeFilesystem, errno);
+        }
+        data.native_base.emplace(retain(data.build_parent.get(), base, true, data.active));
+        if(::mkdirat(data.native_base->descriptor.get(), "src", 0700) != 0) fail(data.active, Reason::UnsafeFilesystem, errno);
+        data.native_src.emplace(retain(data.native_base->descriptor.get(), "src", true, data.active));
+        const auto relocated = ctx.builddir() / base / "src" / name;
+        Descriptor next_parent(::fcntl(data.native_src->descriptor.get(), F_DUPFD_CLOEXEC, 3));
+        if(next_parent.get() < 0) fail(data.active, Reason::UnsafeFilesystem, errno);
+        if(::renameat2(data.parent.get(), data.root->path.c_str(), next_parent.get(), name.c_str(), RENAME_NOREPLACE) != 0)
+            fail(data.active, Reason::UnsafeFilesystem, errno);
+        data.root->path = name;
+        data.parent = std::move(next_parent);
+        data.root_path = relocated;
+        // SourceReady's independent object store supplies a disposable native
+        // mirror. --holdver skips its remote download; extraction fetches only
+        // this private mirror. No accepted backing or remote is reobserved.
+        const auto mirror_path = ctx.srcdest() / name;
+        data.run(data.source_parent.get(), {"-c", "protocol.file.allow=always", "clone", "--mirror", "--local", "--no-hardlinks", "--template=", "--", data.root_path.string(), name});
+        data.mirror.emplace(retain(data.source_parent.get(), name, true, data.active));
+        data.mirror_objects.emplace(retain(data.mirror->descriptor.get(), "objects", true, data.active));
+        const auto& node = data.accepted.closure().nodes().front();
+        const auto& selector = selected.git_source().selector();
+        const std::string branch = selector.kind() == VcsSelectorKind::Branch ? *selector.value() : "moguet-pinned";
+        data.run(data.mirror->descriptor.get(), {"update-ref", "refs/heads/" + branch, node.commit.value()});
+        data.run(data.mirror->descriptor.get(), {"symbolic-ref", "HEAD", "refs/heads/" + branch});
+        data.run(data.mirror->descriptor.get(), {"remote", "set-url", "origin", node.locator});
+        data.run(data.root->descriptor.get(), {"remote", "set-url", "origin", mirror_path.string()});
+        data.run(data.root->descriptor.get(), {"symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/" + branch});
+        data.bindings.front().config = read_regular(data.bindings.front().gitdir.descriptor.get(), "config", data.active);
+        data.mirror_config = read_regular(data.mirror->descriptor.get(), "config", data.active);
+        data.cleanup_inventory = data.inventory(data.deadline);
+        data.prove();
+        data.native_prepared = true;
+        data.execution_started = true;
+        return std::nullopt;
+    } catch(Failure& error) {
+        return std::move(error.detail);
+    } catch(const std::bad_alloc&) {
+        return PinnedWorkspaceFailure{Stage::NativePreparation, Reason::ResourceLimitExceeded};
+    } catch(const std::exception&) {
+        return PinnedWorkspaceFailure{Stage::NativePreparation, Reason::MaterializationFailed};
+    }
+}
+
+std::optional<PinnedWorkspaceFailure> PinnedSubmoduleWorkspaceAuthority::reprove_execution(SourceReadyPinnedSubmoduleWorkspace& workspace, Stage stage) {
+    if(!workspace.valid() || !workspace.data_->native_prepared || (stage != Stage::PreparedReproof && stage != Stage::PostBuildReproof))
+        return PinnedWorkspaceFailure{stage, Reason::InvalidAcceptedClosure};
+    try {
+        workspace.data_->deadline = Clock::now() + PHASE_TIMEOUT;
+        workspace.data_->processes = 0;
+        workspace.data_->prove(stage);
+        return std::nullopt;
+    } catch(Failure& error) {
+        // Newly observed repository/module metadata is not ordinary generated
+        // content. Do not let context cleanup adopt that unexpected subtree.
+        if(error.detail.reason == Reason::UnexpectedModule) workspace.data_->refuse_cleanup = true;
+        return std::move(error.detail);
+    } catch(const std::bad_alloc&) {
+        return PinnedWorkspaceFailure{stage, Reason::ResourceLimitExceeded};
+    } catch(const std::exception&) {
+        return PinnedWorkspaceFailure{stage, Reason::MaterializationFailed};
+    }
+}
+
 PinnedWorkspaceCleanupResult PinnedSubmoduleWorkspaceAuthority::cleanup(PinnedSubmoduleWorkspaceData& data) noexcept {
     if(data.closed) return data.cleanup_result;
     data.closed = true;
@@ -360,7 +525,7 @@ PinnedWorkspaceCleanupResult PinnedSubmoduleWorkspaceAuthority::cleanup(PinnedSu
                 if(binding.gitfile) require_retained(fd, *binding.gitfile, Stage::Cleanup);
             }
             const auto current = data.inventory(Clock::now() + CLEANUP_TIMEOUT);
-            if(data.inventory_sealed) {
+            if(data.inventory_sealed && !data.execution_started) {
                 if(current.size() != data.cleanup_inventory.size()) fail(Stage::Cleanup, Reason::UnsafeFilesystem);
                 for(const auto& [path, identity] : data.cleanup_inventory) {
                     const auto found = current.find(path);

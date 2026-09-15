@@ -21,6 +21,8 @@ struct ReviewedDevelSourceBuildExecutionState {
     std::optional<InvocationOwnedSourceBuildContextFailure> context_failure;
     std::optional<EvaluatedDevelSourceBuildProof> built;
     std::optional<EvaluatedDevelSourceBuildFailure> build_failure;
+    std::optional<PinnedClosureFailure> closure_failure;
+    std::optional<PinnedClosureReviewFailure> closure_review_failure;
     std::optional<InstalledDatabaseWorldResult> world;
     std::optional<InstalledPackageQueryResult> policy_query;
     std::optional<InstallReasonDirective> directive;
@@ -130,6 +132,14 @@ const EvaluatedDevelSourceBuildFailure* ReviewedDevelSourceBuildExecutionResult:
     const auto& value = require_state().build_failure;
     return value ? &*value : nullptr;
 }
+const PinnedClosureFailure* ReviewedDevelSourceBuildExecutionResult::closure_failure() const {
+    const auto& value = require_state().closure_failure;
+    return value ? &*value : nullptr;
+}
+const PinnedClosureReviewFailure* ReviewedDevelSourceBuildExecutionResult::closure_review_failure() const {
+    const auto& value = require_state().closure_review_failure;
+    return value ? &*value : nullptr;
+}
 const InstalledDatabaseWorldResult* ReviewedDevelSourceBuildExecutionResult::database_world() const {
     const auto& value = require_state().world;
     return value ? &*value : nullptr;
@@ -218,7 +228,35 @@ std::optional<ReviewedDevelSourceBuildExecutionResult> ReviewedDevelSourceBuildE
             return result;
         }
         enter(state, Stage::Build);
-        auto built = build_evaluated_devel_source(std::move(*state.context), std::move(std::get<InvocationOwnedMakepkgEnvironment>(environment)));
+        auto built = [&]() -> EvaluatedDevelSourceBuildResult {
+            if(!state.intent.request.devel_tracking_bootstrap)
+                return build_evaluated_devel_source(std::move(*state.context), std::move(std::get<InvocationOwnedMakepkgEnvironment>(environment)));
+            // Only the existing initial-Missing typed bootstrap intent reaches
+            // this chain. Neither a package spelling nor raw source metadata
+            // can enable the SourceReady branch of common S4.
+            auto selected = select_evaluated_devel_source(std::move(*state.context), std::move(std::get<InvocationOwnedMakepkgEnvironment>(environment)));
+            if(auto* failure = std::get_if<EvaluatedDevelSourceBuildFailure>(&selected)) return std::move(*failure);
+            auto closure = acquire_pinned_submodule_closure(std::get<EvaluatedDevelSourceSelection>(std::move(selected)));
+            EvaluatedDevelSourceBuildFailure stopped;
+            stopped.stage = EvaluatedDevelSourceBuildStage::SourceWorkspace;
+            stopped.reason = EvaluatedDevelSourceBuildFailureReason::SourceReadyInvalid;
+            if(auto* failure = std::get_if<PinnedClosureFailure>(&closure)) {
+                state.closure_failure.emplace(std::move(*failure));
+                return stopped;
+            }
+            auto accepted = review_pinned_submodule_closure(std::get<InvocationOwnedPinnedSubmoduleClosure>(std::move(closure)),
+                                                            ReviewPolicy::Prompt, state.intent.execution_options.no_confirm);
+            if(auto* failure = std::get_if<PinnedClosureReviewFailure>(&accepted)) {
+                state.closure_review_failure.emplace(std::move(*failure));
+                return stopped;
+            }
+            auto ready = materialize_pinned_submodule_workspace(std::get<AcceptedPinnedSubmoduleClosure>(std::move(accepted)));
+            if(auto* failure = std::get_if<PinnedWorkspaceFailure>(&ready)) {
+                stopped.pinned_workspace_failure = std::make_shared<PinnedWorkspaceFailure>(std::move(*failure));
+                return stopped;
+            }
+            return resume_evaluated_devel_source(std::get<SourceReadyPinnedSubmoduleWorkspace>(std::move(ready)));
+        }();
         if(auto* failure = std::get_if<EvaluatedDevelSourceBuildFailure>(&built)) {
             state.build_failure.emplace(std::move(*failure));
             state.issue = Issue::BuildFailure;

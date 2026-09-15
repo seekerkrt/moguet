@@ -133,15 +133,16 @@ producer consumes this live whole owner, reads and presents a complete bounded
 text closure, and obtains its own explicit confirmation. The resulting
 `AcceptedPinnedSubmoduleClosure` retains this owner, including the selection
 and backing. Recipe acceptance and migration Yes do not authorize this step.
-Binary, oversized or unsupported content cannot be accepted. Production
-routes remain disconnected. [4B1](pinned-submodule-workspace.md) now consumes
-Accepted whole ownership into an exact local source-ready workspace, without
-mutating this backing; 4B2 integration remains pending.
+Binary, oversized or unsupported content cannot be accepted. The
+[workspace consumer](pinned-submodule-workspace.md) retains Accepted whole
+ownership and immutable backing through native makepkg/common S4 (4B2).
+Production activation is limited to the existing typed initial-Missing
+bootstrap intent on exact target-less ordinary Auto `-Syu`.
 
-## Remaining Slice 4B
+## Phase-point / remaining scope
 
-SRCDEST preseed, native makepkg hand-off and common S4 closure integration
-remain unimplemented. Source-ready phase-point proof belongs to 4B1; it is
-not continuous attestation or a general sandbox.
-Existing production submodule gates, recipe acquisition/cache boundaries,
-S5/S6 and provenance schema remain unchanged.
+SourceReady, prepared and post-build closure proofs are phase-point evidence,
+not continuous attestation or a general sandbox. Only the typed SourceReady
+path replaces the normal single-root gates. S3 recipe Gitlink refusal,
+S5/S6 and provenance schema v1/27 keys remain unchanged.
+Issue #564 Slice 5 split group and Slice 6 representative coverage remain.

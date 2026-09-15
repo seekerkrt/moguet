@@ -21,6 +21,9 @@
 #include <functional>
 #endif
 
+struct PinnedWorkspaceFailure;
+struct PinnedWorkspaceCleanupResult;
+
 enum class EvaluatedDevelSourceBuildStage {
     ContextValidation,
     WorkingRecipe,
@@ -62,6 +65,10 @@ enum class EvaluatedDevelSourceBuildFailureReason {
     CleanupFailure,
     InternalFailure,
     ArtifactMetadataQueryFailure,
+    SourceReadyInvalid,
+    NativePreparationFailed,
+    PreparedClosureDrift,
+    PostBuildClosureDrift,
 };
 
 enum class EvaluatedDevelSourceBuildProcess {
@@ -102,6 +109,8 @@ struct EvaluatedDevelSourceBuildFailure {
     std::optional<std::string> diagnostic;
     std::optional<EvaluatedDevelSourceBuildCleanupConsequence>
         cleanup_consequence;
+    // Kept separately from makepkg/cancellation and context cleanup facts.
+    std::shared_ptr<const PinnedWorkspaceFailure> pinned_workspace_failure;
 
     bool operator==(const EvaluatedDevelSourceBuildFailure&) const = default;
 };
@@ -184,6 +193,11 @@ private:
 [[nodiscard]] EvaluatedDevelSourceBuildResult resume_evaluated_devel_source(
     EvaluatedDevelSourceSelection selection);
 
+// Consumes the accepted whole closure/selection lineage once. The same S4
+// body performs preparation, build and artifact proof without reevaluation.
+[[nodiscard]] EvaluatedDevelSourceBuildResult resume_evaluated_devel_source(
+    SourceReadyPinnedSubmoduleWorkspace workspace);
+
 // Retains the exact post-build archive descriptor and typed evidence. A path
 // is exposed for diagnostics and future command presentation only; it cannot
 // construct or substitute this capability.
@@ -261,6 +275,7 @@ public:
     // Explicit cleanup is available to tests and abandoned future installs.
     // Refusal keeps the root; the context owns whether a safe retry is allowed.
     [[nodiscard]] InvocationOwnedSourceBuildContextCleanupResult cleanup() noexcept;
+    [[nodiscard]] const PinnedWorkspaceCleanupResult* pinned_workspace_cleanup() const noexcept;
 
 private:
     friend class EvaluatedDevelSourceBuildAuthority;

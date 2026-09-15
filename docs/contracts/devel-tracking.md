@@ -30,7 +30,8 @@ Moguet v2.7.0で導入するauthoritative devel trackingの対応範囲と安全
 `EvaluatedDevelSourceSelection`がsame-context initial evaluationとreviewed projection一致を証明して
 実行状態を所有する（Issue #564 Slice 4A0）。S4は同じownerをresumeし、初回評価を繰り返さない。
 このselection自身はexact root X取得やsubmodule対応を意味しない。4Aの[object-level closure foundation](pinned-submodule-closure.md)と
-4B0の[別途明示closure review](pinned-submodule-closure-review.md)は専用ownerとして実装し、workspace・production接続は4B1/4B2へ残す。
+4B0の[別途明示closure review](pinned-submodule-closure-review.md)、4B1の[SourceReady workspace](pinned-submodule-workspace.md)を
+4B2がinitial Missing bootstrapのcommon S4へ接続する。
 [S4](evaluated-devel-source-build-proof.md)がactual build authority、
 [S5 receipt/binding](exact-installed-artifact-binding.md)と[final proof](installed-devel-source-build-proof.md)が
 実install authority、[S6](devel-build-provenance-publication.md)がhistorical publicationを所有する。
@@ -158,3 +159,21 @@ different OIDはGitRevision updateとなる。--noconfirm/non-TTY/--nodiff/confi
 bootstrapでrepairしない。Rはbuild前に進み得るがPとは別であり、install failureはpartial effectを持ち得る。
 S6 OutcomeUnknownではrecordが存在する可能性を保ち、baseline successとは報告せず、後続を停止する。
 詳細なowner/interaction境界は[normal routes](devel-normal-routes.md)を正とする。
+
+### Initial Missingのpinned closure integration（#564 Slice 4B2）
+
+上記exact routeのtyped intentだけが、recipe full review/acceptance→exact S3→actual initial evaluation→
+4A parent-pinned recursive closure→別途explicit closure review→SourceReady→native makepkg→common S4→S5→S6を通る。
+root-onlyを含むこのbootstrap chainにはcomplete bounded closure reviewが必要であり、binary/oversizedな
+未対応closureをYesで通さない。通常のvalid provenanceやnon-devel経路にはこのreviewを追加しない。
+
+SourceReady whole ownerがsame selection/accepted root X/child pinsを保持する。prepared metadata/packagelist後と
+post-buildにHEAD、gitlinks、exact `.gitmodules`、native metadata identityを再証明し、通常source contentの
+合法的なprepare/build mutationを許可する。phase-point proofでありcontinuous attestationではない。
+
+root `ActualBuiltGitRevision == X`を既存producerで証明し、child pinsはinvocation-localな別evidenceとして保持する。
+root treeのgitlinksがchild/nested pinsをtransitively固定するため、schema v1 / 27 keysは変更しない。
+root X不変のchild remote-only advanceはUpToDate、root X→YはGitRevision updateという既存root trackingを維持する。
+
+Slice 5 split PackageBase、Slice 6代表topologyの全coverageは未完了。unknown auxiliary input/Cargo取得、
+live wezterm対応、汎用sandbox/network firewall/cache managerはこのSliceの保証に含めない。

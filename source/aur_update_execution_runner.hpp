@@ -183,6 +183,22 @@ struct AurUpdateWorkItemExecutionResult {
     std::optional<RecipeAcquisitionFailure> recipe_acquisition_failure = std::nullopt;
 };
 
+// Shared structural rule for reducer and presentation. Only this pre-build
+// review stop may retain the original execution owner and prior review facts.
+inline bool has_consistent_closure_review_cancellation(const AurUpdateWorkItemExecutionResult& work_item) noexcept {
+    if(work_item.status != AurUpdateWorkItemExecutionStatus::Cancelled || !work_item.devel_execution || !work_item.devel_execution->owner ||
+       !work_item.cancellation || work_item.diagnostic || work_item.recipe_acquisition_failure) return false;
+    const auto& snapshot = *work_item.devel_execution;
+    const auto* review = snapshot.closure_review_failure ? &*snapshot.closure_review_failure : nullptr;
+    return review && review->reason == PinnedClosureReviewFailureReason::Cancelled && review->cancellation == work_item.cancellation->reason &&
+           !snapshot.complete && !snapshot.build_completed && !snapshot.projection_failed && !snapshot.required_review_decline &&
+           !snapshot.artifact && !snapshot.operation && !snapshot.publication && !snapshot.receipt && !snapshot.proof && !snapshot.pacman_exit_status && !snapshot.cleanup &&
+           !snapshot.recipe_acquisition_failure && work_item.production_outcome && snapshot.production_outcome &&
+           *work_item.production_outcome == *snapshot.production_outcome &&
+           work_item.production_outcome->build_outcome == ProductionSourceBuildCommandOutcome::NotAttempted &&
+           work_item.production_outcome->install_outcome == ProductionSourceInstallOutcome::NotAttempted;
+}
+
 enum class AurUpdateInvocationExecutionPhase { WorkItems,
                                                BootstrapDecisions };
 

@@ -693,6 +693,11 @@ bool AurUpdateSourceBuildExecutionResult::has_not_attempted_items()
 bool AurUpdateSourceBuildExecutionResult::has_cleanup_failure()
     const noexcept {
     for(const auto& work_item_result : work_item_results) {
+        if(work_item_result.devel_execution && work_item_result.devel_execution->closure_review_failure) {
+            const auto* review = &*work_item_result.devel_execution->closure_review_failure;
+            if(review && (review->reason == PinnedClosureReviewFailureReason::Cancelled || review->reason == PinnedClosureReviewFailureReason::Declined) &&
+               !review->cleanup.succeeded()) return true;
+        }
         if(work_item_result.recipe_acquisition_failure && work_item_result.recipe_acquisition_failure->cleanup) return true;
         if(work_item_result.status ==
                AurUpdateWorkItemExecutionStatus::UpdatedCleanupFailed ||
@@ -866,6 +871,32 @@ execute_prepared_aur_update_source_build_invocation(
                 work_item_result.devel_execution.emplace(std::move(*devel));
                 const auto& observed = *work_item_result.devel_execution;
                 work_item_result.recipe_acquisition_failure = observed.recipe_acquisition_failure;
+                work_item_result.production_outcome = observed.production_outcome;
+                if(observed.owner && !observed.projection_failed && observed.closure_review_failure) {
+                    const auto* review = &*observed.closure_review_failure;
+                    if(review && review->reason == PinnedClosureReviewFailureReason::Cancelled && review->cancellation) {
+                        // Reuse the formal stop handler below, retaining the
+                        // live owner, prior R facts and original cleanup detail.
+                        throw ConfirmationOperationStopped(ConfirmationCancelled{*review->cancellation});
+                    }
+                    if(review && review->reason == PinnedClosureReviewFailureReason::Declined && observed.required_review_decline &&
+                       observed.required_review_decline->reason() == ReviewedSourceOperationStopReason::NonExplicitAcceptance) {
+                        // Same required-acceptance disposition as a declined
+                        // bootstrap recipe review; no compatibility fallback.
+                        ReviewedSourceProductionFailure declined{
+                            ReviewedSourceProductionFailureStage::Acceptance,
+                            ReviewedSourceProductionFailureReason::ReviewOperationStopped,
+                            *observed.required_review_decline};
+                        work_item_result.status = AurUpdateWorkItemExecutionStatus::Failed;
+                        work_item_result.failure_kind = AurUpdateWorkItemFailureKind::BuildOrInstallFailed;
+                        work_item_result.diagnostic = localization::translate_message(
+                            "The required confirmation was declined. Any earlier completed phases remain unchanged.");
+                        work_item_result.failure_detail = AurUpdateSourceBuildFailureSnapshot{
+                            AurUpdateSourceBuildFailureCategory::Other, *work_item_result.diagnostic, std::move(declined)};
+                        result.status = AurUpdateInvocationExecutionStatus::StoppedOnWorkItemFailure;
+                        return result;
+                    }
+                }
                 work_item_result.status = observed.complete ? AurUpdateWorkItemExecutionStatus::Updated : AurUpdateWorkItemExecutionStatus::Failed;
                 work_item_result.failure_kind = observed.complete ? AurUpdateWorkItemFailureKind::None : AurUpdateWorkItemFailureKind::AuthoritativeExecutionIncomplete;
                 if(observed.artifact) {
@@ -874,7 +905,6 @@ execute_prepared_aur_update_source_build_invocation(
                     work_item_result.child_results.front().selected_artifact = observed.artifact;
                     work_item_result.child_results.front().status = AurUpdateChildExecutionStatus::Installed;
                 }
-                work_item_result.production_outcome = observed.production_outcome;
                 if(!observed.complete) {
                     work_item_result.diagnostic = "Authoritative devel execution incomplete; installation/publication details retained.";
                     result.status = AurUpdateInvocationExecutionStatus::StoppedOnWorkItemFailure;

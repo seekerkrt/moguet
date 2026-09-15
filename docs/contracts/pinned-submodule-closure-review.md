@@ -74,10 +74,11 @@ Git state and phase-point proof. The immutable 4A backing and same selection
 lineage survive. This is not continuous attestation; disposable workspace/cache
 is not authority, and persistent user cache is untouched.
 
-This remains a production-disconnected foundation. All production gitfile, `.git/modules`,
-`.gitmodules`, workspace-cardinality and S3 recipe Gitlink gates remain closed.
-4B2 native makepkg/common S4 integration remains pending. S5/S6,
-provenance schema v1/27 keys, cache policy and CLI routing are unchanged.
+4B2 connects this chain to native makepkg/common S4 only through the typed
+SourceReady consumer on the exact initial-Missing bootstrap route. Normal
+single-root gates remain for inputs without that authority; the S3 recipe
+Gitlink gate remains closed. S5/S6 and provenance schema v1/27 keys are unchanged.
+Split group authority (Slice 5) and representative coverage (Slice 6) remain.
 
 The focused `test-pinned-submodule-closure-review` target uses real local 4A
 fixtures and runs only the review lane. It does not execute the existing 4A,

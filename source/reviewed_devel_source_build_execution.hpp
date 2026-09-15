@@ -6,6 +6,7 @@
 #include "source_build_request.hpp"
 #include "separated_package_base_source_build.hpp"
 #include "invocation_owned_recipe_acquisition.hpp"
+#include "pinned_submodule_workspace.hpp"
 
 #include <memory>
 
@@ -104,6 +105,8 @@ public:
     [[nodiscard]] const InvocationOwnedSourceBuildContextFailure* context_failure() const;
     [[nodiscard]] const RecipeAcquisitionFailure* recipe_acquisition_failure() const;
     [[nodiscard]] const EvaluatedDevelSourceBuildFailure* build_failure() const;
+    [[nodiscard]] const PinnedClosureFailure* closure_failure() const;
+    [[nodiscard]] const PinnedClosureReviewFailure* closure_review_failure() const;
     [[nodiscard]] const InstalledDatabaseWorldResult* database_world() const;
     [[nodiscard]] const InstalledPackageQueryResult* install_policy_observation() const;
     [[nodiscard]] std::optional<InstallReasonDirective> install_reason_directive() const;

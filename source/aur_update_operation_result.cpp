@@ -562,7 +562,8 @@ bool failure_payload_is_consistent(
     if(work_item.cancellation &&
        work_item.cancellation->reason != ConfirmationCancellationReason::ExplicitToken &&
        work_item.cancellation->reason != ConfirmationCancellationReason::EndOfInput) return false;
-    if(cancelled && (work_item.production_outcome || work_item.devel_execution || work_item.diagnostic)) return false;
+    if(cancelled && (work_item.production_outcome || work_item.devel_execution || work_item.diagnostic) &&
+       !has_consistent_closure_review_cancellation(work_item)) return false;
     const bool has_no_detail =
         std::holds_alternative<std::monostate>(
             work_item.failure_detail);
@@ -1360,6 +1361,11 @@ bool AurUpdateOperationResult::has_cleanup_failure() const noexcept {
     if(std::any_of(
            execution_work_items.begin(), execution_work_items.end(),
            [](const AurUpdateWorkItemExecutionResult& work_item) {
+               if(work_item.devel_execution && work_item.devel_execution->closure_review_failure) {
+                   const auto* review = &*work_item.devel_execution->closure_review_failure;
+                   if(review && (review->reason == PinnedClosureReviewFailureReason::Cancelled || review->reason == PinnedClosureReviewFailureReason::Declined) &&
+                      !review->cleanup.succeeded()) return true;
+               }
                return is_cleanup_failure_status(work_item.status) ||
                       (work_item.recipe_acquisition_failure && work_item.recipe_acquisition_failure->cleanup);
            })) {

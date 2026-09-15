@@ -82,6 +82,28 @@ S4 failureはoriginal typed failureを保持してS5へ進まない。
 S5実行後は同じtransportを一度finalizeする。diagnostic returnの例外があっても再executeせず、
 S5が保持する固定operation factsをfinalize/publisherへ渡す。
 
+## Initial Missing bootstrapのclosure接続（Issue #564 4B2）
+
+既存typed `devel_tracking_bootstrap` intentを持つexecutionだけ、S3とrecipe acquisition cleanup後に
+initial selection→4A exact closure→4B0 explicit closure review→4B1 SourceReady→common S4を通す。
+explicit migration acceptanceとrecipe full review/acceptanceをこのbridgeで短絡しない。
+SourceReady consumerは同一selectionを保持し、prepared/post-build closure reproofとroot X相関だけを
+workspace-specific branchとして加える。別build pipelineやS4 proofを作らない。
+
+4A acquisition/review failureは`closure_failure()` / `closure_review_failure()`に元のprocess/cancel/cleanupを保持する。
+SourceReady以降は既存build failureへnarrow closure detailを追加する。失敗からlegacyや別revisionへfallbackしない。
+closure reviewのq/EOFは元の理由を`ConfirmationCancelled`へ戻し、既存runnerのformal cancellation処理へ渡す。
+Noは既存recipe bootstrap reviewと同じ`Acceptance / ReviewOperationStopped / NonExplicitAcceptance`へ投影する。
+required review未完了のためaggregateはnonzeroとなるが、actual build/internal failureとはtyped detailと診断で区別する。
+これらのstopではbuild/installはNotAttemptedとし、live owner、先行R publication、cleanup consequenceを保持する。
+runner/reducerのpure link境界を保つため、snapshotはownerのreview failureと既存required-review stop valueだけを追加で保持する。
+S4取得後のartifact correlation、transport、install policy、S5/S6は上記のcommon executionをそのまま使う。
+SourceReady whole ownerもS6→S5→S4 resultの寿命まで保持する。
+
+対象はexact target-less ordinary `-Syu` Autoのinitial Missingだけ。normal valid-provenance、non-devel、
+`-Su`、upgrade-aur/all、dry-run、explicit targetにはactivationを追加しない。
+provenance v1 / 27 keysは不変。Slice 5 split groupとSlice 6代表topologyのcoverage closureは残る。
+
 ## Lossless result / lifetime
 
 `ReviewedDevelSourceBuildExecutionResult`はmove-onlyでprivate construction。

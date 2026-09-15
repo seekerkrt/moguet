@@ -11,6 +11,7 @@ class InvocationOwnedSourceBuildContext;
 class InvocationOwnedMakepkgEnvironment;
 class EvaluatedDevelSourceBuildProof;
 class EvaluatedDevelSourceSelection;
+class SourceReadyPinnedSubmoduleWorkspace;
 struct EvaluatedDevelSourceBuildFailure;
 struct EvaluatedDevelSourceSelectionStateData;
 enum class EvaluatedDevelSourceBuildStage;
@@ -33,6 +34,8 @@ class EvaluatedDevelSourceBuildAuthority final {
         InvocationOwnedMakepkgEnvironment environment);
     friend EvaluatedDevelSourceBuildResult resume_evaluated_devel_source(
         EvaluatedDevelSourceSelection selection);
+    friend EvaluatedDevelSourceBuildResult resume_evaluated_devel_source(
+        SourceReadyPinnedSubmoduleWorkspace workspace);
 
     // Privileged nested classes must also be complete here: a forward-only
     // declaration would let another TU define members with our friend access.
@@ -55,4 +58,8 @@ class EvaluatedDevelSourceBuildAuthority final {
         InvocationOwnedMakepkgEnvironment environment);
     [[nodiscard]] static EvaluatedDevelSourceBuildResult resume(
         EvaluatedDevelSourceSelection selection);
+    [[nodiscard]] static EvaluatedDevelSourceBuildResult resume(
+        SourceReadyPinnedSubmoduleWorkspace workspace);
+    [[nodiscard]] static EvaluatedDevelSourceBuildResult execute(
+        SelectionState& state, SourceReadyPinnedSubmoduleWorkspace* workspace);
 };

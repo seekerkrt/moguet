@@ -78,9 +78,14 @@ network隔離やhostile-code sandboxと主張しない。branch syntax validatio
 selectionの明示cleanupは成功・失敗ともownerを消費する。破棄時も同じcleanup policyを使い、working stateや
 empty `PKGDEST`を再証明できなければrootを保持する。cleanup failureをdestructorが再試行しない。
 Slice 4Aの[trusted root freeze / exact acquisition / pinned closure foundation](pinned-submodule-closure.md)は
-このselectionをconsumeする専用ownerとして実装する。4B0の[別途明示closure review](pinned-submodule-closure-review.md)は
-production未接続のfoundationであり、workspace・makepkg hand-offは4B1/4B2へ残す。
-既存のgitfile、`.git/modules`、`.gitmodules`拒否とS5/S6/schemaは維持する。
+このselectionをconsumeする専用ownerである。4B0の[別途明示closure review](pinned-submodule-closure-review.md)と
+4B1の[SourceReady workspace](pinned-submodule-workspace.md)を経て、4B2はinitial Missing bootstrapだけをcommon S4へ接続する。
+
+`resume_evaluated_devel_source(SourceReadyPinnedSubmoduleWorkspace)`はwhole ownerをconsumeし、private bridgeから
+同じselectionのexecution stateを一度だけ借用する。初回評価、closure取得、review、materialization、remote observationを
+繰り返さない。成功したS4 stateはSourceReady全体と、その内部の同じcontextへの参照を保持する。
+通常のselection overloadと共通のexecution bodyがmetadata、packagelist、build/check/package、root revision mint、artifact proofを所有する。
+publicなselection releaseや別contextを合成する入口、child pins用の新しいpublic proof typeは追加しない。
 
 ## Makepkg phase protocol
 
@@ -88,7 +93,7 @@ Slice 1 characterizationとmakepkg owner contractに従い、同じworking recip
 
 1. initial `--printsrcinfo`とraw/evaluated source一致
 2. context/working recipeとempty private `PKGDEST` reproof、selection生成（resume時にも再証明）
-3. `--nobuild --nodeps --noconfirm`
+3. `--nobuild --nodeps --noconfirm`（typed SourceReady inputだけ`--holdver`を追加）
 4. dynamic PKGBUILD seal、post-preparation `--printsrcinfo`と`--packagelist`
 5. private mirror + actual worktree Git proof
 6. `--noextract --nodeps --noconfirm`（`-c`なし）
@@ -125,7 +130,7 @@ supplemental source対応を追加せず、S5/S6のscalar arch、schema、storag
 
 ## Git proof
 
-private `SRCDEST`直下のexactly one bare mirrorと、private `BUILDDIR`配下をbounded / descriptor-relativeに走査して
+通常のselection inputでは、private `SRCDEST`直下のexactly one bare mirrorと、private `BUILDDIR`配下をbounded / descriptor-relativeに走査して
 得たexactly one `.git` directory worktreeを保持する。directory traversalはowner、mode、device、symlink / mount
 escape、entry/depth limitを検証する。
 
@@ -139,9 +144,25 @@ selected ref / HEADをpeelせず取得したOIDのraw typeが`commit`で、repos
 一致することを確認する。replacement無効化はmetadata存在のfail-closed検査を代替しない。refs inventoryはGit自身へ問い合わせ、
 filesystem上のloose ref directoryの不在だけからreplacement metadataの不在を推定しない。
 
-makepkgのshared cloneが作るalternateはexact private mirror `objects` 1件だけを許す。linked worktree、submodule、
-external alternateは拒否する。`prepare()`やbuildがtracked worktree bytesを変更することは許すが、dirty stateを
+通常のselection inputではmakepkgのshared cloneが作るalternateはexact private mirror `objects` 1件だけを許す。
+linked worktree、未承認submodule、external alternateは拒否する。`prepare()`やbuildがtracked worktree bytesを変更することは許すが、dirty stateを
 upstream commit OIDへflattenしない。
+
+### SourceReady closureのphase-point
+
+SourceReadyだけはretained rootとexpected child gitfile/modules topologyを使い、通常pathのdirectory-only /
+workspace cardinality / `.git/modules` / `.gitmodules`拒否を置換する。通常pathのgateを削除しない。
+rootのindependent object storeはalternateなし。root mirror/ref/HEADの共通producerと
+`prove_actual_built_git_revision()`を維持し、観測したroot OIDをaccepted Xへ明示的に相関する。
+
+prepared metadataとpackagelistの完了後、build開始前にclosureを再証明する。build/check/package完了後にも
+S4 mint前に同じ証明を行う。root/child HEAD、parent indexの全gitlinks、accepted exact `.gitmodules`の
+index/working bytes、expected gitfile↔gitdir↔worktree、retained identities、extra/missing moduleを確認する。
+prepareによるtracked normal file modification、patch、staged normal content、untracked/generated inputは許可し、
+clean statusやordinary file bytes一致を要求しない。
+
+これはcontinuous attestationではない。same-UID userによるphase間の意図的な書換え→復元はthreat model外。
+観測したdriftはfail-closedとし、sandbox、network firewall、process monitor、cache repair subsystemを追加しない。
 
 ## Artifact proofとownership
 
@@ -161,6 +182,7 @@ ctimeをmetadata/hash/MTREE読取の後にも再証明する。libalpm metadata�
 - evaluated source projection
 - `ActualBuiltGitRevision`
 - retained artifact descriptor、`PackageChildIdentity`、`BuiltPackageArtifactEvidence`
+- SourceReady inputではaccepted closure/child pins/backingを含むwhole owner（invocation内だけのseparate evidence）
 
 artifact pathはdiagnostic/presentation valueでありauthorityではない。proof破棄または明示cleanupまでcontextと
 artifactを保持する。S5-Aの`EvaluatedDevelSourceArtifactTransport`はproof全体をmoveでconsumeし、
@@ -172,6 +194,13 @@ artifactを保持する。S5-Aの`EvaluatedDevelSourceArtifactTransport`はproof
 Slice 4 producer自身はinstall/publicationを呼ばず、後続phaseのownerは7-Cである。
 
 ## Failureとcleanup
+
+SourceReady inputのlocal adapter / prepared / post-build failureは`NativePreparationFailed` /
+`PreparedClosureDrift` / `PostBuildClosureDrift`と元の`PinnedWorkspaceFailure`を保持する。
+makepkg failure、process outcome、parent cancellationは既存分類を維持する。失敗cleanupはworkspace ownership確認→
+4A objects→selection/contextの順で、一度だけ行う。primary failureとworkspace/object/context cleanupを分離し、
+成功proofの明示cleanupにも`pinned_workspace_cleanup()`で詳細を保持する。通常のpackage-build開始後のrefusalは維持する。
+
 
 phase、reason、existing parser/context/process/revision causeをtyped failureとして保持する。失敗時はcontextの
 descriptor-relative cleanupを明示実行し、cleanupも失敗した場合はprimary failureを置換せず

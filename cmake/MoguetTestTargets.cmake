@@ -1529,6 +1529,9 @@ set(
     source/process.cpp
     source/logging.cpp
     source/localization.cpp
+    source/pinned_submodule_closure.cpp
+    source/pinned_submodule_closure_review.cpp
+    source/pinned_submodule_workspace.cpp
 )
 set(
     _moguet_evaluated_devel_source_build_forbidden_sources
@@ -1561,9 +1564,7 @@ moguet_add_cpp_test(
 )
 
 # Slice 4A consumes the real pre-prepare selection fixture in a separate lane.
-set(_moguet_pinned_closure_test_sources
-    ${_moguet_evaluated_devel_source_build_test_sources}
-    source/pinned_submodule_closure.cpp)
+set(_moguet_pinned_closure_test_sources ${_moguet_evaluated_devel_source_build_test_sources})
 _moguet_test_production_complement(_moguet_pinned_closure_forbidden_sources ${_moguet_pinned_closure_test_sources})
 moguet_add_cpp_test(
     pinned-submodule-closure-test
@@ -1583,9 +1584,7 @@ moguet_add_cpp_test(
 )
 
 # 4B0 uses real selection/closure fixtures, but runs only the review lane.
-set(_moguet_pinned_closure_review_test_sources
-    ${_moguet_pinned_closure_test_sources}
-    source/pinned_submodule_closure_review.cpp)
+set(_moguet_pinned_closure_review_test_sources ${_moguet_pinned_closure_test_sources})
 _moguet_test_production_complement(_moguet_pinned_closure_review_forbidden_sources ${_moguet_pinned_closure_review_test_sources})
 moguet_add_cpp_test(
     pinned-submodule-closure-review-test
@@ -1606,9 +1605,7 @@ moguet_add_cpp_test(
 )
 
 # 4B1 reuses acquisition/acceptance setup; only workspace cases execute.
-set(_moguet_pinned_workspace_test_sources
-    ${_moguet_pinned_closure_review_test_sources}
-    source/pinned_submodule_workspace.cpp)
+set(_moguet_pinned_workspace_test_sources ${_moguet_pinned_closure_review_test_sources})
 _moguet_test_production_complement(_moguet_pinned_workspace_forbidden_sources ${_moguet_pinned_workspace_test_sources})
 moguet_add_cpp_test(
     pinned-submodule-workspace-test
@@ -1778,6 +1775,9 @@ moguet_add_cpp_test(
         tests/devel_build_provenance_publication_fixture.cpp
     DEFINITIONS
         MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
+        MOGUET_ENABLE_PINNED_SUBMODULE_CLOSURE_TEST_HOOKS
+        MOGUET_ENABLE_PINNED_CLOSURE_REVIEW_TEST_HOOKS
+        MOGUET_ENABLE_PINNED_SUBMODULE_WORKSPACE_TEST_HOOKS
         MOGUET_ENABLE_RECIPE_ACQUISITION_TEST_HOOKS
         MOGUET_ENABLE_AUR_UPDATE_EXECUTION_RUNNER_TEST_HOOKS
         MOGUET_TEST_NORMAL_REVIEWED_DEVEL_EXECUTION
@@ -3551,9 +3551,9 @@ set(
 set(
     MOGUET_EXPECTED_CPP_TEST_FIREWALL_DESCRIPTORS
     pinned-submodule-workspace-test=b0cb8658372d453ed85bd39c17363e3b38926cd47e592e581d51f8c0f6f139d0
-    pinned-submodule-closure-review-test=95cce6916a3c506ca193ce8d6b4bce94579817e683566e13123aa8adc3e627ba
-    pinned-submodule-closure-test=7e1103b4235341d42cc141c80b48f2fe7456ac61e247af09bddf35450a9b059b
-    evaluated-devel-source-build-test=2d0a6ec2847c3d7b9db81b8377b7ab320c0e1ed4dc504c68faa486687f6836b9
+    pinned-submodule-closure-review-test=ac227754c268f8bb1b08000daedbf94bc98494a4612209cc2071d191ff0dc0b5
+    pinned-submodule-closure-test=7905c27ce012e159dfb081efe9c833959669883b99a1929d3770333d569c4339
+    evaluated-devel-source-build-test=ef61c94b30b2bc3dff34ee71ba11e81caa974ea293cfffb8b93776be774e4800
     moguet-aur-update-command-test=8eac70282e7394e39a41362e622bfbcb190aa9079e5be6478e28994d4d702aa9
     moguet-upgrade-all-command-test=03c1ee448f004e1958a7593767227e9a7548a01a8c5561c4df4fe5de07e025b5
     moguet-commands-sync-test=ffa148bcb97e8167c9d1dfac7a4376cd67c1126041b8dd7c4667517ea23fdf2c
