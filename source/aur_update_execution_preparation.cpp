@@ -939,6 +939,8 @@ bool collect_work_item_drafts(
         UpdateWorkItemDraft draft;
         draft.build_plan_order_index = order_index;
         draft.work_item.request.checkout_name = entry.package_base;
+        draft.work_item.request.ordinary_devel_package_base =
+            preparation.devel_requires_check_policy == DevelRequiresCheckPolicy::SkipIndependentTarget;
         draft.work_item.request.git_url =
             AUR_BASE_URL + entry.package_base + ".git";
         draft.work_item.request.aur_review_identity =
@@ -1051,6 +1053,10 @@ bool collect_work_item_drafts(
                     if(binding.target->update_plan_index == index && has_aur_update_bootstrap_intent(binding.target->update) &&
                        binding.target->update.installed_name == package_target->package_name &&
                        binding.target->update.aur_package->package_base == entry.package_base) {
+                        if(draft.work_item.request.devel_tracking_bootstrap &&
+                           draft.work_item.request.devel_tracking_bootstrap != binding.target->update.bootstrap) {
+                            unit_is_consistent = false;
+                        }
                         draft.work_item.request.devel_tracking_bootstrap = binding.target->update.bootstrap;
                     }
                 }
@@ -1636,18 +1642,21 @@ bool has_exact_prepared_correlation(
             preparation.projected_build_units[attribution.build_plan_order_index];
         std::shared_ptr<const DevelTrackingBootstrapTrial> expected_bootstrap;
         for(const auto& target : preparation.affected_update_targets) {
-            if(target.update.installed_name != work_item.request.package_name ||
-               !target.update.aur_package ||
+            if(!target.update.aur_package ||
                target.update.aur_package->package_base != work_item.request.checkout_name) continue;
             if(target.update.bootstrap) {
-                if(expected_bootstrap || !has_aur_update_bootstrap_intent(target.update)) return false;
+                if((expected_bootstrap && expected_bootstrap != target.update.bootstrap) ||
+                   !has_aur_update_bootstrap_intent(target.update) ||
+                   std::none_of(work_item.required_targets.begin(), work_item.required_targets.end(),
+                                [&](const auto& child) { return child.package_name == target.update.installed_name; })) return false;
                 expected_bootstrap = target.update.bootstrap;
             }
         }
         // The private execution capability is published only after the exact
         // root intent survives generic preparation. Dependencies receive none.
         if(work_item.request.devel_tracking_bootstrap != expected_bootstrap ||
-           (expected_bootstrap && work_item.required_targets.size() != 1)) return false;
+           work_item.request.ordinary_devel_package_base !=
+               (preparation.devel_requires_check_policy == DevelRequiresCheckPolicy::SkipIndependentTarget)) return false;
         if(attribution.invocation_work_item_index != index ||
            attribution.package_name != work_item.request.package_name ||
            attribution.package_base != work_item.request.checkout_name ||

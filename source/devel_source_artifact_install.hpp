@@ -2,6 +2,7 @@
 
 #include "devel_source_artifact_install_authority.hpp"
 #include "exact_artifact_transaction_protocol.hpp"
+#include "fresh_installed_artifact_binding.hpp"
 #include "source_artifact_install_trusted_transport.hpp"
 
 #include <memory>
@@ -61,6 +62,15 @@ enum class InstalledDevelSourceBuildIssue {
     InternalFailure,
 };
 
+// Each slot names its S4 artifact even when fresh observation fails. A successful
+// transaction with an incomplete set retains every individual observation.
+struct DevelSourceArtifactBindingObservation {
+    std::size_t artifact_index;
+    std::string package_name;
+    std::optional<FreshInstalledArtifactBinding> binding;
+    std::optional<InstalledRecordObservationIssue> issue;
+};
+
 // Live in-memory capability. Owns the original Slice 4 context/artifact,
 // exact receipt and fresh binding. All authority needed from privileged stage
 // files was captured before their retirement; no path is reread for validity.
@@ -78,6 +88,7 @@ public:
     [[nodiscard]] const EvaluatedDevelSourceBuildProof& built_proof() const;
     [[nodiscard]] const ExactArtifactTransactionReceipt& receipt() const;
     [[nodiscard]] const InstalledArtifactBinding& installed_binding() const;
+    [[nodiscard]] const std::vector<DevelSourceArtifactBindingObservation>& bindings() const;
     [[nodiscard]] std::size_t artifact_index() const;
     [[nodiscard]] ExactArtifactTransactionOperation operation() const;
 
@@ -102,6 +113,7 @@ public:
     DevelSourceArtifactInstallResult& operator=(DevelSourceArtifactInstallResult&&) = delete;
     ~DevelSourceArtifactInstallResult() noexcept;
     [[nodiscard]] bool valid() const noexcept;
+    [[nodiscard]] const EvaluatedDevelSourceBuildProof& built_proof() const;
     [[nodiscard]] DevelSourceArtifactInstallOperation operation() const;
     [[nodiscard]] std::optional<int> pacman_exit_status() const;
     [[nodiscard]] const SourceArtifactInstallTrustedExecutionResult* transport_result() const;
@@ -112,6 +124,7 @@ public:
     [[nodiscard]] const InstalledDevelSourceBuildProof* proof() const noexcept;
     [[nodiscard]] std::optional<InstalledDevelSourceBuildIssue> proof_issue() const;
     [[nodiscard]] std::optional<InstalledRecordObservationIssue> binding_issue() const;
+    [[nodiscard]] const std::vector<DevelSourceArtifactBindingObservation>& binding_observations() const;
     [[nodiscard]] const DevelSourceArtifactInstallCleanup& privileged_cleanup() const;
     // Local build context remains owned, including on Unknown. This is a
     // lifetime observation, not a promise that destructor cleanup will succeed.

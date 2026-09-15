@@ -71,7 +71,7 @@ DevelBuildProvenanceStoreCasConflict expectation_conflict(
 
 DevelBuildProvenanceStoreReadResult interpret_store_read(
     const PackageBaseIdentity& expected_package_base,
-    XdgGenerationStoreReadResult result) {
+    XdgGenerationStoreReadResult result, const PackageChildIdentity* expected_child = nullptr) {
     if(std::holds_alternative<XdgGenerationStoreMissing>(result)) {
         return DevelBuildProvenanceStoreMissing{};
     }
@@ -81,6 +81,10 @@ DevelBuildProvenanceStoreReadResult interpret_store_read(
                 loaded->observed.raw_contents, expected_package_base);
         if(auto* provenance =
                std::get_if<DevelBuildProvenanceDecoded>(&interpreted)) {
+            if(expected_child && (provenance->provenance.installed_binding().package() != *expected_child ||
+                                  provenance->provenance.artifact().identity.package_name != expected_child->package_name()))
+                return DevelBuildProvenanceStoreInvalidDocument{
+                    {DevelBuildProvenanceInvalidReason::InconsistentProvenance, "artifact_child"}, std::move(loaded->observed)};
             return DevelBuildProvenanceStoreLoaded{
                 std::move(provenance->provenance),
                 std::move(loaded->observed)};
@@ -158,19 +162,9 @@ namespace {
 DevelBuildProvenanceStorePublishResult publish_provenance(
     const DevelBuildProvenance& provenance,
     const std::optional<DevelBuildProvenanceStoreObservedRecord>&
-        expected_observed) {
+        expected_observed,
+    const XdgGenerationStoreConfiguration& configuration, const PackageChildIdentity* expected_child = nullptr) {
     const PackageBaseIdentity& package_base = provenance.package_base();
-    XdgGenerationStoreConfiguration configuration{
-        {}, "unresolved", std::string(PROVENANCE_TEMPORARY_PREFIX), devel_build_provenance_store_max_record_bytes, &is_future_provenance_document};
-    try {
-        configuration = configuration_for(package_base);
-    } catch(const xdg_paths::ResolutionError&) {
-        return DevelBuildProvenanceStoreAuthorityUnavailable{
-            XdgGenerationStoreFailure{
-                XdgGenerationStoreFailureKind::AuthorityUnavailable,
-                package_base.package_base(), std::nullopt, std::nullopt,
-                std::nullopt}};
-    }
     const std::filesystem::path entry_path =
         xdg_generation_store_entry_path(configuration);
 
@@ -178,7 +172,7 @@ DevelBuildProvenanceStorePublishResult publish_provenance(
     // supplies their raw token. The low-level CAS repeats the exact filesystem
     // proof under its exclusive lock, so a change after this read conflicts.
     DevelBuildProvenanceStoreReadResult current = interpret_store_read(
-        package_base, read_xdg_generation_store(configuration));
+        package_base, read_xdg_generation_store(configuration), expected_child);
     if(std::holds_alternative<DevelBuildProvenanceStoreMissing>(current)) {
         if(expected_observed.has_value()) {
             return expectation_conflict(entry_path);
@@ -265,7 +259,9 @@ DevelBuildProvenanceStorePublishResult publish_devel_build_provenance(
     const std::optional<DevelBuildProvenanceStoreObservedRecord>& expected_observed) {
     static_assert(std::is_nothrow_move_constructible_v<DevelBuildProvenanceStorePublishResult>);
     try {
-        return publish_provenance(provenance, expected_observed);
+        return publish_provenance(provenance, expected_observed, configuration_for(provenance.package_base()));
+    } catch(const xdg_paths::ResolutionError&) {
+        return DevelBuildProvenanceStoreAuthorityUnavailable{{XdgGenerationStoreFailureKind::AuthorityUnavailable, provenance.package_base().package_base(), {}, {}, {}}};
     } catch(const std::bad_alloc&) {
         // The low-level call handles its own post-commit exceptions. All
         // allocation in this wrapper precedes that call; returned evidence
@@ -275,5 +271,64 @@ DevelBuildProvenanceStorePublishResult publish_devel_build_provenance(
     } catch(const std::length_error&) {
         return DevelBuildProvenanceStoreFailure{XdgGenerationStoreFailure{
             XdgGenerationStoreFailureKind::ResourceFailure, {}, std::nullopt, std::nullopt, std::nullopt}};
+    }
+}
+
+namespace {
+XdgGenerationStoreConfiguration child_configuration(const PackageChildIdentity& child) {
+    require_aur_known_package_base(child.package_base());
+    // Length-prefixed base plus child is injective even when either has '-'.
+    // The separate namespace cannot collide with legacy PackageBase leaves.
+    const auto& base = child.package_base().package_base();
+    return {xdg_paths::resolve_devel_build_provenance_children_process_environment(),
+            xdg_generation_store_raw_contents_sha256(std::to_string(base.size()) + ":" + base + child.package_name()),
+            std::string(PROVENANCE_TEMPORARY_PREFIX), devel_build_provenance_store_max_record_bytes,
+            &is_future_provenance_document};
+}
+
+struct ChildLookup {
+    DevelBuildProvenanceStoreReadResult result;
+    bool legacy = false;
+};
+ChildLookup lookup_child(const PackageChildIdentity& child) {
+    auto current = interpret_store_read(child.package_base(), read_xdg_generation_store(child_configuration(child)), &child);
+    if(!std::holds_alternative<DevelBuildProvenanceStoreMissing>(current)) return {std::move(current), false};
+    auto legacy = read_devel_build_provenance(child.package_base());
+    if(const auto* loaded = std::get_if<DevelBuildProvenanceStoreLoaded>(&legacy)) {
+        if(loaded->provenance.installed_binding().package() == child &&
+           loaded->provenance.artifact().identity.package_name == child.package_name())
+            return {std::move(legacy), true};
+        return {DevelBuildProvenanceStoreMissing{}, false}; // Confirmed different child, valid record.
+    }
+    // The legacy unit remains the first child's slot on an empty base, including
+    // historical single packages whose name differs from PackageBase. Subsequent
+    // siblings use independent child units and never overwrite this child.
+    return {std::move(legacy), true};
+}
+} // namespace
+
+DevelBuildProvenanceStoreReadResult read_devel_build_provenance(const PackageChildIdentity& child) {
+    try {
+        return lookup_child(child).result;
+    } catch(const xdg_paths::ResolutionError&) {
+        return DevelBuildProvenanceStoreAuthorityUnavailable{{XdgGenerationStoreFailureKind::AuthorityUnavailable, child.package_name(), {}, {}, {}}};
+    }
+}
+DevelBuildProvenanceStorePublishResult publish_child_devel_build_provenance(
+    const DevelBuildProvenance& provenance,
+    const std::optional<DevelBuildProvenanceStoreObservedRecord>& expected_observed) {
+    try {
+        const auto& child = provenance.installed_binding().package();
+        const auto current = lookup_child(child);
+        // Route the same exact predecessor back to its original generation unit.
+        // publish_provenance repeats semantic checks and locked CAS; no retry.
+        return publish_provenance(provenance, expected_observed,
+                                  current.legacy ? configuration_for(provenance.package_base()) : child_configuration(child), &child);
+    } catch(const xdg_paths::ResolutionError&) {
+        return DevelBuildProvenanceStoreAuthorityUnavailable{{XdgGenerationStoreFailureKind::AuthorityUnavailable, provenance.package_base().package_base(), {}, {}, {}}};
+    } catch(const std::bad_alloc&) {
+        return DevelBuildProvenanceStoreFailure{{XdgGenerationStoreFailureKind::ResourceFailure, {}, {}, {}, {}}};
+    } catch(const std::length_error&) {
+        return DevelBuildProvenanceStoreFailure{{XdgGenerationStoreFailureKind::ResourceFailure, {}, {}, {}, {}}};
     }
 }

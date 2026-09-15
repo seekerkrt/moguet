@@ -180,6 +180,13 @@ set_tests_properties(
     # The architecture correlation matrix runs real makepkg/archive phases.
     PROPERTIES TIMEOUT 300
 )
+moguet_add_ctest(
+    NAME cpp.split_devel_artifact_authority
+    TARGETS evaluated-devel-source-build-test
+    COMMAND "$<TARGET_FILE:evaluated-devel-source-build-test>" --split-artifacts
+    WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+)
+set_tests_properties(cpp.split_devel_artifact_authority PROPERTIES TIMEOUT 180)
 _moguet_add_direct_ctest(
     cpp.reviewed_source_projection
     reviewed-source-projection-test

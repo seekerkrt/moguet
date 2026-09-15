@@ -26,14 +26,17 @@ std::optional<PacmanDatabasePaths> test_paths;
 DevelPackageAssessment assess(const PackageBaseIdentity& base, const std::string& child,
                               const InstalledPackageStateSnapshot& inventory) {
     DevelPackageAssessmentTarget target{base, {}, devel_suffix_candidate_kind(base.package_base()).has_value() || devel_suffix_candidate_kind(child).has_value()};
+    target.selected_child = child;
     bool complete = true;
     for(const auto& [name, installed] : inventory) {
         if(!installed.package_base.value()) {
             complete = false;
             continue;
         }
-        if(*installed.package_base.value() == base.package_base())
+        if(*installed.package_base.value() == base.package_base()) {
             target.installed_children.push_back(PackageChildIdentity::make(base, name));
+            target.known_devel_context = target.known_devel_context || devel_suffix_candidate_kind(name).has_value();
+        }
     }
     const auto found = inventory.find(child);
     if(!complete || found == inventory.end() || !found->second.package_base.value() ||
@@ -175,33 +178,59 @@ AurDevelUpdateContextObservation observe_aur_devel_update_context() {
 
 void observe_aur_devel_bootstrap_candidates(AurUpdateQueryResult& query, const AppConfig& config) {
     if(config.no_confirm || config.user_config.review.diff != ReviewPolicy::Prompt || isatty(STDIN_FILENO) != 1) return;
-    for(auto& observation : query.devel_observations) {
+    std::set<std::string> observed_bases;
+    for(const auto& observation : query.devel_observations) {
         if(observation.plan_index >= query.plan.entries.size() || !observation.evidence || !observation.context) continue;
-        auto& entry = query.plan.entries[observation.plan_index];
-        const auto& evidence = *observation.evidence;
-        if(entry.bootstrap || !is_initial_devel_bootstrap_observation(entry, evidence)) continue;
-        if(std::count_if(query.devel_observations.begin(), query.devel_observations.end(), [&](const auto& item) {
-               return item.plan_index == observation.plan_index;
-           }) != 1) continue;
+        const auto& entry = query.plan.entries[observation.plan_index];
+        if(entry.bootstrap || !is_initial_devel_bootstrap_observation(entry, *observation.evidence)) continue;
         const auto& base_name = entry.aur_package->package_base;
-        if(std::count_if(query.plan.entries.begin(), query.plan.entries.end(), [&](const auto& other) {
-               return other.aur_package && other.aur_package->package_base == base_name;
-           }) != 1) continue; // No trial from a partial/shared RPC PackageBase view.
-
+        if(!observed_bases.insert(base_name).second) continue;
+        const auto* inventory = observation.context->installed_inventory
+                                    ? std::get_if<InstalledPackageStateSnapshot>(&*observation.context->installed_inventory)
+                                    : nullptr;
+        if(!inventory || std::any_of(query.plan.entries.begin(), query.plan.entries.end(), [&](const auto& target) {
+               if(!target.aur_package || target.aur_package->package_base != base_name) return false;
+               const auto child = inventory->find(target.installed_name);
+               return target.installed_name != target.aur_package->aur_name || child == inventory->end() ||
+                      !child->second.package_base.value() || *child->second.package_base.value() != base_name;
+           })) continue;
         const auto base = PackageBaseIdentity::make(PackageSourceIdentity::aur(
                                                         SourceLocationIdentity::known_git_remote("https://aur.archlinux.org/" + base_name + ".git")),
                                                     base_name);
-        const auto trial = observe_devel_tracking_bootstrap(PackageChildIdentity::make(base, entry.installed_name));
-        observation.bootstrap_unavailable.reset();
-        if(const auto* unavailable = std::get_if<DevelTrackingBootstrapUnavailable>(&trial)) {
-            observation.bootstrap_unavailable = *unavailable;
+        std::vector<PackageChildIdentity> packages;
+        std::vector<std::size_t> indices;
+        for(std::size_t index = 0; index < query.devel_observations.size(); ++index) {
+            const auto& candidate = query.devel_observations[index];
+            if(candidate.plan_index >= query.plan.entries.size() || !candidate.evidence || !candidate.context) continue;
+            const auto& target = query.plan.entries[candidate.plan_index];
+            if(target.aur_package && target.aur_package->package_base == base_name &&
+               is_initial_devel_bootstrap_observation(target, *candidate.evidence)) {
+                packages.push_back(PackageChildIdentity::make(base, target.installed_name));
+                indices.push_back(index);
+            }
         }
+        const auto trial = observe_devel_tracking_bootstrap(packages);
         if(const auto* available = std::get_if<std::shared_ptr<const DevelTrackingBootstrapTrial>>(&trial)) {
-            if((*available)->installed().version().full_version() &&
-               *(*available)->installed().version().full_version() == entry.installed_version)
-                entry.bootstrap = *available;
-            else
-                observation.bootstrap_unavailable = DevelTrackingBootstrapUnavailable{DevelTrackingBootstrapUnavailableReason::ObservationChanged};
+            const auto& group = (*available)->installed_group();
+            if(std::any_of(query.plan.entries.begin(), query.plan.entries.end(), [&](const auto& target) {
+                   return target.aur_package && target.aur_package->package_base == base_name &&
+                          (target.installed_name != target.aur_package->aur_name || !group.contains(target.installed_name));
+               })) continue;
+        }
+        for(const auto index : indices) {
+            auto& candidate = query.devel_observations[index];
+            auto& target = query.plan.entries[candidate.plan_index];
+            candidate.bootstrap_unavailable.reset();
+            if(const auto* unavailable = std::get_if<DevelTrackingBootstrapUnavailable>(&trial))
+                candidate.bootstrap_unavailable = *unavailable;
+            if(const auto* available = std::get_if<std::shared_ptr<const DevelTrackingBootstrapTrial>>(&trial)) {
+                const auto* child = (*available)->selected_child(target.installed_name);
+                if(child && child->installed.version().full_version() &&
+                   *child->installed.version().full_version() == target.installed_version)
+                    target.bootstrap = *available;
+                else
+                    candidate.bootstrap_unavailable = DevelTrackingBootstrapUnavailable{DevelTrackingBootstrapUnavailableReason::ObservationChanged};
+            }
         }
     }
 }
@@ -336,22 +365,21 @@ RecipeObservationResult observe_recipe(const PackageChildIdentity& package) {
     return RecipeObservation{revision, std::move(metadata)};
 }
 
-bool complete_installed_group(const PackageChildIdentity& package) {
+std::optional<InstalledPackageStateSnapshot> complete_installed_group(const PackageChildIdentity& package) {
     const auto context = observe_aur_devel_update_context();
-    if(!context.installed_inventory) return false;
+    if(!context.installed_inventory) return {};
     const auto* inventory = std::get_if<InstalledPackageStateSnapshot>(&*context.installed_inventory);
-    if(!inventory) return false;
-    const auto selected = inventory->find(package.package_name());
-    if(selected == inventory->end() || !selected->second.package_base.value() ||
-       *selected->second.package_base.value() != package.package_base().package_base() ||
-       selected->second.reason == InstalledPackageReason::Unknown) return false;
-    std::size_t children = 0;
+    if(!inventory) return {};
+    InstalledPackageStateSnapshot group;
     for(const auto& [name, installed] : *inventory) {
-        static_cast<void>(name);
-        if(!installed.package_base.value()) return false;
-        if(*installed.package_base.value() == package.package_base().package_base()) ++children;
+        if(!installed.package_base.value()) return {};
+        if(*installed.package_base.value() == package.package_base().package_base()) {
+            if(installed.reason == InstalledPackageReason::Unknown) return {};
+            group.emplace(name, installed);
+        }
     }
-    return children == 1;
+    if(!group.contains(package.package_name())) return {};
+    return group;
 }
 
 bool valid_reviewed(const ReviewedSourceStateStoreRead& read) {
@@ -362,9 +390,11 @@ bool valid_reviewed(const ReviewedSourceStateStoreRead& read) {
 
 DevelTrackingBootstrapTrial::DevelTrackingBootstrapTrial(
     PackageChildIdentity package, SourceRevisionIdentity revision, std::string metadata,
-    InstalledArtifactBinding installed, ReviewedSourceStateStoreRead reviewed)
-    : package_(std::move(package)), recipe_revision_(std::move(revision)), source_metadata_(std::move(metadata)),
-      installed_(std::move(installed)), installed_version_(*installed_.version().full_version()), reviewed_(std::move(reviewed)) {
+    std::vector<DevelTrackingBootstrapChild> selected, InstalledPackageStateSnapshot installed_group,
+    std::vector<std::string> declared, ReviewedSourceStateStoreRead reviewed)
+    : selected_children_(std::move(selected)), installed_group_(std::move(installed_group)), declared_children_(std::move(declared)),
+      package_(std::move(package)), recipe_revision_(std::move(revision)), source_metadata_(std::move(metadata)),
+      reviewed_(std::move(reviewed)) {
 }
 
 namespace {
@@ -387,7 +417,8 @@ std::optional<Reason> bootstrap_source_unavailable_reason(const PackageChildIden
     if(!sources.is_success() || !metadata.is_success()) return Reason::RecipeMetadataMalformed;
     if(sources.metadata()->package_base != package.package_base().package_base() ||
        metadata.metadata()->package_base != package.package_base().package_base() ||
-       metadata.metadata()->children.size() != 1 || metadata.metadata()->children.front().name != package.package_name()) return Reason::UnsupportedSource;
+       std::none_of(metadata.metadata()->children.begin(), metadata.metadata()->children.end(),
+                    [&](const auto& child) { return child.name == package.package_name(); })) return Reason::UnsupportedSource;
     // Match S4's bounded input count without treating trial metadata as proof.
     constexpr std::size_t MAX_BOOTSTRAP_SOURCE_ENTRIES = 64;
     if(sources.metadata()->source_entries.empty() ||
@@ -444,37 +475,61 @@ std::optional<Reason> bootstrap_source_unavailable_reason(const PackageChildIden
 } // namespace
 
 DevelTrackingBootstrapObservation observe_devel_tracking_bootstrap(const PackageChildIdentity& package) {
+    return observe_devel_tracking_bootstrap(std::vector<PackageChildIdentity>{package});
+}
+DevelTrackingBootstrapObservation observe_devel_tracking_bootstrap(const std::vector<PackageChildIdentity>& packages) {
     try {
+        if(packages.empty()) return DevelTrackingBootstrapUnavailable{Reason::InstalledStateUnavailable};
+        const auto& package = packages.front();
         const auto& base = package.package_base();
-        if(!is_valid_package_name(package.package_name()) || !is_valid_package_name(base.package_base()) ||
+        if(!is_valid_package_name(base.package_base()) ||
            base.source() != PackageSourceIdentity::aur(SourceLocationIdentity::known_git_remote(
-                                "https://aur.archlinux.org/" + base.package_base() + ".git"))) return DevelTrackingBootstrapUnavailable{Reason::RecipeUnavailable};
-        if(!complete_installed_group(package)) return DevelTrackingBootstrapUnavailable{Reason::InstalledStateUnavailable};
-        const auto local = observe_devel_bootstrap_local_state(package);
-        if(!local.provenance || !std::holds_alternative<DevelBuildProvenanceStoreMissing>(*local.provenance))
-            return DevelTrackingBootstrapUnavailable{Reason::ProvenanceNotMissing};
-        const auto* installed = local.installed ? std::get_if<CurrentInstalledArtifactBindingObserved>(&*local.installed) : nullptr;
-        if(!installed) return DevelTrackingBootstrapUnavailable{Reason::InstalledStateUnavailable};
-        const auto* reviewed = local.reviewed ? std::get_if<ReviewedSourceStateStoreRead>(&*local.reviewed) : nullptr;
-        if(!reviewed || !valid_reviewed(*reviewed)) return DevelTrackingBootstrapUnavailable{Reason::ReviewedStateInvalid};
-        // Initial migration always acquires a fresh exact recipe after Yes.
-        // Persistent checkout state is neither eligibility nor recipe authority.
+                                "https://aur.archlinux.org/" + base.package_base() + ".git")))
+            return DevelTrackingBootstrapUnavailable{Reason::RecipeUnavailable};
+        const auto group = complete_installed_group(package);
+        if(!group) return DevelTrackingBootstrapUnavailable{Reason::InstalledStateUnavailable};
+        std::set<std::string> selected_names;
+        std::vector<DevelTrackingBootstrapChild> selected;
+        std::optional<ReviewedSourceStateStoreRead> reviewed;
+        for(const auto& child : packages) {
+            if(child.package_base() != base || !selected_names.insert(child.package_name()).second ||
+               !group->contains(child.package_name())) return DevelTrackingBootstrapUnavailable{Reason::InstalledStateUnavailable};
+            const auto local = observe_devel_bootstrap_local_state(child);
+            if(!local.provenance || !std::holds_alternative<DevelBuildProvenanceStoreMissing>(*local.provenance))
+                return DevelTrackingBootstrapUnavailable{Reason::ProvenanceNotMissing};
+            const auto* installed = local.installed ? std::get_if<CurrentInstalledArtifactBindingObserved>(&*local.installed) : nullptr;
+            if(!installed) return DevelTrackingBootstrapUnavailable{Reason::InstalledStateUnavailable};
+            const auto* current_reviewed = local.reviewed ? std::get_if<ReviewedSourceStateStoreRead>(&*local.reviewed) : nullptr;
+            if(!current_reviewed || !valid_reviewed(*current_reviewed) || (reviewed && *reviewed != *current_reviewed))
+                return DevelTrackingBootstrapUnavailable{Reason::ReviewedStateInvalid};
+            reviewed = *current_reviewed;
+            selected.push_back({child, installed->binding(), *installed->binding().version().full_version()});
+        }
         const auto observed_recipe = observe_recipe(package);
         if(const auto* unavailable = std::get_if<DevelTrackingBootstrapUnavailable>(&observed_recipe)) return *unavailable;
         const auto& recipe = std::get<RecipeObservation>(observed_recipe);
         if(const auto reason = bootstrap_source_unavailable_reason(package, recipe.srcinfo)) return DevelTrackingBootstrapUnavailable{*reason};
-        // Network observation is outside all local reader lifetimes. Recheck
-        // the same local facts once before returning a trial to the prompt.
-        const auto after = observe_devel_bootstrap_local_state(package);
-        const auto* after_installed = after.installed ? std::get_if<CurrentInstalledArtifactBindingObserved>(&*after.installed) : nullptr;
-        const auto* after_reviewed = after.reviewed ? std::get_if<ReviewedSourceStateStoreRead>(&*after.reviewed) : nullptr;
-        if(!after.provenance || !std::holds_alternative<DevelBuildProvenanceStoreMissing>(*after.provenance) ||
-           !after_installed || after_installed->binding() != installed->binding() ||
-           !after_reviewed || *after_reviewed != *reviewed || !complete_installed_group(package)) {
-            return DevelTrackingBootstrapUnavailable{Reason::ObservationChanged};
+        const auto metadata = parse_local_package_metadata(recipe.srcinfo);
+        std::vector<std::string> declared;
+        for(const auto& child : metadata.metadata()->children)
+            declared.push_back(child.name);
+        // Never silently discard stale installed children from I_db to form I.
+        for(const auto& [name, installed] : *group) {
+            static_cast<void>(installed);
+            if(std::find(declared.begin(), declared.end(), name) == declared.end())
+                return DevelTrackingBootstrapUnavailable{Reason::UndeclaredInstalledChild};
         }
+        for(const auto& child : selected) {
+            const auto after = observe_devel_bootstrap_local_state(child.package);
+            const auto* installed = after.installed ? std::get_if<CurrentInstalledArtifactBindingObserved>(&*after.installed) : nullptr;
+            const auto* current_reviewed = after.reviewed ? std::get_if<ReviewedSourceStateStoreRead>(&*after.reviewed) : nullptr;
+            if(!after.provenance || !std::holds_alternative<DevelBuildProvenanceStoreMissing>(*after.provenance) ||
+               !installed || installed->binding() != child.installed || !current_reviewed || *current_reviewed != *reviewed)
+                return DevelTrackingBootstrapUnavailable{Reason::ObservationChanged};
+        }
+        if(complete_installed_group(package) != group) return DevelTrackingBootstrapUnavailable{Reason::ObservationChanged};
         return std::shared_ptr<const DevelTrackingBootstrapTrial>(new DevelTrackingBootstrapTrial(
-            package, recipe.revision, recipe.srcinfo, installed->binding(), *reviewed));
+            package, recipe.revision, recipe.srcinfo, std::move(selected), *group, std::move(declared), *reviewed));
     } catch(const std::bad_alloc&) {
         throw;
     } catch(const std::exception&) {
@@ -483,11 +538,15 @@ DevelTrackingBootstrapObservation observe_devel_tracking_bootstrap(const Package
 }
 
 bool revalidate_devel_tracking_bootstrap(const DevelTrackingBootstrapTrial& trial) {
-    const auto fresh = observe_devel_tracking_bootstrap(trial.package());
+    std::vector<PackageChildIdentity> packages;
+    for(const auto& child : trial.selected_children())
+        packages.push_back(child.package);
+    const auto fresh = observe_devel_tracking_bootstrap(packages);
     const auto* observed = std::get_if<std::shared_ptr<const DevelTrackingBootstrapTrial>>(&fresh);
     return observed && (*observed)->recipe_revision() == trial.recipe_revision() &&
            (*observed)->source_metadata() == trial.source_metadata() &&
-           (*observed)->installed() == trial.installed() && (*observed)->reviewed() == trial.reviewed();
+           (*observed)->selected_children() == trial.selected_children() &&
+           (*observed)->installed_group() == trial.installed_group() && (*observed)->reviewed() == trial.reviewed();
 }
 
 #ifdef MOGUET_ENABLE_DEVEL_TRACKING_BOOTSTRAP_TEST_HOOKS

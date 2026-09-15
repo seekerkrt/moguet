@@ -151,10 +151,10 @@ inline std::optional<AurUpdateBasis> aur_update_basis(const AurUpdatePlanEntry& 
 }
 
 inline bool has_aur_update_bootstrap_intent(const AurUpdatePlanEntry& entry) noexcept {
-    return entry.bootstrap && entry.aur_package &&
-           entry.bootstrap->package().package_name() == entry.installed_name &&
+    const auto* child = entry.bootstrap ? entry.bootstrap->selected_child(entry.installed_name) : nullptr;
+    return child && entry.aur_package &&
            entry.bootstrap->package().package_base().package_base() == entry.aur_package->package_base &&
-           entry.bootstrap->installed_version() == entry.installed_version &&
+           child->installed_version == entry.installed_version &&
            entry.classification == AurUpdateClassification::UpToDate &&
            entry.devel_assessment_origin == AurDevelAssessmentOrigin::CurrentObservation &&
            entry.devel_assessment.requires_check_reason() &&

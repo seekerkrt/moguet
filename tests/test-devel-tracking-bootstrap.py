@@ -20,6 +20,8 @@ class Rpc(http.server.BaseHTTPRequestHandler):
     decisions_only = False
     relation = ""
     provider_case = ""
+    split = False
+    mixed = False
 
     def log_message(self, *args):
         pass
@@ -30,7 +32,7 @@ class Rpc(http.server.BaseHTTPRequestHandler):
         for name in self.names:
             if requested and name not in requested:
                 continue
-            base = "example-base" if name == PACKAGE or (self.relation == "shared-base" and name == "bootstrap-a") else name
+            base = "example-base" if name == PACKAGE or (self.split and name == PACKAGE + "-tools") or (self.relation == "shared-base" and name == "bootstrap-a") else name
             dependency = "virtual-bootstrap<2" if self.relation == "required-provider" else PACKAGE + "<2"
             depends = [dependency] if self.relation and name == "bootstrap-a" else []
             if self.provider_case and name == "bootstrap-a":
@@ -39,7 +41,7 @@ class Rpc(http.server.BaseHTTPRequestHandler):
                 depends = ["virtual-declined"]
             provides = ["virtual-bootstrap=1"] if self.relation == "required-provider" and name == PACKAGE else []
             packages.append(dict(Name=name, PackageBase=base,
-                                 Version=self.version if name == PACKAGE or self.decisions_only else "2-1",
+                                 Version="0.5-1" if self.mixed and name == PACKAGE + "-tools" else self.version if name == PACKAGE or self.decisions_only or (self.split and name == PACKAGE + "-tools") else "2-1",
                                  Description="isolated devel bootstrap fixture", Maintainer="fixture",
                                  Depends=depends, MakeDepends=[], CheckDepends=[], OptDepends=[],
                                  Provides=provides, Conflicts=[], Replaces=[], OutOfDate=None))
@@ -141,9 +143,14 @@ def main():
         "multi-pinned-review-q-cleanup": b"y\ny\nq\n",
     }
     pinned_cases |= interaction_cases
+    split_cases = {name: b"y\ny\ny\n" for name in (
+        "split-partial", "split-partial-update", "split-both", "split-both-mixed-version", "split-partial-reordered", "split-both-reordered", "split-both-selected-missing", "split-both-nonzero", "split-both-binding-failure", "split-both-publication-failure")}
+    split_cases["multi-split-review-cancel"] = b"y\nq\n"
+    split_cases["split-both-mixed-decline"] = b"n\n"
+    cases |= split_cases
     if len(sys.argv) > 2:
-        cases = (interaction_cases if sys.argv[2] == "--closure-interaction" else pinned_cases if sys.argv[2] == "--pinned-s4"
-                 else {sys.argv[2]: (cases | pinned_cases)[sys.argv[2]]})
+        cases = (split_cases if sys.argv[2] == "--split" else interaction_cases if sys.argv[2] == "--closure-interaction" else pinned_cases if sys.argv[2] == "--pinned-s4"
+                 else {sys.argv[2]: (cases | pinned_cases | split_cases)[sys.argv[2]]})
     with http.server.ThreadingHTTPServer(("127.0.0.1", 0), Rpc) as server:
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
@@ -154,6 +161,10 @@ def main():
             Rpc.decisions_only = case in ("multi-all-decline", "multi-decision-cancel", "multi-decisions")
             suffix = "-git" if Rpc.decisions_only else ""
             Rpc.names = ["bootstrap-a" + suffix, PACKAGE, "zz-bootstrap-c" + suffix] if case.startswith("multi-") else [PACKAGE]
+            Rpc.split = "split-" in case
+            Rpc.mixed = "mixed-" in case
+            if case.startswith("split-both"):
+                Rpc.names.append(PACKAGE + "-tools")
             env = {key: value for key, value in os.environ.items()
                    if not key.startswith("MOGUET_TEST_")}
             env.update(LANG="C", LC_ALL="C", LANGUAGE="", no_proxy="127.0.0.1",

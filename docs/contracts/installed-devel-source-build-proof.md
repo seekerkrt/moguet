@@ -22,7 +22,7 @@ DevelBuildProvenance persistent value != InstalledDevelSourceBuildProof live cap
 
 ## Ownershipとclosed producer
 
-入口は`prepare_evaluated_devel_source_artifact_transport(std::move(built))`、
+入口は`prepare_evaluated_devel_source_artifact_transport(std::move(built), required_targets)`、
 `execute_exact(options)`、`finalize()`の順である。finalizeはtransactionやobserverを再実行しない。
 `DevelSourceArtifactInstallAuthority`のcomplete private declarationを、friendを付与するnarrow headerから
 参照する。同じcycle-free authority headerにtransportとtest fixtureのcomplete declarationも置き、
@@ -39,15 +39,19 @@ final producerは次を自身でも確認する。
 
 - 元proofのopaque build identityとreceiptのbuild lineageが同じ。
 - owner/receipt/freshのtransaction identity、token、purpose、stage identityが同じ。
-- built artifact、receipt manifest/operation、fresh bindingが各1件。現行bridgeのselected indexは0。
+- B全体を保持し、Tだけに対応するreceipt manifest/operationとfresh bindingを相関する。
+- selected indexは元Bのstable indexであり、manifest、operation、child name、fresh bindingと照合する。vector位置をidentityとしない。
 - name、PackageBase、full version、architecture、source付きchild identityが一致。
 - retained built archiveのSHA-256/sizeとreceipt inputが一致し、signatureは明示absence。
 - built/receipt/anchor/freshのraw MTREE SHA-256が一致。
 - fresh semantic bindingとPost anchorのopaque generation、raw desc/files digest、descriptor identityが一致。
 - Installはbaseline absent、Upgradeはbaseline presentかつold/new generationが異なる。
 
-generic receipt/transportのN>1対応は維持する。final producerのbuilt/receipt/fresh cardinalityが1以外なら
-`UnsupportedCardinality`でno-proofとし、split package provenanceを実装済みと扱わない。
+既存N-artifact selector/transportを再利用する。unselected siblingはinstall input/bindingに含めない。
+selected数とmanifest/operation/fresh observation数が一致し、全child相関が成立した場合だけgroup proofを作る。
+transactionのnonzero/OutcomeUnknownからchild別成功を推測しない。transaction成功後の一部binding failureは
+Succeededとgroup proof Incomplete、成功済みbindingとchild別failureを保持する。
+S6はcomplete group proofを要求し、不完全なbinding集合からpublicationを始めない。
 
 final proofはdefault/copy不可、move-only、private constructionである。元built proof、exact receipt、fresh binding、
 context/retained artifact lifetimeを含む同じowned stateを引き取る。finalization時の追加allocationはない。

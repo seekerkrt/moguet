@@ -6,10 +6,18 @@
 #include <functional>
 #endif
 
+class ArtifactPackageIdentitySet;
+// Projection of retained S4 identities for the existing N-artifact selector.
+[[nodiscard]] ArtifactPackageIdentitySet query_artifact_package_identities(const EvaluatedDevelSourceBuildProof& proof);
+
 // Consumes the entire proof; throws on an inactive/moved-from input. Snapshot
 // and its saved-digest recheck occur at execute, before any privileged call.
 [[nodiscard]] EvaluatedDevelSourceArtifactTransport
 prepare_evaluated_devel_source_artifact_transport(EvaluatedDevelSourceBuildProof proof);
+
+// The complete build set remains owned; only exact required children enter the transaction.
+[[nodiscard]] EvaluatedDevelSourceArtifactTransport prepare_evaluated_devel_source_artifact_transport(
+    EvaluatedDevelSourceBuildProof proof, const std::vector<RequiredPackageArtifactTarget>& targets);
 
 #ifdef MOGUET_ENABLE_SOURCE_ARTIFACT_INSTALL_TRUSTED_TRANSPORT_TEST_HOOKS
 struct ExplicitProcessInvocation;

@@ -63,6 +63,8 @@ struct ReviewedDevelExecutionSnapshot {
     // authority. Keeps pure runner/reducer profiles independent of S4 linkage.
     std::optional<PinnedClosureReviewFailure> closure_review_failure = std::nullopt;
     std::optional<ReviewedSourceOperationStop> required_review_decline = std::nullopt;
+    std::vector<ArtifactPackageIdentity> selected_artifacts = {};
+    std::vector<ArtifactPackageIdentity> unselected_artifacts = {};
 };
 using SourceBuildPackageBaseExecutionResult = std::variant<PackageBaseSourceBuildExecutionResult, ReviewedDevelExecutionSnapshot>;
 

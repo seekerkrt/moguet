@@ -222,7 +222,7 @@ zero-I/Oとする。`upgrade-aur`と`upgrade-all`は`BlockOperation` + Strictの
 
 interactiveなexact target-less Auto `-Syu`では、初回P観測が
 `ProvenanceMissing` / `Stage::Provenance` / `before=Missing`の独立targetだけに、
-明示tracking bootstrapを提示できる。exact AUR recipeのread-only trial観測で、single package・
+明示tracking bootstrapを提示できる。exact AUR recipeのread-only trial観測で、complete declared/installed child set・
 one floating HTTPS Git sourceとboundedなrecipe直下のrenameなしlocal patch/config declarationsを確認する。
 multiple declared archは対応するが、architecture-qualified sourceは拒否する。local inputのtracked/regular/exact bytesは
 後段full review/S3/S4が証明する。試行適格性が不明なら従来のwarning/skipとし、この観測をS4/S5/S6 proofにしない。
@@ -237,7 +237,9 @@ declineはtyped RequiresCheck skip、cancel/EOFはtyped operation cancellation�
 accepted後のreview/build/install/publication failureも既存first-failure policyに従う。
 既存valid provenance、通常Version update、required dependency/provider/child blockerは維持する。
 invalid/corrupt/future/unsafe/binding mismatchのrepairは行わない。publication FailedとOutcomeUnknownを区別し、
-install成功だけをtracking成功へ変換しない。詳細は[normal devel routes](contracts/devel-normal-routes.md)を参照する。
+install成功だけをtracking成功へ変換しない。ordinary split PackageBaseは1回だけreview/buildし、選択したchildだけを
+1 transactionでinstallしてchild別v1 provenanceを保持する。未選択siblingを自動install/publicationしない。
+詳細は[normal devel routes](contracts/devel-normal-routes.md)を参照する。
 
 <a id="compat-git-remote-revision-observer"></a>
 

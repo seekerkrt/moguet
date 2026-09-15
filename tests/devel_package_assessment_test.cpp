@@ -302,7 +302,7 @@ void local_matrix() {
                                   "i-absent", "i-generation", "i-mtree", "i-database", "i-version", "i-arch", "i-base", "i-child", "i-load",
                                   "r-missing", "r-recipe", "r-generation", "r-digest", "r-source", "r-base", "r-invalid", "r-corrupt", "r-future", "r-unsafe", "r-authority", "r-read", "history"}) {
         Fixture fixture;
-        const bool p = mode.starts_with("p-");
+        const bool p = mode.starts_with("p-") || mode == "i-child";
         const bool installed = mode.starts_with("i-") || mode == "history";
         Check expected = Check::BuildSourceProofUnavailable;
         if(mode == "p-missing" || mode == "r-missing") {
@@ -372,6 +372,7 @@ void local_matrix() {
             replace(fixture.record / "desc", "%NAME%\nassessment-git", "%NAME%\nother-git");
             fs::rename(fixture.record, fixture.db / "local/other-git-1-1");
             fixture.target.installed_children = {PackageChildIdentity::make(fixture.base, "other-git")};
+            expected = Check::ProvenanceMissing; // A valid legacy record belongs only to its original child.
         }
         if(mode == "i-load") {
             fixture.record_hooks.fail_database_load = true;
@@ -412,7 +413,9 @@ void local_matrix() {
         if(mode == "r-authority" || mode == "r-read") require(arm<ReviewedSourceStateStoreFailure>(*result.before.reviewed).kind ==
                                                                   (mode == "r-read" ? XdgGenerationStoreFailureKind::ReadFailed : XdgGenerationStoreFailureKind::AuthorityUnavailable),
                                                               "R outer issue lost");
-        if(mode == "i-child") require(arm<InstalledArtifactBindingMismatch>(*result.before.installed_comparison).reason == InstalledArtifactBindingMismatchReason::PackageIdentityMismatch, "installed child mismatch lost");
+        if(mode == "i-child") require(std::holds_alternative<DevelBuildProvenanceStoreMissing>(*result.before.provenance) &&
+                                          !result.before.installed && !result.before.installed_comparison,
+                                      "legacy sibling record was used as this child's baseline");
         if(mode == "history") require(arm<DevelBuildProvenanceStoreLoaded>(*result.before.provenance).observed.generation == 2, "adopted old matching history");
         if(mode == "r-generation") require(arm<ReviewedSourceStateRecordBindingMismatch>(*result.before.reviewed_comparison).reason == ReviewedSourceStateRecordBindingMismatchReason::ReviewedStateGenerationMismatch, "generation drift mislabeled");
         if(mode == "r-digest") require(arm<ReviewedSourceStateRecordBindingMismatch>(*result.before.reviewed_comparison).reason == ReviewedSourceStateRecordBindingMismatchReason::ReviewedStateDocumentDigestMismatch, "digest drift mislabeled");
@@ -631,7 +634,7 @@ void recipe_head_observation_matrix() {
     metadata = "not source metadata";
     check("metadata malformed", {record(), BoundedProcessExited{0}}, Reason::RecipeMetadataMalformed, true);
     metadata = srcinfo + "pkgname = unsupported-sibling\n";
-    check("unsupported topology", {record() + record(), BoundedProcessExited{0}}, Reason::UnsupportedSource, true);
+    check("declared unselected sibling", {record() + record(), BoundedProcessExited{0}}, std::nullopt, true);
 
     const std::string git = "git+https://example.invalid/upstream.git";
     const auto source_case = [&](const std::string& label, const std::vector<std::string>& entries,
@@ -680,7 +683,7 @@ void recipe_head_observation_matrix() {
 
 void bootstrap_trial_observation_matrix() {
     using Unavailable = DevelTrackingBootstrapUnavailable;
-    for(const std::string mode : {"eligible", "unsupported", "split-source", "multiple-source", "architecture", "malformed", "overlay", "corrupt", "future", "unsafe", "review-corrupt", "binding-change", "recipe-change"}) {
+    for(const std::string mode : {"eligible", "unsupported", "split-source", "stale-child", "both-children", "multiple-source", "architecture", "malformed", "overlay", "corrupt", "future", "unsafe", "review-corrupt", "binding-change", "recipe-change"}) {
         Fixture f;
         struct Reset {
             ~Reset() {
@@ -700,7 +703,14 @@ void bootstrap_trial_observation_matrix() {
         if(mode == "review-corrupt") write(f.r_file(), "not toml = [");
         std::string metadata = "pkgbase = assessment\n\tpkgver = 1\n\tpkgrel = 1\n\tarch = any\n\tsource = git+https://example.invalid/upstream.git\npkgname = assessment-git\n";
         if(mode == "unsupported") metadata.replace(metadata.find("git+https"), 9, "hg+https");
-        if(mode == "split-source") metadata += "pkgname = sibling\n";
+        if(mode == "split-source" || mode == "both-children") metadata += "pkgname = sibling\n";
+        if(mode == "stale-child" || mode == "both-children") {
+            const auto sibling = f.db / "local/sibling-1-1";
+            fs::create_directory(sibling);
+            write(sibling / "desc", "%NAME%\nsibling\n\n%BASE%\nassessment\n\n%VERSION%\n1-1\n\n%ARCH%\nany\n\n%REASON%\n1\n\n");
+            write(sibling / "files", "%FILES%\nusr/share/sibling\n\n");
+            write(sibling / "mtree", "sibling");
+        }
         if(mode == "multiple-source") metadata.insert(metadata.find("pkgname"), "\tsource = git+https://example.invalid/other.git\n");
         if(mode == "architecture") metadata.replace(metadata.find("source ="), 8, "source_x86_64 =");
         if(mode == "malformed") metadata = "not source metadata";
@@ -712,18 +722,28 @@ void bootstrap_trial_observation_matrix() {
                                                  },
                                                  [&](const auto&) { ++checkout_calls; return mode != "overlay"; }});
         const auto before_review = read(f.r_file());
-        const auto result = observe_devel_tracking_bootstrap(f.child);
+        const auto result = mode == "both-children"
+                                ? observe_devel_tracking_bootstrap(std::vector<PackageChildIdentity>{f.child, PackageChildIdentity::make(f.base, "sibling")})
+                                : observe_devel_tracking_bootstrap(f.child);
         const auto* trial = std::get_if<std::shared_ptr<const DevelTrackingBootstrapTrial>>(&result);
-        const bool positive = mode == "eligible" || mode == "overlay" || mode == "binding-change" || mode == "recipe-change";
+        const bool positive = mode == "eligible" || mode == "both-children" || mode == "split-source" || mode == "overlay" || mode == "binding-change" || mode == "recipe-change";
         require(static_cast<bool>(trial) == positive, "bootstrap trial eligibility mismatch");
         if(trial) {
             require(revalidate_devel_tracking_bootstrap(**trial), "unchanged trial was rejected");
+            if(mode == "split-source") require((*trial)->declared_children().size() == 2 &&
+                                                   (*trial)->installed_group().size() == 1 && (*trial)->selected_children().size() == 1,
+                                               "uninstalled sibling gained trial selection");
+            if(mode == "both-children") require((*trial)->declared_children().size() == 2 &&
+                                                    (*trial)->installed_group().size() == 2 && (*trial)->selected_children().size() == 2,
+                                                "multi-installed group was rejected/flattened");
             if(mode == "binding-change") ++f.generation;
             if(mode == "recipe-change") recipe = std::string(40, 'c');
             if(mode == "binding-change" || mode == "recipe-change") require(!revalidate_devel_tracking_bootstrap(**trial), "stale trial remained usable");
             require(!fs::exists(f.p_file().parent_path()), "trial created provenance");
         } else {
-            static_cast<void>(arm<Unavailable>(result));
+            const auto unavailable = arm<Unavailable>(result);
+            if(mode == "stale-child") require(unavailable.reason == DevelTrackingBootstrapUnavailableReason::UndeclaredInstalledChild,
+                                              "stale installed child was silently discarded");
             if(mode == "corrupt" || mode == "future" || mode == "unsafe" || mode == "review-corrupt")
                 require(recipe_calls == 0, "invalid existing state reached trial network");
         }
@@ -793,7 +813,7 @@ void normal_route_matrix() {
         const auto actual = project_aur_update_effective_state(entry);
         const bool version = route_rpc::version == "2-1";
         const bool git = mode == "different" || mode == "sha256" || mode == "older-different" || mode == "registered-different";
-        const bool local = mode == "missing" || mode == "recipe" || mode == "generation" || mode == "split" || mode == "unknown-base" || mode == "db-context";
+        const bool local = mode == "missing" || mode == "recipe" || mode == "generation" || mode == "unknown-base" || mode == "db-context";
         const auto expected = version || git ? AurUpdateEffectiveState::UpdateAvailable : mode == "timeout"       ? AurUpdateEffectiveState::Unknown
                                                                                       : local || mode == "format" ? AurUpdateEffectiveState::RequiresCheck
                                                                                                                   : AurUpdateEffectiveState::UpToDate;
@@ -867,7 +887,7 @@ void registered_observation_parity() {
                     "registered actual/dry-run state or basis differs");
             const bool blocked = expected == AurUpdateEffectiveState::RequiresCheck || expected == AurUpdateEffectiveState::Unknown;
             require(observed.front().issues.empty() != blocked, "registered blocker mapping differs");
-            require(f.remote_calls == (mode == "missing" || mode == "split" ? 0U : 1U) && route_rpc::calls == 1, "registered observation query/retry count");
+            require(f.remote_calls == (mode == "missing" ? 0U : 1U) && route_rpc::calls == 1, "registered observation query/retry count");
             if(mode == "unknown") require(observed.front().issues.front().reason == AurUpdateExecutionReason::DevelObservationUnknown, "remote failure became local RequiresCheck");
         }
         std::cout << "S7D registered observation parity " << mode << " / read-only / no execution PASS\n";
