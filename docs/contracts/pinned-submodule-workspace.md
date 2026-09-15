@@ -10,7 +10,7 @@ raw metadata、decoded provenanceからのmintは公開しない。
 ## Local materialization
 
 既存invocation-owned builddirのworking recipeと並ぶ専用leafをfreshに作成する。
-SRCDESTやmakepkg用の命名・preseedは変更しない。既存leafを発見した場合、所有を推測して
+materialization自体ではSRCDESTを変更しない。既存leafを発見した場合、所有を推測して
 採用・repair・削除せずtyped failureとする。
 
 private transferが各accepted nodeのbare backingをnative
@@ -69,8 +69,7 @@ mint直前とexplicit `reprove()`で次を証明する。
 - untracked/ignored entriesとsubmodulesを含めてGit source stateがcleanである。
 
 通常のGit attributes checkout semanticsを維持する。全blobとraw worktree bytesを再比較する
-新契約は追加しない。このproofはprepare前であり、reviewed prepare/buildによる通常の変換は
-将来のconsumerが扱う。
+新契約は追加しない。このproofはprepare前である。4B2 consumerのprepared/post-build proofは通常contentの変換を許可する。
 
 保証は**phase-point proofでありcontinuous attestationではない**。観測できたdriftではfail-closedとし、
 workspaceをconsumeする。same-UID userが検証の間に意図的に改変して元へ戻す操作はthreat model外。
@@ -96,14 +95,43 @@ materialization/reproof各phaseは10分・Git process 4096回に制限する。f
 cleanup ownership preflightは独立した5秒budgetを使い、その後に既存contextのbounded cleanupを行う。
 これらは観測budgetでありdisk quotaやsandbox保証ではない。
 
+## Native makepkg / common S4 consumer（4B2）
+
+唯一のproduction inputは`resume_evaluated_devel_source(SourceReadyPinnedSubmoduleWorkspace)`。
+whole owner内のselection/contextをprivateに借用し、成功時はS4 resultへwhole ownerをmoveする。
+同じselectionを再評価せず、closureの再取得・再review・workspace再materialize・remote再観測を行わない。
+
+private adapterはretained workspaceを`BUILDDIR/<PackageBase>/src/<evaluated source name>`へ一度relocateする。
+childのrelative gitfile/core.worktree bindingとinodeを保ち、native親directoriesもretainする。
+同じworkspaceのobject storeから`SRCDEST/<source name>`へindependent local mirrorを作り、accepted Xの
+local refをnative selectorへbindする。4A backingには書き込まない。SRCDESTのpreexisting contentやnative leaf collisionは
+採用せずfail-closedとし、ambient/persistent cacheを使わない。
+
+準備はnative `--nobuild --nodeps --noconfirm --holdver`を使う。`--holdver`はsource mirrorのremote更新を止める。
+native extractionの`git fetch`はinvocation内のmirrorだけを読む。review済みrecipeの
+`git submodule update --init --recursive`は既に存在するaccepted childを使える。
+`--noextract`はprepare()も省略するため準備には使わず、既存build phaseだけで使う。
+[makepkgのoption契約](https://man.archlinux.org/man/makepkg.8.en)とactual native fixtureを根拠とする。
+
+prepared metadata/packagelist後とbuild/check/package後に、共通validatorでroot X、各child pin、parent gitlinks、
+exact `.gitmodules`、gitfile/gitdir/worktree mapping、retained identity、expected module setを再証明する。
+通常contentの変更・生成は比較せず、source-ready clean proofとは区別する。
+makepkg phaseへ移った後のcleanupも通常contentのinode集合一致を要求せず、retained metadata/親identityと
+既存contextのbounded cleanupを使う。retained replacementは削除せずrefuseする。
+
+通常のS4 gatesはSourceReadyを持たないpathで維持する。S3のAUR recipe snapshotのGitlink拒否は別契約として維持する。
+root ActualBuiltGitRevision mint、artifact、install transport、S5/S6は既存実装を共有する。
+child pinsはwhole owner内のinvocation-local evidenceでありprovenance v1 / 27 keysを変更しない。
+
 ## Remaining scope / validation
 
-4B2 / native makepkg / common S4 integrationはpending。production routeはこのownerをまだconsumeせず、
-prepare/build/package invocation、makepkg flagsを変更しない。既存S4のgitfile、`.git/modules`、
-`.gitmodules`、workspace cardinalityのproduction gatesはすべてclosedのままとする。
-ActualBuiltGitRevision、S5/S6、provenance v1 / 27 keys、CLI routesは変更しない。
+production activationはexact target-less ordinary `-Syu` Auto + initial ProvenanceMissing + current typed bootstrap intentだけ。
+package名や`-git` suffixでこのbranchを選択しない。通常のvalid-provenance / non-devel経路を変更しない。
+Slice 5のsplit PackageBase group、Slice 6の代表3topology全coverageは未完了。unknown auxiliary input、Cargo取得、
+一般sandbox、persistent cache manager、continuous監視を今回の対応に含めない。
 
-`test-pinned-submodule-workspace`はreal selection/acquisition/review fixture setupを再利用し、
-新workspace casesだけを実行する。4A86、4B043、4A0、bootstrap68、artifact transport、canonicalの
-全suiteを起動しない。別のnegative compileでraw input、private/default/copy construction、
-authority headerだけをincludeするinverse-friend spoofを拒否する。
+`test-pinned-submodule-s4-integration`は既存bootstrap fixtureのproduction ownerを使い、新しいrecursive casesだけを
+実行する。native prepareによる正当な変更、childを実際に利用したartifact、S6 Complete、root/child remoteの
+steady-state、prepared/post-build drift、cancellation/build failure/cleanup refusalを確認する。
+new consumer negative compileはborrowed owner、foreign context、private selection extractionを拒否する。
+4A86、4B043、4B136、bootstrap68、transport、canonicalの全suiteを前置きで起動しない。

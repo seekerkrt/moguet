@@ -10,6 +10,9 @@ enum class PinnedWorkspaceStage {
     ChildMaterialization,
     GitdirBinding,
     SourceReadyReproof,
+    NativePreparation,
+    PreparedReproof,
+    PostBuildReproof,
     Cleanup,
 };
 enum class PinnedWorkspaceFailureReason {

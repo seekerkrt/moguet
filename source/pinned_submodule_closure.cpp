@@ -702,6 +702,11 @@ std::optional<PinnedClosureFailure> PinnedSubmoduleWorkspaceAuthority::clone_obj
     }
 }
 
+EvaluatedDevelSourceSelection& PinnedSubmoduleWorkspaceAuthority::selection(InvocationOwnedPinnedSubmoduleClosure& closure) {
+    if(!closure.valid()) throw std::logic_error("Pinned closure is inactive");
+    return closure.data_->selection;
+}
+
 InvocationOwnedPinnedSubmoduleClosure::InvocationOwnedPinnedSubmoduleClosure(std::unique_ptr<PinnedSubmoduleClosureData> data) noexcept : data_(std::move(data)) {
 }
 InvocationOwnedPinnedSubmoduleClosure::InvocationOwnedPinnedSubmoduleClosure(InvocationOwnedPinnedSubmoduleClosure&&) noexcept = default;

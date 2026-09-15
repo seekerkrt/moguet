@@ -99,7 +99,7 @@ ProductionSourceBuildStagedOutcome project_reviewed_devel_execution_outcome(cons
         // The S4 invocation started; do not invent a terminal makepkg outcome
         // from an incomplete proof. Preserve the original typed S4 failure.
         out.build_outcome = ProductionSourceBuildCommandOutcome::Started;
-        if(const auto* failure = result.build_failure(); failure && failure->process == EvaluatedDevelSourceBuildProcess::PackageBuild && failure->process_outcome) {
+        if(const auto* failure = result.build_failure(); failure && failure->process == EvaluatedDevelSourceBuildProcess::PackageBuild && failure->process_outcome && !failure->cancellation_signal) {
             if(const auto* exited = std::get_if<BoundedProcessExited>(&*failure->process_outcome))
                 out.build_outcome = exited->exit_code == 0 ? ProductionSourceBuildCommandOutcome::Succeeded : ProductionSourceBuildCommandOutcome::Failed;
         }

@@ -2975,9 +2975,45 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
                                                                      : case_name;
         if(outer && !normal) continue;
         if(!normal && mode.starts_with("registered-")) continue;
+        ArchitectureFixture integration_recipe;
+#ifdef MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
+        const bool pinned = mode.starts_with("pinned-");
+        std::unique_ptr<UpstreamGitFixture> submodule, nested;
+        std::string old_child;
+        if(pinned) {
+            submodule = std::make_unique<UpstreamGitFixture>("integration-child");
+            nested = std::make_unique<UpstreamGitFixture>("integration-nested");
+            old_child = submodule->oid();
+            submodule->commit("child-accepted\n");
+            const auto declaration = [](const std::string& name, const std::string& path, const std::string& url) {
+                return "[submodule \"" + name + "\"]\n\tpath = " + path + "\n\turl = " + url + "\n";
+            };
+            submodule->pin_tree(declaration("leaf-name", "nested/d", nested->url()), {{"nested/d", nested->oid()}});
+            upstream.pin_tree(declaration("logical/A", "deps/a", submodule->url()) + declaration("sibling-B", "deps/b", submodule->url()),
+                              {{"deps/a", submodule->oid()}, {"deps/b", submodule->oid()}});
+            std::string mutation;
+            if(mode == "pinned-prepared-root") mutation = "git checkout --detach HEAD~ --\n";
+            if(mode == "pinned-prepared-child") mutation = "git -C deps/a checkout --detach HEAD~ --\n";
+            if(mode == "pinned-gitlink") mutation = "git update-index --cacheinfo 160000," + old_child + ",deps/a\n";
+            if(mode == "pinned-declaration") mutation = "printf '# drift\\n' >> .gitmodules\n";
+            if(mode == "pinned-missing") mutation = "rm deps/a/.git\n";
+            if(mode == "pinned-extra") mutation = "mkdir -p extra/.git\n";
+            integration_recipe.recipe_suffix = "\nprepare() {\ncd \"$srcdir/$pkgname\"\ngit submodule update --init --recursive\n"
+                                               "printf 'prepared\\n' >> payload.txt\nprintf 'generated\\n' > generated.txt\n"
+                                               "git add -- payload.txt generated.txt\n" +
+                                               mutation + "}\n"
+                                                          "build() {\ncd \"$srcdir/$pkgname\"\n"
+                                                          "cat payload.txt deps/a/payload.txt deps/a/nested/d/payload.txt deps/b/payload.txt generated.txt > combined.txt\n" +
+                                               (mode == "pinned-post-child" ? "git -C deps/a checkout --detach HEAD~ --\n" : "") +
+                                               // makepkg leaves pkgdirbase without read permission before
+                                               // package(). Let the fixture inventory its own failed build.
+                                               (mode == "pinned-build-failure" ? "chmod u+rwx \"$srcdir/../pkg\"\nreturn 42\n" : "") + "}\n"
+                                                                                                                                       "package() { install -Dm644 \"$srcdir/$pkgname/combined.txt\" \"$pkgdir/usr/share/$pkgname/payload.txt\"; }\n";
+        }
+#endif
         ReviewedBuildFixture fixture(bootstrap ? "bootstrap-git" : "s7c-fixture", upstream, mode == "build-failure" ? RecipeShape::RawEvaluatedMismatch : normal && mode == "legacy" ? RecipeShape::UnsupportedVcs
                                                                                                                                                                                      : RecipeShape::Valid,
-                                     false, mode == "branch", mode == "supplemental" || mode == "supplemental-collision");
+                                     false, mode == "branch" || mode == "pinned-branch", mode == "supplemental" || mode == "supplemental-collision", true, integration_recipe);
         struct ResetBridgeHooks {
             ~ResetBridgeHooks() {
                 publication_allocation::blocked = false;
@@ -2985,6 +3021,11 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
                 set_source_invocation_execution_test_hooks({});
 #endif
 #ifdef MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
+                set_pinned_closure_test_hooks({});
+                set_pinned_closure_review_test_hooks({});
+                set_pinned_workspace_test_hooks({});
+                set_evaluated_devel_source_build_process_test_hook({});
+                set_evaluated_devel_source_build_test_hook({});
                 set_aur_update_non_bootstrap_execution_test_hook({});
                 set_devel_tracking_bootstrap_test_hooks({});
                 set_recipe_acquisition_test_hooks({});
@@ -3003,7 +3044,70 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
         TemporaryTree runtime("s7c-runtime");
 #ifdef MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
         unsigned acquisition_fetches = 0, acquisition_processes = 0, acquisition_creations = 0, acquisition_cleanups = 0, context_entries = 0;
-        fs::path acquisition_root;
+        fs::path acquisition_root, closure_root, integration_root;
+        std::optional<struct stat> integration_identity;
+        unsigned initial_evaluations = 0, root_observations = 0, closure_reviews = 0, workspace_clones = 0, closure_phase_points = 0;
+        std::map<std::string, fs::path> closure_remotes{{upstream.url(), upstream.remote()}};
+        if(pinned) {
+            closure_remotes.emplace(submodule->url(), submodule->remote());
+            closure_remotes.emplace(nested->url(), nested->remote());
+        }
+        PinnedClosureTestHooks closure_hooks;
+        closure_hooks.event = [&](auto, const auto& path) { closure_root = path; };
+        closure_hooks.process = [&](const auto& original, const auto& policy) {
+            require(closure_reviews == 0, "SourceReady reacquired/reviewed closure");
+            auto invocation = original;
+            if(std::find(invocation.arguments.begin(), invocation.arguments.end(), "ls-remote") != invocation.arguments.end()) ++root_observations;
+            for(auto& arg : invocation.arguments) {
+                if(arg == "protocol.file.allow=never")
+                    arg = "protocol.file.allow=always";
+                else if(closure_remotes.contains(arg))
+                    arg = "file://" + closure_remotes.at(arg).string();
+            }
+            return capture_bounded_explicit_process_output_raw(invocation, policy);
+        };
+        set_pinned_closure_test_hooks(closure_hooks);
+        PinnedClosureReviewTestHooks closure_review;
+        closure_review.before_render = [&] { ++closure_reviews; };
+        set_pinned_closure_review_test_hooks(closure_review);
+        PinnedWorkspaceTestHooks workspace_hooks;
+        workspace_hooks.before_reproof = [&](const auto&) { ++closure_phase_points; };
+        workspace_hooks.process = [&](const auto& invocation, const auto& policy) {
+            const auto& args = invocation.arguments;
+            require(std::find(args.begin(), args.end(), "ls-remote") == args.end() && std::find(args.begin(), args.end(), "fetch") == args.end(),
+                    "Workspace adapter observed a remote/fetched source");
+            if(std::find(args.begin(), args.end(), "clone") != args.end()) ++workspace_clones;
+            return capture_bounded_explicit_process_output_raw(invocation, policy);
+        };
+        if(mode == "pinned-cleanup-refusal") workspace_hooks.before_cleanup = [&](const auto& root) {
+            // Replace a retained gitfile only after the primary build failure.
+            fs::rename(root / "deps/a/.git", root / "deps/a/.git-original");
+            write_file(root / "deps/a/.git", "unknown replacement\n");
+        };
+        set_pinned_workspace_test_hooks(workspace_hooks);
+        set_evaluated_devel_source_build_process_test_hook([&](const auto& invocation, const auto& policy, auto phase) {
+            if(phase == EvaluatedDevelSourceBuildProcess::InitialPrintSrcinfo) ++initial_evaluations;
+            if(pinned && phase == EvaluatedDevelSourceBuildProcess::SourcePreparation) {
+                require(std::find(invocation.arguments.begin(), invocation.arguments.end(), "--holdver") != invocation.arguments.end(), "Native preparation lost holdver");
+                require(std::find(invocation.arguments.begin(), invocation.arguments.end(), "--noextract") == invocation.arguments.end(), "Native prepare() was skipped");
+            }
+            if((mode == "pinned-cancel" || mode == "pinned-cleanup-refusal") && phase == EvaluatedDevelSourceBuildProcess::PackageBuild) {
+                auto cancelled = invocation;
+                cancelled.executable = "/bin/sh";
+                cancelled.executable_fd.reset();
+                cancelled.arguments = {"-c", mode == "pinned-cancel" ? "trap 'exit 0' INT; kill -INT $PPID; while :; do :; done" : "exit 42"};
+                return capture_bounded_explicit_process_output_raw(cancelled, policy);
+            }
+            return capture_bounded_explicit_process_output_raw(invocation, policy);
+        });
+        set_evaluated_devel_source_build_test_hook([&](auto event, const auto& root, const auto&) {
+            if(event == EvaluatedDevelSourceBuildTestEvent::AfterInitialSourceSelection) {
+                integration_root = root;
+                struct stat identity{};
+                require(::lstat(root.c_str(), &identity) == 0, "Integration context unavailable");
+                integration_identity = identity;
+            }
+        });
 #endif
         const auto db = runtime.path() / "db";
         fs::create_directories(db / "local");
@@ -3130,6 +3234,14 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
                                                                   if(stage != Stage::Transport) return;
                                                                   require(built && built->valid(), "bridge did not retain S4 proof");
                                                                   if(mode == "supplemental" || mode == "supplemental-collision") require_supplemental_artifact(*built, fixture);
+#ifdef MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
+                                                                  if(pinned) {
+                                                                      auto payload = capture_process("/usr/bin/bsdtar", {"-xOf", built->artifact().path().string(), "usr/share/" + fixture.package_name() + "/payload.txt"}, {"PATH=/usr/bin:/bin", "LC_ALL=C"});
+                                                                      require(payload.exit_code == 0 && payload.output == "revision-one\nprepared\nchild-accepted\nrevision-one\nchild-accepted\ngenerated\n",
+                                                                              "Artifact did not use prepared root, both children and nested source");
+                                                                      require(*built->actual_built_revision().revision().value().git_commit() == upstream.oid(), "S4 lost accepted root X");
+                                                                  }
+#endif
                                                                   expected.emplace(built->artifact().evidence());
                                                                   actual_oid = *built->actual_built_revision().revision().value().git_commit();
                                                                   const auto mtree = capture_process("/usr/bin/bsdtar", {"-xOf", built->artifact().path().string(), ".MTREE"}, {"PATH=/usr/bin:/bin", "LC_ALL=C"});
@@ -3512,7 +3624,7 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
                 std::cout << "S553 production " << case_name << " PASS\n";
                 continue;
             }
-            const bool success = mode == "accept" || mode == "older" || mode == "reviewed-same" || mode == "reviewed-changed" || mode == "supplemental" || mode == "supplemental-collision" || mode == "no-cache" || mode == "clean-cache" || mode == "dirty-pkgbuild" || mode == "overlay" || mode == "ignored" || mode == "wrong-head" || mode == "malicious-config" || mode == "advance-after-revalidation";
+            const bool success = mode == "pinned-recursive" || mode == "pinned-branch" || mode == "accept" || mode == "older" || mode == "reviewed-same" || mode == "reviewed-changed" || mode == "supplemental" || mode == "supplemental-collision" || mode == "no-cache" || mode == "clean-cache" || mode == "dirty-pkgbuild" || mode == "overlay" || mode == "ignored" || mode == "wrong-head" || mode == "malicious-config" || mode == "advance-after-revalidation";
             const bool skipped = mode == "advance-before-revalidation" || mode == "provider-decline" || mode == "decline" || mode == "default-no" || mode == "non-tty" || mode == "noconfirm" || mode == "nodiff" || mode == "diff-skip" ||
                                  mode == "unsupported" || mode == "invalid" || mode == "corrupt" || mode == "future" || mode == "unsafe";
             const bool process_cancelled = mode == "acquire-cancel" || mode == "acquire-cancel-zero";
@@ -3564,9 +3676,11 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
                 require(*loaded.provenance.reviewed_recipe_revision().value().git_commit() == recipe_x && recipe_x != actual_oid, "recipe pin changed X or contaminated upstream S4 identity");
                 require(*loaded.provenance.actual_built_revision().revision().value().git_commit() == actual_oid && actual_oid == upstream.oid(), "bootstrap published an observed/cache OID instead of built proof");
                 set_devel_package_assessment_test_hooks({{}, [&](const auto& remote_request) {
-                                                             return parse_git_remote_revision_observation(remote_request, 0, upstream.oid() + "\tHEAD\n");
+                                                             const auto* branch = remote_request.key().selector().exact_branch();
+                                                             return parse_git_remote_revision_observation(remote_request, 0, upstream.oid() + "\t" + (branch ? "refs/heads/" + branch->name() : "HEAD") + "\n");
                                                          }});
                 const DevelPackageAssessmentTarget assessment_target{base, {child}, true};
+                if(pinned) submodule->commit("child remote only advanced\n");
                 const auto same = assess_current_devel_package(assessment_target);
                 require(same.assessment.state() == DevelUpdateAssessmentState::UpToDate, "post-bootstrap same OID was not UpToDate");
                 const auto trials_before_fast_path = trial_calls;
@@ -3646,6 +3760,42 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
                 require(filtered.execution && filtered.execution->work_item_results[bootstrap_index].devel_execution->owner->context_failure() &&
                             context_entries == 1 && build_entries == 0 && execute_calls == 0 && fs::exists(r_directory / "1.toml"),
                         "S3 failure resumed or rolled back R");
+            }
+            if(pinned) {
+                require(initial_evaluations == 1 && root_observations == 1 && closure_reviews == 1 && workspace_clones == 6,
+                        "Repeated selection/acquisition/review/materialization or wrong recursive inventory");
+                require(success ? fs::exists(closure_root) : !fs::exists(closure_root), "4A backing lifetime mismatch");
+                if(success)
+                    require(closure_phase_points == 5, "Missing prepared/post-build closure proof");
+                else {
+                    require(execute_calls == 0 && g_bridge_publication_entries == 0, "Closure failure reached install/publication");
+                    const auto& execution = filtered.execution->work_item_results[bootstrap_index].devel_execution;
+                    require(execution && execution->owner->build_failure(), "Closure failure lost typed build cause");
+                    const auto& failure = *execution->owner->build_failure();
+                    using Reason = EvaluatedDevelSourceBuildFailureReason;
+                    const bool during_build = mode == "pinned-cancel" || mode == "pinned-build-failure" || mode == "pinned-cleanup-refusal";
+                    require(failure.reason == (during_build ? Reason::MakepkgPhaseFailure : mode == "pinned-post-child" ? Reason::PostBuildClosureDrift
+                                                                                                                        : Reason::PreparedClosureDrift),
+                            "Wrong closure failure phase/reason: " + std::to_string(static_cast<int>(failure.reason)));
+                    if(mode == "pinned-cancel") require(failure.cancellation_signal == SIGINT && failure.process_outcome &&
+                                                            std::get<BoundedProcessExited>(*failure.process_outcome).exit_code == 0 &&
+                                                            execution->production_outcome->build_outcome != ProductionSourceBuildCommandOutcome::Succeeded,
+                                                        "Cancellation + exit0 became success/lost cause");
+                    if(mode == "pinned-cleanup-refusal") {
+                        require(failure.pinned_workspace_failure && failure.pinned_workspace_failure->cleanup.workspace && failure.cleanup_consequence,
+                                "Workspace cleanup refusal replaced/lost primary failure");
+                        require(fs::exists(integration_root / "build/example-base/src" / fixture.package_name() / "deps/a/.git"), "Unknown replacement was deleted");
+                    }
+                    if(mode == "pinned-extra") require(failure.pinned_workspace_failure && failure.pinned_workspace_failure->cleanup.workspace && failure.cleanup_consequence,
+                                                       "Unexpected module was adopted by cleanup");
+                }
+                if(!success && fs::exists(integration_root)) {
+                    require(integration_identity.has_value(), "Missing failure root identity");
+                    // The outer live S6 result retains successful roots until scope
+                    // exit. Negative unproven content belongs to this fixture.
+                    cleanup_retained_fixture(integration_root, *integration_identity);
+                }
+                std::cout << "S564 4B2 " << mode << " PASS\n";
             }
             const bool never_acquired = skipped || mode == "cancel" || mode == "eof";
             require(acquisition_creations == (never_acquired ? 0U : 1U), "unexpected acquisition count before/after Yes");
@@ -4284,7 +4434,7 @@ void test_selection_process_failures() {
 }
 
 #ifdef MOGUET_ENABLE_PINNED_SUBMODULE_CLOSURE_TEST_HOOKS
-void test_pinned_closure_allocation_cleanup() {
+[[maybe_unused]] void test_pinned_closure_allocation_cleanup() {
     UpstreamGitFixture upstream("closure-allocation");
     for(const bool cleanup_failure : {false, true}) {
         const std::string kind = cleanup_failure ? "allocation-cleanup-failure" : "allocation-cleanup-success";
@@ -4356,7 +4506,7 @@ void test_pinned_closure_allocation_cleanup() {
 std::string module_declaration(const std::string& name, const std::string& path, const std::string& url) {
     return "[submodule \"" + name + "\"]\n\tpath = " + path + "\n\turl = " + url + "\n";
 }
-void test_pinned_closure() {
+[[maybe_unused]] void test_pinned_closure() {
     using Closure = InvocationOwnedPinnedSubmoduleClosure;
     using Reason = PinnedClosureFailureReason;
     using Stage = PinnedClosureStage;
@@ -4819,7 +4969,7 @@ protected:
     }
 };
 
-void test_pinned_closure_review() {
+[[maybe_unused]] void test_pinned_closure_review() {
     using Closure = InvocationOwnedPinnedSubmoduleClosure;
     using Accepted = AcceptedPinnedSubmoduleClosure;
     using Failure = PinnedClosureReviewFailure;
@@ -4829,7 +4979,7 @@ void test_pinned_closure_review() {
     static_assert(std::is_nothrow_move_constructible_v<Accepted>);
     static_assert(!std::is_constructible_v<Accepted, Closure, ExplicitConfirmationAcceptance>);
     static_assert(!std::is_invocable_v<decltype(review_pinned_submodule_closure), Closure, ExplicitConfirmationAcceptance>);
-    static_assert(!std::is_invocable_v<decltype(resume_evaluated_devel_source), Accepted>);
+    static_assert(!std::is_invocable_v<EvaluatedDevelSourceBuildResult (*)(EvaluatedDevelSourceSelection), Accepted>);
     const std::vector<std::string> cases{
         "single", "nested", "siblings", "escaped", "empty", "executable", "no-newline", "yes", "blank-then-yes", "freeze", "bounds-exact",
         "binary", "symlink", "blob-limit", "aggregate-limit", "entry-limit", "line-limit", "render-limit", "render-failure",
@@ -5075,7 +5225,7 @@ void test_pinned_closure_review() {
 
 
 #ifdef MOGUET_ENABLE_PINNED_SUBMODULE_WORKSPACE_TEST_HOOKS
-void test_pinned_submodule_workspace() {
+[[maybe_unused]] void test_pinned_submodule_workspace() {
     using Ready = SourceReadyPinnedSubmoduleWorkspace;
     using Accepted = AcceptedPinnedSubmoduleClosure;
     using Reason = PinnedWorkspaceFailureReason;
@@ -5083,7 +5233,12 @@ void test_pinned_submodule_workspace() {
     static_assert(std::is_nothrow_move_constructible_v<Ready>);
     static_assert(!std::is_constructible_v<Ready, fs::path, bool>);
     static_assert(!std::is_invocable_v<decltype(materialize_pinned_submodule_workspace), InvocationOwnedPinnedSubmoduleClosure>);
-    static_assert(!std::is_invocable_v<decltype(resume_evaluated_devel_source), Ready>);
+    static_assert(!std::is_invocable_v<EvaluatedDevelSourceBuildResult (*)(EvaluatedDevelSourceSelection), Ready>);
+    using Consumer = EvaluatedDevelSourceBuildResult (*)(Ready);
+    static_assert(std::is_same_v<decltype(static_cast<Consumer>(&resume_evaluated_devel_source)), Consumer>);
+    static_assert(!std::is_invocable_v<Consumer, Ready&>);
+    static_assert(!std::is_invocable_v<Consumer, Accepted>);
+    static_assert(!std::is_invocable_v<Consumer, Ready, InvocationOwnedSourceBuildContext>);
     const std::vector<std::string> cases{
         "single", "nested", "siblings", "sha256", "attributes", "root-only", "move", "destructor", "explicit-reproof",
         "wrong-root", "wrong-child", "gitfile", "absolute-gitfile", "symlink-gitfile", "missing-gitdir", "wrong-name", "extra-module",
@@ -5393,19 +5548,19 @@ void test_pinned_submodule_workspace() {
 int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
     const std::vector<fs::path> before = context_root_inventory();
     try {
-#ifdef MOGUET_ENABLE_PINNED_SUBMODULE_WORKSPACE_TEST_HOOKS
+#if defined(MOGUET_ENABLE_PINNED_SUBMODULE_WORKSPACE_TEST_HOOKS) && !defined(MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION)
         if(argc != 2 || std::string(argv[1]) != "--pinned-submodule-workspace") throw std::invalid_argument("Explicit workspace mode required");
         test_pinned_submodule_workspace();
         require(context_root_inventory() == before, "Workspace retained selection context");
         return 0;
 #endif
-#ifdef MOGUET_ENABLE_PINNED_CLOSURE_REVIEW_TEST_HOOKS
+#if defined(MOGUET_ENABLE_PINNED_CLOSURE_REVIEW_TEST_HOOKS) && !defined(MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION)
         if(argc != 2 || std::string(argv[1]) != "--pinned-closure-review") throw std::invalid_argument("Explicit closure review mode required");
         test_pinned_closure_review();
         require(context_root_inventory() == before, "Closure review retained selection context");
         return 0;
 #endif
-#ifdef MOGUET_ENABLE_PINNED_SUBMODULE_CLOSURE_TEST_HOOKS
+#if defined(MOGUET_ENABLE_PINNED_SUBMODULE_CLOSURE_TEST_HOOKS) && !defined(MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION)
         if(argc != 2 || std::string(argv[1]) != "--pinned-closure") throw std::invalid_argument("Explicit closure mode required");
         test_pinned_closure_allocation_cleanup();
         test_pinned_closure();

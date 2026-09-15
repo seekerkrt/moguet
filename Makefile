@@ -90,6 +90,7 @@ CMAKE_FOCUSED_ALIASES := \
 	test-pinned-submodule-closure \
 	test-pinned-submodule-closure-review \
 	test-pinned-submodule-workspace \
+	test-pinned-submodule-s4-integration \
 	test-evaluated-devel-source-build \
 	test-evaluated-devel-source-artifact-transport \
 	test-remote-aur-cleanup-collector \

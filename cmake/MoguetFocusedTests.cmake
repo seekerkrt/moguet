@@ -71,6 +71,7 @@ foreach(_moguet_direct_focus IN ITEMS
     pinned-submodule-closure
     pinned-submodule-closure-review
     pinned-submodule-workspace
+    pinned-submodule-s4-integration
     evaluated-devel-source-build
     evaluated-devel-source-artifact-transport
     exact-installed-binding

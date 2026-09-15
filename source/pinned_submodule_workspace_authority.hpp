@@ -1,5 +1,7 @@
 #pragma once
 
+#include "evaluated_devel_source_build_authority.hpp"
+
 #include <chrono>
 #include <cstddef>
 #include <filesystem>
@@ -12,6 +14,7 @@ class InvocationOwnedPinnedSubmoduleClosure;
 class EvaluatedDevelSourceSelection;
 class InvocationOwnedSourceBuildContext;
 class SourceReadyPinnedSubmoduleWorkspace;
+enum class PinnedWorkspaceStage;
 struct PinnedSubmoduleWorkspaceData;
 struct PinnedWorkspaceFailure;
 struct PinnedWorkspaceCleanupResult;
@@ -49,10 +52,18 @@ private:
 class PinnedSubmoduleWorkspaceAuthority final {
     PinnedSubmoduleWorkspaceAuthority() = delete;
     friend class SourceReadyPinnedSubmoduleWorkspace;
+    friend class EvaluatedDevelSourceBuildAuthority;
     friend PinnedSubmoduleWorkspaceResult materialize_pinned_submodule_workspace(AcceptedPinnedSubmoduleClosure accepted);
 
     static PinnedSubmoduleWorkspaceResult materialize(AcceptedPinnedSubmoduleClosure accepted);
     static PinnedWorkspaceCleanupResult cleanup(PinnedSubmoduleWorkspaceData& data) noexcept;
+    // Internal borrow only: the consumer moves the whole SourceReady owner
+    // through common S4 and into the result; selection is never released.
+    static EvaluatedDevelSourceSelection& selection(SourceReadyPinnedSubmoduleWorkspace& workspace);
+    static EvaluatedDevelSourceSelection& selection(InvocationOwnedPinnedSubmoduleClosure& closure);
+    static std::optional<PinnedWorkspaceFailure> prepare_native(SourceReadyPinnedSubmoduleWorkspace& workspace);
+    static std::optional<PinnedWorkspaceFailure> reprove_execution(SourceReadyPinnedSubmoduleWorkspace& workspace, PinnedWorkspaceStage stage);
+    static int srcdest_descriptor(const EvaluatedDevelSourceSelection& selection);
     static const InvocationOwnedSourceBuildContext& context(const EvaluatedDevelSourceSelection& selection);
     static int builddir_descriptor(const EvaluatedDevelSourceSelection& selection);
     static void refuse_context_cleanup(const EvaluatedDevelSourceSelection& selection) noexcept;

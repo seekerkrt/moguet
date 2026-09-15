@@ -1,6 +1,7 @@
 #include "evaluated_devel_source_build.hpp"
 
 #include "artifact_archive_metadata.hpp"
+#include "pinned_submodule_workspace.hpp"
 #include "git_remote_revision_observer.hpp"
 #include "trusted_git_process_policy.hpp"
 #include "xdg_generation_store.hpp"
@@ -1743,7 +1744,7 @@ GitProofPoint observe_git_proof_point(
     const OwnedDescriptor& null_input,
     const RetainedDirectory& mirror,
     const RetainedDirectory& workspace,
-    const VcsSourceIdentity& source) {
+    const VcsSourceIdentity& source, bool pinned_closure = false) {
     std::size_t mirror_entry_count = 0;
     require_contained_git_metadata_tree(
         mirror.descriptor.get(), mirror.identity.device, 0,
@@ -1906,20 +1907,26 @@ GitProofPoint observe_git_proof_point(
 
     require_entry_absent(workspace.descriptor.get(), ".git/commondir");
     require_entry_absent(workspace.descriptor.get(), ".git/gitdir");
-    require_entry_absent(workspace.descriptor.get(), ".git/modules");
-    require_entry_absent(workspace.descriptor.get(), ".gitmodules");
+    if(!pinned_closure) {
+        require_entry_absent(workspace.descriptor.get(), ".git/modules");
+        require_entry_absent(workspace.descriptor.get(), ".gitmodules");
+    }
     require_entry_absent(mirror.descriptor.get(), "objects/info/alternates");
-    OpenedRegularFile alternates = open_and_read_regular_file(
-        workspace.descriptor.get(), ".git/objects/info/alternates",
-        workspace.identity.device, MAX_SRCINFO_BYTES,
-        EvaluatedDevelSourceBuildStage::GitRevision,
-        EvaluatedDevelSourceBuildFailureReason::GitRepositoryInvalid);
-    const std::string expected_alternate =
-        (mirror.path / "objects").string() + "\n";
-    if(alternates.bytes != expected_alternate) {
-        throw_build_failure(
+    if(pinned_closure) {
+        require_entry_absent(workspace.descriptor.get(), ".git/objects/info/alternates");
+    } else {
+        OpenedRegularFile alternates = open_and_read_regular_file(
+            workspace.descriptor.get(), ".git/objects/info/alternates",
+            workspace.identity.device, MAX_SRCINFO_BYTES,
             EvaluatedDevelSourceBuildStage::GitRevision,
             EvaluatedDevelSourceBuildFailureReason::GitRepositoryInvalid);
+        const std::string expected_alternate =
+            (mirror.path / "objects").string() + "\n";
+        if(alternates.bytes != expected_alternate) {
+            throw_build_failure(
+                EvaluatedDevelSourceBuildStage::GitRevision,
+                EvaluatedDevelSourceBuildFailureReason::GitRepositoryInvalid);
+        }
     }
     require_unmodified_git_object_semantics(
         git, null_input, mirror, mirror.descriptor.get(),
@@ -2228,7 +2235,11 @@ void attach_cleanup_consequence(
 } // namespace
 
 struct EvaluatedDevelSourceBuildProof::State {
-    InvocationOwnedSourceBuildContext context;
+    // A reference is stable across whole-owner moves: SourceReady keeps its
+    // selection/context in heap-owned backing. Never combine another lineage.
+    std::variant<InvocationOwnedSourceBuildContext, SourceReadyPinnedSubmoduleWorkspace> owner;
+    InvocationOwnedSourceBuildContext& context;
+    std::optional<PinnedWorkspaceCleanupResult> workspace_cleanup;
     EvaluatedDevelSourceProjection evaluated_source;
     ActualBuiltGitRevision actual_revision;
     FreshDevelPackageArtifact artifact;
@@ -2238,10 +2249,15 @@ struct EvaluatedDevelSourceBuildProof::State {
         EvaluatedDevelSourceProjection value_evaluated_source,
         ActualBuiltGitRevision value_actual_revision,
         FreshDevelPackageArtifact value_artifact) noexcept
-        : context(std::move(value_context)),
+        : owner(std::move(value_context)), context(std::get<InvocationOwnedSourceBuildContext>(owner)),
           evaluated_source(std::move(value_evaluated_source)),
           actual_revision(std::move(value_actual_revision)),
           artifact(std::move(value_artifact)) {
+    }
+    State(SourceReadyPinnedSubmoduleWorkspace workspace, InvocationOwnedSourceBuildContext& value_context,
+          EvaluatedDevelSourceProjection projection, ActualBuiltGitRevision revision, FreshDevelPackageArtifact value_artifact) noexcept
+        : owner(std::move(workspace)), context(value_context), evaluated_source(std::move(projection)),
+          actual_revision(std::move(revision)), artifact(std::move(value_artifact)) {
     }
 };
 
@@ -2388,8 +2404,19 @@ EvaluatedDevelSourceBuildProof::cleanup() noexcept {
             InvocationOwnedSourceBuildContextFailureReason::InvalidState;
         return failure;
     }
-    InvocationOwnedSourceBuildContextCleanupResult result =
-        state_->context.cleanup();
+    InvocationOwnedSourceBuildContextCleanupResult result = InvocationOwnedSourceBuildContextCleaned{};
+    if(auto* workspace = std::get_if<SourceReadyPinnedSubmoduleWorkspace>(&state_->owner)) {
+        state_->workspace_cleanup = workspace->cleanup();
+        if(state_->workspace_cleanup->closure.selection)
+            result = *state_->workspace_cleanup->closure.selection;
+        else if(!state_->workspace_cleanup->succeeded()) {
+            InvocationOwnedSourceBuildContextFailure failure;
+            failure.stage = InvocationOwnedSourceBuildContextStage::Cleanup;
+            failure.reason = InvocationOwnedSourceBuildContextFailureReason::UnprovenCleanupContent;
+            result = failure;
+        }
+    } else
+        result = state_->context.cleanup();
     if(std::holds_alternative<InvocationOwnedSourceBuildContextCleaned>(
            result) &&
        state_->artifact.descriptor_ >= 0) {
@@ -2397,6 +2424,10 @@ EvaluatedDevelSourceBuildProof::cleanup() noexcept {
         state_->artifact.descriptor_ = -1;
     }
     return result;
+}
+
+const PinnedWorkspaceCleanupResult* EvaluatedDevelSourceBuildProof::pinned_workspace_cleanup() const noexcept {
+    return state_ && state_->workspace_cleanup ? &*state_->workspace_cleanup : nullptr;
 }
 
 struct EvaluatedDevelSourceSelectionStateData {
@@ -2408,7 +2439,7 @@ struct EvaluatedDevelSourceSelectionStateData {
     std::optional<SourceProjectionAnalysis> source_analysis;
     OwnedDescriptor null_input;
     OwnedDescriptor root_directory;
-    bool active = false;
+    bool active = false, build_completed = false;
 
     EvaluatedDevelSourceSelectionStateData(InvocationOwnedSourceBuildContext value_context,
                                            InvocationOwnedMakepkgEnvironment value_environment) noexcept
@@ -2502,7 +2533,7 @@ void EvaluatedDevelSourceBuildAuthority::SelectionState::prepare_cleanup() noexc
     if(data->context.valid()) {
         try {
             revalidate(EvaluatedDevelSourceBuildStage::Cleanup);
-            require_empty_pkgdest(data->context.pkgdest_descriptor(), EvaluatedDevelSourceBuildStage::Cleanup);
+            if(!data->build_completed) require_empty_pkgdest(data->context.pkgdest_descriptor(), EvaluatedDevelSourceBuildStage::Cleanup);
         } catch(...) {
             data->context.refuse_unproven_cleanup();
         }
@@ -2554,6 +2585,9 @@ const InvocationOwnedSourceBuildContext& PinnedSubmoduleWorkspaceAuthority::cont
 }
 int PinnedSubmoduleWorkspaceAuthority::builddir_descriptor(const EvaluatedDevelSourceSelection& selection) {
     return context(selection).builddir_descriptor();
+}
+int PinnedSubmoduleWorkspaceAuthority::srcdest_descriptor(const EvaluatedDevelSourceSelection& selection) {
+    return context(selection).srcdest_descriptor();
 }
 void PinnedSubmoduleWorkspaceAuthority::refuse_context_cleanup(const EvaluatedDevelSourceSelection& selection) noexcept {
     if(selection.valid()) selection.state_->data->context.refuse_unproven_cleanup();
@@ -2624,9 +2658,19 @@ EvaluatedDevelSourceSelectionResult EvaluatedDevelSourceBuildAuthority::select(
 EvaluatedDevelSourceBuildResult EvaluatedDevelSourceBuildAuthority::resume(EvaluatedDevelSourceSelection selection) {
     if(!selection.valid()) return build_failure(EvaluatedDevelSourceBuildStage::ContextValidation,
                                                 EvaluatedDevelSourceBuildFailureReason::InvalidBuildContext);
-    auto& state = *selection.state_;
+    return execute(*selection.state_, nullptr);
+}
+
+EvaluatedDevelSourceBuildResult EvaluatedDevelSourceBuildAuthority::resume(SourceReadyPinnedSubmoduleWorkspace workspace) {
+    if(!workspace.valid()) return build_failure(EvaluatedDevelSourceBuildStage::ContextValidation,
+                                                EvaluatedDevelSourceBuildFailureReason::SourceReadyInvalid);
+    auto& selected = PinnedSubmoduleWorkspaceAuthority::selection(workspace);
+    return execute(*selected.state_, &workspace);
+}
+
+EvaluatedDevelSourceBuildResult EvaluatedDevelSourceBuildAuthority::execute(SelectionState& state, SourceReadyPinnedSubmoduleWorkspace* pinned_workspace) {
     auto& data = *state.data;
-    data.active = false;
+    if(!pinned_workspace) data.active = false;
     auto& context = data.context;
     auto& working_recipe = *data.working_recipe;
     auto& source_analysis = *data.source_analysis;
@@ -2638,16 +2682,44 @@ EvaluatedDevelSourceBuildResult EvaluatedDevelSourceBuildAuthority::resume(Evalu
                                  std::size_t capture_limit) {
         return state.run_makepkg(std::move(arguments), stage, process, timeout, capture_limit);
     };
+    const auto closure_failure = [&](PinnedWorkspaceFailure detail, EvaluatedDevelSourceBuildFailureReason reason) {
+        auto failure = build_failure(EvaluatedDevelSourceBuildStage::SourceWorkspace, reason);
+        if(detail.process) {
+            failure.process_outcome = detail.process->outcome;
+            failure.cancellation_signal = detail.process->cancellation_signal;
+        }
+        failure.pinned_workspace_failure = std::make_shared<PinnedWorkspaceFailure>(std::move(detail));
+        throw BuildFailureError(std::move(failure));
+    };
+    const auto cleanup = [&](EvaluatedDevelSourceBuildFailure& failure) {
+        if(pinned_workspace) {
+            // Workspace identity refusal must reach context before either 4A
+            // or selection cleanup. Preserve primary process/cancel facts.
+            if(package_build_started) context.refuse_unproven_cleanup();
+            auto detail = failure.pinned_workspace_failure ? *failure.pinned_workspace_failure
+                                                           : PinnedWorkspaceFailure{PinnedWorkspaceStage::Cleanup, PinnedWorkspaceFailureReason::MaterializationFailed};
+            detail.cleanup = pinned_workspace->cleanup();
+            if(detail.cleanup.closure.selection)
+                failure.cleanup_consequence = EvaluatedDevelSourceBuildCleanupConsequence{*detail.cleanup.closure.selection, context.owned_root()};
+            failure.pinned_workspace_failure = std::make_shared<PinnedWorkspaceFailure>(std::move(detail));
+        } else
+            state.cleanup_after_failure(failure, package_build_started);
+    };
     try {
         notify_test_event(EvaluatedDevelSourceBuildTestEvent::AfterInitialSourceSelection, context.owned_root());
         state.revalidate(EvaluatedDevelSourceBuildStage::ContextValidation);
         require_empty_pkgdest(context.pkgdest_descriptor(), EvaluatedDevelSourceBuildStage::SourcePreparation);
+        if(pinned_workspace) {
+            if(auto failure = PinnedSubmoduleWorkspaceAuthority::prepare_native(*pinned_workspace))
+                closure_failure(std::move(*failure), EvaluatedDevelSourceBuildFailureReason::NativePreparationFailed);
+        }
         // `makepkg --nobuild` must be allowed to update only the private
         // working PKGBUILD. The exact reviewed snapshot remains immutable in
         // context.recipe_root(); the updated copy is sealed immediately after
         // source preparation and is the sole input to later phases.
         static_cast<void>(run_makepkg(
-            {"--nobuild", "--nodeps", "--noconfirm"},
+            pinned_workspace ? std::vector<std::string>{"--nobuild", "--nodeps", "--noconfirm", "--holdver"}
+                             : std::vector<std::string>{"--nobuild", "--nodeps", "--noconfirm"},
             EvaluatedDevelSourceBuildStage::SourcePreparation,
             EvaluatedDevelSourceBuildProcess::SourcePreparation,
             PREPARATION_PROCESS_TIMEOUT, MAX_MAKEPKG_OUTPUT_BYTES));
@@ -2686,12 +2758,20 @@ EvaluatedDevelSourceBuildResult EvaluatedDevelSourceBuildAuthority::resume(Evalu
         RetainedDirectory mirror = locate_git_mirror(
             context.srcdest_descriptor(), context.srcdest(),
             context.root_device());
-        RetainedDirectory workspace = locate_git_workspace(
-            context.builddir_descriptor(), context.builddir(),
-            context.root_device());
+        RetainedDirectory workspace = [&]() {
+            if(!pinned_workspace) return locate_git_workspace(context.builddir_descriptor(), context.builddir(), context.root_device());
+            if(auto failure = PinnedSubmoduleWorkspaceAuthority::reprove_execution(*pinned_workspace, PinnedWorkspaceStage::PreparedReproof))
+                closure_failure(std::move(*failure), EvaluatedDevelSourceBuildFailureReason::PreparedClosureDrift);
+            const auto relative = pinned_workspace->root().lexically_relative(context.builddir());
+            auto descriptor = open_beneath(context.builddir_descriptor(), relative.string(), O_RDONLY | O_DIRECTORY,
+                                           EvaluatedDevelSourceBuildStage::SourceWorkspace, EvaluatedDevelSourceBuildFailureReason::SourceContainmentFailure);
+            const auto identity = descriptor_identity(descriptor.get(), EvaluatedDevelSourceBuildStage::SourceWorkspace,
+                                                      EvaluatedDevelSourceBuildFailureReason::SourceContainmentFailure);
+            return RetainedDirectory{pinned_workspace->root(), relative, std::move(descriptor), identity};
+        }();
         GitProofPoint prepared_git = observe_git_proof_point(
             git, null_input, mirror, workspace,
-            source_analysis.git_source);
+            source_analysis.git_source, pinned_workspace != nullptr);
 
         require_empty_pkgdest(
             context.pkgdest_descriptor(),
@@ -2735,9 +2815,15 @@ EvaluatedDevelSourceBuildResult EvaluatedDevelSourceBuildAuthority::resume(Evalu
         require_named_directory_unchanged(
             context.builddir_descriptor(), workspace,
             EvaluatedDevelSourceBuildStage::GitRevision);
+        if(pinned_workspace) {
+            if(auto failure = PinnedSubmoduleWorkspaceAuthority::reprove_execution(*pinned_workspace, PinnedWorkspaceStage::PostBuildReproof))
+                closure_failure(std::move(*failure), EvaluatedDevelSourceBuildFailureReason::PostBuildClosureDrift);
+        }
         GitProofPoint post_build_git = observe_git_proof_point(
             git, null_input, mirror, workspace,
-            source_analysis.git_source);
+            source_analysis.git_source, pinned_workspace != nullptr);
+        if(pinned_workspace && post_build_git.object_id != pinned_workspace->accepted().closure().nodes().front().commit.value())
+            throw_build_failure(EvaluatedDevelSourceBuildStage::GitRevision, EvaluatedDevelSourceBuildFailureReason::GitRevisionMismatch);
         if(prepared_git.object_id != post_build_git.object_id ||
            prepared_git.object_format != post_build_git.object_format) {
             throw_build_failure(
@@ -2840,24 +2926,30 @@ EvaluatedDevelSourceBuildResult EvaluatedDevelSourceBuildAuthority::resume(Evalu
             std::move(source_analysis.git_source),
             source_analysis.source_count,
             source_analysis.tracked_local_source_count);
+        if(pinned_workspace) {
+            auto proof_state = std::make_unique<EvaluatedDevelSourceBuildProof::State>(
+                std::move(*pinned_workspace), context, std::move(evaluated_projection), std::move(actual_revision), std::move(artifact));
+            data.build_completed = true;
+            return EvaluatedDevelSourceBuildProof(std::move(proof_state));
+        }
         return EvaluatedDevelSourceBuildProof(
             std::make_unique<EvaluatedDevelSourceBuildProof::State>(
                 std::move(context), std::move(evaluated_projection),
                 std::move(actual_revision), std::move(artifact)));
     } catch(BuildFailureError& error) {
         auto failure = error.release();
-        state.cleanup_after_failure(failure, package_build_started);
+        cleanup(failure);
         return failure;
     } catch(const std::exception& error) {
         auto failure = build_failure(EvaluatedDevelSourceBuildStage::ContextValidation,
                                      EvaluatedDevelSourceBuildFailureReason::InternalFailure);
         failure.diagnostic = error.what();
-        state.cleanup_after_failure(failure, package_build_started);
+        cleanup(failure);
         return failure;
     } catch(...) {
         auto failure = build_failure(EvaluatedDevelSourceBuildStage::ContextValidation,
                                      EvaluatedDevelSourceBuildFailureReason::InternalFailure);
-        state.cleanup_after_failure(failure, package_build_started);
+        cleanup(failure);
         return failure;
     }
 }
@@ -2868,6 +2960,10 @@ EvaluatedDevelSourceSelectionResult select_evaluated_devel_source(
 }
 EvaluatedDevelSourceBuildResult resume_evaluated_devel_source(EvaluatedDevelSourceSelection selection) {
     return EvaluatedDevelSourceBuildAuthority::resume(std::move(selection));
+}
+
+EvaluatedDevelSourceBuildResult resume_evaluated_devel_source(SourceReadyPinnedSubmoduleWorkspace workspace) {
+    return EvaluatedDevelSourceBuildAuthority::resume(std::move(workspace));
 }
 
 EvaluatedDevelSourceBuildResult build_evaluated_devel_source(

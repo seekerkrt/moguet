@@ -126,8 +126,16 @@ def main():
         "multi-required-provider": b"",
         "multi-shared-base": b"",
     }
+    # Initial Missing now has a separate exact-closure review after recipe
+    # acceptance. Old scenarios retain their original recipe answers.
+    for case in cases:
+        cases[case] += b"y\n"
+    pinned_cases = {name: b"y\ny\ny\n" for name in (
+        "pinned-recursive", "pinned-branch", "pinned-prepared-root", "pinned-prepared-child",
+        "pinned-post-child", "pinned-gitlink", "pinned-declaration", "pinned-missing",
+        "pinned-extra", "pinned-cancel", "pinned-build-failure", "pinned-cleanup-refusal")}
     if len(sys.argv) > 2:
-        cases = {sys.argv[2]: cases[sys.argv[2]]}
+        cases = pinned_cases if sys.argv[2] == "--pinned-s4" else {sys.argv[2]: (cases | pinned_cases)[sys.argv[2]]}
     with http.server.ThreadingHTTPServer(("127.0.0.1", 0), Rpc) as server:
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
@@ -154,6 +162,11 @@ def main():
             if completed.returncode or f"S553 production {case} PASS" not in output:
                 print(output)
                 raise SystemExit(f"bootstrap fixture {case} failed: exit {completed.returncode}")
+            if case.startswith("pinned-"):
+                if f"S564 4B2 {case} PASS" not in output:
+                    raise SystemExit(f"missing closure integration oracle: {case}")
+                if output.count("Accept this complete exact source closure?") != 1:
+                    raise SystemExit(f"closure review was skipped/repeated: {case}")
             if case in ("supplemental", "supplemental-collision"):
                 for reviewed_input in ("fix.patch", "config.toml", "reviewed-patch-applied", "reviewed-config"):
                     if reviewed_input not in output:
@@ -164,7 +177,7 @@ def main():
             if "malicious-old" in output:
                 raise SystemExit(f"old cache bytes reached full review: {case}")
             for line in output.splitlines():
-                if line.startswith("S553 lifecycle "):
+                if line.startswith(("S553 lifecycle ", "S564 4B2 ")):
                     print(line)
             print(f"S553 production {case} PASS")
         server.shutdown()
