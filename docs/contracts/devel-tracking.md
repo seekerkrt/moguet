@@ -164,8 +164,11 @@ S6 OutcomeUnknownではrecordが存在する可能性を保ち、baseline succes
 
 上記exact routeのtyped intentだけが、recipe full review/acceptance→exact S3→actual initial evaluation→
 4A parent-pinned recursive closure→別途explicit closure review→SourceReady→native makepkg→common S4→S5→S6を通る。
-root-onlyを含むこのbootstrap chainにはcomplete bounded closure reviewが必要であり、binary/oversizedな
-未対応closureをYesで通さない。通常のvalid provenanceやnon-devel経路にはこのreviewを追加しない。
+root-onlyを含むこのbootstrap chainでは、recipe内容reviewとは別にexact upstream snapshotをbuild inputとして
+使う明示承認を要求する。Slice 6ではremote/selector/root/tree、complete inventory metadataとsubmodule pinを
+提示し、上流全blobの全文reviewは要求しない。binary/large blobの存在だけでは拒否しない。承認はsource-codeの
+安全性保証ではなくsnapshot選択である。metadata/取得/workspaceの上限とidentity不整合の拒否は維持する。
+通常のvalid provenanceやnon-devel経路にはこの承認を追加しない。
 
 SourceReady whole ownerがsame selection/accepted root X/child pinsを保持する。prepared metadata/packagelist後と
 post-buildにHEAD、gitlinks、exact `.gitmodules`、native metadata identityを再証明し、通常source contentの
@@ -175,5 +178,7 @@ root `ActualBuiltGitRevision == X`を既存producerで証明し、child pinsはi
 root treeのgitlinksがchild/nested pinsをtransitively固定するため、schema v1 / 27 keysは変更しない。
 root X不変のchild remote-only advanceはUpToDate、root X→YはGitRevision updateという既存root trackingを維持する。
 
-Slice 5はordinary split PackageBase authorityを接続する。Slice 6代表topologyの全coverageは未完了。unknown auxiliary input/Cargo取得、
-live wezterm対応、汎用sandbox/network firewall/cache managerはこのSliceの保証に含めない。
+Slice 5はordinary split PackageBase authorityを接続する。Slice 6の
+[代表topology fixture](../../tests/fixtures/devel-production-topologies.md)は実recipeのsource形状、binary/large asset、
+submodule・DKMS packagingをdeterministicに確認する。live Cargo取得や全upstream application build、
+汎用sandbox/network firewall/cache managerの保証には読み替えない。

@@ -10,8 +10,6 @@
 
 enum class PinnedClosureReviewStage {
     Input,
-    ContentRead,
-    Classification,
     Presentation,
     Output,
     Confirmation,
@@ -24,7 +22,6 @@ enum class PinnedClosureReviewFailureReason {
     NonInteractiveInput,
     UnsupportedContent,
     ResourceLimitExceeded,
-    ReadFailure,
     RenderFailure,
     OutputFailure,
     Declined,
@@ -37,7 +34,6 @@ struct PinnedClosureReviewFailure {
     PinnedClosureReviewFailureReason reason;
     std::optional<std::size_t> node;
     std::optional<std::size_t> entry;
-    std::optional<PinnedClosureFailure> read_failure;
     std::optional<ConfirmationCancellationReason> cancellation;
     std::optional<std::error_code> io_error;
     PinnedClosureCleanupResult cleanup;
@@ -46,8 +42,9 @@ struct PinnedClosureReviewFailure {
 class AcceptedPinnedSubmoduleClosure;
 using PinnedClosureReviewResult = std::variant<AcceptedPinnedSubmoduleClosure, PinnedClosureReviewFailure>;
 
-// A separate closure acceptance, not recipe acceptance or a source-ready/S4
-// proof. The whole 4A owner (including selection and object backing) survives.
+// Explicit authorization to build the exact upstream snapshot, not a claim
+// that its contents were audited or are safe, nor recipe acceptance/S4 proof.
+// The whole 4A owner (including selection and object backing) survives.
 class AcceptedPinnedSubmoduleClosure final {
 public:
     AcceptedPinnedSubmoduleClosure() = delete;
@@ -84,7 +81,7 @@ struct PinnedClosureReviewTestHooks {
     std::istream* input = nullptr;
     std::ostream* output = nullptr;
     std::optional<bool> interactive;
-    std::optional<std::size_t> entries, blob_bytes, aggregate_bytes, line_bytes, rendered_bytes;
+    std::optional<std::size_t> entries, rendered_bytes;
     std::function<void()> before_render;
 };
 void set_pinned_closure_review_test_hooks(PinnedClosureReviewTestHooks hooks);

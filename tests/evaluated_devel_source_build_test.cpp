@@ -12,6 +12,7 @@
 #include "aur_devel_update.hpp"
 #include "system_aur_update_operation.hpp"
 #include "commands_aur_update.hpp"
+#include "commands_sync.hpp"
 #include "cli_parser.hpp"
 #include "cli_runtime_contract.hpp"
 #include "devel_tracking_bootstrap.hpp"
@@ -397,6 +398,18 @@ public:
     }
 #endif
 #ifdef MOGUET_ENABLE_PINNED_CLOSURE_REVIEW_TEST_HOOKS
+#ifdef MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
+    void add_upstream_inputs(const std::vector<std::pair<std::string, std::string>>& files) {
+        for(const auto& [path, bytes] : files) {
+            fs::create_directories((work_ / path).parent_path());
+            write_file(work_ / path, bytes);
+        }
+        run_git({"add", "--all"});
+        run_git({"commit", "-qm", "representative upstream inputs"});
+        oid_ = output_git({"rev-parse", "HEAD"});
+        run_git({"push", "origin", "main"});
+    }
+#endif
     void review_payload(const std::string& bytes, bool symlink = false, bool executable = false) {
         if(symlink) {
             fs::remove(work_ / "payload.txt");
@@ -477,6 +490,8 @@ struct ArchitectureFixture {
     std::string recipe_suffix;
     std::string package_commands;
     std::string reviewed_child_arch;
+    // nullopt preserves the original alias; empty models an unaliased Git URL.
+    std::optional<std::string> source_destination;
     bool qualified_source = false;
     bool split_children = false;
     std::string sibling_arch;
@@ -762,7 +777,8 @@ private:
         if(shape == RecipeShape::RawEvaluatedMismatch && raw) {
             remote = "https://raw.fixture.invalid/untrusted.git";
         }
-        std::string value = package_name_ + "::git+" + remote;
+        const auto destination = architecture_.source_destination.value_or(package_name_);
+        std::string value = (destination.empty() ? "" : destination + "::") + "git+" + remote;
         if(shape == RecipeShape::UnsupportedSelector) {
             value += "#tag=v1";
         } else if(exact_branch) {
@@ -852,6 +868,16 @@ private:
                       (architecture_.sibling_arch.empty() ? "" : "arch=(\'" + architecture_.sibling_arch + "\')\n") +
                       "install -Dm644 \"$srcdir/" +
                       package_name_ + "/payload.txt\" \"$pkgdir/usr/share/$pkgname/payload.txt\"\n}\n";
+        }
+        if(architecture_.source_destination) {
+            const auto directory = architecture_.source_destination->empty()
+                                       ? fs::path(upstream_.url()).stem().string()
+                                       : *architecture_.source_destination;
+            const std::string original = "$srcdir/$pkgname";
+            for(std::size_t at = 0; (at = recipe.find(original, at)) != std::string::npos;) {
+                recipe.replace(at, original.size(), "$srcdir/" + directory);
+                at += directory.size() + 8;
+            }
         }
         return recipe;
     }
@@ -3100,7 +3126,7 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
         std::cout << "S7D outer legacy exception / singular + PackageBaseSet / original cause PASS\n";
     }
 #endif
-    UpstreamGitFixture upstream("s7c-upstream", GitObjectFormat::Sha1);
+    UpstreamGitFixture upstream(bootstrap_case == "topology-tree-sitter" ? "tree-sitter" : "s7c-upstream", GitObjectFormat::Sha1);
     std::vector<std::string> bridge_cases = {"install", "branch", "upgrade-explicit", "upgrade-dependency", "dependency-keeps-explicit",
                                              "new-dependency", "promotion", "needed", "split", "rmdeps", "only-if-updated", "legacy", "overlay", "overlay-legacy",
                                              "environment", "build-failure", "artifact-mismatch", "database-world", "snapshot-failure", "prepare-failure",
@@ -3127,6 +3153,96 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
             integration_recipe.sibling_arch = "moguet_other_arch";
         }
 #ifdef MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
+        const bool representative = mode.starts_with("topology-");
+        // Actual AUR evidence and fixture reductions: fixtures/devel-production-topologies.md.
+        // These are source inputs, not recipe-local supplemental declarations.
+        std::vector<std::unique_ptr<UpstreamGitFixture>> representative_children;
+        if(representative) {
+            const std::string png("\x89PNG\r\n\x1a\n\0", 9);
+            if(mode == "topology-tree-sitter") {
+                integration_recipe.declared = {"i686", "x86_64"};
+                integration_recipe.source_destination = "";
+                upstream.add_upstream_inputs({{"docs/src/assets/images/favicon-16x16.png", png},
+                                              {"crates/cli/main.txt", "tree-sitter-cli-built\n"}});
+                integration_recipe.recipe_suffix = R"(
+package() {
+    install -Dm644 "$srcdir/tree-sitter/crates/cli/main.txt" "$pkgdir/usr/share/$pkgname/payload.txt"
+}
+)";
+            } else if(mode == "topology-xpadneo") {
+                integration_recipe.source_destination = "xpadneo";
+                upstream.add_upstream_inputs({{"docs/img/battery_support.png", png},
+                                              {"hid-xpadneo/dkms.conf.in", "PACKAGE_VERSION=@DO_NOT_CHANGE@\nCLEAN=remove-me\n"},
+                                              {"hid-xpadneo/src/module.c", "module-source\n"},
+                                              {"hid-xpadneo/Makefile", "module-build-input\n"},
+                                              {"hid-xpadneo/etc-modprobe.d/xpadneo.conf", "options hid_xpadneo disable_deadzones=1\n"},
+                                              {"hid-xpadneo/etc-udev-rules.d/60-xpadneo.rules", "xpadneo-udev-rule\n"}});
+                integration_recipe.recipe_suffix = R"(
+prepare() {
+    cd "$srcdir/xpadneo/hid-xpadneo"
+    sed -e '/^CLEAN/d' -e "s/@DO_NOT_CHANGE@/v$(pkgver)/g" dkms.conf.in > dkms.conf
+}
+package() {
+    cd "$srcdir/xpadneo/hid-xpadneo"
+    install -Dm644 src/module.c "$pkgdir/usr/src/hid-xpadneo-v$pkgver/src/module.c"
+    install -Dm644 Makefile "$pkgdir/usr/src/hid-xpadneo-v$pkgver/Makefile"
+    install -Dm644 dkms.conf "$pkgdir/usr/src/hid-xpadneo-v$pkgver/dkms.conf"
+    install -Dm644 etc-modprobe.d/xpadneo.conf "$pkgdir/usr/lib/modprobe.d/xpadneo.conf"
+    install -Dm644 etc-udev-rules.d/60-xpadneo.rules "$pkgdir/usr/lib/udev/rules.d/60-xpadneo.rules"
+}
+)";
+            } else {
+                require(mode == "topology-wezterm", "Unknown representative topology");
+                integration_recipe.declared = {"x86_64", "i686"};
+                integration_recipe.source_destination = "wezterm";
+                upstream.add_upstream_inputs({{"assets/icon/terminal.png", png},
+                                              {"assets/fonts/JetBrainsMono-Regular.ttf", std::string("font\0bytes", 10)},
+                                              // The real root contains a 37,774,848-byte DLL. Cross both old
+                                              // 8 MiB/blob and 32 MiB/full-text bounds without a live fetch.
+                                              {"assets/windows/mesa/opengl32.dll", std::string(37774848, '\0')}});
+                std::string modules;
+                std::vector<std::pair<std::string, std::string>> pins;
+                const std::vector<std::pair<std::string, std::string>> names{
+                    {"harfbuzz/harfbuzz", "deps/harfbuzz/harfbuzz"}, {"freetype/libpng", "deps/freetype/libpng"}, {"deps/freetype/zlib", "deps/freetype/zlib"}, {"freetype2", "deps/freetype/freetype2"}};
+                for(const auto& [name, path] : names) {
+                    auto child = std::make_unique<UpstreamGitFixture>(fs::path(path).filename().string());
+                    child->commit(name + " input\n");
+                    if(name == "harfbuzz/harfbuzz") {
+                        std::vector<std::pair<std::string, std::string>> files;
+                        // Real root + this pinned child exceed the old 4096
+                        // entry review limit. Payload volume need not be copied.
+                        for(unsigned i = 0; i < 4100; ++i)
+                            files.emplace_back("test/shape/input-" + std::to_string(i), "shape-input\n");
+                        child->add_upstream_inputs(files);
+                    }
+                    if(name == "freetype2") {
+                        auto leaf = std::make_unique<UpstreamGitFixture>("dlg");
+                        leaf->commit("dlg input\n");
+                        child->pin_tree("[submodule \"dlg\"]\n\tpath = subprojects/dlg\n\turl = " + leaf->url() + "\n",
+                                        {{"subprojects/dlg", leaf->oid()}});
+                        representative_children.push_back(std::move(leaf));
+                    }
+                    modules += "[submodule \"" + name + "\"]\n\tpath = " + path + "\n\turl = " + child->url() + "\n";
+                    pins.emplace_back(path, child->oid());
+                    representative_children.push_back(std::move(child));
+                }
+                upstream.pin_tree(modules, pins);
+                integration_recipe.recipe_suffix = R"(
+prepare() {
+    cd "$srcdir/wezterm"
+    git submodule update --init --recursive --depth=1
+}
+build() {
+    cd "$srcdir/wezterm"
+    cat payload.txt deps/harfbuzz/harfbuzz/payload.txt deps/freetype/libpng/payload.txt deps/freetype/zlib/payload.txt deps/freetype/freetype2/payload.txt deps/freetype/freetype2/subprojects/dlg/payload.txt > combined.txt
+}
+package() {
+    install -Dm644 "$srcdir/wezterm/combined.txt" "$pkgdir/usr/share/$pkgname/payload.txt"
+    install -Dm644 "$srcdir/wezterm/assets/icon/terminal.png" "$pkgdir/usr/share/pixmaps/org.wezfurlong.wezterm.png"
+}
+)";
+            }
+        }
         const bool pinned = mode.starts_with("pinned-");
         const bool closure_interaction = mode.starts_with("pinned-review-");
         std::unique_ptr<UpstreamGitFixture> submodule, nested;
@@ -3204,6 +3320,8 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
             closure_remotes.emplace(submodule->url(), submodule->remote());
             closure_remotes.emplace(nested->url(), nested->remote());
         }
+        for(const auto& child : representative_children)
+            closure_remotes.emplace(child->url(), child->remote());
         PinnedClosureTestHooks closure_hooks;
         closure_hooks.event = [&](auto, const auto& path) {
             closure_root = path;
@@ -3305,7 +3423,7 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
             installed_record = db / "local" / (fixture.package_name() + "-" + version);
             fs::create_directory(installed_record);
             write_file(installed_record / "desc", "%NAME%\n" + fixture.package_name() + "\n\n%BASE%\n" + fixture.package_base() +
-                                                      "\n\n%VERSION%\n" + version + "\n\n%ARCH%\nany\n\n%REASON%\n" + (dependency_reason ? "1" : "0") + "\n\n");
+                                                      "\n\n%VERSION%\n" + version + "\n\n%ARCH%\n" + (expected ? *expected->identity.architecture.value() : "any") + "\n\n%REASON%\n" + (dependency_reason ? "1" : "0") + "\n\n");
             write_file(installed_record / "files", "%FILES%\nusr/share/moguet-test\n\n");
             write_file(installed_record / "mtree", raw_mtree.empty() ? "old-mtree" : raw_mtree);
             if(split_both) {
@@ -3434,6 +3552,29 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
                                                                            require(built && built->valid(), "bridge did not retain S4 proof");
                                                                            if(mode == "supplemental" || mode == "supplemental-collision") require_supplemental_artifact(*built, fixture);
 #ifdef MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
+                                                                           if(representative) {
+                                                                               const auto extract = [&](const std::string& path) {
+                                                                                   auto output = capture_process("/usr/bin/bsdtar", {"-xOf", built->artifact().path().string(), path}, {"PATH=/usr/bin:/bin", "LC_ALL=C"});
+                                                                                   require(output.exit_code == 0, "Representative artifact member missing");
+                                                                                   return output.output;
+                                                                               };
+                                                                               if(mode == "topology-xpadneo") {
+                                                                                   const auto prefix = "usr/src/hid-xpadneo-v" + built->artifact().evidence().identity.full_version.substr(0, built->artifact().evidence().identity.full_version.rfind('-'));
+                                                                                   const auto config = extract(prefix + "/dkms.conf");
+                                                                                   require(config.starts_with("PACKAGE_VERSION=v1.r") && config.find("@DO_NOT_CHANGE@") == std::string::npos && config.find("CLEAN=") == std::string::npos &&
+                                                                                               extract(prefix + "/src/module.c") == "module-source\n" &&
+                                                                                               extract("usr/lib/modprobe.d/xpadneo.conf").starts_with("options hid_xpadneo") &&
+                                                                                               extract("usr/lib/udev/rules.d/60-xpadneo.rules") == "xpadneo-udev-rule\n",
+                                                                                           "DKMS template/module/config packaging was not evaluated");
+                                                                               } else {
+                                                                                   const auto payload = extract("usr/share/" + fixture.package_name() + "/payload.txt");
+                                                                                   require(payload == (mode == "topology-tree-sitter" ? "tree-sitter-cli-built\n" : "revision-one\nharfbuzz/harfbuzz input\nfreetype/libpng input\ndeps/freetype/zlib input\nfreetype2 input\ndlg input\n"),
+                                                                                           "Representative build did not consume the selected source inputs");
+                                                                                   if(mode == "topology-wezterm")
+                                                                                       require(extract("usr/share/pixmaps/org.wezfurlong.wezterm.png") == std::string("\x89PNG\r\n\x1a\n\0", 9), "Binary asset changed before packaging");
+                                                                               }
+                                                                               require(*built->actual_built_revision().revision().value().git_commit() == upstream.oid(), "Representative S4 lost accepted root X");
+                                                                           }
                                                                            if(pinned) {
                                                                                auto payload = capture_process("/usr/bin/bsdtar", {"-xOf", built->artifact().path().string(), "usr/share/" + fixture.package_name() + "/payload.txt"}, {"PATH=/usr/bin:/bin", "LC_ALL=C"});
                                                                                require(payload.exit_code == 0 && payload.output == "revision-one\nprepared\nchild-accepted\nrevision-one\nchild-accepted\ngenerated\n",
@@ -4067,7 +4208,7 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
                 std::cout << "S553 production " << case_name << " PASS\n";
                 continue;
             }
-            const bool success = mode == "pinned-recursive" || mode == "pinned-branch" || mode == "accept" || mode == "older" || mode == "reviewed-same" || mode == "reviewed-changed" || mode == "supplemental" || mode == "supplemental-collision" || mode == "no-cache" || mode == "clean-cache" || mode == "dirty-pkgbuild" || mode == "overlay" || mode == "ignored" || mode == "wrong-head" || mode == "malicious-config" || mode == "advance-after-revalidation";
+            const bool success = representative || mode == "pinned-recursive" || mode == "pinned-branch" || mode == "accept" || mode == "older" || mode == "reviewed-same" || mode == "reviewed-changed" || mode == "supplemental" || mode == "supplemental-collision" || mode == "no-cache" || mode == "clean-cache" || mode == "dirty-pkgbuild" || mode == "overlay" || mode == "ignored" || mode == "wrong-head" || mode == "malicious-config" || mode == "advance-after-revalidation";
             const bool skipped = mode == "advance-before-revalidation" || mode == "provider-decline" || mode == "decline" || mode == "default-no" || mode == "non-tty" || mode == "noconfirm" || mode == "nodiff" || mode == "diff-skip" ||
                                  mode == "unsupported" || mode == "invalid" || mode == "corrupt" || mode == "future" || mode == "unsafe";
             const bool process_cancelled = mode == "acquire-cancel" || mode == "acquire-cancel-zero";
@@ -4094,25 +4235,27 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
                     observation.affected_update_targets.front().update.bootstrap.reset();
                     require(!observation.is_ready(), "preparation accepted a bootstrap intent without its original target");
                 }
-                for(const bool corrupt_origin : {true, false}) {
-                    auto forged = *filtered.execution;
-                    auto& item = forged.work_item_results[bootstrap_index];
-                    item.status = AurUpdateWorkItemExecutionStatus::BootstrapSkipped;
-                    item.failure_kind = AurUpdateWorkItemFailureKind::None;
-                    item.production_outcome.reset();
-                    item.devel_execution.reset();
-                    item.bootstrap_decision = AurUpdateBootstrapDecision{AurUpdateBootstrapDecisionState::Declined,
-                                                                         corrupt_origin ? ConfirmationResult{ConfirmationAccepted{ConfirmationDecisionOrigin::ExplicitToken}}
-                                                                                        : ConfirmationResult{ConfirmationDeclined{ConfirmationDecisionOrigin::ExplicitToken}}};
-                    item.bootstrap_skipped_roots = {corrupt_origin ? bootstrap_index : targets.size() + 1};
-                    for(auto& child_result : item.child_results) {
-                        child_result.status = AurUpdateChildExecutionStatus::BootstrapSkipped;
-                        child_result.selected_artifact.reset();
+                if(!representative) {
+                    for(const bool corrupt_origin : {true, false}) {
+                        auto forged = *filtered.execution;
+                        auto& item = forged.work_item_results[bootstrap_index];
+                        item.status = AurUpdateWorkItemExecutionStatus::BootstrapSkipped;
+                        item.failure_kind = AurUpdateWorkItemFailureKind::None;
+                        item.production_outcome.reset();
+                        item.devel_execution.reset();
+                        item.bootstrap_decision = AurUpdateBootstrapDecision{AurUpdateBootstrapDecisionState::Declined,
+                                                                             corrupt_origin ? ConfirmationResult{ConfirmationAccepted{ConfirmationDecisionOrigin::ExplicitToken}}
+                                                                                            : ConfirmationResult{ConfirmationDeclined{ConfirmationDecisionOrigin::ExplicitToken}}};
+                        item.bootstrap_skipped_roots = {corrupt_origin ? bootstrap_index : targets.size() + 1};
+                        for(auto& child_result : item.child_results) {
+                            child_result.status = AurUpdateChildExecutionStatus::BootstrapSkipped;
+                            child_result.selected_artifact.reset();
+                        }
+                        const auto reduced = reduce_aur_update_operation_result(filtered.preflight, filtered.preparation,
+                                                                                DevelRequiresCheckPolicy::SkipIndependentTarget, forged);
+                        require(!reduced.is_success() && reduced.status == AurUpdateOperationStatus::InconsistentResult,
+                                "forged bootstrap decline/root mapping became success");
                     }
-                    const auto reduced = reduce_aur_update_operation_result(filtered.preflight, filtered.preparation,
-                                                                            DevelRequiresCheckPolicy::SkipIndependentTarget, forged);
-                    require(!reduced.is_success() && reduced.status == AurUpdateOperationStatus::InconsistentResult,
-                            "forged bootstrap decline/root mapping became success");
                 }
                 const auto readback = read_devel_build_provenance(base);
                 const auto& loaded = require_arm<DevelBuildProvenanceStoreLoaded>(readback, "bootstrap publication readback missing");
@@ -4127,6 +4270,10 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
                 const auto same = assess_current_devel_package(assessment_target);
                 require(same.assessment.state() == DevelUpdateAssessmentState::UpToDate, "post-bootstrap same OID was not UpToDate");
                 const auto trials_before_fast_path = trial_calls;
+                const auto publications_before = g_bridge_publication_entries;
+                const auto phases_before = std::tuple(initial_evaluations, source_preparations, package_builds, closure_reviews, workspace_clones);
+                if(representative) std::cout << "S564 second ordinary begin\n"
+                                             << std::flush;
                 const auto fast_request = make_compatible_system_aur_update_request(
                     std::get<AutoSystemUpdateRouteCandidate>(classify_sync_invocation_route(*parsed)));
                 auto fast = execute_prepared_system_aur_update_operation(prepare_system_aur_update_operation(*fast_request), config);
@@ -4134,6 +4281,25 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
                         "valid provenance fast path gained bootstrap/rebuild");
                 require(fast.aur.operation_result->reduced_operation_result.targets[bootstrap_index].update.devel_assessment.state() == DevelUpdateAssessmentState::UpToDate,
                         "next ordinary update did not use the published baseline");
+                require(g_bridge_publication_entries == publications_before &&
+                            phases_before == std::tuple(initial_evaluations, source_preparations, package_builds, closure_reviews, workspace_clones),
+                        "Steady state mutated source/build/publication state");
+                if(representative) {
+                    require(fast.aur.operation_result->reduced_operation_result.preparation_warnings.empty() &&
+                                fast.aur.operation_result->issues.empty(),
+                            "Steady state retained an AUR warning/issue");
+                    present_system_aur_update_operation_result(std::move(fast));
+                    std::cout << "S564 second ordinary end\n"
+                              << std::flush;
+                    const auto unchanged = read_devel_build_provenance(base);
+                    require(require_arm<DevelBuildProvenanceStoreLoaded>(unchanged, "Steady-state provenance missing").observed.raw_contents == loaded.observed.raw_contents,
+                            "Steady state changed published bytes");
+                    require(initial_evaluations == 1 && source_preparations == 1 && package_builds == 1 &&
+                                root_observations == 1 && closure_reviews == 1 && closure_phase_points == 5 &&
+                                g_bridge_publication_entries == 1 && execution.devel_execution->owner->build_completed(),
+                            "Representative topology skipped/repeated accepted source, S4 or publication");
+                    std::cout << "S564 topology " << mode << " migration=Complete review=full S4=1 install=1 S5=1 S6=Complete second-mutation=0\n";
+                }
                 upstream.commit("bootstrap remote advanced\n");
                 const auto different = assess_current_devel_package(assessment_target);
                 require(different.assessment.state() == DevelUpdateAssessmentState::UpdateAvailable && different.update_basis == DevelPackageUpdateBasis::GitRevision,
@@ -5424,11 +5590,10 @@ protected:
     static_assert(!std::is_invocable_v<decltype(review_pinned_submodule_closure), Closure, ExplicitConfirmationAcceptance>);
     static_assert(!std::is_invocable_v<EvaluatedDevelSourceBuildResult (*)(EvaluatedDevelSourceSelection), Accepted>);
     const std::vector<std::string> cases{
-        "single", "nested", "siblings", "escaped", "empty", "executable", "no-newline", "yes", "blank-then-yes", "freeze", "bounds-exact",
-        "binary", "symlink", "blob-limit", "aggregate-limit", "entry-limit", "line-limit", "render-limit", "render-failure",
+        "single", "nested", "siblings", "executable", "yes", "blank-then-yes", "freeze", "bounds-exact",
+        "binary", "symlink", "entry-limit", "render-limit", "render-failure",
         "write", "throw-write", "flush", "throw-flush", "prompt-flush", "decline", "no", "cancel", "cancel-word", "eof", "input-failure", "throw-input",
-        "non-tty", "noconfirm", "nodiff", "config-skip", "recipe-token", "migration-token", "moved", "read-failure", "read-cancel",
-        "cleanup-failure", "read-cleanup-failure", "destructor"};
+        "non-tty", "noconfirm", "nodiff", "config-skip", "recipe-token", "migration-token", "moved", "cleanup-failure", "destructor"};
     for(const auto& kind : cases) {
         struct HookReset {
             ~HookReset() {
@@ -5445,11 +5610,8 @@ protected:
             child.review_payload("child first line\nchild last line\n");
         }
         if(kind == "binary") child.review_payload(std::string("a\0b", 3));
-        if(kind == "escaped") child.review_payload("tab\t esc\x1b[31m slash\\ bidi\xe2\x80\xae\n");
-        if(kind == "empty") child.review_payload("");
         if(kind == "executable") child.review_payload("executable\n", false, true);
         if(kind == "symlink") child.review_payload("", true);
-        if(kind == "no-newline") child.review_payload("no final newline");
         if(kind == "nested") {
             leaf = std::make_unique<UpstreamGitFixture>("review-leaf");
             leaf->review_payload("nested first line\nnested last line\n");
@@ -5479,7 +5641,7 @@ protected:
         std::map<std::string, fs::path> remotes{{root.url(), root.remote()}, {child.url(), child.remote()}};
         if(leaf) remotes.emplace(leaf->url(), leaf->remote());
         fs::path object_root;
-        bool reviewing = false, injected = false, prompted = false;
+        bool reviewing = false, prompted = false;
         unsigned reads = 0, removal_attempts = 0;
         PinnedClosureTestHooks acquisition;
         acquisition.event = [&](auto, const auto& path) { object_root = path; };
@@ -5491,14 +5653,8 @@ protected:
                         has("protocol.https.allow=always") && has("protocol.file.allow=never") && has("http.followRedirects=false"),
                     "Review fixture bypassed HTTPS acquisition policy");
             if(reviewing) {
-                require(!prompted && !has("fetch") && !has("ls-remote") && !has("init") && !has("submodule"),
-                        "Review reacquired source or read backing after prompt");
-                if(has("blob")) ++reads;
-                if(!injected && (reads >= 2 || kind != "read-failure") && (kind == "read-failure" || kind == "read-cancel" || kind == "read-cleanup-failure")) {
-                    injected = true;
-                    return BoundedCapturedProcessResult{"original review read failure", BoundedProcessExited{kind == "read-cancel" ? 0 : 19},
-                                                        kind == "read-cancel" ? std::optional<int>(SIGINT) : std::nullopt};
-                }
+                ++reads;
+                require(!prompted, "Acceptance read backing after the prompt");
             }
             for(auto& arg : invocation.arguments) {
                 if(arg == "protocol.file.allow=never")
@@ -5508,7 +5664,7 @@ protected:
             }
             return capture_bounded_explicit_process_output_raw(invocation, policy);
         };
-        if(kind == "cleanup-failure" || kind == "read-cleanup-failure") acquisition.before_remove = [&](const auto&) {
+        if(kind == "cleanup-failure") acquisition.before_remove = [&](const auto&) {
             ++removal_attempts;
             throw std::runtime_error("fixture cleanup refusal");
         };
@@ -5518,15 +5674,9 @@ protected:
         const auto* retained_selection = &closure.selection();
         const auto* retained_nodes = &closure.nodes();
         const auto* retained_edges = &closure.edges();
-        std::size_t expected_blobs = 0, aggregate_bytes = 0, inventory_entries = 0;
+        std::size_t inventory_entries = 0;
         for(const auto& node : closure.nodes())
-            for(const auto& file : node.inventory.entries) {
-                ++inventory_entries;
-                if(file.mode() != ReviewedSourceFileMode::Gitlink) {
-                    ++expected_blobs;
-                    aggregate_bytes += *file.blob_size();
-                }
-            }
+            inventory_entries += node.inventory.entries.size();
         if(kind == "freeze") {
             root.commit("advanced root\n");
             child.commit("advanced child\n");
@@ -5547,9 +5697,9 @@ protected:
         buffer.fault = kind;
         std::ostream output(&buffer);
         buffer.on_flush = [&] {
-            if(buffer.str().find("Accept this complete exact source closure?") != std::string::npos) {
+            if(buffer.str().find("Use this exact upstream source snapshot as build input?") != std::string::npos) {
                 prompted = true;
-                require(reads == expected_blobs, "Prompt preceded complete content collection");
+                require(reads == 0, "Snapshot acceptance read upstream blob contents");
             }
         };
         PinnedClosureReviewTestHooks review;
@@ -5557,15 +5707,8 @@ protected:
         review.output = &output;
         review.interactive = kind != "non-tty";
         if(kind == "throw-input") review.input = &failing_input;
-        if(kind == "bounds-exact") {
-            review.entries = inventory_entries;
-            review.aggregate_bytes = aggregate_bytes;
-            review.blob_bytes = std::max(declaration.size(), std::string("revision-one\n").size());
-        }
-        if(kind == "blob-limit") review.blob_bytes = 1;
-        if(kind == "aggregate-limit") review.aggregate_bytes = aggregate_bytes - 1;
+        if(kind == "bounds-exact") review.entries = inventory_entries;
         if(kind == "entry-limit") review.entries = inventory_entries - 1;
-        if(kind == "line-limit") review.line_bytes = 3;
         if(kind == "render-limit") review.rendered_bytes = 1;
         if(kind == "render-failure") review.before_render = [] { throw std::runtime_error("fixture render failure"); };
         set_pinned_closure_review_test_hooks(review);
@@ -5583,9 +5726,9 @@ protected:
             auto result = review_pinned_submodule_closure(std::move(closure),
                                                           kind == "nodiff" || kind == "config-skip" ? ReviewPolicy::Skip : ReviewPolicy::Prompt, kind == "noconfirm");
             require(!closure.valid() && initial == 1, "Review duplicated selection ownership/evaluation");
-            const bool success = kind == "single" || kind == "nested" || kind == "siblings" || kind == "escaped" ||
-                                 kind == "empty" || kind == "executable" || kind == "no-newline" || kind == "yes" ||
-                                 kind == "blank-then-yes" || kind == "freeze" || kind == "destructor" || kind == "bounds-exact";
+            const bool success = kind == "single" || kind == "nested" || kind == "siblings" || kind == "binary" ||
+                                 kind == "executable" || kind == "yes" || kind == "blank-then-yes" ||
+                                 kind == "freeze" || kind == "destructor" || kind == "bounds-exact";
             const auto rendered = buffer.str();
             if(success) {
                 auto accepted = take_arm<Accepted>(result, "Complete review did not accept");
@@ -5594,28 +5737,28 @@ protected:
                             accepted.closure().selection().snapshot_identity() == snapshot && accepted.closure().nodes()[0].commit.value() == root_pin &&
                             accepted.closure().edges()[0].pin.value() == child_pin && fs::exists(object_root) && fs::exists(context_root),
                         "Accepted review lost whole owner/backing/lineage/pins");
-                require(prompted && reads == expected_blobs && rendered.find(root_pin) != std::string::npos &&
+                require(prompted && reads == 0 && rendered.find(root_pin) != std::string::npos &&
                             rendered.find(child_pin) != std::string::npos && rendered.find("logical/A") != std::string::npos &&
                             rendered.find("deps/a") != std::string::npos && rendered.find(".gitmodules") != std::string::npos &&
-                            rendered.find("complete child review node:") != std::string::npos,
+                            rendered.find("exact child node:") != std::string::npos,
                         "Review omitted identity/declaration context");
-                if(kind == "single" || kind == "nested" || kind == "siblings") {
-                    require(rendered.find("  | root first line\n  | root last line\n") != std::string::npos &&
-                                rendered.find("  | child first line\n  | child last line\n") != std::string::npos &&
-                                rendered.find("  | [submodule \"logical/A\"]\n") != std::string::npos &&
-                                rendered.find("  | \\x09path = deps/a\n") != std::string::npos &&
-                                rendered.find("  | \\x09url = " + child.url() + "\n") != std::string::npos,
-                            "Complete review omitted source/declaration bytes");
-                }
-                if(kind == "nested") require(rendered.find("  | nested first line\n  | nested last line\n") != std::string::npos, "Nested content omitted");
-                if(kind == "siblings") {
-                    const auto first = rendered.find("  | child first line\n");
-                    require(rendered.find("  | child first line\n", first + 1) != std::string::npos, "Sibling content occurrence omitted");
-                }
+                require(rendered.find("Upstream blob contents are not displayed.") != std::string::npos &&
+                            rendered.find("does not certify source-code safety") != std::string::npos &&
+                            rendered.find("remote: " + root.url()) != std::string::npos &&
+                            rendered.find("selector: HEAD") != std::string::npos &&
+                            rendered.find("tree: " + accepted.closure().nodes()[0].tree.value()) != std::string::npos,
+                        "Snapshot acceptance meaning/root identity omitted");
+                for(const auto& node : accepted.closure().nodes())
+                    for(const auto& file : node.inventory.entries) {
+                        require(rendered.find(file.path().raw_bytes()) != std::string::npos &&
+                                    rendered.find(file.object_id().value()) != std::string::npos,
+                                "Snapshot inventory omitted file identity");
+                        if(file.blob_size()) require(rendered.find("bytes: " + std::to_string(*file.blob_size())) != std::string::npos, "Snapshot inventory omitted blob size");
+                    }
+                require(rendered.find("root first line") == std::string::npos && rendered.find("child first line") == std::string::npos,
+                        "Acceptance silently restored whole-content review");
                 if(kind == "nested") require(rendered.find("deps/a/nested/b") != std::string::npos && rendered.find(leaf->oid()) != std::string::npos, "Nested review missing");
                 if(kind == "siblings") require(accepted.closure().edges().size() == 2 && rendered.find("deps/b") != std::string::npos && rendered.find("node: 2") != std::string::npos, "Sibling occurrence collapsed");
-                if(kind == "escaped") require(rendered.find('\x1b') == std::string::npos && rendered.find("\\x1B") != std::string::npos && rendered.find("\\xE2\\x80\\xAE") != std::string::npos, "Unsafe terminal bytes escaped incorrectly");
-                if(kind == "no-newline") require(rendered.find("No newline at end of file") != std::string::npos, "Final newline distinction lost");
                 if(kind == "executable") require(rendered.find("100755") != std::string::npos, "Executable mode lost");
                 if(kind == "freeze") require(rendered.find("advanced root") == std::string::npos && rendered.find("advanced child") == std::string::npos, "Review followed moved remote");
                 auto transferred = std::move(accepted);
@@ -5624,27 +5767,23 @@ protected:
             } else {
                 const auto& failure = require_arm<Failure>(result, "Rejected review minted Accepted");
                 Reason expected = Reason::ResourceLimitExceeded;
-                if(kind == "binary" || kind == "symlink") expected = Reason::UnsupportedContent;
+                if(kind == "symlink") expected = Reason::UnsupportedContent;
                 if(kind == "render-failure") expected = Reason::RenderFailure;
                 if(kind == "write" || kind == "throw-write" || kind == "flush" || kind == "throw-flush" || kind == "prompt-flush") expected = Reason::OutputFailure;
                 if(kind == "decline" || kind == "no" || kind == "recipe-token" || kind == "migration-token" || kind == "cleanup-failure") expected = Reason::Declined;
-                if(kind == "cancel" || kind == "cancel-word" || kind == "eof" || kind == "read-cancel") expected = Reason::Cancelled;
+                if(kind == "cancel" || kind == "cancel-word" || kind == "eof") expected = Reason::Cancelled;
                 if(kind == "input-failure" || kind == "throw-input") expected = Reason::InputFailure;
                 if(kind == "non-tty") expected = Reason::NonInteractiveInput;
                 if(kind == "noconfirm") expected = Reason::NoConfirm;
                 if(kind == "nodiff" || kind == "config-skip") expected = Reason::ReviewSkipped;
                 if(kind == "moved") expected = Reason::InvalidClosure;
-                if(kind == "read-failure" || kind == "read-cleanup-failure") expected = Reason::ReadFailure;
                 require(failure.reason == expected, "Review failure taxonomy changed: " + kind + " reason=" + std::to_string(static_cast<int>(failure.reason)));
                 if(kind == "cancel" || kind == "cancel-word" || kind == "eof") require(failure.cancellation == (kind == "eof" ? ConfirmationCancellationReason::EndOfInput : ConfirmationCancellationReason::ExplicitToken), "Cancellation detail lost");
-                if(kind.starts_with("read-")) require(failure.read_failure && failure.read_failure->process &&
-                                                          failure.read_failure->process->output == "original review read failure" &&
-                                                          failure.read_failure->process->cancellation_signal == (kind == "read-cancel" ? std::optional<int>(SIGINT) : std::nullopt),
-                                                      "4A read cause flattened");
-                if(failure.stage == Stage::Input || failure.stage == Stage::ContentRead || failure.stage == Stage::Classification || failure.stage == Stage::Presentation)
+
+                if(failure.stage == Stage::Input || failure.stage == Stage::Presentation)
                     require(rendered.empty() && input.rdbuf()->in_avail() == static_cast<std::streamsize>(answer.size()), "Failed collection/presentation consumed input or displayed prefix");
                 if(expected == Reason::OutputFailure) require(input.rdbuf()->in_avail() == static_cast<std::streamsize>(answer.size()), "Output failure consumed Yes");
-                if(kind == "cleanup-failure" || kind == "read-cleanup-failure")
+                if(kind == "cleanup-failure")
                     require(failure.cleanup.objects && !failure.cleanup.selection && removal_attempts == 1, "Cleanup consequence lost");
                 else
                     require(failure.cleanup.succeeded(), "Unexpected cleanup failure");
@@ -5652,7 +5791,7 @@ protected:
         }
         if(moved) require(moved->valid() && moved->cleanup().succeeded(), "Invalid moved input consumed another owner");
         require(!fs::exists(context_root), "Review retained selection context");
-        if(kind == "cleanup-failure" || kind == "read-cleanup-failure") {
+        if(kind == "cleanup-failure") {
             require(removal_attempts == 1 && fs::exists(object_root), "Destructor retried refused cleanup");
             set_pinned_closure_test_hooks({});
             fs::remove_all(object_root); // Exact fixture-created residue, after assertions.

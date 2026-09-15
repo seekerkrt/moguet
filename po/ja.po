@@ -9897,9 +9897,13 @@ msgstr "不明な状態ログエラーコードです。"
 #~ msgstr "{}を削除できませんでした"
 
 #: source/pinned_submodule_closure_review.cpp
-msgid "Exact recursive source closure review (separate from recipe review)\n"
-msgstr "固定された再帰的ソース全体のレビュー（レシピのレビューとは別です）\n"
+msgid "Exact upstream source snapshot (separate from recipe review)\n"
+msgstr "固定された上流ソースのスナップショット（レシピのレビューとは別です）\n"
 
 #: source/pinned_submodule_closure_review.cpp
-msgid "Accept this complete exact source closure?"
-msgstr "表示した固定ソース全体のレビューを承認しますか？"
+msgid "Use this exact upstream source snapshot as build input?"
+msgstr "この固定された上流ソースのスナップショットをビルド入力として使用しますか？"
+
+#: source/pinned_submodule_closure_review.cpp
+msgid "Acceptance authorizes this snapshot as build input; it does not certify source-code safety. Upstream blob contents are not displayed.\n"
+msgstr "この承認はスナップショットをビルド入力として使うためのもので、ソースコードの安全性を保証しません。上流の各ファイルの本文は表示しません。\n"

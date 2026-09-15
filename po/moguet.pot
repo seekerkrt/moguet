@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.7.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-15 13:51+0900\n"
+"POT-Creation-Date: 2026-09-16 06:08+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -6121,10 +6121,13 @@ msgstr ""
 msgid "Invalid relation metadata or observation."
 msgstr ""
 
-msgid "Exact recursive source closure review (separate from recipe review)\n"
+msgid "Exact upstream source snapshot (separate from recipe review)\n"
 msgstr ""
 
-msgid "Accept this complete exact source closure?"
+msgid "Acceptance authorizes this snapshot as build input; it does not certify source-code safety. Upstream blob contents are not displayed.\n"
+msgstr ""
+
+msgid "Use this exact upstream source snapshot as build input?"
 msgstr ""
 
 #, c++-format
