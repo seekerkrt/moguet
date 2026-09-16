@@ -192,7 +192,7 @@ detailed plan.
   retrying; the package may already be installed. In `upgrade-all`, provider
   selection for the filtered AUR phase occurs before clone, build, pacman, or
   sudo work in that phase, but earlier phases may already have completed.
-- Exact target-less `moguet -Syu` is also sequential: it completes the official
+- Exact target-less `moguet -Syu` is also sequential: normally it completes the official
   repository system upgrade first, then obtains a fresh installed-foreign/AUR
   inventory and performs the normal AUR update. Before repository mutation,
   a read-only preflight reports possible repo/AUR exact-version locks; the same
@@ -213,8 +213,21 @@ detailed plan.
   execution authority or proof of a complete future system state. Execution
   requires explicit confirmation and fresh mutation-time revalidation; this
   non-atomic transition could leave the consumer absent after a later failure,
-  with no automatic rollback. This release only presents the candidate: no new
-  prompt, coordinated removal/install, retry, or transaction sequencing is added.
+  with no automatic rollback. Only a `ReadOnlyReady` plan on the actual Auto
+  route offers this coordinated execution. Its required `[y/n]` confirmation
+  accepts an explicit `yes`; `--noconfirm` and noninteractive input are not approval.
+  After confirmation the complete observation is freshly rebuilt and must match
+  the confirmed snapshot, including versions, requirements, reason and removal
+  evidence. A changed state stops before mutation and requires a new invocation.
+  Execution removes only that consumer with normal dependency checks, then runs
+  the full repository system upgrade. It verifies the actual repository version,
+  obtains fresh matching AUR authority, and uses the existing safe build/install
+  path for that replacement alone. The built version is pinned, the old Explicit
+  or Dependency reason is preserved, and fresh post-state verification checks
+  both installed versions and the exact runtime requirement. Any failure stops
+  without retry or rollback; completed phases and the observed consumer state
+  are reported. Dry-run remains read-only without confirmation or mutation.
+  RepoOnly, targeted sync, `upgrade-all` and non-ready plans keep their existing routes.
   A blocker, execution failure, or cleanup failure
   after repository completion is reported as a non-zero partial outcome; the
   completed repository transaction is not rolled back.

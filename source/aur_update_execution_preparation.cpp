@@ -1037,6 +1037,10 @@ bool collect_work_item_drafts(
                 entry.package_base,
                 package_target->package_name,
                 *desired_reason};
+            for(const auto& binding : bindings) {
+                if(binding.target->update.installed_name == package_target->package_name)
+                    required_target.expected_full_version = binding.target->update.coordinated_replacement_version;
+            }
             draft.work_item.required_targets.push_back(required_target);
             draft.required_target_attributions.push_back(
                 AurUpdateRequiredTargetAttribution{
@@ -1484,6 +1488,7 @@ bool has_exact_required_target_attributions(
                rhs[index].required_target.package_name ||
            lhs[index].required_target.desired_reason !=
                rhs[index].required_target.desired_reason ||
+           lhs[index].required_target.expected_full_version != rhs[index].required_target.expected_full_version ||
            lhs[index].affected_update_plan_indices !=
                rhs[index].affected_update_plan_indices ||
            lhs[index].affected_roots != rhs[index].affected_roots ||
@@ -1694,7 +1699,8 @@ bool has_exact_prepared_correlation(
             if(work_item_target.package_base != projected_target.package_base ||
                work_item_target.package_name != projected_target.package_name ||
                work_item_target.desired_reason !=
-                   projected_target.desired_reason) {
+                   projected_target.desired_reason ||
+               work_item_target.expected_full_version != projected_target.expected_full_version) {
                 return false;
             }
         }

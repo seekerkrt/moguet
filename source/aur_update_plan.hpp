@@ -96,6 +96,8 @@ struct AurUpdatePlanEntry {
     // Only the actual ordinary -Syu coordinator supplies this trial intent.
     // RequiresCheck and Version/GitRevision assessment remain unchanged.
     std::shared_ptr<const DevelTrackingBootstrapTrial> bootstrap;
+    // Only a confirmed/revalidated cross-source replacement supplies this pin.
+    std::optional<std::string> coordinated_replacement_version = std::nullopt;
 
     AurUpdatePlanEntry() = default;
 

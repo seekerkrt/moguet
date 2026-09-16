@@ -162,7 +162,7 @@ fail-closedで停止します。v2.xは、Moguetのsource-aware入口、安全�
   だけ失敗した場合、packageはinstall済みの可能性があるため、結果を確認せず再試行
   しないでください。`upgrade-all`のprovider selectionはfiltered AUR phaseのclone、build、
   pacman、sudoより前に行いますが、それ以前のphaseは完了済みの場合があります。
-- exact target-less `moguet -Syu`もsequentialです。official repository system updateを
+- exact target-less `moguet -Syu`もsequentialです。通常はofficial repository system updateを
   完了してから、freshなinstalled foreign / AUR inventoryを取得し、normal AUR updateを
   実行します。repository mutation前にread-only preflightでpossibleなrepo/AUR exact-version
   lockを診断し、`--dry-run -Syu`でも同じ種類の根拠を表示します。refreshしていない現在の
@@ -181,8 +181,17 @@ fail-closedで停止します。v2.xは、Moguetのsource-aware入口、安全�
   system upgrade後の全状態の証明ではありません。実行にはexplicit confirmationと
   freshなmutation-time revalidationが必要です。遷移はnon-atomicで、後続failureにより
   consumerが未installのまま残り得ます。automatic rollbackはありません。
-  現段階では表示だけで、新しいprompt、coordinated remove/install、retry、
-  transaction順序の変更は行いません。
+  actual Auto経路の`ReadOnlyReady`だけが、このcoordinated executionを提示します。
+  defaultなしの`[y/n]`で明示的な`yes`が必要で、`--noconfirm`や非対話入力は承認になりません。
+  確認後に全根拠をfreshに再取得し、version、requirement、reason、削除安全性を含む
+  確認済みsnapshotと一致しなければ、mutation前に停止して再実行を求めます。
+  通常のdependency checkを有効にした単一consumerの削除後、full repository system upgradeを
+  実行します。実際のrepository versionを確認し、freshで一致するAUR authorityを取得して、
+  対象replacementだけを既存の安全なbuild/install経路で処理します。artifact versionを固定し、
+  旧Explicit / Dependency reasonを保持し、最後に両packageのinstalled versionとexact runtime
+  requirementをfreshに検証します。failure時はretryやrollbackをせず、完了phaseと観測できた
+  consumer状態を報告します。dry-runは確認もmutationも行いません。RepoOnly、target付きsync、
+  `upgrade-all`、non-ready planは既存経路を維持します。
 
 詳細なcompatibility / routing契約は
 [docs/COMPATIBILITY.md](https://github.com/seekerkrt/moguet/blob/develop/docs/COMPATIBILITY.md)、

@@ -66,6 +66,13 @@ std::optional<AurPackageInfo> fixture_info(const std::string& package_name) {
         if(scenario == "query-failure") throw std::runtime_error("fixture replacement query failure");
         auto info = package_info(package_name);
         info.Version = "7.2.18-1";
+        if(const char* file = std::getenv("MOGUET_TEST_CROSS_SOURCE_PHASE_FILE")) {
+            std::ifstream input(file);
+            std::string phase;
+            input >> phase;
+            const char* detail = std::getenv("MOGUET_TEST_CROSS_SOURCE_CASE");
+            if(detail && std::string(detail) == "aur-changed" && phase == "repository") info.Version = "7.2.20-1";
+        }
         info.Depends = {scenario == "incompatible" ? "virtualbox=7.2.16" : "virtualbox=7.2.18"};
         const auto parsed = parse_dependency_requirement(info.Depends.front());
         info.constraint_metadata = AurPackageConstraintMetadata{
@@ -205,7 +212,19 @@ std::optional<AurPackageInfo> AurClient::info_strict(const std::string& package_
         throw std::runtime_error(
             "partial provider candidate metadata failure");
     }
-    return fixture_info(package_name);
+    auto result = fixture_info(package_name);
+    if(package_name == "virtualbox-ext-oracle") {
+        if(const char* file = std::getenv("MOGUET_TEST_CROSS_SOURCE_PHASE_FILE")) {
+            std::ifstream input(file);
+            std::string phase;
+            input >> phase;
+            if(phase == "initial") {
+                std::ofstream output(file);
+                output << "observed\n";
+            }
+        }
+    }
+    return result;
 }
 
 std::map<std::string, AurPackageInfo> AurClient::info_many(

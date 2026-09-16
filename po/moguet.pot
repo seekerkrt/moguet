@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.7.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-16 16:45+0900\n"
+"POT-Creation-Date: 2026-09-16 18:55+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -1067,7 +1067,8 @@ msgstr ""
 msgid "The transition is non-atomic: a later failure may leave the removed package absent. No automatic rollback is implied."
 msgstr ""
 
-msgid "No coordinated transition is executed or prompted here; the existing repository transaction policy is unchanged."
+#, c++-format
+msgid "Dry-run remains read-only. Actual execution requires a separate explicit approval; {} is not approval."
 msgstr ""
 
 #, c++-format
@@ -3751,7 +3752,67 @@ msgstr ""
 msgid "The completed repository system upgrade was not rolled back."
 msgstr ""
 
+msgid "Explicitly approve this non-atomic removal, system upgrade and replacement?"
+msgstr ""
+
+msgid "confirmation"
+msgstr ""
+
+msgid "mutation-time revalidation"
+msgstr ""
+
+msgid "bounded foreign package removal"
+msgstr ""
+
+msgid "repository system upgrade"
+msgstr ""
+
+msgid "repository post-state verification"
+msgstr ""
+
+#, c++-format
+msgid "fresh {} replacement authority"
+msgstr ""
+
+#, c++-format
+msgid "{} replacement build/install"
+msgstr ""
+
+msgid "install reason restoration"
+msgstr ""
+
+msgid "exact-version post-state verification"
+msgstr ""
+
+msgid "complete"
+msgstr ""
+
+msgid "unknown phase"
+msgstr ""
+
+msgid "Coordinated cross-source transition completed; exact versions, runtime requirement and install reason verified."
+msgstr ""
+
+#, c++-format
+msgid "Coordinated cross-source transition stopped during {}."
+msgstr ""
+
+msgid "The old foreign package was removed. It may remain absent; no automatic rollback or reinstall was attempted."
+msgstr ""
+
 msgid "The repository system upgrade completed."
+msgstr ""
+
+#, c++-format
+msgid "Observed replacement state: {} {} installed."
+msgstr ""
+
+#, c++-format
+msgid "Observed replacement state: {} absent."
+msgstr ""
+
+#, c++-format
+msgid "Current replacement state is unavailable: {}."
 msgstr ""
 
 #. TRANSLATORS: AUR is a runtime project identity.
@@ -5695,6 +5756,9 @@ msgstr ""
 msgid "Prepared {} artifact install workspace was already cleaned."
 msgstr ""
 
+msgid "Built replacement version differs from the confirmed transition; rerun required."
+msgstr ""
+
 #. TRANSLATORS: {} is the literal command "pacman -U".
 #, c++-format
 msgid "The {} transaction execution threw an exception."
@@ -6024,9 +6088,6 @@ msgid "repository-context"
 msgstr ""
 
 msgid "unknown-role"
-msgstr ""
-
-msgid "complete"
 msgstr ""
 
 msgid "partial"
@@ -7548,6 +7609,36 @@ msgstr ""
 
 #, c++-format
 msgid "{} assessment failed with an unknown exception."
+msgstr ""
+
+msgid "Cross-source state changed after confirmation; rerun required. No package mutation was attempted."
+msgstr ""
+
+msgid "Expected repository post-state was not observed; the replacement was not started. Rerun required."
+msgstr ""
+
+#, c++-format
+msgid "The {} replacement changed or is unavailable; rerun required. Build and install were not started."
+msgstr ""
+
+#, c++-format
+msgid "The prepared {} replacement differs from the confirmed transition; rerun required. Build and install were not started."
+msgstr ""
+
+#, c++-format
+msgid "The confirmed {} replacement was not executable; the coordinated transition is incomplete."
+msgstr ""
+
+msgid "The replacement install reason was not restored; the coordinated transition is incomplete."
+msgstr ""
+
+msgid "Expected exact-version post-state was not verified; the coordinated transition is incomplete."
+msgstr ""
+
+msgid "The coordinated transition stopped on an unexpected failure."
+msgstr ""
+
+msgid "Current replacement state could not be observed."
 msgstr ""
 
 msgid "The system upgrade failed with an unknown exception."

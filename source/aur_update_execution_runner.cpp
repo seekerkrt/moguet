@@ -70,7 +70,8 @@ bool same_required_target(
     const RequiredPackageArtifactTarget& rhs) noexcept {
     return lhs.package_base == rhs.package_base &&
            lhs.package_name == rhs.package_name &&
-           lhs.desired_reason == rhs.desired_reason;
+           lhs.desired_reason == rhs.desired_reason &&
+           lhs.expected_full_version == rhs.expected_full_version;
 }
 
 std::vector<std::string> required_package_names(

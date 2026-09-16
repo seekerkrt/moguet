@@ -858,7 +858,7 @@ void append_coordinated_transition_plan(
     line(localization::format_translated_message("  4. verify resulting relation: {} requires {}; the observed repository candidate satisfies it", replacement.package_name, plan.correlation.replacement_requirement->raw_specification()));
     line(localization::translate_message("This read-only plan is not execution authority. Execution requires explicit confirmation and fresh mutation-time revalidation."));
     line(localization::translate_message("The transition is non-atomic: a later failure may leave the removed package absent. No automatic rollback is implied."));
-    line(localization::translate_message("No coordinated transition is executed or prompted here; the existing repository transaction policy is unchanged."));
+    line(localization::format_translated_message("Dry-run remains read-only. Actual execution requires a separate explicit approval; {} is not approval.", "--noconfirm"));
 }
 
 bool append_cross_source_version_lock_replacement(
@@ -955,6 +955,12 @@ bool append_cross_source_version_lock_replacement(
 }
 
 } // namespace
+
+std::string format_cross_source_transition_plan(const CrossSourceCoordinatedTransitionPlan& plan) {
+    std::string output;
+    append_coordinated_transition_plan(output, plan);
+    return output;
+}
 
 std::optional<std::string>
 format_cross_source_version_lock_cli_presentation(
