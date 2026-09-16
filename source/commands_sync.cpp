@@ -1912,6 +1912,18 @@ void present_system_aur_update_operation_result(
                 "The repository system upgrade failed."));
             report_system_aur_retained_diagnostic(authority);
             report_system_aur_not_attempted(authority);
+            if(authority.cross_source_version_lock_correlation.has_value()) {
+                try {
+                    const auto presentation =
+                        format_cross_source_version_lock_cli_presentation(
+                            *authority.cross_source_version_lock_correlation);
+                    if(presentation.has_value()) {
+                        std::cout << *presentation << std::flush;
+                    }
+                } catch(...) {
+                    // Supplemental output cannot override the primary failure.
+                }
+            }
             return;
         case SystemAurUpdateRepositoryPhaseStatus::Completed:
             std::cout << localization::translate_message(
@@ -2024,9 +2036,12 @@ int present_system_aur_test_result(
 
 } // namespace
 
+CrossSourceVersionLockCorrelationResult system_aur_version_lock_correlation_for_test(
+    const std::string& scenario);
+
 int run_system_aur_update_presentation_test(
     const std::string& test_case) {
-    if(test_case == "repository-exception") {
+    if(test_case == "repository-exception" || test_case.starts_with("version-lock-")) {
         SystemAurUpdateOperationResult result;
         result.repository.status =
             SystemAurUpdateRepositoryPhaseStatus::Failed;
@@ -2047,6 +2062,10 @@ int run_system_aur_update_presentation_test(
         result.aur.status = SystemAurUpdateAurPhaseStatus::NotAttempted;
         result.aur.not_attempted_reason =
             SystemAurUpdateNotAttemptedReason::RepositoryFailure;
+        if(test_case.starts_with("version-lock-")) {
+            result.cross_source_version_lock_correlation =
+                system_aur_version_lock_correlation_for_test(test_case);
+        }
         return present_system_aur_test_result(std::move(result));
     }
 

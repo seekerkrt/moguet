@@ -977,7 +977,7 @@ CrossSourceVersionLockAssessment make_possible_version_lock_assessment(
 UpgradeAllOperationResult make_no_possible_version_lock_result(
     CrossSourceVersionLockObservationStatus observation_status) {
     UpgradeAllOperationResult result = make_system_failure_result();
-    UpgradeAllCrossSourceVersionLockCorrelationResult correlation;
+    CrossSourceVersionLockCorrelationResult correlation;
     correlation.observation = CrossSourceVersionLockObservationResult{
         observation_status, {}, {}};
     result.cross_source_version_lock_correlation = std::move(correlation);
@@ -986,9 +986,9 @@ UpgradeAllOperationResult make_no_possible_version_lock_result(
 
 UpgradeAllOperationResult make_secondary_correlation_failure_result() {
     UpgradeAllOperationResult result = make_system_failure_result();
-    UpgradeAllCrossSourceVersionLockCorrelationResult correlation;
-    correlation.failure = UpgradeAllCrossSourceVersionLockCorrelationFailure{
-        UpgradeAllCrossSourceVersionLockCorrelationFailureKind::
+    CrossSourceVersionLockCorrelationResult correlation;
+    correlation.failure = CrossSourceVersionLockCorrelationFailure{
+        CrossSourceVersionLockCorrelationFailureKind::
             ResourceExhaustion,
         std::nullopt};
     result.cross_source_version_lock_correlation = std::move(correlation);
@@ -1003,7 +1003,7 @@ UpgradeAllOperationResult make_possible_version_lock_result(
     CrossSourceVersionLockAssessment assessment =
         make_possible_version_lock_assessment(
             status, virtualbox_version_lock_fixture());
-    UpgradeAllCrossSourceVersionLockCorrelationResult correlation;
+    CrossSourceVersionLockCorrelationResult correlation;
     correlation.observation = CrossSourceVersionLockObservationResult{
         observation_status, {assessment.evidence}, {}};
     correlation.assessments.push_back(std::move(assessment));
@@ -1032,7 +1032,7 @@ UpgradeAllOperationResult make_multiple_possible_version_lock_result() {
         make_possible_version_lock_assessment(
             CrossSourceVersionLockStatus::CompatibleReplacement,
             second_fixture);
-    UpgradeAllCrossSourceVersionLockCorrelationResult correlation;
+    CrossSourceVersionLockCorrelationResult correlation;
     correlation.observation = CrossSourceVersionLockObservationResult{
         CrossSourceVersionLockObservationStatus::Complete,
         {first.evidence, second.evidence},
@@ -2509,6 +2509,30 @@ UpgradeAllOperationResult result_for_scenario(const std::string& scenario) {
 }
 
 } // namespace
+
+// Reuse #460's typed fixture for ordinary -Syu's existing presentation seam.
+CrossSourceVersionLockCorrelationResult system_aur_version_lock_correlation_for_test(
+    const std::string& scenario) {
+    auto result = result_for_scenario("stopped-system-" + scenario);
+    auto correlation = std::move(*result.cross_source_version_lock_correlation);
+    for(auto& assessment : correlation.assessments) {
+        auto fixture = virtualbox_version_lock_fixture();
+        fixture.installed_repository_version = "7.2.16-1";
+        fixture.repository_candidate_version = "7.2.18-1";
+        fixture.installed_consumer_version = "7.2.16-1";
+        fixture.installed_requirement = "virtualbox=7.2.16";
+        fixture.replacement_version = "7.2.18-1";
+        fixture.replacement_requirement = "virtualbox=7.2.18";
+        assessment = make_possible_version_lock_assessment(assessment.status, fixture);
+    }
+    if(correlation.observation.has_value()) {
+        correlation.observation->candidates.clear();
+        for(const auto& assessment : correlation.assessments) {
+            correlation.observation->candidates.push_back(assessment.evidence);
+        }
+    }
+    return correlation;
+}
 
 struct PreparedUpgradeAllOperation::Impl {
     Impl(

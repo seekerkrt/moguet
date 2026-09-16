@@ -175,7 +175,8 @@ does not roll back completed package transactions, and reports later work as
 not attempted.
 .
 .PP
-Only after the repository system-upgrade phase fails, Moguet may append a
+For upgrade-all and exact target-less Auto -Syu, only after the repository
+system-upgrade phase fails, Moguet may append a
 supplemental possible repository/AUR cross-source version-lock diagnostic.
 It appears only when at least one candidate correlation can be presented;
 otherwise the existing failure output is unchanged. The absence of

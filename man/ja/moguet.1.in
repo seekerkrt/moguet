@@ -167,7 +167,8 @@ clone、build、pacman、sudoを開始します。
 後続作業をnot attemptedとして報告します。
 .
 .PP
-repository system-upgrade phaseが失敗した後に限り、Moguetはrepository / AURをまたぐ
+upgrade-allおよびexact target-less Auto -Syuでは、repository system-upgrade phaseが
+失敗した後に限り、Moguetはrepository / AURをまたぐ
 possible version-lockのsupplemental diagnosticを追加する場合があります。
 candidate correlationを1件以上表示できる場合だけ追加し、それ以外は既存failure outputの
 ままです。supplemental textがないこと自体はcandidate absenceの証明ではありません。

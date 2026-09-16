@@ -501,3 +501,96 @@ observe_cross_source_version_lock_candidates() {
 
     return result;
 }
+
+namespace {
+
+bool is_possible_cross_source_version_lock_blocker_candidate(
+    const CrossSourceVersionLockAssessment& assessment) noexcept {
+    return assessment.installed_requirement_against_installed_version
+               .has_value() &&
+           assessment.installed_requirement_against_repository_candidate
+               .has_value() &&
+           assessment.installed_requirement_against_installed_version
+                   ->satisfaction() ==
+               ConstraintSatisfaction::Satisfied &&
+           assessment.installed_requirement_against_repository_candidate
+                   ->satisfaction() ==
+               ConstraintSatisfaction::Unsatisfied;
+}
+
+void record_cross_source_version_lock_correlation_failure(
+    CrossSourceVersionLockCorrelationResult& correlation,
+    CrossSourceVersionLockCorrelationFailureKind kind,
+    const char* diagnostic = nullptr) noexcept {
+    static_assert(std::is_nothrow_default_constructible_v<
+                  CrossSourceVersionLockCorrelationFailure>);
+    correlation.failure.emplace();
+    correlation.failure->kind = kind;
+    if(diagnostic == nullptr) return;
+
+    try {
+        correlation.failure->diagnostic.emplace(diagnostic);
+    } catch(...) {
+        // The typed secondary failure remains available even when retaining
+        // its optional diagnostic would require unavailable memory.
+        correlation.failure->diagnostic.reset();
+    }
+}
+
+} // namespace
+
+CrossSourceVersionLockCorrelationResult
+observe_cross_source_version_lock_correlation() noexcept {
+    static_assert(std::is_nothrow_default_constructible_v<
+                  CrossSourceVersionLockCorrelationResult>);
+    CrossSourceVersionLockCorrelationResult correlation;
+
+    try {
+        correlation.observation.emplace(
+            observe_cross_source_version_lock_candidates());
+
+        std::vector<CrossSourceVersionLockAssessment> assessments;
+        std::vector<std::size_t> possible_blocker_assessment_indices;
+        const auto& candidates = correlation.observation->candidates;
+        assessments.reserve(candidates.size());
+        possible_blocker_assessment_indices.reserve(candidates.size());
+        for(const CrossSourceVersionLockCandidateEvidence& candidate :
+            candidates) {
+            CrossSourceVersionLockAssessment assessment =
+                assess_cross_source_version_lock_candidate(candidate);
+            const bool is_possible_blocker_candidate =
+                is_possible_cross_source_version_lock_blocker_candidate(
+                    assessment);
+            const std::size_t assessment_index = assessments.size();
+            assessments.push_back(std::move(assessment));
+            if(is_possible_blocker_candidate) {
+                possible_blocker_assessment_indices.push_back(
+                    assessment_index);
+            }
+        }
+
+        // Publish assessment/index vectors together. An exception before this
+        // point retains the observation plus a typed secondary failure, not a
+        // misleading partially indexed assessment set.
+        correlation.assessments = std::move(assessments);
+        correlation.possible_blocker_assessment_indices =
+            std::move(possible_blocker_assessment_indices);
+    } catch(const std::bad_alloc&) {
+        record_cross_source_version_lock_correlation_failure(
+            correlation,
+            CrossSourceVersionLockCorrelationFailureKind::
+                ResourceExhaustion);
+    } catch(const std::exception& error) {
+        record_cross_source_version_lock_correlation_failure(
+            correlation,
+            CrossSourceVersionLockCorrelationFailureKind::
+                UnexpectedException,
+            error.what());
+    } catch(...) {
+        record_cross_source_version_lock_correlation_failure(
+            correlation,
+            CrossSourceVersionLockCorrelationFailureKind::
+                UnknownException);
+    }
+    return correlation;
+}

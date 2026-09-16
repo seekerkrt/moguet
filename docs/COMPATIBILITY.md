@@ -101,8 +101,10 @@ official repository system update
   -> AUR build / install
 ```
 
-repository transactionが失敗した場合、AUR phaseはtyped `NotAttempted`のまま0-callで終了し、
-commandはnon-zeroである。repository成功後にinventory、AUR metadata、plan、provider decision、
+repository transactionが失敗した場合、AUR execution phaseはtyped `NotAttempted`のまま0-callで終了し、
+commandはnon-zeroである。primary failureを保持したまま、下記version-lock診断用のread-only
+secondary observationだけをbest-effortで行う。これはnormal AUR update query / preparation / execution
+を開始せず、観測failureもprimary repository failureを上書きしない。repository成功後にinventory、AUR metadata、plan、provider decision、
 preflightをfreshに取得し、repository前またはdry-runのobservation / prepared capabilityをactual
 authorityとして再利用しない。repository completion後のAUR blocker / query / preparation /
 execution failureはtyped partial failureかつnon-zeroであり、完了済みrepository transactionを
@@ -272,9 +274,9 @@ installed provenance、remote comparison、`UpdateAvailable` / `UpToDate`、auto
 
 対象がない場合は成功とするが、query failure、preparation failure、cleanup failure、未実行targetを空の成功結果へ丸めない。partial completionはnon-zeroである。source preferenceで選ばれたPackageBaseとautomatic AUR targetが重複する場合はduplicate exclusion / external satisfactionとして扱い、同じsourceを二重buildしない。
 
-### `upgrade-all` system failure後のversion-lock診断
+### `upgrade-all` / ordinary `-Syu` system failure後のversion-lock診断
 
-`moguet upgrade-all`のrepository system upgradeが失敗してsystem phaseで停止した後に限り、Moguetはlocal / sync databaseとexact AUR metadataをread-onlyで追加観測する。installed foreign packageのdirect exact runtime dependencyがinstalled repository package versionでは満たされ、観測したより新しいrepository candidate versionでは満たされない相関を1件以上表示できる場合だけ、repository / AURをまたぐpossible version-lock candidateをsupplemental diagnosticとして表示する。すべてのsystem failureへ表示するものではなく、publicに表示できるcoherentなcandidate correlationがなければ既存failure outputのままである。この非表示自体はcandidate absenceの証明ではない。
+`moguet upgrade-all`またはexact target-less Auto `moguet -Syu`のrepository system upgradeが失敗して停止した後に限り、Moguetはlocal / sync databaseとexact AUR metadataをread-onlyで追加観測する。installed foreign packageのdirect exact runtime dependencyがinstalled repository package versionでは満たされ、観測したより新しいrepository candidate versionでは満たされない相関を1件以上表示できる場合だけ、repository / AURをまたぐpossible version-lock candidateをsupplemental diagnosticとして表示する。すべてのsystem failureへ表示するものではなく、publicに表示できるcoherentなcandidate correlationがなければ既存failure outputのままである。この非表示自体はcandidate absenceの証明ではない。
 
 表示できる根拠は、observed repository candidateと同名のinstalled package / version、observed repository candidate / version、installed foreign package / version、そのinstalled direct exact dependency requirement、observed AUR replacement candidate、およびreplacementのdirect runtime requirementである。`foreign`は、installed packageのexact nameが現在設定されているrepository metadataに存在しないという観測に基づくもので、historical AUR provenanceを証明しない。
 

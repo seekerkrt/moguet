@@ -2,6 +2,7 @@
 
 #include "aur_update_execution_preparation.hpp"
 #include "cli_routing.hpp"
+#include "cross_source_version_lock_observation.hpp"
 #include "filtered_aur_update_operation.hpp"
 #include "package_metadata.hpp"
 
@@ -313,6 +314,9 @@ struct SystemAurUpdateOperationResult {
     SystemAurUpdateForeignInventoryPhaseResult foreign_inventory;
     SystemAurUpdateQueryPhaseResult query;
     SystemAurUpdateAurPhaseResult aur;
+    // Secondary read-only evidence; never participates in primary reduction.
+    std::optional<CrossSourceVersionLockCorrelationResult>
+        cross_source_version_lock_correlation;
 
     bool is_success() const noexcept;
     PackageStateChange package_state_change() const noexcept;
