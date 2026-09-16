@@ -1059,6 +1059,7 @@ void test_installed_runtime_dependency_metadata_is_owned_and_canonical() {
         "Dependency-free installed package acquired dependencies");
     expect(
         inventory[1].package_name == "virtualbox-ext-oracle" &&
+            inventory[1].installed_version == std::optional<std::string>{"7.2.14-1"} &&
             inventory[1].dependency_specifications ==
                 std::vector<std::string>{
                     "virtualbox=7.2.14",

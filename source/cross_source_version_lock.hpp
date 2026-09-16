@@ -14,6 +14,8 @@
 struct RepositoryUpgradeCandidate {
     InstalledExactPackage installed_package;
     RepositoryPackagePresent repository_candidate;
+
+    bool operator==(const RepositoryUpgradeCandidate&) const = default;
 };
 
 // The installed database proves the current package identity and version, not
@@ -22,25 +24,35 @@ struct RepositoryUpgradeCandidate {
 struct InstalledCrossSourceVersionLockConsumer {
     PackageRelationObservedPackage package;
     ConsumerDependencyRequirement requirement;
+
+    bool operator==(const InstalledCrossSourceVersionLockConsumer&) const = default;
 };
 
 struct AurReplacementCandidateQuerySuccess {
     std::vector<AurPackageConstraintMetadata> candidates;
+
+    bool operator==(const AurReplacementCandidateQuerySuccess&) const = default;
 };
 
 struct AurReplacementCandidateNotFound {
     std::string package_name;
+
+    bool operator==(const AurReplacementCandidateNotFound&) const = default;
 };
 
 struct AurReplacementCandidateMetadataUnavailable {
     std::string package_name;
     std::optional<std::string> package_base;
     ObservedVersionUnknownReason reason;
+
+    bool operator==(const AurReplacementCandidateMetadataUnavailable&) const = default;
 };
 
 struct AurReplacementCandidateQueryFailure {
     std::vector<std::string> package_names;
     std::string diagnostic;
+
+    bool operator==(const AurReplacementCandidateQueryFailure&) const = default;
 };
 
 using AurReplacementCandidateQueryResult = std::variant<
@@ -53,6 +65,28 @@ struct CrossSourceVersionLockCandidateEvidence {
     RepositoryUpgradeCandidate repository_upgrade;
     InstalledCrossSourceVersionLockConsumer installed_consumer;
     AurReplacementCandidateQueryResult aur_replacement;
+
+    bool operator==(const CrossSourceVersionLockCandidateEvidence&) const = default;
+};
+
+// Owned read-only inputs for the bounded removal check. The inventories must
+// cover the same installed identities; this is not an atomic database snapshot.
+struct CrossSourceInstalledRuntimeRequirements {
+    std::string package_name;
+    std::vector<DependencyRequirement> requirements;
+
+    bool operator==(const CrossSourceInstalledRuntimeRequirements&) const = default;
+};
+
+struct CrossSourceTransitionInstalledSnapshot {
+    PackageRelationInstalledDatabaseIdentity source;
+    PackageRelationObservationCompleteness completeness =
+        PackageRelationObservationCompleteness::Unavailable;
+    std::vector<PackageRelationObservedPackage> packages;
+    std::vector<CrossSourceInstalledRuntimeRequirements> runtime_requirements;
+    ForeignPackageInventory foreign_packages;
+
+    bool operator==(const CrossSourceTransitionInstalledSnapshot&) const = default;
 };
 
 enum class CrossSourceVersionLockStatus {
@@ -77,6 +111,8 @@ struct CrossSourceVersionLockAssessment {
     std::optional<ConsumerDependencyRequirement> replacement_requirement;
     std::optional<ConstraintEvaluation>
         replacement_requirement_against_repository_candidate;
+
+    bool operator==(const CrossSourceVersionLockAssessment&) const = default;
 };
 
 // Performs no filesystem, network, process, package-database, or transaction

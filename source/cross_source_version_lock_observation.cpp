@@ -157,6 +157,57 @@ bool is_direct_exact_requirement(
                DependencyVersionRelation::Equal;
 }
 
+CrossSourceTransitionInstalledSnapshot transition_installed_snapshot(
+    const PacmanDatabasePaths& paths,
+    const std::vector<PackageRelationObservedPackage>& packages,
+    const InstalledPackageRuntimeDependencyMetadataInventory& dependencies,
+    const ForeignPackageInventory& foreign_packages,
+    bool inventories_complete) {
+    CrossSourceTransitionInstalledSnapshot snapshot{
+        {paths.root_dir.lexically_normal(), paths.db_path.lexically_normal()},
+        inventories_complete ? PackageRelationObservationCompleteness::Complete
+                             : PackageRelationObservationCompleteness::Partial,
+        packages,
+        {},
+        foreign_packages};
+    std::map<std::string, const PackageRelationObservedPackage*> identities;
+    for(const auto& package : packages) {
+        if(!identities.emplace(package.package_name, &package).second ||
+           package.role != PackageRelationObservationRole::Installed ||
+           !is_same_installed_database(package, paths) ||
+           validate_package_relation_observation(package).has_value() ||
+           package.package_version.version() == nullptr) {
+            snapshot.completeness = PackageRelationObservationCompleteness::Invalid;
+        }
+    }
+    std::set<std::string> dependency_names;
+    for(const auto& metadata : dependencies) {
+        const auto identity = identities.find(metadata.package_name);
+        if(!dependency_names.insert(metadata.package_name).second ||
+           identity == identities.end() || !metadata.installed_version.has_value() ||
+           identity->second->package_version.version() == nullptr ||
+           *identity->second->package_version.version() != *metadata.installed_version) {
+            snapshot.completeness = PackageRelationObservationCompleteness::Invalid;
+        }
+        CrossSourceInstalledRuntimeRequirements runtime{metadata.package_name, {}};
+        for(const auto& specification : metadata.dependency_specifications) {
+            const auto parsed = parse_dependency_requirement(specification);
+            if(parsed.failure() != nullptr || parsed.requirement() == nullptr) {
+                snapshot.completeness = PackageRelationObservationCompleteness::Invalid;
+            } else {
+                runtime.requirements.push_back(*parsed.requirement());
+            }
+        }
+        snapshot.runtime_requirements.push_back(std::move(runtime));
+    }
+    // Coverage gaps must not erase already observed invalidity.
+    if(snapshot.completeness != PackageRelationObservationCompleteness::Invalid &&
+       identities.size() != dependency_names.size()) {
+        snapshot.completeness = PackageRelationObservationCompleteness::Partial;
+    }
+    return snapshot;
+}
+
 AurReplacementObservation observe_aur_replacement(
     const std::string& package_name) {
     std::optional<AurPackageInfo> package;
@@ -324,6 +375,10 @@ observe_cross_source_version_lock_candidates() {
                 InstalledPackageRuntimeDependencyMetadataInventory>(
                 std::move(dependency_result));
     }
+
+    result.transition_installed_snapshot = transition_installed_snapshot(
+        configuration.database_paths, installed_packages, dependency_metadata,
+        foreign_packages, result.status == CrossSourceVersionLockObservationStatus::Complete);
 
     std::map<
         std::string,
@@ -577,6 +632,9 @@ observe_cross_source_version_lock_correlation(
         correlation.assessments = std::move(assessments);
         correlation.possible_blocker_assessment_indices =
             std::move(possible_blocker_assessment_indices);
+        if(basis == CrossSourceVersionLockObservationBasis::BeforeRepositoryMutation) {
+            correlation.transition_plans = plan_cross_source_coordinated_transitions(correlation);
+        }
     } catch(const std::bad_alloc&) {
         record_cross_source_version_lock_correlation_failure(
             correlation,

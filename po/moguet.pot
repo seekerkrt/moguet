@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.7.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-16 13:58+0900\n"
+"POT-Creation-Date: 2026-09-16 16:45+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -1018,6 +1018,56 @@ msgid "  selected repository provider transaction failed: {}"
 msgstr ""
 
 msgid "  execution failure:"
+msgstr ""
+
+msgid "Coordinated transition candidate: blocked by replacement or removal constraints."
+msgstr ""
+
+msgid "Coordinated transition candidate: incomplete evidence (including installed identity, runtime dependencies, or install reason)."
+msgstr ""
+
+msgid "Coordinated transition candidate: ambiguous identity or replacement."
+msgstr ""
+
+msgid "Coordinated transition candidate: unsupported relation or multiple candidates requiring coordination."
+msgstr ""
+
+msgid "Possible coordinated transition (structure supported by read-only evidence):"
+msgstr ""
+
+#. TRANSLATORS: The placeholders are an installed package name and version.
+#, c++-format
+msgid "  1. temporarily remove: {} {}"
+msgstr ""
+
+#. TRANSLATORS: The placeholders are a relevant repository candidate name and version; this phase is a full system upgrade.
+#, c++-format
+msgid "  2. repository system upgrade; observed relevant candidate: {} {}"
+msgstr ""
+
+#. TRANSLATORS: The placeholders are an AUR child package name, version, the literal metadata key "PackageBase", and its value.
+#, c++-format
+msgid "  3. rebuild/install: {} {} ({}: {})"
+msgstr ""
+
+msgid "     preserve install reason: dependency"
+msgstr ""
+
+msgid "     preserve install reason: explicit"
+msgstr ""
+
+#. TRANSLATORS: The placeholders are the replacement package and its exact runtime requirement.
+#, c++-format
+msgid "  4. verify resulting relation: {} requires {}; the observed repository candidate satisfies it"
+msgstr ""
+
+msgid "This read-only plan is not execution authority. Execution requires explicit confirmation and fresh mutation-time revalidation."
+msgstr ""
+
+msgid "The transition is non-atomic: a later failure may leave the removed package absent. No automatic rollback is implied."
+msgstr ""
+
+msgid "No coordinated transition is executed or prompted here; the existing repository transaction policy is unchanged."
 msgstr ""
 
 #, c++-format

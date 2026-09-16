@@ -60,6 +60,18 @@ AurPackageInfo search_presentation_info() {
 }
 
 std::optional<AurPackageInfo> fixture_info(const std::string& package_name) {
+    if(package_name == "virtualbox-ext-oracle" && std::getenv("MOGUET_TEST_CROSS_SOURCE_TRANSITION_CASE") != nullptr) {
+        const std::string scenario = std::getenv("MOGUET_TEST_CROSS_SOURCE_TRANSITION_CASE");
+        if(scenario == "missing") return std::nullopt;
+        if(scenario == "query-failure") throw std::runtime_error("fixture replacement query failure");
+        auto info = package_info(package_name);
+        info.Version = "7.2.18-1";
+        info.Depends = {scenario == "incompatible" ? "virtualbox=7.2.16" : "virtualbox=7.2.18"};
+        const auto parsed = parse_dependency_requirement(info.Depends.front());
+        info.constraint_metadata = AurPackageConstraintMetadata{
+            info.Name, info.PackageBase, ObservedVersion::available(ObservedVersionSource::AurExactPackage, info.Version), {*parsed.requirement()}, {}, {}, {}, {}};
+        return info;
+    }
     if(package_name == "info-error") {
         throw std::runtime_error("fixture info failure");
     }

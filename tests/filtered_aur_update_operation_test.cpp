@@ -1790,7 +1790,8 @@ void test_system_aur_repository_failure_version_lock() {
             state.relations = InstalledPackageRelationInventory{
                 identity, {installed("virtualbox"), installed("virtualbox-ext-oracle")}};
             state.dependencies = InstalledPackageRuntimeDependencyMetadataInventory{
-                {"virtualbox-ext-oracle", {"virtualbox=7.2.16"}}};
+                {"virtualbox", {}, "7.2.16-1"},
+                {"virtualbox-ext-oracle", {"virtualbox=7.2.16"}, "7.2.16-1"}};
             state.repository_candidate = RepositoryPackagePresent{
                 "extra", 0, "virtualbox", "virtualbox", ObservedVersion::available(ObservedVersionSource::RepositoryExactPackage, "7.2.18-1"), std::vector<std::string>{"extra"}, {}};
             const PackageMetadataFailure failure{PackageMetadataErrorCode::QueryFailed, "fixture observation failure"};
@@ -1896,6 +1897,13 @@ void test_system_aur_repository_failure_version_lock() {
             expect(retained.has_value() && retained->basis == CrossSourceVersionLockObservationBasis::BeforeRepositoryMutation,
                    scenario + ": preflight correlation missing or promoted to post-repository authority");
             const auto& correlation = *retained;
+            if(scenario == "compatible" || scenario == "repository-success") {
+                expect(correlation.transition_plans.size() == 1 &&
+                           correlation.transition_plans.front().status == CrossSourceTransitionPlanStatus::ReadOnlyReady &&
+                           correlation.transition_plans.front().expected_install_reason == InstalledPackageReason::Explicit,
+                       "Actual/dry-run route lost the read-only coordinated plan");
+            }
+            if(scenario == "unrelated") expect(correlation.transition_plans.empty(), "Unrelated update produced a transition plan");
             if(state.observation_exception != 0) {
                 const auto expected = state.observation_exception == 1
                                           ? CrossSourceVersionLockCorrelationFailureKind::ResourceExhaustion

@@ -511,9 +511,206 @@ void test_ambiguous_repository_candidate_identity_reaches_assessment() {
         "Ambiguous repository identity was accepted as a correlation");
 }
 
+
+void arrange_coordinated_transition() {
+    arrange_virtualbox();
+    g_fixture.foreign_inventory = ForeignPackageInventory{
+        {"virtualbox-ext-oracle", "7.2.16-1", InstalledPackageReason::Dependency,
+         InstalledPackageBaseIdentity::known("virtualbox-ext-oracle")}};
+    g_fixture.installed_relations = InstalledPackageRelationInventory{
+        installed_database_identity(), {installed_package("virtualbox", "7.2.16-1"), installed_package("virtualbox-ext-oracle", "7.2.16-1")}};
+    g_fixture.runtime_dependencies = InstalledPackageRuntimeDependencyMetadataInventory{
+        {"virtualbox", {}, "7.2.16-1"},
+        {"virtualbox-ext-oracle", {"virtualbox=7.2.16"}, "7.2.16-1"}};
+    g_fixture.repository_results["virtualbox"] = repository_candidate("virtualbox", "7.2.18-1");
+    g_fixture.aur_results["virtualbox-ext-oracle"] = AurResponse{
+        AurResponseKind::Success,
+        aur_package("virtualbox-ext-oracle", "virtualbox-ext-oracle", "7.2.18-1",
+                    {dependency_requirement("virtualbox=7.2.18")}),
+        {}};
+}
+
+CrossSourceVersionLockCorrelationResult observe_transition() {
+    return observe_cross_source_version_lock_correlation(
+        CrossSourceVersionLockObservationBasis::BeforeRepositoryMutation);
+}
+
+void test_coordinated_transition_snapshot_and_phases() {
+    arrange_coordinated_transition();
+    auto correlation = observe_transition();
+    expect(correlation.transition_plans.size() == 1, "Transition plan is missing");
+    const auto plan = correlation.transition_plans.front();
+    expect(plan.status == CrossSourceTransitionPlanStatus::ReadOnlyReady &&
+               plan.reason == CrossSourceTransitionPlanReason::None &&
+               plan.removal_safety.status == CrossSourceRemovalSafetyStatus::PreservesRuntimeDependencies &&
+               plan.removal_safety.affected_requirements.empty(),
+           "Complete VirtualBox transition was not structurally ready");
+    expect(plan.phases == std::vector<CrossSourceTransitionPhase>{
+                              CrossSourceTransitionPhase::RemoveInstalledForeign,
+                              CrossSourceTransitionPhase::RepositorySystemUpgrade,
+                              CrossSourceTransitionPhase::InstallAurReplacement,
+                              CrossSourceTransitionPhase::VerifyPostState},
+           "Transition phase ownership/order changed");
+    expect(plan.installed_foreign->version == "7.2.16-1" &&
+               *plan.installed_foreign->package_base.value() == "virtualbox-ext-oracle" &&
+               plan.expected_install_reason == InstalledPackageReason::Dependency &&
+               plan.correlation.evidence.installed_consumer.requirement.raw_specification() == "virtualbox=7.2.16" &&
+               plan.correlation.replacement_requirement->raw_specification() == "virtualbox=7.2.18" &&
+               *plan.correlation.evidence.repository_upgrade.repository_candidate.package_version->version() == "7.2.18-1",
+           "Expected-state identity, PackageBase, reason or exact constraints were lost");
+    expect(plan.requires_explicit_confirmation && plan.requires_mutation_time_revalidation &&
+               !plan.is_atomic && !plan.automatic_rollback,
+           "Read-only execution boundary changed");
+    expect(g_fixture.calls == std::vector<std::string>{"repository-configuration", "foreign-inventory",
+                                                       "installed-relations", "installed-runtime-dependencies", "repository:virtualbox", "aur:virtualbox-ext-oracle"},
+           "Planning added calls outside the read-only metadata boundaries");
+    auto changed_snapshot = plan;
+    expect(changed_snapshot == plan, "Owned expected-state snapshot is not comparable");
+    changed_snapshot.installed_snapshot->runtime_requirements.front().requirements.push_back(dependency_requirement("new-dependency"));
+    expect(changed_snapshot != plan, "Runtime assumption drift is absent from snapshot comparison");
+    changed_snapshot = plan;
+    changed_snapshot.installed_foreign->reason = InstalledPackageReason::Explicit;
+    expect(changed_snapshot != plan, "Install reason drift is absent from snapshot comparison");
+    reset_fixture();
+    expect(plan.installed_snapshot->packages.size() == 2 &&
+               plan.installed_snapshot->runtime_requirements.size() == 2,
+           "Plan snapshot borrowed the observation session");
+    correlation.basis = CrossSourceVersionLockObservationBasis::AfterRepositoryFailure;
+    auto after_failure = plan_cross_source_coordinated_transitions(correlation);
+    expect(after_failure.front().status == CrossSourceTransitionPlanStatus::Unsupported &&
+               after_failure.front().phases.empty(),
+           "Post-failure authority became a preflight plan");
+}
+
+void test_coordinated_transition_negative_matrix() {
+    for(const std::string scenario : {"missing", "query", "incompatible", "ambiguous", "partial", "failed",
+                                      "unknown-reason", "inventory-gap", "version-drift", "version-drift-with-gap", "reverse-dependent",
+                                      "duplicate-installed", "overlap", "independent-multiple", "non-exact", "replacement-candidates", "replacement-relation", "collector-failure", "unrelated"}) {
+        arrange_coordinated_transition();
+        auto& dependencies = std::get<InstalledPackageRuntimeDependencyMetadataInventory>(g_fixture.runtime_dependencies);
+        auto& packages = std::get<InstalledPackageRelationInventory>(g_fixture.installed_relations).packages;
+        auto& replacement = *g_fixture.aur_results["virtualbox-ext-oracle"].package;
+        auto expected_status = CrossSourceTransitionPlanStatus::Incomplete;
+        if(scenario == "missing") {
+            g_fixture.aur_results["virtualbox-ext-oracle"].kind = AurResponseKind::NotFound;
+            expected_status = CrossSourceTransitionPlanStatus::Blocked;
+        } else if(scenario == "query") {
+            g_fixture.aur_results["virtualbox-ext-oracle"].kind = AurResponseKind::QueryFailure;
+        } else if(scenario == "incompatible") {
+            replacement.constraint_metadata->depends = {dependency_requirement("virtualbox=7.2.16")};
+            expected_status = CrossSourceTransitionPlanStatus::Blocked;
+        } else if(scenario == "ambiguous") {
+            replacement.constraint_metadata->depends.push_back(dependency_requirement("virtualbox=7.2.18"));
+            expected_status = CrossSourceTransitionPlanStatus::Ambiguous;
+        } else if(scenario == "replacement-relation") {
+            replacement.constraint_metadata->relations.emplace_back("virtualbox-ext-oracle", "virtualbox-ext-oracle",
+                                                                    PackageRelationKind::Conflict, "other-package", "other-package", std::nullopt);
+            expected_status = CrossSourceTransitionPlanStatus::Unsupported;
+        } else if(scenario == "unknown-reason") {
+            std::get<ForeignPackageInventory>(g_fixture.foreign_inventory).front().reason = InstalledPackageReason::Unknown;
+        } else if(scenario == "inventory-gap") {
+            dependencies.erase(dependencies.begin());
+        } else if(scenario == "version-drift" || scenario == "version-drift-with-gap") {
+            dependencies.front().installed_version = "7.2.14-1";
+            if(scenario == "version-drift-with-gap") {
+                packages.push_back(installed_package("unrelated", "1-1"));
+            }
+        } else if(scenario == "reverse-dependent") {
+            packages.push_back(installed_package("other-package", "1-1"));
+            dependencies.push_back({"other-package", {"virtualbox-ext-oracle"}, "1-1"});
+            expected_status = CrossSourceTransitionPlanStatus::Blocked;
+        } else if(scenario == "duplicate-installed") {
+            packages.push_back(installed_package("unrelated", "1-1"));
+            packages.push_back(installed_package("unrelated", "1-1"));
+        } else if(scenario == "non-exact") {
+            replacement.constraint_metadata->depends = {dependency_requirement("virtualbox>=7.2.18")};
+            expected_status = CrossSourceTransitionPlanStatus::Unsupported;
+        } else if(scenario == "unrelated") {
+            g_fixture.repository_results["virtualbox"] = repository_candidate("virtualbox", "7.2.16-1");
+        }
+        auto correlation = observe_transition();
+        if(scenario == "unrelated") {
+            expect(correlation.transition_plans.empty(), "Unrelated update created a coordinated plan");
+            continue;
+        }
+        if(scenario == "replacement-candidates") {
+            auto& replacements = std::get<AurReplacementCandidateQuerySuccess>(correlation.assessments.front().evidence.aur_replacement).candidates;
+            replacements.push_back(replacements.front());
+            expected_status = CrossSourceTransitionPlanStatus::Ambiguous;
+        } else if(scenario == "collector-failure") {
+            correlation.failure = CrossSourceVersionLockCorrelationFailure{CrossSourceVersionLockCorrelationFailureKind::UnexpectedException, "fixture failure"};
+        } else if(scenario == "partial" || scenario == "failed") {
+            correlation.observation->status = scenario == "partial" ? CrossSourceVersionLockObservationStatus::Partial
+                                                                    : CrossSourceVersionLockObservationStatus::Failed;
+        } else if(scenario == "overlap" || scenario == "independent-multiple") {
+            auto second = correlation.assessments.front();
+            if(scenario == "independent-multiple") {
+                second.evidence.installed_consumer.package.package_name = "another-consumer";
+                second.evidence.repository_upgrade.repository_candidate.package_name = "another-repo";
+            }
+            correlation.assessments.push_back(second);
+            correlation.possible_blocker_assessment_indices.push_back(1);
+            expected_status = CrossSourceTransitionPlanStatus::Unsupported;
+        }
+        const auto plans = plan_cross_source_coordinated_transitions(correlation);
+        expect(!plans.empty(), scenario + ": expected typed non-ready plan");
+        for(const auto& plan : plans) {
+            expect(plan.status == expected_status && plan.phases.empty(), scenario + ": unsafe ready/removal phase");
+            if(scenario == "version-drift" || scenario == "version-drift-with-gap" ||
+               scenario == "duplicate-installed" || scenario == "inventory-gap") {
+                const auto expected_completeness = scenario == "inventory-gap"
+                                                       ? PackageRelationObservationCompleteness::Partial
+                                                       : PackageRelationObservationCompleteness::Invalid;
+                expect(plan.installed_snapshot.has_value() &&
+                           plan.installed_snapshot->completeness == expected_completeness,
+                       scenario + ": installed snapshot lost invalidity or misclassified a coverage gap");
+            }
+        }
+        if(scenario == "query") expect(plans.front().reason == CrossSourceTransitionPlanReason::ReplacementQueryFailure,
+                                       "Query failure became missing");
+        if(scenario == "unknown-reason") expect(plans.front().expected_install_reason == InstalledPackageReason::Unknown,
+                                                "Unknown reason became Explicit");
+        if(scenario == "reverse-dependent") expect(plans.front().removal_safety.affected_requirements.front().dependent_package_name == "other-package",
+                                                   "Reverse dependent evidence was lost");
+        if(scenario == "overlap") expect(plans.front().reason == CrossSourceTransitionPlanReason::OverlappingCandidates, "Overlap was not distinguished");
+    }
+}
+
+void test_removal_provides_and_nonexact_requirements() {
+    for(const bool has_alternative : {false, true}) {
+        for(const std::string specification : {"virtualbox-extension", "virtualbox-extension=7.2.16", "virtualbox-extension>=7.2"}) {
+            arrange_coordinated_transition();
+            auto& packages = std::get<InstalledPackageRelationInventory>(g_fixture.installed_relations).packages;
+            const auto parsed = parse_provider_capability("virtualbox-extension=7.2.16");
+            expect(parsed.capability() != nullptr, "Provider fixture parse failed");
+            const PackageRelationObservedCapability capability{*parsed.capability(),
+                                                               ObservedVersion::from_provider_capability(ObservedVersionSource::InstalledProviderCapability, *parsed.capability())};
+            packages.back().provides.push_back(capability);
+            packages.push_back(installed_package("other-package", "1-1"));
+            auto& dependencies = std::get<InstalledPackageRuntimeDependencyMetadataInventory>(g_fixture.runtime_dependencies);
+            dependencies.push_back({"other-package", {specification}, "1-1"});
+            if(has_alternative) {
+                packages.push_back(installed_package("retained-provider", "99-1"));
+                packages.back().provides.push_back(capability);
+                dependencies.push_back({"retained-provider", {}, "99-1"});
+            }
+            const auto correlation = observe_transition();
+            const auto& plan = correlation.transition_plans.front();
+            expect(plan.status == (has_alternative ? CrossSourceTransitionPlanStatus::ReadOnlyReady : CrossSourceTransitionPlanStatus::Blocked),
+                   specification + ": remaining provider satisfaction was lost or guessed");
+            expect(plan.removal_safety.affected_requirements.size() == 1 &&
+                       plan.removal_safety.affected_requirements.front().remaining_satisfier_indices.size() == (has_alternative ? 1U : 0U),
+                   "Removal provider evidence was not retained");
+        }
+    }
+}
+
 } // namespace
 
 void run_cross_source_version_lock_observation_tests() {
+    test_coordinated_transition_snapshot_and_phases();
+    test_coordinated_transition_negative_matrix();
+    test_removal_provides_and_nonexact_requirements();
     test_virtualbox_candidate_observation_is_complete_and_compatible();
     test_complete_zero_differs_from_observation_failure();
     test_installed_dependency_metadata_unavailable_fails_closed();

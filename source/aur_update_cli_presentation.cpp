@@ -822,6 +822,45 @@ void append_cross_source_version_lock_line(
     output.push_back('\n');
 }
 
+void append_coordinated_transition_plan(
+    std::string& output, const CrossSourceCoordinatedTransitionPlan& plan) {
+    const auto line = [&](const std::string& text) { append_cross_source_version_lock_line(output, text); };
+    switch(plan.status) {
+        case CrossSourceTransitionPlanStatus::Blocked:
+            line(localization::translate_message("Coordinated transition candidate: blocked by replacement or removal constraints."));
+            return;
+        case CrossSourceTransitionPlanStatus::Incomplete:
+            line(localization::translate_message("Coordinated transition candidate: incomplete evidence (including installed identity, runtime dependencies, or install reason)."));
+            return;
+        case CrossSourceTransitionPlanStatus::Ambiguous:
+            line(localization::translate_message("Coordinated transition candidate: ambiguous identity or replacement."));
+            return;
+        case CrossSourceTransitionPlanStatus::Unsupported:
+            line(localization::translate_message("Coordinated transition candidate: unsupported relation or multiple candidates requiring coordination."));
+            return;
+        case CrossSourceTransitionPlanStatus::ReadOnlyReady: break;
+    }
+    const auto& evidence = plan.correlation.evidence;
+    const auto& removed = evidence.installed_consumer.package;
+    const auto& repository = evidence.repository_upgrade.repository_candidate;
+    const auto& replacement = std::get<AurReplacementCandidateQuerySuccess>(evidence.aur_replacement).candidates.at(0);
+    line(localization::translate_message("Possible coordinated transition (structure supported by read-only evidence):"));
+    // TRANSLATORS: The placeholders are an installed package name and version.
+    line(localization::format_translated_message("  1. temporarily remove: {} {}", removed.package_name, *removed.package_version.version()));
+    // TRANSLATORS: The placeholders are a relevant repository candidate name and version; this phase is a full system upgrade.
+    line(localization::format_translated_message("  2. repository system upgrade; observed relevant candidate: {} {}", repository.package_name, *repository.package_version->version()));
+    // TRANSLATORS: The placeholders are an AUR child package name, version, the literal metadata key "PackageBase", and its value.
+    line(localization::format_translated_message("  3. rebuild/install: {} {} ({}: {})", replacement.package_name, *replacement.package_version.version(), "PackageBase", replacement.package_base));
+    line(plan.expected_install_reason == InstalledPackageReason::Dependency
+             ? localization::translate_message("     preserve install reason: dependency")
+             : localization::translate_message("     preserve install reason: explicit"));
+    // TRANSLATORS: The placeholders are the replacement package and its exact runtime requirement.
+    line(localization::format_translated_message("  4. verify resulting relation: {} requires {}; the observed repository candidate satisfies it", replacement.package_name, plan.correlation.replacement_requirement->raw_specification()));
+    line(localization::translate_message("This read-only plan is not execution authority. Execution requires explicit confirmation and fresh mutation-time revalidation."));
+    line(localization::translate_message("The transition is non-atomic: a later failure may leave the removed package absent. No automatic rollback is implied."));
+    line(localization::translate_message("No coordinated transition is executed or prompted here; the existing repository transaction policy is unchanged."));
+}
+
 bool append_cross_source_version_lock_replacement(
     std::string& output,
     const CrossSourceVersionLockAssessment& assessment) {
@@ -1047,6 +1086,11 @@ format_cross_source_version_lock_cli_presentation(
     }
 
     append_cross_source_version_lock_line(output, "");
+    if(is_preflight) {
+        for(const auto& plan : correlation.transition_plans) {
+            append_coordinated_transition_plan(output, plan);
+        }
+    }
     if(!is_preflight) {
         append_cross_source_version_lock_line(
             output,

@@ -1014,6 +1014,56 @@ msgstr "  選択済みリポジトリプロバイダーのトランザクショ�
 msgid "  execution failure:"
 msgstr "  実行失敗:"
 
+msgid "Coordinated transition candidate: blocked by replacement or removal constraints."
+msgstr "連携遷移候補: 置換候補または削除の制約により構成できません。"
+
+msgid "Coordinated transition candidate: incomplete evidence (including installed identity, runtime dependencies, or install reason)."
+msgstr "連携遷移候補: 根拠が不完全です（インストール済みの識別情報、実行時依存、インストール理由など）。"
+
+msgid "Coordinated transition candidate: ambiguous identity or replacement."
+msgstr "連携遷移候補: 識別情報または置換候補が曖昧です。"
+
+msgid "Coordinated transition candidate: unsupported relation or multiple candidates requiring coordination."
+msgstr "連携遷移候補: 未対応の関係、または調整が必要な複数候補があります。"
+
+msgid "Possible coordinated transition (structure supported by read-only evidence):"
+msgstr "連携遷移の候補（読み取り専用の根拠で構造を確認）:"
+
+#. TRANSLATORS: The placeholders are an installed package name and version.
+#, c++-format
+msgid "  1. temporarily remove: {} {}"
+msgstr "  1. 一時的に削除: {} {}"
+
+#. TRANSLATORS: The placeholders are a relevant repository candidate name and version; this phase is a full system upgrade.
+#, c++-format
+msgid "  2. repository system upgrade; observed relevant candidate: {} {}"
+msgstr "  2. リポジトリのシステム更新。観測した関連候補: {} {}"
+
+#. TRANSLATORS: The placeholders are an AUR child package name, version, the literal metadata key "PackageBase", and its value.
+#, c++-format
+msgid "  3. rebuild/install: {} {} ({}: {})"
+msgstr "  3. 再ビルド／インストール: {} {}（{}: {}）"
+
+msgid "     preserve install reason: dependency"
+msgstr "     インストール理由を保持: 依存パッケージ"
+
+msgid "     preserve install reason: explicit"
+msgstr "     インストール理由を保持: 明示的にインストール"
+
+#. TRANSLATORS: The placeholders are the replacement package and its exact runtime requirement.
+#, c++-format
+msgid "  4. verify resulting relation: {} requires {}; the observed repository candidate satisfies it"
+msgstr "  4. 遷移後の関係を確認: {} は {} を要求し、観測したリポジトリ候補はこれを満たします"
+
+msgid "This read-only plan is not execution authority. Execution requires explicit confirmation and fresh mutation-time revalidation."
+msgstr "この読み取り専用計画は実行権限ではありません。実行には明示的な確認と、変更実行時の新しい根拠による再検証が必要です。"
+
+msgid "The transition is non-atomic: a later failure may leave the removed package absent. No automatic rollback is implied."
+msgstr "遷移は不可分ではありません。後続処理が失敗すると、削除したパッケージが未インストールのまま残る可能性があります。自動ロールバックは行いません。"
+
+msgid "No coordinated transition is executed or prompted here; the existing repository transaction policy is unchanged."
+msgstr "ここでは連携遷移の実行や確認入力は行いません。既存のリポジトリトランザクション方針を維持します。"
+
 msgid "Devel package update status requires check: the suffix is candidate evidence only, and authoritative build provenance is unavailable."
 msgstr "devel packageの更新状態は確認が必要です。suffixは候補根拠にすぎず、authoritativeなbuild provenanceは利用できません。"
 

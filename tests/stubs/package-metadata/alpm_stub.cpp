@@ -485,6 +485,17 @@ void configure_foreign_inventory_from_environment() {
         return;
     }
 
+    // #581 full-CLI transport fixture; production observation/planning remains real.
+    if(const char* scenario = std::getenv("MOGUET_TEST_CROSS_SOURCE_TRANSITION_CASE"); scenario != nullptr) {
+        for(auto& package : packages) {
+            if(package.name == "virtualbox-ext-oracle") {
+                package.dependencies = {{std::string("virtualbox"), std::string("7.2.16"), ALPM_DEP_MOD_EQ}};
+            } else if(package.name == "other-package") {
+                package.dependencies = {{std::string("virtualbox-ext-oracle"), std::nullopt, ALPM_DEP_MOD_ANY}};
+            }
+            rebuild_local_dependencies(package);
+        }
+    }
     g_state.local_packages = std::move(packages);
     g_state.package_cache_empty = false;
     g_state.package_cache_fails = false;
@@ -589,6 +600,8 @@ void configure_repository_package_from_environment(
                                          ? fixture_package
                                          : fixture_package_base;
         package_state.package_base_is_null = false;
+        if(std::getenv("MOGUET_TEST_CROSS_SOURCE_TRANSITION_CASE") != nullptr &&
+           fixture_package == "virtualbox") package_state.version = "7.2.18-1";
         package_state.package_size = package_size;
         package_state.installed_size = installed_size;
         package_state.name_is_null = false;
@@ -2090,6 +2103,16 @@ alpm_pkgreason_t alpm_pkg_get_reason(alpm_pkg_t* package) {
 }
 
 int alpm_pkg_vercmp(const char* lhs, const char* rhs) {
+    if(std::getenv("MOGUET_TEST_CROSS_SOURCE_TRANSITION_CASE") != nullptr) {
+        // Explicit #581 fixture oracle, not an Arch version comparator.
+        const char* versions[] = {"7.2.16", "7.2.16-1", "7.2.18", "7.2.18-1"};
+        const int results[4][4] = {{0, 0, -1, -1}, {0, 0, -1, -1}, {1, 1, 0, 0}, {1, 1, 0, 0}};
+        for(int i = 0; i < 4; ++i)
+            for(int j = 0; j < 4; ++j)
+                if(lhs != nullptr && rhs != nullptr && std::strcmp(lhs, versions[i]) == 0 &&
+                   std::strcmp(rhs, versions[j]) == 0) return results[i][j];
+    }
+
     // This test binary intentionally does not link libalpm. Constraint cases
     // must declare the one expected comparison and its libalpm-style result;
     // the stub never implements an Arch version ordering algorithm.

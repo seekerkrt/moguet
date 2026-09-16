@@ -279,7 +279,7 @@ installed provenance、remote comparison、`UpdateAvailable` / `UpToDate`、auto
 
 exact target-less Auto `moguet -Syu`はrepository mutation前にも、同じread-only collector / assessorでpossible lockを観測・表示する。`--dry-run -Syu`も同じpreflight evidenceをplanとともに表示する。authorityはrefreshしていない現在のlocal / sync databaseとexact AUR metadataであり、`-y`後の最新candidate、pacmanのselected target、post-repository execution authorityではない。観測時点はtyped `BeforeRepositoryMutation`として保持し、failure後の`AfterRepositoryFailure` observationとは別に取得する。repo-only経路へAUR観測を追加しない。
 
-preflightはsupplemental diagnosticであり、possible candidate、query failure、Partial、Failed、collector exceptionによって新しいinteractive blockerやtransaction可否policyを作らない。Partial / Failedはcandidateが表示できない場合も明示し、absenceへ丸めない。dry-runの既存normal AUR planのReady / Blockedおよび終了codeとは別に診断の不完全性を表示・保持する。Completeでpossible lockがなければlock診断を表示しない。actual経路では表示後に従来のrepository transactionを実行し、成功後のnormal AUR authorityをfreshに取得する。coordinated plan、automatic remove / reinstall、追加confirmationは行わない。
+preflightはsupplemental diagnosticであり、possible candidate、query failure、Partial、Failed、collector exceptionによって新しいinteractive blockerやtransaction可否policyを作らない。Partial / Failedはcandidateが表示できない場合も明示し、absenceへ丸めない。dry-runの既存normal AUR planのReady / Blockedおよび終了codeとは別に診断の不完全性を表示・保持する。Completeでpossible lockがなければlock診断を表示しない。actual経路では表示後に従来のrepository transactionを実行し、成功後のnormal AUR authorityをfreshに取得する。coordinated execution、automatic remove / reinstall、追加confirmationは行わない。
 
 `moguet upgrade-all`またはexact target-less Auto `moguet -Syu`のrepository system upgradeが失敗して停止した後には、Moguetはlocal / sync databaseとexact AUR metadataをread-onlyで追加観測する。installed foreign packageのdirect exact runtime dependencyがinstalled repository package versionでは満たされ、観測したより新しいrepository candidate versionでは満たされない相関を1件以上表示できる場合だけ、repository / AURをまたぐpossible version-lock candidateをsupplemental diagnosticとして表示する。すべてのsystem failureへ表示するものではなく、publicに表示できるcoherentなcandidate correlationがなければ既存failure outputのままである。この非表示自体はcandidate absenceの証明ではない。
 
@@ -290,6 +290,42 @@ observed repository candidateはread-only repository metadataであり、pacman�
 replacement assessmentはcompatible、incompatible、matching candidate not found、compatibility unknown、AUR query failure、ambiguous evidenceを区別する。query failureをreplacement missingへ変換せず、candidate observationの`Partial` / `Failed`もabsenceへ丸めない。`Partial` observationからcandidateを表示する場合はsupplemental observationがincompleteであることを明示し、failure後の診断ではcoherentなcandidateがなければsupplemental outputを追加しない。
 
 failure後のdiagnosticは元のpacman / sudo output、既存Moguet failure result、failure exit behaviorを置換しないため、candidateが表示されてもcommandはfailureのままである。Moguetが行うのはpossible candidateとversion / dependency constraintを示してmanual reviewを求めるところまでであり、repository / AURのautomatic coordinated update、automatic remove / reinstall、rollback、retry、partial upgrade、dependency bypassは行わない。
+
+### ordinary `-Syu` coordinated transition candidate（Issue #581 Slice 3）
+
+preflightのcorrelationに、ownedな`CrossSourceCoordinatedTransitionPlan`を付随させる。
+`ReadOnlyReady`はread-only evidence上の構造成立だけを意味し、execution authorityではない。
+通常のunified/dry-run planのReady / Blockedや終了codeとは独立し、actual routeも
+既存repository transactionをそのまま進める。RepoOnlyには生成しない。
+
+Readyの条件は、refresh前の観測がCompleteでissueがなく、installed A / foreign B /
+repository candidate A / AUR replacement Bが一意、旧Bのdirect exact runtime requirementを
+旧Aが満たして新Aが破り、新Bのdirect exact requirementを新Aが満たすこと。
+さらに全installed identity / version / Providesと全runtime dependency inventoryが対応し、
+単一Bの削除後にBのpackage名またはProvidesへ依存する残存packageの要件が満たされ、
+Bのinstall reasonがExplicitまたはDependencyとして既知でなければならない。
+libalpmから同じpackageとともに読んだruntime dependencyのversionをrelation inventoryと照合し、
+foreign inventoryのBのidentity / version / reasonも保持する。PackageBaseはauthoritativeな値が
+ある場合だけ保持し、package名から補わない。これらのreadはatomic snapshotではない。
+
+削除判定は現在installedの代替satisfierを観測するだけで、providerを選択・導入しない。
+代替がなければBlockedで、cascade、unrelated removal、dependency bypassは提案しない。
+Unknown reasonや不完全なinventoryはIncomplete。missing、query failure、incompatible、
+ambiguous replacementを区別する。replacementのConflicts / ReplacesはUnsupportedとし、
+複数candidateも、overlapの有無をtyped reasonで区別してUnsupportedに留める。
+generic solverや独立planの実行順序推測は追加しない。
+
+Readyだけが`RemoveInstalledForeign → RepositorySystemUpgrade → InstallAurReplacement →
+VerifyPostState`のtyped intentを持つ。repository phaseはsystem upgradeであり、関連candidateは
+その補助metadataである。snapshotにはcorrelation、observation basis / completeness / issues、
+全installed relation / runtime evidence、removal-safety evidence、期待install reasonを残す。
+全repository transactionのselected target、将来の全installed state、AUR build/installの実行可能性は
+証明しない。repository成功後のnormal AUR authorityは従来どおりfreshに再取得する。
+
+public表示はread-only plan、explicit confirmationとfreshなmutation-time revalidationの必要性、
+non-atomic transition、automatic rollbackなしを明示する。旧B削除後にrepository upgradeが失敗すれば
+Bが未installのまま残り得る。Slice 3にはprompt、remove/reinstall executor、retry、rollback、
+実行時state比較、post-state verification実行を含めない。これらの実行責務はSlice 4へ残す。
 
 <a id="compat-aur-export"></a>
 
