@@ -21,6 +21,12 @@ moguet \- pacman-first AUR helper with verified source builds
 .B -Syu --repo [--needed]
 .
 .B moguet
+.B -Su [--needed]
+.
+.B moguet
+.B -Su --repo [--needed]
+.
+.B moguet
 .BR -h | --help
 .
 .B moguet
@@ -408,8 +414,11 @@ On this route,
 applies only to each route-owned final installation.
 .
 .TP
-.B "-Syu [--needed] | -Syu --repo [--needed]"
-The exact target-less Auto form is the ordinary AUR-helper update. It performs
+.B "-Syu [--needed] | -Syu --repo [--needed] | -Su [--needed] | -Su --repo [--needed]"
+The exact target-less Auto form is the ordinary AUR-helper update.
+The -Su forms use current sync databases without adding a refresh; all
+repository-first, fresh AUR, dry-run, source-selection, failure, and coordinated
+transition contracts below apply equally to -Syu and -Su. The Auto form performs
 the official repository system upgrade first and, only after success, obtains
 a fresh installed-foreign inventory and exact AUR metadata, then plans and
 executes a normal installed-AUR update.
@@ -470,23 +479,25 @@ For Auto, the only initially supported pacman semantic option is
 it is kept only in the exact ordered repository transaction and is not applied
 to the later AUR transaction. Any other pacman semantic option or unsupported
 argument form is rejected before repository mutation, with guidance to use
-.BR "moguet -Syu --repo" .
+.BR "moguet -Syu --repo"
+or
+.BR "moguet -Su --repo" .
 The RepoOnly form removes the semantic selector before invoking pacman,
 preserves the compatible pacman pass-through tail, performs only the
 repository system upgrade, and does not query AUR, read source preferences, or
 invoke cache, Git, makepkg, or source-runner work.
-.B -Syu --aur
-is unsupported; use source-aware
+.B -Syu --aur / -Su --aur
+are unsupported; use source-aware
 .B upgrade-aur
 for an AUR-only update.
 .
 .PP
-Only the exact canonical target-less token has this combined meaning.
+Only the exact target-less -Syu and -Su tokens have this combined meaning.
 .BR -Sy ,
-.BR -Su ,
+.BR -Syy ,
 .BR -Suy ,
 separated or long modifier spellings, target-bearing
-.BR "-Syu <pkg>" ,
+.BR "-Syu <pkg>" / "-Su <pkg>" ,
 and unknown modifier forms retain their existing routing and do not start an
 installed-AUR sweep.
 .

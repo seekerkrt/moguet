@@ -248,6 +248,8 @@ void test_runtime_help_connection() {
         "-S --select [--needed] <query>",
         "-Syu [--needed]",
         "-Syu --repo [--needed]",
+        "-Su [--needed]",
+        "-Su --repo [--needed]",
     };
     expect(
         cli_canonical_grammar() == canonical,
@@ -355,7 +357,13 @@ void test_sync_invocation_route_classification() {
          AutoSystemUpdateRouteCandidate{
              CompatibleAutoSystemUpdatePacmanArguments{}, {"-Syu"}, false}},
         {"refresh only", {"-Sy"}, OtherSyncRoute{}},
-        {"sysupgrade only", {"-Su"}, OtherSyncRoute{}},
+        {"sysupgrade without refresh",
+         {"-Su"},
+         AutoSystemUpdateRouteCandidate{
+             CompatibleAutoSystemUpdatePacmanArguments{}, {"-Su"}, false}},
+        {"forced refresh only", {"-Syy"}, OtherSyncRoute{}},
+        {"target-bearing sysupgrade", {"-Su", "package"}, OtherSyncRoute{}},
+        {"target-bearing sysupgrade after separator", {"-Su", "--", "package"}, OtherSyncRoute{}},
         {"modifier order variation", {"-Suy"}, OtherSyncRoute{}},
         {"separated short modifiers",
          {"-S", "-y", "-u"},

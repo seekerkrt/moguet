@@ -356,9 +356,11 @@ def check_system_aur_update_runtime_help(
         ("ja", "Japanese runtime help", japanese_help),
     ):
         descriptions = runtime_help_descriptions(label, text)
-        for syntax, contract in system_aur_update_runtime_help_contracts(
-            locale
-        ).items():
+        contracts = system_aur_update_runtime_help_contracts(locale)
+        for syntax, contract in tuple(contracts.items()):
+            if syntax.startswith("-Syu"):
+                contracts[syntax.replace("-Syu", "-Su", 1)] = contract
+        for syntax, contract in contracts.items():
             description = descriptions.get(syntax)
             if description is None:
                 fail(f"{label} is missing system/AUR entry {syntax!r}")
@@ -1202,6 +1204,7 @@ def system_aur_update_documentation_contracts(
                 "Initially, `--needed` is the only pacman semantic option",
                 "fails before repository mutation",
                 "`moguet -Syu --repo`",
+                "`moguet -Su --repo`",
                 "does not affect this route",
                 "reported as a non-zero partial outcome",
             ),
@@ -1214,6 +1217,7 @@ def system_aur_update_documentation_contracts(
                 "initially対応するpacman semantic optionは`--needed`だけ",
                 "repository mutation前に失敗",
                 "`moguet -Syu --repo`",
+                "`moguet -Su --repo`",
                 "このrouteへ影響しません",
                 "non-zeroのpartial outcome",
             ),
@@ -1221,7 +1225,7 @@ def system_aur_update_documentation_contracts(
         ),
         repository_root / "docs/COMPATIBILITY.md": (
             (
-                "Exact target-less `-Syu` compatibility",
+                "Exact target-less `-Syu` / `-Su` compatibility",
                 "fresh installed foreign inventory / exact AUR metadata",
                 "typed `NotAttempted`",
                 "AUR `NoUpdates`だけを根拠にoperation全体を`NoOp`と呼ばない",
@@ -1229,6 +1233,7 @@ def system_aur_update_documentation_contracts(
                 "source-awareなStrict reader",
                 "initially対応するpacman semantic optionは`--needed`だけ",
                 "`moguet -Syu --repo`",
+                "`moguet -Su --repo`",
             ),
             (),
         ),
@@ -1241,6 +1246,7 @@ def system_aur_update_documentation_contracts(
                 "only initially supported pacman semantic option",
                 "moguet -Syu --repo",
                 "-Syu --aur",
+                "-Su --aur",
             ),
             (),
         ),
@@ -1253,6 +1259,7 @@ def system_aur_update_documentation_contracts(
                 "initially対応するpacman semantic option",
                 "moguet -Syu --repo",
                 "-Syu --aur",
+                "-Su --aur",
             ),
             (),
         ),
@@ -1269,7 +1276,7 @@ def system_aur_update_documentation_contracts(
         repository_root / "completions/descriptions/en.json": (
             (
                 '"-Syu": "Update repository packages and normal installed AUR packages without saved source-build preferences"',
-                '"--repo": "Use only official binary repositories; with -Syu, run the repository system upgrade only"',
+                '"--repo": "Use only official binary repositories; with -Syu / -Su, run the repository system upgrade only"',
             ),
             ('"-Syu": "Upgrade the system"',),
         ),

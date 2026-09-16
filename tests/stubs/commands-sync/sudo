@@ -103,7 +103,7 @@ if [ -n "${MOGUET_TEST_CROSS_SOURCE_PHASE_FILE:-}" ]; then
         -R)
             if [ "$scenario" = removal-failure ]; then exit_code=31; fi
             ;;
-        -Syu)
+        -Syu|-Su)
             if [ "$scenario" = repo-failure ]; then exit_code=37; fi
             ;;
         -U)
@@ -118,7 +118,7 @@ if [ -n "${MOGUET_TEST_CROSS_SOURCE_PHASE_FILE:-}" ]; then
                 /usr/bin/awk '$1 != "virtualbox-ext-oracle"' "$state_file" > "$state_file.next"
                 phase=removed
                 ;;
-            -Syu)
+            -Syu|-Su)
                 version=7.2.18-1
                 if [ "$scenario" = repo-post-mismatch ]; then version=7.2.16-1; fi
                 /usr/bin/awk -v version="$version" '

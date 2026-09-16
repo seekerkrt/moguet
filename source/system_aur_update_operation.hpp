@@ -100,7 +100,7 @@ struct SystemAurUpdateDryRunIssue {
     std::string diagnostic;
 };
 
-// Current-state read-only observation for the combined -Syu route.
+// Current-state read-only observation for the combined system-update route.
 // It owns no Prepared* capability and has no conversion to the actual
 // coordinator. Auto retains exact current authority; RepoOnly retains none of
 // the AUR fields.

@@ -17,6 +17,7 @@
     "-Gp": "Print one AUR PackageBase PKGBUILD without keeping a checkout",
     "-S": "Install packages",
     "-Syu": "Update repository packages and normal installed AUR packages without saved source-build preferences",
+    "-Su": "Update repository packages and normal installed AUR packages without refreshing sync databases or using saved source-build preferences",
     "-Ss": "Search for packages",
     "-Si": "Show package information",
     "-Qua": "Check AUR and foreign-package updates"
@@ -40,7 +41,7 @@
     "--output-dir": "Select an existing export parent for -G",
     "--select": "Interactively select source-aware package candidates for plain -S",
     "--aur": "Limit supported sync operations to AUR",
-    "--repo": "Use only official binary repositories; with -Syu, run the repository system upgrade only",
+    "--repo": "Use only official binary repositories; with -Syu / -Su, run the repository system upgrade only",
     "--needed": "Preserve pacman --needed semantics at the installation phase owned by the selected route",
     "--recursive": "Resolve dependencies recursively"
   }

@@ -162,7 +162,7 @@ fail-closedで停止します。v2.xは、Moguetのsource-aware入口、安全�
   だけ失敗した場合、packageはinstall済みの可能性があるため、結果を確認せず再試行
   しないでください。`upgrade-all`のprovider selectionはfiltered AUR phaseのclone、build、
   pacman、sudoより前に行いますが、それ以前のphaseは完了済みの場合があります。
-- exact target-less `moguet -Syu`もsequentialです。通常はofficial repository system updateを
+- exact target-less `moguet -Syu` / `moguet -Su`もsequentialです。通常はofficial repository system updateを
   完了してから、freshなinstalled foreign / AUR inventoryを取得し、normal AUR updateを
   実行します。repository mutation前にread-only preflightでpossibleなrepo/AUR exact-version
   lockを診断し、`--dry-run -Syu`でも同じ種類の根拠を表示します。refreshしていない現在の
@@ -346,10 +346,12 @@ revert <pkg>...
 -S --select [--needed] <query>
 -Syu [--needed]
 -Syu --repo [--needed]
+-Su [--needed]
+-Su --repo [--needed]
 ```
 <!-- CLI CANONICAL GRAMMAR END -->
 
-2つのexact target-less `-Syu` formはMoguetがinterceptするsemantic routeです。
+exact target-less `-Syu` / `-Su` formはMoguetがinterceptするsemantic routeです。
 repository-only formはcompatibleなdelegated pacman tailを引き続き受理します。
 その他のpacman operation formは、Moguetのallowlistではなくdelegated open grammarのまま
 です。closed grammarはremote / local `build`の2つ目のbare operandを拒否し、`upgrade`、
@@ -436,7 +438,7 @@ token、execution capability、cached provider choiceとして再利用せず、
 current stateを再validationします。v2.2.0のsurfaceはhuman-readableだけで、JSONその他の
 machine-readable plan schemaは追加しません。
 
-exact target-less `moguet --dry-run -Syu`では、repository system-update intentと後続の
+exact target-less `moguet --dry-run -Syu` / `moguet --dry-run -Su`では、repository system-update intentと後続の
 normal-AUR transaction intentを分けて表示します。AUR assessmentはrepository transactionを
 仮に実行した後のstateではなく、現在インストールされている状態に基づきます。actual
 `moguet -Syu`はこのobservationやprepared capabilityを再利用せず、repository upgrade成功後に
@@ -465,14 +467,16 @@ source-build preferenceを確認・適用します。`upgrade-aur`はrepository 
 実行しません。`upgrade-all`はrepository update、configured-source lifecycle、remaining
 AUR updateを実行します。これらは通常の`-Syu`の別名ではありません。
 
-combined routeへ入るのはexact target-less canonical `-Syu` tokenだけです。`-Sy`、`-Su`、
-modifierのalternate / separated spelling、target-bearing `-Syu <pkg>`、unknown modifier
+combined routeへ入るのはexact target-less `-Syu` / `-Su` tokenだけです。
+`-Su`はrefreshを追加せず現在のsync DBを使い、repository-first、fresh AUR、dry-run、
+source selection、safetyの契約を`-Syu`と共有します。`-Sy`、`-Syy`、
+modifierのalternate / separated spelling、target-bearing `-Syu <pkg>` / `-Su <pkg>`、unknown modifier
 formは既存routingを維持し、installed-AUR sweepを開始しません。Auto combined `-Syu`で
 initially対応するpacman semantic optionは`--needed`だけで、repository transactionだけへ
 適用します。他のpacman semantic optionやunsupported argument formはrepository mutation前に
-失敗し、`moguet -Syu --repo`を案内します。repository-only formはsemantic selectorを
+失敗し、元のoperationに応じて`moguet -Syu --repo`または`moguet -Su --repo`を案内します。repository-only formはsemantic selectorを
 pacmanへ渡さず、compatibleなpacman pass-through surfaceを維持し、AUR inventory、AUR RPC、
-preference、cache、Git、makepkgへ到達しません。`moguet -Syu --aur`はunsupportedです。
+preference、cache、Git、makepkgへ到達しません。`moguet -Syu --aur` / `moguet -Su --aur`はunsupportedです。
 AUR-only source-aware updateには`moguet upgrade-aur`を使います。`--noconfirm`はprovider、
 conflict / replacement、required `RequiresCheck`等のsafety guardを突破せず、未検証の
 devel updateを承認しません。
@@ -529,8 +533,8 @@ installed artifact bindingが変わればhistorical provenanceは無効です。
 [devel tracking / migration contract](https://github.com/seekerkrt/moguet/blob/develop/docs/contracts/devel-tracking.md)を参照してください。
 
 `--aur`は対応する`-S`、`-Ss`、`-Si`をAURへ限定します。`--repo`はこれらのformを
-official binary repositoryへ限定し、exact target-less `-Syu`ではrepository-only selectorに
-なります。`--aur`は`-Syu`で受理しません。両selectorの併用はexternal commandやAUR query
+official binary repositoryへ限定し、exact target-less `-Syu` / `-Su`ではrepository-only selectorに
+なります。`--aur`はどちらのformでも受理しません。両selectorの併用はexternal commandやAUR query
 より前に失敗します。pacman-only routeではcompatibleなpacman optionを保持し、source-build
 routeで意味を維持できないoptionは黙って無視せず拒否します。
 
@@ -767,6 +771,9 @@ Moguetはpacman-firstですが、すべてのsource-build routeで完全なpacma
 pacmanだけで完結するoperationはMoguetが消費しないoptionをpass-throughします。AUR /
 source-build routeをMoguetが所有する場合は、対応関係を明示したoptionだけを保持し、
 意味を維持できないものはmutation前に拒否します。
+
+exact target-less `moguet -Su`もrepository成功後にnormal installed AUR packageを更新します。
+refreshせずrepository-only動作を維持する場合は`moguet -Su --repo`を使ってください。
 
 Moguet v2.6.0では、exact target-less `moguet -Syu`をrepository-onlyから通常のAUR helper
 behaviorへ変更します。repository system updateの後にnormal installed-AUR updateを行い、

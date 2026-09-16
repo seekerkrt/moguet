@@ -69,7 +69,7 @@ using AutoSystemUpdatePacmanCompatibility = std::variant<
     CompatibleAutoSystemUpdatePacmanArguments,
     IncompatibleAutoSystemUpdatePacmanArguments>;
 
-// targetless canonical `-Syu` Auto routeのcomposite request。
+// exact supported targetless system-update Auto routeのcomposite request。
 // ordered_pacman_argsはparser authorityのexact copyであり、ここで再構築・filterしない。
 struct AutoSystemUpdateRouteCandidate {
     AutoSystemUpdatePacmanCompatibility pacman_compatibility;
@@ -129,7 +129,7 @@ bool parsed_has_semantic_pacman_option(
 SourceSyncOptions parse_source_sync_options(const ParsedCliArguments& parsed);
 SourceSelectableSyncOperation source_selectable_sync_operation(
     const ParsedCliArguments& parsed);
-// parse済みsemantic stateだけからcanonical targetless `-Syu` routeを分類する。
+// parse済みsemantic stateだけからexact supported targetless system-update routeを分類する。
 // production execution、validation、dry-run、public projectionは同じ結果を共有できる。
 SyncInvocationRouteClassification classify_sync_invocation_route(
     const ParsedCliArguments& parsed);

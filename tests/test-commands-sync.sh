@@ -886,20 +886,37 @@ if ! cmp -s "$installed_after_success" "$installed_state"; then
 fi
 assert_cleanup_partial_success_fixture "$install_success_log"
 
-# Issue #505: exact targetless -Syu is a sequential repository + normal AUR
+# Issues #505/#554: exact targetless -Syu / -Su share repository + normal AUR
 # update, while --repo remains the full repository-only escape hatch.
-setup_case system-aur-update-unsupported-option-before-mutation
-run_status 1 -Syu --config custom.conf
-assert_contains "A pacman option is not supported for the combined -Syu route." "$output_file"
-assert_contains "moguet -Syu --repo" "$output_file"
-assert_command_log_empty
-assert_state_log_absent
+for sync_operation in -Syu -Su; do
+    setup_case "system-aur-update-unsupported-option-before-mutation-$sync_operation"
+    run_status 1 "$sync_operation" --config custom.conf
+    assert_contains "A pacman option is not supported for the combined $sync_operation route." "$output_file"
+    assert_contains "moguet $sync_operation --repo" "$output_file"
+    assert_command_log_empty
+    assert_state_log_absent
 
-setup_case system-aur-update-rmdeps-before-mutation
-run_status 1 -Syu --rmdeps
-assert_contains "--rmdeps" "$output_file"
-assert_command_log_empty
-assert_state_log_absent
+    for unsupported_option in --verbose --refresh --sysupgrade; do
+        setup_case "system-aur-update-unsupported-$sync_operation-$unsupported_option"
+        run_status 1 "$sync_operation" "$unsupported_option"
+        assert_contains "A pacman option is not supported for the combined $sync_operation route." "$output_file"
+        assert_command_log_empty
+        assert_state_log_absent
+    done
+
+    setup_case "system-aur-update-unsupported-argument-$sync_operation"
+    run_status 1 "$sync_operation" --
+    assert_contains "A pacman argument form is not supported for the combined $sync_operation route." "$output_file"
+    assert_contains "moguet $sync_operation --repo" "$output_file"
+    assert_command_log_empty
+    assert_state_log_absent
+
+    setup_case "system-aur-update-rmdeps-before-mutation-$sync_operation"
+    run_status 1 "$sync_operation" --rmdeps
+    assert_contains "--rmdeps" "$output_file"
+    assert_command_log_empty
+    assert_state_log_absent
+done
 
 setup_case system-aur-update-aur-selector-rejected
 run_status 1 -Syu --aur
@@ -907,30 +924,31 @@ assert_contains "Cannot combine --aur with pacman refresh for operation -Syu." "
 assert_command_log_empty
 assert_state_log_absent
 
-setup_case system-repository-update-full-pass-through
-write_source_preference system-update-a 'INVALID PREFERENCE'
-export MOGUET_TEST_SUDO_MAIN_STATUS=17
-run_status 17 --noconfirm -Syu --repo --config custom.conf
-assert_event_at 1 "sudo pacman -Syu --noconfirm --config custom.conf"
-assert_event_count 1 "sudo pacman -Syu --noconfirm --config custom.conf"
-assert_event_prefix_absent '^aur '
-assert_event_prefix_absent '^pacman-conf '
-assert_event_prefix_absent '^alpm '
-assert_event_prefix_absent '^(git|makepkg) '
-assert_not_contains "Loading custom build flags" "$output_file"
+setup_case system-aur-update-su-aur-selector-rejected
+run_status 1 -Su --aur
+assert_contains "--aur is not supported for operation -Su." "$output_file"
+assert_command_log_empty
+assert_state_log_absent
+
+for sync_operation in -Syu -Su; do
+    setup_case "system-repository-update-full-pass-through-$sync_operation"
+    write_source_preference system-update-a 'INVALID PREFERENCE'
+    export MOGUET_TEST_SUDO_MAIN_STATUS=17
+    run_status 17 --noconfirm "$sync_operation" --repo --config custom.conf
+    assert_event_at 1 "sudo pacman $sync_operation --noconfirm --config custom.conf"
+    assert_event_count 1 "sudo pacman $sync_operation --noconfirm --config custom.conf"
+    assert_event_prefix_absent '^aur '
+    assert_event_prefix_absent '^pacman-conf '
+    assert_event_prefix_absent '^alpm '
+    assert_event_prefix_absent '^(git|makepkg) '
+    assert_not_contains "Loading custom build flags" "$output_file"
+done
 
 setup_case noncanonical-system-update-routes-stay-existing
 export MOGUET_TEST_SUDO_MAIN_STATUS=0
 run_status 0 -Sy
 assert_event_at 1 "sudo pacman -Sy"
 assert_event_count 1 "sudo pacman -Sy"
-assert_event_prefix_absent '^aur info-many'
-
-setup_case noncanonical-sysupgrade-only-stays-existing
-export MOGUET_TEST_SUDO_MAIN_STATUS=0
-run_status 0 -Su
-assert_event_at 1 "sudo pacman -Su"
-assert_event_count 1 "sudo pacman -Su"
 assert_event_prefix_absent '^aur info-many'
 
 setup_case noncanonical-modifier-order-stays-existing
@@ -961,24 +979,26 @@ assert_event_at 1 "sudo pacman -Syux"
 assert_event_count 1 "sudo pacman -Syux"
 assert_event_prefix_absent '^aur info-many'
 
-setup_case system-aur-update-repository-failure-allows-secondary-observation
-foreign_inventory=$case_dir/foreign-inventory.state
-printf 'system-update-a 0.9-1 explicit\n' > "$foreign_inventory"
-export MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE=$foreign_inventory
-export MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG=$command_log
-export MOGUET_TEST_SUDO_MAIN_STATUS=42
-run_status 1 --noedit --nodiff --noconfirm -Syu
-assert_event_count_before 1 "pacman-conf --verbose RootDir DBPath" "sudo pacman -Syu --noconfirm"
-assert_event_count 1 "sudo pacman -Syu --noconfirm"
-assert_event_prefix_absent '^aur '
-# #581 observes read-only metadata before mutation and freshly after failure.
-assert_event_count 2 "pacman-conf --verbose RootDir DBPath"
-assert_event_count 2 "pacman-conf --repo-list"
-assert_event_pattern_count 0 '^sudo pacman -(R|U) '
-assert_not_contains "Possible repository/AUR cross-source version-lock" "$output_file"
-assert_event_prefix_absent '^(git|makepkg) '
-assert_contains "The repository system upgrade failed." "$output_file"
-assert_contains "The AUR update was not attempted." "$output_file"
+for sync_operation in -Syu -Su; do
+    setup_case "system-aur-update-repository-failure-allows-secondary-observation-$sync_operation"
+    foreign_inventory=$case_dir/foreign-inventory.state
+    printf 'system-update-a 0.9-1 explicit\n' > "$foreign_inventory"
+    export MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE=$foreign_inventory
+    export MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG=$command_log
+    export MOGUET_TEST_SUDO_MAIN_STATUS=42
+    run_status 1 --noedit --nodiff --noconfirm "$sync_operation"
+    assert_event_count_before 1 "pacman-conf --verbose RootDir DBPath" "sudo pacman $sync_operation --noconfirm"
+    assert_event_count 1 "sudo pacman $sync_operation --noconfirm"
+    assert_event_prefix_absent '^aur '
+    # #581 observes read-only metadata before mutation and freshly after failure.
+    assert_event_count 2 "pacman-conf --verbose RootDir DBPath"
+    assert_event_count 2 "pacman-conf --repo-list"
+    assert_event_pattern_count 0 '^sudo pacman -(R|U) '
+    assert_not_contains "Possible repository/AUR cross-source version-lock" "$output_file"
+    assert_event_prefix_absent '^(git|makepkg) '
+    assert_contains "The repository system upgrade failed." "$output_file"
+    assert_contains "The AUR update was not attempted." "$output_file"
+done
 
 # Supplemental preflight failure is visible, but grants no authority and does
 # not replace pacman's outcome or the current-state dry-run plan status.
@@ -1074,7 +1094,7 @@ done
 setup_coordinated_execution() {
     coordinated_scenario=$1
     coordinated_reason=$2
-    setup_case "coordinated-execution-$coordinated_scenario-$coordinated_reason"
+    setup_case "coordinated-execution-$coordinated_scenario-$coordinated_reason${3:+-$3}"
     export MOGUET_TEST_CROSS_SOURCE_TRANSITION_CASE=ready
     export MOGUET_TEST_CROSS_SOURCE_CASE=$coordinated_scenario
     export MOGUET_TEST_CROSS_SOURCE_PHASE_FILE=$case_dir/phase
@@ -1096,7 +1116,8 @@ setup_coordinated_execution() {
 
 assert_coordinated_only_target() {
     assert_event_pattern_count 1 '^sudo pacman -R -- virtualbox-ext-oracle$'
-    assert_event_pattern_count 1 '^sudo pacman -Syu$'
+    assert_event_count 1 "sudo pacman ${1:--Syu}"
+    assert_event_pattern_count 1 '^sudo pacman -S'
     assert_event_pattern_count 0 '^sudo pacman -R.*(nodeps|cascade|recursive)'
     assert_event_pattern_count 0 '^sudo pacman -R(dd|s|c)'
     assert_event_pattern_count 0 '^sudo pacman -S '
@@ -1106,12 +1127,17 @@ assert_coordinated_only_target() {
     assert_event_pattern_count 0 '^sudo pacman -U.*7\.2\.16'
 }
 
-for reason in explicit dependency; do
-    setup_coordinated_execution success "$reason"
-    run_status_pty 0 'yes\nyes\nyes\n' --noedit --nodiff -Syu
+for execution_case in syu-explicit syu-dependency su-explicit; do
+    case "$execution_case" in
+        syu-explicit) sync_operation=-Syu; reason=explicit ;;
+        syu-dependency) sync_operation=-Syu; reason=dependency ;;
+        su-explicit) sync_operation=-Su; reason=explicit ;;
+    esac
+    setup_coordinated_execution success "$reason" "$sync_operation"
+    run_status_pty 0 'yes\nyes\nyes\n' --noedit --nodiff "$sync_operation"
     removal='sudo pacman -R -- virtualbox-ext-oracle'
-    repository_update='sudo pacman -Syu'
-    assert_coordinated_only_target
+    repository_update="sudo pacman $sync_operation"
+    assert_coordinated_only_target "$sync_operation"
     assert_event_count_before 2 "aur info-strict virtualbox-ext-oracle" "$removal"
     assert_event_before "$removal" "$repository_update"
     assert_event_before "$repository_update" "fixture phase repository"
@@ -1128,7 +1154,7 @@ for reason in explicit dependency; do
     assert_contains "virtualbox-ext-oracle 7.2.18-1 $reason" "$foreign_inventory"
     assert_contains 'system-update-a 0.9-1 explicit' "$foreign_inventory"
     assert_output_line_before "Possible coordinated transition" "Running: sudo pacman"
-    if [ "$reason" = explicit ]; then
+    if [ "$execution_case" = syu-explicit ]; then
         # Pin the two primary snapshot ordinals from this real successful route.
         # The injected runs below must stop in the named phase and still report
         # a successful supplemental current-state observation.
@@ -1236,104 +1262,108 @@ for scenario in removal-failure repo-failure repo-post-mismatch aur-changed sour
     esac
 done
 
-setup_case system-aur-update-fresh-configuration-failure-reports-cause
-export MOGUET_TEST_PACKAGE_METADATA_PACMAN_CONF_EXIT_CODE=37
-export MOGUET_TEST_PACKAGE_METADATA_PACMAN_CONF_FAILURE_AT=2
-export MOGUET_TEST_SUDO_MAIN_STATUS=0
-run_status 1 --noedit --nodiff --noconfirm -Syu
-repository_update='sudo pacman -Syu --noconfirm'
-assert_event_count_before 1 "pacman-conf --verbose RootDir DBPath" "$repository_update"
-assert_event_count 1 "$repository_update"
-assert_event_count 2 "pacman-conf --verbose RootDir DBPath"
-assert_event_prefix_absent '^aur '
-assert_event_prefix_absent '^(git|makepkg) '
-assert_event_pattern_count 0 '^sudo pacman -(R|U) '
-assert_contains "The repository system upgrade completed." "$output_file"
-assert_contains \
-    "The repository system upgrade completed, but the fresh installed-package inventory for AUR could not be obtained." \
-    "$output_file"
-assert_contains \
-    "Query failure: pacman-conf failed with exit code 37. [source=pacman]" \
-    "$output_file"
-assert_output_count 1 "pacman-conf failed with exit code 37."
-assert_contains "The AUR update was not attempted." "$output_file"
-assert_contains \
-    "The completed repository system upgrade was not rolled back." \
-    "$output_file"
+for sync_operation in -Syu -Su; do
+    setup_case "system-aur-update-fresh-configuration-failure-reports-cause-$sync_operation"
+    export MOGUET_TEST_PACKAGE_METADATA_PACMAN_CONF_EXIT_CODE=37
+    export MOGUET_TEST_PACKAGE_METADATA_PACMAN_CONF_FAILURE_AT=2
+    export MOGUET_TEST_SUDO_MAIN_STATUS=0
+    run_status 1 --noedit --nodiff --noconfirm "$sync_operation"
+    repository_update="sudo pacman $sync_operation --noconfirm"
+    assert_event_count_before 1 "pacman-conf --verbose RootDir DBPath" "$repository_update"
+    assert_event_count 1 "$repository_update"
+    assert_event_count 2 "pacman-conf --verbose RootDir DBPath"
+    assert_event_prefix_absent '^aur '
+    assert_event_prefix_absent '^(git|makepkg) '
+    assert_event_pattern_count 0 '^sudo pacman -(R|U) '
+    assert_contains "The repository system upgrade completed." "$output_file"
+    assert_contains \
+        "The repository system upgrade completed, but the fresh installed-package inventory for AUR could not be obtained." \
+        "$output_file"
+    assert_contains \
+        "Query failure: pacman-conf failed with exit code 37. [source=pacman]" \
+        "$output_file"
+    assert_output_count 1 "pacman-conf failed with exit code 37."
+    assert_contains "The AUR update was not attempted." "$output_file"
+    assert_contains \
+        "The completed repository system upgrade was not rolled back." \
+        "$output_file"
 
-setup_case system-aur-update-fatal-query-reports-safe-cause
-foreign_inventory=$case_dir/foreign-inventory.state
-printf 'system-query-fatal 0.9-1 explicit\n' > "$foreign_inventory"
-export MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE=$foreign_inventory
-export MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG=$command_log
-export MOGUET_TEST_SUDO_MAIN_STATUS=0
-run_status 1 --noedit --nodiff --noconfirm -Syu
-repository_update='sudo pacman -Syu --noconfirm'
-assert_event_count_before 1 "pacman-conf --verbose RootDir DBPath" "$repository_update"
-assert_event_before "$repository_update" "aur info-many system-query-fatal"
-assert_event_prefix_absent '^(git|makepkg) '
-assert_event_pattern_count 0 '^sudo pacman -(R|U) '
-assert_contains "The repository system upgrade completed." "$output_file"
-assert_contains \
-    "The repository system upgrade completed, but the fresh AUR update query failed." \
-    "$output_file"
-assert_contains \
-    "Query failure: fixture fatal AUR schema failure\\x0A\\x1Bunsafe\\x5Cdetail [source=aur]" \
-    "$output_file"
-assert_output_count 1 "fixture fatal AUR schema failure"
-assert_contains "The AUR update was not attempted." "$output_file"
-assert_not_contains "AUR update:" "$output_file"
-assert_contains \
-    "The completed repository system upgrade was not rolled back." \
-    "$output_file"
+    setup_case "system-aur-update-fatal-query-reports-safe-cause-$sync_operation"
+    foreign_inventory=$case_dir/foreign-inventory.state
+    printf 'system-query-fatal 0.9-1 explicit\n' > "$foreign_inventory"
+    export MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE=$foreign_inventory
+    export MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG=$command_log
+    export MOGUET_TEST_SUDO_MAIN_STATUS=0
+    run_status 1 --noedit --nodiff --noconfirm "$sync_operation"
+    repository_update="sudo pacman $sync_operation --noconfirm"
+    assert_event_count_before 1 "pacman-conf --verbose RootDir DBPath" "$repository_update"
+    assert_event_before "$repository_update" "aur info-many system-query-fatal"
+    assert_event_prefix_absent '^(git|makepkg) '
+    assert_event_pattern_count 0 '^sudo pacman -(R|U) '
+    assert_contains "The repository system upgrade completed." "$output_file"
+    assert_contains \
+        "The repository system upgrade completed, but the fresh AUR update query failed." \
+        "$output_file"
+    assert_contains \
+        "Query failure: fixture fatal AUR schema failure\\x0A\\x1Bunsafe\\x5Cdetail [source=aur]" \
+        "$output_file"
+    assert_output_count 1 "fixture fatal AUR schema failure"
+    assert_contains "The AUR update was not attempted." "$output_file"
+    assert_not_contains "AUR update:" "$output_file"
+    assert_contains \
+        "The completed repository system upgrade was not rolled back." \
+        "$output_file"
 
-setup_case system-aur-update-no-updates-is-not-whole-noop
-foreign_inventory=$case_dir/foreign-inventory.state
-: > "$foreign_inventory"
-export MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE=$foreign_inventory
-export MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG=$command_log
-export MOGUET_TEST_SUDO_MAIN_STATUS=0
-run_status 0 --noedit --nodiff --noconfirm -Syu
-assert_event_count_before 1 "pacman-conf --verbose RootDir DBPath" "sudo pacman -Syu --noconfirm"
-assert_event_count 1 "sudo pacman -Syu --noconfirm"
-assert_event_prefix_absent '^aur '
-assert_event_prefix_absent '^(git|makepkg) '
-assert_contains "The repository system upgrade completed." "$output_file"
-assert_contains "AUR update: no updates" "$output_file"
-assert_not_contains "No changes are required." "$output_file"
-assert_not_contains "[source=aur]" "$output_file"
-assert_not_contains "[source=pacman]" "$output_file"
-assert_not_contains "Query failure:" "$output_file"
-assert_not_contains "Execution failure:" "$output_file"
-assert_not_contains "Blocked:" "$output_file"
-assert_not_contains "Internal inconsistency:" "$output_file"
+    setup_case "system-aur-update-no-updates-is-not-whole-noop-$sync_operation"
+    foreign_inventory=$case_dir/foreign-inventory.state
+    : > "$foreign_inventory"
+    export MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE=$foreign_inventory
+    export MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG=$command_log
+    export MOGUET_TEST_SUDO_MAIN_STATUS=0
+    export MOGUET_TEST_SUDO_MAIN_OUTPUT="there is nothing to do"
+    run_status 0 "$sync_operation"
+    assert_event_count_before 1 "pacman-conf --verbose RootDir DBPath" "sudo pacman $sync_operation"
+    assert_event_count 1 "sudo pacman $sync_operation"
+    assert_event_prefix_absent '^aur '
+    assert_event_prefix_absent '^(git|makepkg) '
+    assert_contains "The repository system upgrade completed." "$output_file"
+    assert_contains "AUR update: no updates" "$output_file"
+    assert_not_contains "No changes are required." "$output_file"
+    assert_not_contains "[source=aur]" "$output_file"
+    assert_not_contains "[source=pacman]" "$output_file"
+    assert_not_contains "Query failure:" "$output_file"
+    assert_not_contains "Execution failure:" "$output_file"
+    assert_not_contains "Blocked:" "$output_file"
+    assert_not_contains "Internal inconsistency:" "$output_file"
 
-setup_case system-aur-update-success-is-fresh-and-ignores-preference
-foreign_inventory=$case_dir/foreign-inventory.state
-printf 'system-update-a 0.9-1 explicit\n' > "$foreign_inventory"
-write_source_preference system-update-a 'INVALID PREFERENCE'
-export MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE=$foreign_inventory
-export MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG=$command_log
-export MOGUET_TEST_SUDO_MAIN_STATUS=0
-run_status 0 --noedit --nodiff --noconfirm -Syu --needed
-repository_update='sudo pacman -Syu --noconfirm --needed'
-assert_event_count_before 1 "pacman-conf --verbose RootDir DBPath" "$repository_update"
-assert_event_before "$repository_update" "aur info-many system-update-a"
-assert_event_count_before 2 "pacman-conf --verbose RootDir DBPath" "aur info-many system-update-a"
-assert_event_before "aur info-many system-update-a" "git clone https://aur.archlinux.org/system-update-a.git system-update-a"
-assert_event_pattern '^sudo pacman -U --noconfirm -- .*/system-update-a-1\.0-1-x86_64\.pkg\.tar\.zst$'
-assert_event_pattern_count 0 '^sudo pacman -U --noconfirm --needed '
-assert_not_contains "Loading custom build flags" "$output_file"
-assert_not_contains "Applying custom build flags" "$output_file"
-assert_contains "The repository system upgrade completed." "$output_file"
-assert_contains "AUR update: completed" "$output_file"
-assert_contains "The repository system upgrade and normal AUR update completed." "$output_file"
-assert_not_contains "[source=aur]" "$output_file"
-assert_not_contains "[source=pacman]" "$output_file"
-assert_not_contains "Query failure:" "$output_file"
-assert_not_contains "Execution failure:" "$output_file"
-assert_not_contains "Blocked:" "$output_file"
-assert_not_contains "Internal inconsistency:" "$output_file"
+    setup_case "system-aur-update-success-is-fresh-and-ignores-preference-$sync_operation"
+    foreign_inventory=$case_dir/foreign-inventory.state
+    printf 'system-update-a 0.9-1 explicit\n' > "$foreign_inventory"
+    write_source_preference system-update-a 'INVALID PREFERENCE'
+    export MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE=$foreign_inventory
+    export MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG=$command_log
+    export MOGUET_TEST_SUDO_MAIN_STATUS=0
+    export MOGUET_TEST_SUDO_MAIN_OUTPUT="there is nothing to do"
+    run_status 0 --noedit --nodiff --noconfirm "$sync_operation" --needed
+    repository_update="sudo pacman $sync_operation --noconfirm --needed"
+    assert_event_count_before 1 "pacman-conf --verbose RootDir DBPath" "$repository_update"
+    assert_event_before "$repository_update" "aur info-many system-update-a"
+    assert_event_count_before 2 "pacman-conf --verbose RootDir DBPath" "aur info-many system-update-a"
+    assert_event_before "aur info-many system-update-a" "git clone https://aur.archlinux.org/system-update-a.git system-update-a"
+    assert_event_pattern '^sudo pacman -U --noconfirm -- .*/system-update-a-1\.0-1-x86_64\.pkg\.tar\.zst$'
+    assert_event_pattern_count 0 '^sudo pacman -U --noconfirm --needed '
+    assert_not_contains "Loading custom build flags" "$output_file"
+    assert_not_contains "Applying custom build flags" "$output_file"
+    assert_contains "The repository system upgrade completed." "$output_file"
+    assert_contains "AUR update: completed" "$output_file"
+    assert_contains "The repository system upgrade and normal AUR update completed." "$output_file"
+    assert_not_contains "[source=aur]" "$output_file"
+    assert_not_contains "[source=pacman]" "$output_file"
+    assert_not_contains "Query failure:" "$output_file"
+    assert_not_contains "Execution failure:" "$output_file"
+    assert_not_contains "Blocked:" "$output_file"
+    assert_not_contains "Internal inconsistency:" "$output_file"
+done
 
 setup_case system-aur-update-independent-requires-check-is-attention
 foreign_inventory=$case_dir/foreign-inventory.state
