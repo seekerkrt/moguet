@@ -164,7 +164,12 @@ fail-closedで停止します。v2.xは、Moguetのsource-aware入口、安全�
   pacman、sudoより前に行いますが、それ以前のphaseは完了済みの場合があります。
 - exact target-less `moguet -Syu`もsequentialです。official repository system updateを
   完了してから、freshなinstalled foreign / AUR inventoryを取得し、normal AUR updateを
-  実行します。repository failure時はAUR phaseを開始しません。repository完了後のblocker、
+  実行します。repository mutation前にread-only preflightでpossibleなrepo/AUR exact-version
+  lockを診断し、`--dry-run -Syu`でも同じ種類の根拠を表示します。refreshしていない現在の
+  local / sync databaseを使うため、update中にcandidateが変わる可能性があります。
+  Partial / Failedは別途明示し、transaction可否やexecution authorityへ昇格しません。
+  repository failure時はAUR phaseを開始せず、freshなread-only観測による補足診断だけを
+  行います。repository完了後のblocker、
   execution failure、cleanup failureはnon-zeroのpartial outcomeとして報告し、完了済み
   repository transactionをrollbackしません。
 

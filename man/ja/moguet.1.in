@@ -167,8 +167,17 @@ clone、build、pacman、sudoを開始します。
 後続作業をnot attemptedとして報告します。
 .
 .PP
+exact target-less Auto -Syuはrepository mutation前にもread-only version-lock
+preflightを行い、--dry-run -Syuでも同じ種類の根拠をplanとともに表示します。
+refreshしていない現在のlocal / sync databaseを使用するため、update中にcandidateが
+変わる可能性があります。selected transaction targetやpost-repository execution
+のauthorityではありません。Partial / Failedは表示可能なcandidateがなくても明示し、
+transaction可否、prompt、通常のdry-run planの終了codeは変更しません。
+coordinated plan、automatic remove / reinstall、execution authorityは作りません。
+.
+.PP
 upgrade-allおよびexact target-less Auto -Syuでは、repository system-upgrade phaseが
-失敗した後に限り、Moguetはrepository / AURをまたぐ
+失敗した後には、Moguetはrepository / AURをまたぐ
 possible version-lockのsupplemental diagnosticを追加する場合があります。
 candidate correlationを1件以上表示できる場合だけ追加し、それ以外は既存failure outputの
 ままです。supplemental textがないこと自体はcandidate absenceの証明ではありません。

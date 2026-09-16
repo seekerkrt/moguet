@@ -964,28 +964,54 @@ export MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE=$foreign_inventory
 export MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG=$command_log
 export MOGUET_TEST_SUDO_MAIN_STATUS=42
 run_status 1 --noedit --nodiff --noconfirm -Syu
-assert_event_at 1 "sudo pacman -Syu --noconfirm"
+assert_event_count_before 1 "pacman-conf --verbose RootDir DBPath" "sudo pacman -Syu --noconfirm"
 assert_event_count 1 "sudo pacman -Syu --noconfirm"
 assert_event_prefix_absent '^aur '
-# #581 permits only read-only secondary metadata after the failed transaction.
-assert_event_before "sudo pacman -Syu --noconfirm" "pacman-conf --verbose RootDir DBPath"
-assert_event_count 1 "pacman-conf --verbose RootDir DBPath"
-assert_event_count 1 "pacman-conf --repo-list"
+# #581 observes read-only metadata before mutation and freshly after failure.
+assert_event_count 2 "pacman-conf --verbose RootDir DBPath"
+assert_event_count 2 "pacman-conf --repo-list"
 assert_event_pattern_count 0 '^sudo pacman -(R|U) '
 assert_not_contains "Possible repository/AUR cross-source version-lock" "$output_file"
 assert_event_prefix_absent '^(git|makepkg) '
 assert_contains "The repository system upgrade failed." "$output_file"
 assert_contains "The AUR update was not attempted." "$output_file"
 
+# Supplemental preflight failure is visible, but grants no authority and does
+# not replace pacman's outcome or the current-state dry-run plan status.
+for mode in actual dry-run; do
+    setup_case "system-aur-preflight-configuration-failure-$mode"
+    foreign_inventory=$case_dir/foreign-inventory.state
+    : > "$foreign_inventory"
+    export MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE=$foreign_inventory
+    export MOGUET_TEST_PACKAGE_METADATA_PACMAN_CONF_EXIT_CODE=37
+    export MOGUET_TEST_PACKAGE_METADATA_PACMAN_CONF_FAILURE_AT=1
+    export MOGUET_TEST_SUDO_MAIN_STATUS=0
+    if [ "$mode" = actual ]; then
+        run_status 0 --noconfirm -Syu
+        assert_event_count 1 "sudo pacman -Syu --noconfirm"
+        assert_event_count_before 1 "pacman-conf --verbose RootDir DBPath" "sudo pacman -Syu --noconfirm"
+        assert_output_line_before "Version-lock preflight observation failed" "Running: sudo pacman"
+        assert_contains "The repository system upgrade and normal AUR update completed." "$output_file"
+    else
+        run_status 0 --dry-run -Syu
+        assert_no_mutation_events
+        assert_contains "System + normal AUR update plan:" "$output_file"
+    fi
+    assert_contains "Version-lock preflight observation failed; candidate absence is not established." "$output_file"
+    assert_not_contains "Possible repository/AUR cross-source version-lock candidate" "$output_file"
+    assert_event_prefix_absent '^(git|makepkg|aur) '
+    assert_event_pattern_count 0 '^sudo pacman -(R|U) '
+done
+
 setup_case system-aur-update-fresh-configuration-failure-reports-cause
 export MOGUET_TEST_PACKAGE_METADATA_PACMAN_CONF_EXIT_CODE=37
-export MOGUET_TEST_PACKAGE_METADATA_PACMAN_CONF_FAILURE_AT=1
+export MOGUET_TEST_PACKAGE_METADATA_PACMAN_CONF_FAILURE_AT=2
 export MOGUET_TEST_SUDO_MAIN_STATUS=0
 run_status 1 --noedit --nodiff --noconfirm -Syu
 repository_update='sudo pacman -Syu --noconfirm'
-assert_event_at 1 "$repository_update"
+assert_event_count_before 1 "pacman-conf --verbose RootDir DBPath" "$repository_update"
 assert_event_count 1 "$repository_update"
-assert_event_at 2 "pacman-conf --verbose RootDir DBPath"
+assert_event_count 2 "pacman-conf --verbose RootDir DBPath"
 assert_event_prefix_absent '^aur '
 assert_event_prefix_absent '^(git|makepkg) '
 assert_event_pattern_count 0 '^sudo pacman -(R|U) '
@@ -1010,7 +1036,7 @@ export MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG=$command_log
 export MOGUET_TEST_SUDO_MAIN_STATUS=0
 run_status 1 --noedit --nodiff --noconfirm -Syu
 repository_update='sudo pacman -Syu --noconfirm'
-assert_event_at 1 "$repository_update"
+assert_event_count_before 1 "pacman-conf --verbose RootDir DBPath" "$repository_update"
 assert_event_before "$repository_update" "aur info-many system-query-fatal"
 assert_event_prefix_absent '^(git|makepkg) '
 assert_event_pattern_count 0 '^sudo pacman -(R|U) '
@@ -1035,8 +1061,8 @@ export MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE=$foreign_inventory
 export MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG=$command_log
 export MOGUET_TEST_SUDO_MAIN_STATUS=0
 run_status 0 --noedit --nodiff --noconfirm -Syu
-assert_event_at 1 "sudo pacman -Syu --noconfirm"
-assert_event_before "sudo pacman -Syu --noconfirm" "pacman-conf --verbose RootDir DBPath"
+assert_event_count_before 1 "pacman-conf --verbose RootDir DBPath" "sudo pacman -Syu --noconfirm"
+assert_event_count 1 "sudo pacman -Syu --noconfirm"
 assert_event_prefix_absent '^aur '
 assert_event_prefix_absent '^(git|makepkg) '
 assert_contains "The repository system upgrade completed." "$output_file"
@@ -1058,9 +1084,9 @@ export MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG=$command_log
 export MOGUET_TEST_SUDO_MAIN_STATUS=0
 run_status 0 --noedit --nodiff --noconfirm -Syu --needed
 repository_update='sudo pacman -Syu --noconfirm --needed'
-assert_event_at 1 "$repository_update"
-assert_event_before "$repository_update" "pacman-conf --verbose RootDir DBPath"
-assert_event_before "pacman-conf --verbose RootDir DBPath" "aur info-many system-update-a"
+assert_event_count_before 1 "pacman-conf --verbose RootDir DBPath" "$repository_update"
+assert_event_before "$repository_update" "aur info-many system-update-a"
+assert_event_count_before 2 "pacman-conf --verbose RootDir DBPath" "aur info-many system-update-a"
 assert_event_before "aur info-many system-update-a" "git clone https://aur.archlinux.org/system-update-a.git system-update-a"
 assert_event_pattern '^sudo pacman -U --noconfirm -- .*/system-update-a-1\.0-1-x86_64\.pkg\.tar\.zst$'
 assert_event_pattern_count 0 '^sudo pacman -U --noconfirm --needed '
@@ -1087,7 +1113,7 @@ export MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE=$foreign_inventory
 export MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG=$command_log
 export MOGUET_TEST_SUDO_MAIN_STATUS=0
 run_status 0 --noedit --nodiff --noconfirm -Syu
-assert_event_at 1 "sudo pacman -Syu --noconfirm"
+assert_event_count_before 1 "pacman-conf --verbose RootDir DBPath" "sudo pacman -Syu --noconfirm"
 assert_event_before \
     "sudo pacman -Syu --noconfirm" \
     "aur info-many tree-sitter-cli-git wezterm-git xpadneo-dkms-git"
@@ -1118,8 +1144,8 @@ for scenario in attention-only mixed-update; do
     export MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG=$command_log
     export MOGUET_TEST_INSPECTION_SCENARIO=foreign-authoritative-requires-check
     run_status 0 --noedit --nodiff --noconfirm -Syu
-    assert_event_at 1 "sudo pacman -Syu --noconfirm"
-    assert_event_before "sudo pacman -Syu --noconfirm" "pacman-conf --verbose RootDir DBPath"
+    assert_event_count_before 1 "pacman-conf --verbose RootDir DBPath" "sudo pacman -Syu --noconfirm"
+    assert_event_count 1 "sudo pacman -Syu --noconfirm"
     assert_output_count 1 \
         "skipped: devel update requires check; local authority is unavailable or has changed"
     assert_contains "Warning: Requires check" "$output_file"
@@ -1178,7 +1204,7 @@ export MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE=$foreign_inventory
 export MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG=$command_log
 export MOGUET_TEST_SUDO_MAIN_STATUS=0
 run_status 1 --noedit --nodiff --noconfirm -Syu
-assert_event_at 1 "sudo pacman -Syu --noconfirm"
+assert_event_count_before 1 "pacman-conf --verbose RootDir DBPath" "sudo pacman -Syu --noconfirm"
 assert_event_prefix_absent '^(git|makepkg) '
 assert_event_pattern_count 0 '^sudo pacman -U '
 assert_contains "The repository system upgrade completed." "$output_file"
@@ -1197,7 +1223,7 @@ export MOGUET_TEST_SUDO_MAIN_STATUS=0
 export MOGUET_TEST_MAKEPKG_EXIT_CODE=42
 export MOGUET_TEST_MAKEPKG_PACKAGELIST_EXIT_CODE=0
 run_status 1 --noedit --nodiff --noconfirm -Syu
-assert_event_at 1 "sudo pacman -Syu --noconfirm"
+assert_event_count_before 1 "pacman-conf --verbose RootDir DBPath" "sudo pacman -Syu --noconfirm"
 assert_event "makepkg -sc --noconfirm"
 assert_event_pattern_count 0 '^sudo pacman -U '
 assert_contains "The repository system upgrade completed." "$output_file"
@@ -1221,7 +1247,7 @@ export MOGUET_TEST_PACMAN_U_SUCCESS_LOG=$install_success_log
 export MOGUET_TEST_REPLACE_WORKSPACE_AFTER_PACMAN_U=1
 export MOGUET_TEST_SUDO_MAIN_STATUS=0
 run_status 1 --noedit --nodiff --noconfirm -Syu
-assert_event_at 1 "sudo pacman -Syu --noconfirm"
+assert_event_count_before 1 "pacman-conf --verbose RootDir DBPath" "sudo pacman -Syu --noconfirm"
 assert_event_pattern_count 1 '^sudo pacman -U --noconfirm -- '
 assert_contains "updated, but cleanup failed" "$output_file"
 assert_contains "AUR update cleanup failed after a package transaction." "$output_file"

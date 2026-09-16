@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.7.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-16 11:11+0900\n"
+"POT-Creation-Date: 2026-09-16 13:58+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -1053,6 +1053,15 @@ msgstr ""
 #. "AUR".
 #, c++-format
 msgid "    observed {} replacement: evidence is ambiguous"
+msgstr ""
+
+msgid "Read-only version-lock preflight uses current local/sync databases without refreshing them; candidates may change during the repository update and are not selected transaction targets."
+msgstr ""
+
+msgid "Version-lock preflight observation failed; candidate absence is not established. This diagnostic does not change the repository transaction policy."
+msgstr ""
+
+msgid "Version-lock preflight observation is partial; candidate absence is not established. This diagnostic does not change the repository transaction policy."
 msgstr ""
 
 #, c++-format

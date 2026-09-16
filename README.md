@@ -194,7 +194,12 @@ detailed plan.
   sudo work in that phase, but earlier phases may already have completed.
 - Exact target-less `moguet -Syu` is also sequential: it completes the official
   repository system upgrade first, then obtains a fresh installed-foreign/AUR
-  inventory and performs the normal AUR update. A repository failure leaves
+  inventory and performs the normal AUR update. Before repository mutation,
+  a read-only preflight reports possible repo/AUR exact-version locks; the same
+  evidence is shown by `--dry-run -Syu`. It uses current local/sync databases
+  without refreshing them, so candidates can change during the update. Partial
+  or failed observation is reported separately and does not change transaction
+  policy or grant execution authority. A repository failure leaves
   the AUR phase unattempted. As with `upgrade-all`, a best-effort read-only
   scan may append possible repository/AUR exact-version-lock evidence after
   failure, including replacement compatibility or query limitations. This

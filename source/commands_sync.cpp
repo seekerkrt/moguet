@@ -1957,7 +1957,15 @@ int cmd_system_aur_update(
     const AppConfig& config) {
     SystemAurUpdateOperationResult result =
         execute_prepared_system_aur_update_operation(
-            std::move(prepared), config);
+            std::move(prepared), config,
+            [](const CrossSourceVersionLockCorrelationResult& correlation) noexcept {
+                try {
+                    const auto text = format_cross_source_version_lock_cli_presentation(correlation);
+                    if(text.has_value()) std::cout << *text << std::flush;
+                } catch(...) {
+                    // Supplemental presentation cannot replace pacman's outcome.
+                }
+            });
     const bool is_success = result.is_success();
     present_system_aur_update_operation_result(std::move(result));
     return is_success ? 0 : 1;
@@ -2041,6 +2049,13 @@ CrossSourceVersionLockCorrelationResult system_aur_version_lock_correlation_for_
 
 int run_system_aur_update_presentation_test(
     const std::string& test_case) {
+    if(test_case.starts_with("preflight-version-lock-")) {
+        auto correlation = system_aur_version_lock_correlation_for_test(test_case.substr(10));
+        correlation.basis = CrossSourceVersionLockObservationBasis::BeforeRepositoryMutation;
+        const auto text = format_cross_source_version_lock_cli_presentation(correlation);
+        if(text.has_value()) std::cout << *text;
+        return 0;
+    }
     if(test_case == "repository-exception" || test_case.starts_with("version-lock-")) {
         SystemAurUpdateOperationResult result;
         result.repository.status =

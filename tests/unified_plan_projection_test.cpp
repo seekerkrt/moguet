@@ -3494,6 +3494,21 @@ void test_system_aur_blockers_preserve_repository_child() {
 }
 
 void test_system_aur_projection_rejects_malformed_authority() {
+    auto preflight = system_aur_auto_observation(ready_filtered_aur_observation());
+    preflight.preflight_version_lock_correlation.emplace();
+    preflight.preflight_version_lock_correlation->basis = CrossSourceVersionLockObservationBasis::BeforeRepositoryMutation;
+    preflight.preflight_version_lock_correlation->observation.emplace();
+    preflight.preflight_version_lock_correlation->observation->status = CrossSourceVersionLockObservationStatus::Partial;
+    const auto projected = project_system_aur_update_unified_plan(preflight);
+    expect(projected->status() == SystemAurUpdateUnifiedPlanStatus::Ready &&
+               preflight.preflight_version_lock_correlation->observation->status == CrossSourceVersionLockObservationStatus::Partial,
+           "Supplemental partial preflight changed primary planning status or lost its status");
+    preflight.preflight_version_lock_correlation->basis = CrossSourceVersionLockObservationBasis::AfterRepositoryFailure;
+    expect_invalid_argument([&preflight] {
+        (void)project_system_aur_update_unified_plan(preflight);
+    },
+                            "dry-run accepted post-repository correlation");
+
     SystemAurUpdateDryRunObservation strict =
         system_aur_auto_observation(ready_filtered_aur_observation());
     strict.saved_source_preference_policy =
