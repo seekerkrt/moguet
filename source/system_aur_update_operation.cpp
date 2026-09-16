@@ -180,7 +180,10 @@ bool inventory_failure_tail_is_consistent(
 
 bool auto_dry_run_authority_is_complete(
     const SystemAurUpdateDryRunObservation& observation) noexcept {
-    return observation.aur_observation_basis ==
+    return (!observation.preflight_version_lock_correlation.has_value() ||
+            observation.preflight_version_lock_correlation->basis ==
+                CrossSourceVersionLockObservationBasis::BeforeRepositoryMutation) &&
+           observation.aur_observation_basis ==
                std::optional<SystemAurUpdateDryRunAurObservationBasis>{
                    SystemAurUpdateDryRunAurObservationBasis::
                        CurrentInstalledState} &&
@@ -216,7 +219,8 @@ bool repo_only_dry_run_has_no_aur_authority(
            !observation.devel_requires_check_policy.has_value() &&
            !observation.repository_configuration.has_value() &&
            observation.foreign_inventory.empty() &&
-           !observation.aur_observation.has_value();
+           !observation.aur_observation.has_value() &&
+           !observation.preflight_version_lock_correlation.has_value();
 }
 
 } // namespace
@@ -254,6 +258,10 @@ SystemAurUpdateDryRunObservation observe_system_aur_update_dry_run(
        SystemAurUpdateDryRunMode::RepoOnly) {
         return observation;
     }
+
+    observation.preflight_version_lock_correlation =
+        observe_cross_source_version_lock_correlation(
+            CrossSourceVersionLockObservationBasis::BeforeRepositoryMutation);
 
     observation.aur_observation_basis =
         SystemAurUpdateDryRunAurObservationBasis::CurrentInstalledState;
@@ -628,7 +636,8 @@ SystemAurUpdateOperationResult reduce_system_aur_update_result(
 SystemAurUpdateOperationResult
 execute_prepared_system_aur_update_operation(
     PreparedSystemAurUpdateOperation prepared,
-    const AppConfig& config) {
+    const AppConfig& config,
+    SystemAurUpdatePreflightReporter report_preflight) {
     SystemAurUpdateOperationResult result;
     if(!prepared.valid_) {
         mark_all_not_attempted_for_inconsistency(result);
@@ -638,6 +647,15 @@ execute_prepared_system_aur_update_operation(
     result.repository.ordered_pacman_args =
         prepared.request_.ordered_pacman_args();
     result.repository.compatible_request = prepared.request_;
+
+    // Diagnostic-only: pacman still owns transaction validation. Failure of
+    // this optional scan cannot authorize, block, or replace that transaction.
+    result.preflight_version_lock_correlation =
+        observe_cross_source_version_lock_correlation(
+            CrossSourceVersionLockObservationBasis::BeforeRepositoryMutation);
+    if(report_preflight != nullptr) {
+        report_preflight(*result.preflight_version_lock_correlation);
+    }
 
     try {
         result.repository.command_exit_status =

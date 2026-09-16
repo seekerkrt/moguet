@@ -1034,6 +1034,44 @@ for correlation_case in compatible incompatible missing unknown query-failure am
     esac
 done
 
+# Preflight uses the same formatter but never claims an already failed transaction.
+for correlation_case in compatible incompatible missing unknown query-failure ambiguous partial-compatible complete-zero partial-zero failed-zero correlation-failure invalid-index; do
+    setup_case "syu-preflight-version-lock-$correlation_case" no-installed-foreign
+    export MOGUET_TEST_SYSTEM_AUR_PRESENTATION_CASE="preflight-version-lock-$correlation_case"
+    run_status 0 -Syu
+    assert_not_contains "this correlation does not identify the cause" "$stdout_file"
+    assert_not_contains "The repository system upgrade failed." "$stderr_file"
+    assert_pipeline_absent
+    assert_no_external_mutation
+    assert_cache_absent
+    case "$correlation_case" in
+        complete-zero|invalid-index)
+            assert_not_contains "Read-only version-lock preflight" "$stdout_file" ;;
+        *)
+            assert_contains "Read-only version-lock preflight uses current local/sync databases without refreshing them" "$stdout_file" ;;
+    esac
+    case "$correlation_case" in
+        complete-zero|partial-zero|failed-zero|correlation-failure|invalid-index)
+            assert_not_contains "Possible repository/AUR cross-source version-lock candidate" "$stdout_file" ;;
+        *)
+            assert_exact_line "Possible repository/AUR cross-source version-lock candidate: 1" "$stdout_file"
+            assert_exact_line "    observed repository candidate: virtualbox 7.2.18-1 (repository: extra)" "$stdout_file"
+            assert_exact_line "    installed requirement: virtualbox=7.2.16" "$stdout_file" ;;
+    esac
+    case "$correlation_case" in
+        compatible|partial-compatible)
+            assert_exact_line "    replacement requirement: virtualbox=7.2.18" "$stdout_file" ;;
+        missing) assert_contains "a matching candidate was not found" "$stdout_file" ;;
+        query-failure)
+            assert_contains "metadata could not be queried" "$stdout_file"
+            assert_not_contains "a matching candidate was not found" "$stdout_file" ;;
+        incompatible) assert_contains "the direct runtime requirement does not match" "$stdout_file" ;;
+        ambiguous) assert_contains "evidence is ambiguous" "$stdout_file" ;;
+        partial-zero) assert_contains "preflight observation is partial; candidate absence is not established" "$stdout_file" ;;
+        failed-zero|correlation-failure) assert_contains "preflight observation failed; candidate absence is not established" "$stdout_file" ;;
+    esac
+done
+
 # Actual dispatcher/coordinator failure without a candidate remains generic.
 setup_case syu-unrelated-repository-failure no-installed-foreign
 export MOGUET_TEST_PACMAN_CONF_REPOSITORY_LIST=core
@@ -1050,7 +1088,7 @@ assert_not_contains "git " "$command_log"
 assert_not_contains "sudo pacman -U" "$command_log"
 assert_cache_absent
 
-if [ "$case_count" -ne 84 ]; then
+if [ "$case_count" -ne 96 ]; then
     fail_case "internal test case count changed: $case_count"
 fi
 echo "AUR update command integration tests passed ($case_count cases)."

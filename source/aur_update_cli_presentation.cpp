@@ -920,8 +920,21 @@ bool append_cross_source_version_lock_replacement(
 std::optional<std::string>
 format_cross_source_version_lock_cli_presentation(
     const CrossSourceVersionLockCorrelationResult& correlation) noexcept try {
+    const bool is_preflight = correlation.basis ==
+                              CrossSourceVersionLockObservationBasis::BeforeRepositoryMutation;
+    const std::string preflight_basis = is_preflight
+                                            ? localization::translate_message(
+                                                  "Read-only version-lock preflight uses current local/sync databases without refreshing them; candidates may change during the repository update and are not selected transaction targets.")
+                                            : std::string{};
     if(correlation.failure.has_value() || !correlation.observation.has_value() ||
-       correlation.possible_blocker_assessment_indices.empty()) {
+       correlation.observation->status == CrossSourceVersionLockObservationStatus::Failed) {
+        if(!is_preflight) return std::nullopt;
+        return "\n" + preflight_basis + "\n" + localization::translate_message("Version-lock preflight observation failed; candidate absence is not established. This diagnostic does not change the repository transaction policy.") + "\n";
+    }
+    if(correlation.possible_blocker_assessment_indices.empty()) {
+        if(is_preflight && correlation.observation->status == CrossSourceVersionLockObservationStatus::Partial) {
+            return "\n" + preflight_basis + "\n" + localization::translate_message("Version-lock preflight observation is partial; candidate absence is not established. This diagnostic does not change the repository transaction policy.") + "\n";
+        }
         return std::nullopt;
     }
 
@@ -939,6 +952,7 @@ format_cross_source_version_lock_cli_presentation(
     const unsigned long plural_count =
         static_cast<unsigned long>(candidate_count);
     std::string output = "\n";
+    if(is_preflight) append_cross_source_version_lock_line(output, preflight_basis);
     // TRANSLATORS: The first placeholder is the service name "AUR"; the
     // second is the number of possible metadata correlations shown below.
     append_cross_source_version_lock_line(
@@ -1033,10 +1047,12 @@ format_cross_source_version_lock_cli_presentation(
     }
 
     append_cross_source_version_lock_line(output, "");
-    append_cross_source_version_lock_line(
-        output,
-        localization::translate_message(
-            "The observed repository candidate is metadata evidence only; this correlation does not identify the cause of the system update failure."));
+    if(!is_preflight) {
+        append_cross_source_version_lock_line(
+            output,
+            localization::translate_message(
+                "The observed repository candidate is metadata evidence only; this correlation does not identify the cause of the system update failure."));
+    }
     append_cross_source_version_lock_line(
         output,
         localization::format_translated_message(

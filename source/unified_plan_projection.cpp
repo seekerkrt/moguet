@@ -3885,7 +3885,8 @@ project_system_aur_update_unified_plan(
            combined.devel_requires_check_policy.has_value() ||
            combined.repository_configuration.has_value() ||
            !combined.foreign_inventory.empty() ||
-           combined.aur_observation.has_value()) {
+           combined.aur_observation.has_value() ||
+           combined.preflight_version_lock_correlation.has_value()) {
             reject_inconsistent_input(
                 "Repo-only system update observation retained AUR authority.");
         }
@@ -3938,6 +3939,12 @@ project_system_aur_update_unified_plan(
              combined.devel_requires_check_policy))) {
         reject_inconsistent_input(
             "System/AUR dry-run observation has invalid freshness or source policy.");
+    }
+
+    if(combined.preflight_version_lock_correlation.has_value() &&
+       combined.preflight_version_lock_correlation->basis !=
+           CrossSourceVersionLockObservationBasis::BeforeRepositoryMutation) {
+        reject_inconsistent_input("System/AUR dry-run retained post-repository version-lock evidence.");
     }
 
     UnifiedPlanObservationInput aur_observation;

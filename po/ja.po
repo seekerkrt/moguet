@@ -4410,6 +4410,15 @@ msgstr "    観測した{}置換候補: メタデータを問い合わせでき�
 msgid "    observed {} replacement: evidence is ambiguous"
 msgstr "    観測した{}置換候補: 根拠が曖昧です"
 
+msgid "Read-only version-lock preflight uses current local/sync databases without refreshing them; candidates may change during the repository update and are not selected transaction targets."
+msgstr "version-lockのread-only事前観測は、refreshせず現在のlocal / sync databaseを使用します。candidateはrepository更新中に変わる可能性があり、選択済みtransaction targetではありません。"
+
+msgid "Version-lock preflight observation failed; candidate absence is not established. This diagnostic does not change the repository transaction policy."
+msgstr "version-lockの事前観測に失敗しました。candidateが存在しないとは判断できません。この診断はrepository transactionの実行方針を変更しません。"
+
+msgid "Version-lock preflight observation is partial; candidate absence is not established. This diagnostic does not change the repository transaction policy."
+msgstr "version-lockの事前観測は一部のみ完了しました。candidateが存在しないとは判断できません。この診断はrepository transactionの実行方針を変更しません。"
+
 #, c++-format
 msgid "Possible repository/{} cross-source version-lock candidate: {}"
 msgid_plural "Possible repository/{} cross-source version-lock candidates: {}"

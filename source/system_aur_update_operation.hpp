@@ -160,6 +160,9 @@ struct SystemAurUpdateDryRunObservation {
     ForeignPackageInventory foreign_inventory;
     std::optional<FilteredAurUpdateObservation> aur_observation;
     std::vector<SystemAurUpdateDryRunIssue> issues;
+    // Supplemental read-only evidence, never an execution capability.
+    std::optional<CrossSourceVersionLockCorrelationResult>
+        preflight_version_lock_correlation;
 
     bool is_ready() const noexcept;
     bool is_blocked() const noexcept;
@@ -314,6 +317,10 @@ struct SystemAurUpdateOperationResult {
     SystemAurUpdateForeignInventoryPhaseResult foreign_inventory;
     SystemAurUpdateQueryPhaseResult query;
     SystemAurUpdateAurPhaseResult aur;
+    // Pre-mutation evidence is kept separate from the fresh failure scan.
+    // Neither participates in primary reduction or AUR execution authority.
+    std::optional<CrossSourceVersionLockCorrelationResult>
+        preflight_version_lock_correlation;
     // Secondary read-only evidence; never participates in primary reduction.
     std::optional<CrossSourceVersionLockCorrelationResult>
         cross_source_version_lock_correlation;
@@ -326,6 +333,10 @@ struct SystemAurUpdateOperationResult {
     bool has_query_failure() const noexcept;
     bool has_inconsistency() const noexcept;
 };
+
+// The CLI reports supplemental evidence before the repository command starts.
+using SystemAurUpdatePreflightReporter =
+    void (*)(const CrossSourceVersionLockCorrelationResult&) noexcept;
 
 class PreparedSystemAurUpdateOperation final {
     explicit PreparedSystemAurUpdateOperation(
@@ -342,7 +353,8 @@ class PreparedSystemAurUpdateOperation final {
     friend SystemAurUpdateOperationResult
     execute_prepared_system_aur_update_operation(
         PreparedSystemAurUpdateOperation prepared,
-        const AppConfig& config);
+        const AppConfig& config,
+        SystemAurUpdatePreflightReporter report_preflight);
 
 public:
     PreparedSystemAurUpdateOperation(
@@ -377,4 +389,5 @@ SystemAurUpdateOperationResult reduce_system_aur_update_result(
 SystemAurUpdateOperationResult
 execute_prepared_system_aur_update_operation(
     PreparedSystemAurUpdateOperation prepared,
-    const AppConfig& config);
+    const AppConfig& config,
+    SystemAurUpdatePreflightReporter report_preflight = nullptr);

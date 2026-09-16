@@ -540,10 +540,12 @@ void record_cross_source_version_lock_correlation_failure(
 } // namespace
 
 CrossSourceVersionLockCorrelationResult
-observe_cross_source_version_lock_correlation() noexcept {
+observe_cross_source_version_lock_correlation(
+    CrossSourceVersionLockObservationBasis basis) noexcept {
     static_assert(std::is_nothrow_default_constructible_v<
                   CrossSourceVersionLockCorrelationResult>);
     CrossSourceVersionLockCorrelationResult correlation;
+    correlation.basis = basis;
 
     try {
         correlation.observation.emplace(

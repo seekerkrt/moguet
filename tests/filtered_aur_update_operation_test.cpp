@@ -71,6 +71,7 @@ struct State {
     StrictRepositoryPackageQueryResult repository_candidate;
     std::vector<std::string> observation_calls;
     int observation_exception = 0;
+    bool preflight_reported_before_mutation = false;
 };
 
 State g_state;
@@ -747,8 +748,8 @@ void expect_no_system_aur_later_authority(
 }
 
 void require_no_pre_repository_authority() {
-    if(query_stub::repository_configuration_calls() != 0 ||
-       query_stub::inventory_calls() != 0 ||
+    if(query_stub::repository_configuration_calls() != 1 ||
+       query_stub::inventory_calls() != 1 ||
        !query_stub::info_many_call_history().empty() ||
        preflight_stub::resolver_call_count() != 0 ||
        !preparation_stub::strict_preference_read_history().empty() ||
@@ -958,8 +959,8 @@ void test_system_aur_dry_run_auto_observes_current_update_without_capability() {
                     .aur_package->package_base == root.package_base,
         "Auto dry-run lost current installed or exact AUR identity");
     expect(
-        query_stub::repository_configuration_calls() == 1 &&
-            query_stub::inventory_calls() == 1 &&
+        query_stub::repository_configuration_calls() == 2 &&
+            query_stub::inventory_calls() == 2 &&
             query_stub::info_many_call_history() ==
                 std::vector<std::vector<std::string>>{
                     {root.package_name}} &&
@@ -1080,8 +1081,8 @@ void test_system_aur_dry_run_auto_current_no_updates_is_not_blocked() {
                 AurUpdateClassification::UpToDate,
         "Current AUR no-updates state was flattened to a blocker or update intent");
     expect(
-        query_stub::repository_configuration_calls() == 1 &&
-            query_stub::inventory_calls() == 1 &&
+        query_stub::repository_configuration_calls() == 2 &&
+            query_stub::inventory_calls() == 2 &&
             query_stub::info_many_call_history() ==
                 std::vector<std::vector<std::string>>{
                     {root.package_name}} &&
@@ -1495,8 +1496,8 @@ void test_system_aur_dry_run_world_is_not_reused_by_actual_world() {
                     .request.checkout_name == dry_root.package_base,
         "Dry world A did not retain its own current-state observation");
     expect(
-        query_stub::repository_configuration_calls() == 1 &&
-            query_stub::inventory_calls() == 1 &&
+        query_stub::repository_configuration_calls() == 2 &&
+            query_stub::inventory_calls() == 2 &&
             query_stub::info_many_call_history() ==
                 std::vector<std::vector<std::string>>{
                     {dry_root.package_name}} &&
@@ -1567,8 +1568,8 @@ void test_system_aur_dry_run_world_is_not_reused_by_actual_world() {
             {"-Syu", "--needed"});
     expect(
         repository_stub::ordered_argument_calls().empty() &&
-            query_stub::repository_configuration_calls() == 1 &&
-            query_stub::inventory_calls() == 1 &&
+            query_stub::repository_configuration_calls() == 2 &&
+            query_stub::inventory_calls() == 2 &&
             query_stub::info_many_call_history() ==
                 std::vector<std::vector<std::string>>{
                     {dry_root.package_name}} &&
@@ -1615,15 +1616,15 @@ void test_system_aur_dry_run_world_is_not_reused_by_actual_world() {
                 std::vector<ProvidedDependency>{dry_provider},
         "Actual invocation reused dry-run inventory or AUR query evidence");
     expect(
-        query_stub::repository_configuration_calls() == 2 &&
-            query_stub::inventory_calls() == 2 &&
-            query_stub::inventory_configuration_history().size() == 2 &&
+        query_stub::repository_configuration_calls() == 4 &&
+            query_stub::inventory_calls() == 4 &&
+            query_stub::inventory_configuration_history().size() == 4 &&
             query_stub::inventory_configuration_history()
                     .at(0)
                     .repository_names ==
                 std::vector<std::string>{"world-a-repository"} &&
             query_stub::inventory_configuration_history()
-                    .at(1)
+                    .at(3)
                     .repository_names ==
                 std::vector<std::string>{"world-b-repository"} &&
             query_stub::info_many_call_history() ==
@@ -1747,8 +1748,8 @@ void test_system_aur_repository_failure_stops_all_later_authority() {
                result.cross_source_version_lock_correlation->observation->status ==
                    CrossSourceVersionLockObservationStatus::Complete &&
                result.cross_source_version_lock_correlation->assessments.empty() &&
-               query_stub::repository_configuration_calls() == 1 &&
-               query_stub::inventory_calls() == 1,
+               query_stub::repository_configuration_calls() == 2 &&
+               query_stub::inventory_calls() == 2,
            "Unrelated failure did not retain a complete empty secondary observation");
     // The read-only diagnostic scan is separate from the unattempted AUR phase.
     query_stub::reset();
@@ -1772,136 +1773,187 @@ void test_system_aur_repository_failure_stops_all_later_authority() {
 // Use the same installed/sync/AUR transport boundaries as #460, with the
 // production ordinary coordinator, observer, collector, assessor and reducer.
 void test_system_aur_repository_failure_version_lock() {
-    for(const std::string scenario : {"compatible", "incompatible", "missing", "query-failure",
-                                      "ambiguous", "repository-failure", "partial", "failed",
-                                      "allocation", "exception", "unknown-exception",
-                                      "command-exception", "command-unknown-exception"}) {
-        reset_stubs();
-        auto& state = repository_stub::g_state;
-        const PackageRelationInstalledDatabaseIdentity identity{
-            "/filtered-operation-stub/root", "/filtered-operation-stub/database"};
-        const auto installed = [&](const std::string& name) {
-            return PackageRelationObservedPackage{
-                name, std::nullopt, ObservedVersion::available(ObservedVersionSource::InstalledExactPackage, "7.2.16-1"), {}, identity, PackageRelationObservationRole::Installed, {}};
-        };
-        query_stub::set_foreign_inventory({{"virtualbox-ext-oracle", "7.2.16-1", InstalledPackageReason::Explicit}});
-        state.relations = InstalledPackageRelationInventory{
-            identity, {installed("virtualbox"), installed("virtualbox-ext-oracle")}};
-        state.dependencies = InstalledPackageRuntimeDependencyMetadataInventory{
-            {"virtualbox-ext-oracle", {"virtualbox=7.2.16"}}};
-        state.repository_candidate = RepositoryPackagePresent{
-            "extra", 0, "virtualbox", "virtualbox", ObservedVersion::available(ObservedVersionSource::RepositoryExactPackage, "7.2.18-1"), std::vector<std::string>{"extra"}, {}};
-        const PackageMetadataFailure failure{PackageMetadataErrorCode::QueryFailed, "fixture observation failure"};
-        if(scenario == "repository-failure") {
-            state.repository_candidate = RepositoryMetadataFailure{RepositoryMetadataFailureKind::SyncDatabaseUnavailable, "extra", failure.diagnostic};
-        } else if(scenario == "partial" || scenario == "failed") {
-            state.dependencies = InstalledPackageRuntimeDependencyMetadataInventoryFailure{
-                scenario == "partial"
-                    ? std::get<InstalledPackageRuntimeDependencyMetadataInventory>(state.dependencies)
-                    : InstalledPackageRuntimeDependencyMetadataInventory{},
-                std::nullopt, failure};
-        } else if(scenario == "allocation") {
-            state.observation_exception = 1;
-        } else if(scenario == "exception") {
-            state.observation_exception = 2;
-        } else if(scenario == "unknown-exception") {
-            state.observation_exception = 3;
-        }
-        const bool expects_candidate = scenario != "repository-failure" && scenario != "failed" &&
-                                       state.observation_exception == 0;
-        if(expects_candidate) {
-            if(scenario == "missing") {
-                query_stub::enqueue_info_strict_result(std::nullopt);
-            } else if(scenario == "query-failure") {
-                query_stub::enqueue_info_strict_failure("fixture AUR timeout");
-            } else {
-                const auto parsed = parse_dependency_requirement(
-                    scenario == "incompatible" ? "virtualbox=7.2.16" : "virtualbox=7.2.18");
-                expect(parsed.requirement() != nullptr, "fixture requirement parse failed");
-                AurPackageInfo replacement;
-                replacement.Name = replacement.PackageBase = "virtualbox-ext-oracle";
-                replacement.Version = "7.2.18-1";
-                replacement.constraint_metadata = AurPackageConstraintMetadata{
-                    replacement.Name, replacement.PackageBase, ObservedVersion::available(ObservedVersionSource::AurExactPackage, replacement.Version), {*parsed.requirement()}, {}, {}, {}, {}};
-                if(scenario == "ambiguous") {
-                    replacement.constraint_metadata->depends.push_back(*parsed.requirement());
-                }
-                query_stub::enqueue_info_strict_result(replacement);
+    for(const bool is_dry_run : {false, true}) {
+        for(const std::string scenario : {"compatible", "incompatible", "missing", "query-failure",
+                                          "ambiguous", "repository-failure", "partial", "failed",
+                                          "allocation", "exception", "unknown-exception",
+                                          "command-exception", "command-unknown-exception", "unrelated", "repository-success"}) {
+            reset_stubs();
+            auto& state = repository_stub::g_state;
+            const PackageRelationInstalledDatabaseIdentity identity{
+                "/filtered-operation-stub/root", "/filtered-operation-stub/database"};
+            const auto installed = [&](const std::string& name) {
+                return PackageRelationObservedPackage{
+                    name, std::nullopt, ObservedVersion::available(ObservedVersionSource::InstalledExactPackage, "7.2.16-1"), {}, identity, PackageRelationObservationRole::Installed, {}};
+            };
+            query_stub::set_foreign_inventory({{"virtualbox-ext-oracle", "7.2.16-1", InstalledPackageReason::Explicit}});
+            state.relations = InstalledPackageRelationInventory{
+                identity, {installed("virtualbox"), installed("virtualbox-ext-oracle")}};
+            state.dependencies = InstalledPackageRuntimeDependencyMetadataInventory{
+                {"virtualbox-ext-oracle", {"virtualbox=7.2.16"}}};
+            state.repository_candidate = RepositoryPackagePresent{
+                "extra", 0, "virtualbox", "virtualbox", ObservedVersion::available(ObservedVersionSource::RepositoryExactPackage, "7.2.18-1"), std::vector<std::string>{"extra"}, {}};
+            const PackageMetadataFailure failure{PackageMetadataErrorCode::QueryFailed, "fixture observation failure"};
+            if(scenario == "repository-failure") {
+                state.repository_candidate = RepositoryMetadataFailure{RepositoryMetadataFailureKind::SyncDatabaseUnavailable, "extra", failure.diagnostic};
+            } else if(scenario == "partial" || scenario == "failed") {
+                state.dependencies = InstalledPackageRuntimeDependencyMetadataInventoryFailure{
+                    scenario == "partial"
+                        ? std::get<InstalledPackageRuntimeDependencyMetadataInventory>(state.dependencies)
+                        : InstalledPackageRuntimeDependencyMetadataInventory{},
+                    std::nullopt, failure};
+            } else if(scenario == "allocation") {
+                state.observation_exception = 1;
+            } else if(scenario == "exception") {
+                state.observation_exception = 2;
+            } else if(scenario == "unknown-exception") {
+                state.observation_exception = 3;
             }
-        }
-        state.command_exit_status = 37;
-        state.on_command = [&] {
-            require_no_pre_repository_authority();
-            expect(state.observation_calls.empty(), "Secondary scan ran before repository execution");
-            if(scenario == "command-exception") throw std::runtime_error("fixture repository failure");
-            if(scenario == "command-unknown-exception") throw 42;
-        };
-        auto result = execute_prepared_system_aur_update_operation(prepare_system_aur_update_fixture(), AppConfig{});
-        expect(result.status == SystemAurUpdateOperationStatus::StoppedOnRepositoryFailure &&
-                   result.repository.status == SystemAurUpdateRepositoryPhaseStatus::Failed &&
-                   result.foreign_inventory.status == SystemAurUpdateForeignInventoryPhaseStatus::NotAttempted &&
-                   result.query.status == SystemAurUpdateQueryPhaseStatus::NotAttempted &&
-                   result.aur.status == SystemAurUpdateAurPhaseStatus::NotAttempted &&
-                   result.aur.not_attempted_reason == SystemAurUpdateNotAttemptedReason::RepositoryFailure &&
-                   !result.is_success() && !result.has_inconsistency(),
-               scenario + ": secondary evidence changed primary failure");
-        expect(result.cross_source_version_lock_correlation.has_value(), scenario + ": correlation missing");
-        const auto& correlation = *result.cross_source_version_lock_correlation;
-        if(state.observation_exception != 0) {
-            const auto expected = state.observation_exception == 1
-                                      ? CrossSourceVersionLockCorrelationFailureKind::ResourceExhaustion
-                                  : state.observation_exception == 2 ? CrossSourceVersionLockCorrelationFailureKind::UnexpectedException
-                                                                     : CrossSourceVersionLockCorrelationFailureKind::UnknownException;
-            expect(correlation.failure.has_value() && correlation.failure->kind == expected &&
-                       !correlation.observation.has_value() && correlation.assessments.empty(),
-                   scenario + ": observation exception was not retained");
-        } else {
-            const auto expected_observation = scenario == "failed" ? CrossSourceVersionLockObservationStatus::Failed
-                                              : (scenario == "partial" || scenario == "query-failure" || scenario == "repository-failure")
-                                                  ? CrossSourceVersionLockObservationStatus::Partial
-                                                  : CrossSourceVersionLockObservationStatus::Complete;
-            expect(correlation.observation.has_value() && correlation.observation->status == expected_observation &&
-                       !correlation.failure.has_value(),
-                   scenario + ": observation status differs");
-            expect(correlation.observation->issues.empty() == (expected_observation == CrossSourceVersionLockObservationStatus::Complete),
-                   scenario + ": observation issue was lost");
-            if(expects_candidate) {
-                const auto expected_assessment = scenario == "missing"         ? CrossSourceVersionLockStatus::MissingReplacement
-                                                 : scenario == "query-failure" ? CrossSourceVersionLockStatus::QueryFailure
-                                                 : scenario == "incompatible"  ? CrossSourceVersionLockStatus::IncompatibleReplacement
-                                                 : scenario == "ambiguous"     ? CrossSourceVersionLockStatus::Ambiguous
-                                                                               : CrossSourceVersionLockStatus::CompatibleReplacement;
-                expect(correlation.assessments.size() == 1 && correlation.possible_blocker_assessment_indices == std::vector<std::size_t>{0},
-                       scenario + ": possible blocker correlation differs");
-                const auto& assessment = correlation.assessments.front();
-                expect(assessment.status == expected_assessment &&
-                           assessment.evidence.repository_upgrade.repository_candidate.package_name == "virtualbox" &&
-                           *assessment.evidence.repository_upgrade.repository_candidate.package_version->version() == "7.2.18-1" &&
-                           assessment.evidence.installed_consumer.package.package_name == "virtualbox-ext-oracle" &&
-                           *assessment.evidence.installed_consumer.package.package_version.version() == "7.2.16-1" &&
-                           assessment.evidence.installed_consumer.requirement.raw_specification() == "virtualbox=7.2.16" &&
-                           assessment.installed_requirement_against_installed_version->satisfaction() == ConstraintSatisfaction::Satisfied &&
-                           assessment.installed_requirement_against_repository_candidate->satisfaction() == ConstraintSatisfaction::Unsatisfied,
-                       scenario + ": identity/version/constraint/assessment lost");
-                if(expected_assessment == CrossSourceVersionLockStatus::CompatibleReplacement) {
-                    const auto& replacement = std::get<AurReplacementCandidateQuerySuccess>(assessment.evidence.aur_replacement).candidates.front();
-                    expect(replacement.package_name == "virtualbox-ext-oracle" && *replacement.package_version.version() == "7.2.18-1" &&
-                               assessment.replacement_requirement->raw_specification() == "virtualbox=7.2.18" &&
-                               assessment.replacement_requirement_against_repository_candidate->satisfaction() == ConstraintSatisfaction::Satisfied,
-                           scenario + ": replacement identity/version/constraint lost");
-                }
-            } else {
-                expect(correlation.assessments.empty() && correlation.possible_blocker_assessment_indices.empty(),
-                       scenario + ": incomplete observation became a blocker");
+            if(scenario == "unrelated") {
+                state.repository_candidate = RepositoryPackagePresent{
+                    "extra", 0, "virtualbox", "virtualbox", ObservedVersion::available(ObservedVersionSource::RepositoryExactPackage, "7.2.16-1"), std::vector<std::string>{"extra"}, {}};
             }
+            const bool expects_candidate = scenario != "repository-failure" && scenario != "failed" &&
+                                           state.observation_exception == 0;
+            for(int scan = 0; scan < (is_dry_run || scenario == "repository-success" ? 1 : 2); ++scan) {
+                if(expects_candidate) {
+                    if(scenario == "missing") {
+                        query_stub::enqueue_info_strict_result(std::nullopt);
+                    } else if(scenario == "query-failure") {
+                        query_stub::enqueue_info_strict_failure("fixture AUR timeout");
+                    } else {
+                        const auto parsed = parse_dependency_requirement(
+                            scenario == "incompatible" ? "virtualbox=7.2.16" : "virtualbox=7.2.18");
+                        expect(parsed.requirement() != nullptr, "fixture requirement parse failed");
+                        AurPackageInfo replacement;
+                        replacement.Name = replacement.PackageBase = "virtualbox-ext-oracle";
+                        replacement.Version = "7.2.18-1";
+                        replacement.constraint_metadata = AurPackageConstraintMetadata{
+                            replacement.Name, replacement.PackageBase, ObservedVersion::available(ObservedVersionSource::AurExactPackage, replacement.Version), {*parsed.requirement()}, {}, {}, {}, {}};
+                        if(scenario == "ambiguous") {
+                            replacement.constraint_metadata->depends.push_back(*parsed.requirement());
+                        }
+                        query_stub::enqueue_info_strict_result(replacement);
+                    }
+                }
+            }
+            state.command_exit_status = scenario == "repository-success" ? 0 : 37;
+            if(scenario == "repository-success") state.after_success = [] { query_stub::set_foreign_inventory({}); };
+            state.on_command = [&] {
+                require_no_pre_repository_authority();
+                expect(state.preflight_reported_before_mutation, "Preflight was not reported before repository execution");
+                if(scenario == "command-exception") throw std::runtime_error("fixture repository failure");
+                if(scenario == "command-unknown-exception") throw 42;
+            };
+            std::optional<CrossSourceVersionLockCorrelationResult> retained;
+            if(is_dry_run) {
+                query_stub::enqueue_info_many_result({{"virtualbox-ext-oracle", package_info("virtualbox-ext-oracle", "virtualbox-ext-oracle", "7.2.16-1")}});
+                query_stub::enqueue_vercmp_result("0");
+                auto dry = observe_system_aur_update_dry_run(make_auto_system_aur_dry_run_request(), AppConfig{});
+                retained = std::move(dry.preflight_version_lock_correlation);
+                expect_no_system_aur_dry_run_mutation(scenario);
+            } else {
+                auto result = execute_prepared_system_aur_update_operation(
+                    prepare_system_aur_update_fixture(), AppConfig{},
+                    [](const CrossSourceVersionLockCorrelationResult& preflight) noexcept {
+                        repository_stub::g_state.preflight_reported_before_mutation =
+                            repository_stub::ordered_argument_calls().empty() &&
+                            execution_stub::call_history().empty() &&
+                            execution_stub::event_history().empty() &&
+                            execution_stub::invocation_event_history().empty() &&
+                            preparation_stub::reviewed_state_preflight_call_count() == 0 &&
+                            preflight.basis == CrossSourceVersionLockObservationBasis::BeforeRepositoryMutation;
+                    });
+                retained = result.preflight_version_lock_correlation;
+                if(scenario == "repository-success") {
+                    expect(result.is_success() && !result.cross_source_version_lock_correlation.has_value() &&
+                               result.foreign_inventory.inventory.empty() && result.aur.status == SystemAurUpdateAurPhaseStatus::NoUpdates,
+                           "Possible preflight lock changed repository success or selected an AUR target");
+                } else {
+                    expect(result.cross_source_version_lock_correlation.has_value() &&
+                               result.cross_source_version_lock_correlation->basis == CrossSourceVersionLockObservationBasis::AfterRepositoryFailure &&
+                               result.cross_source_version_lock_correlation->possible_blocker_assessment_indices == retained->possible_blocker_assessment_indices,
+                           scenario + ": post-failure scan was lost or reused preflight authority");
+                    expect(result.status == SystemAurUpdateOperationStatus::StoppedOnRepositoryFailure &&
+                               result.repository.status == SystemAurUpdateRepositoryPhaseStatus::Failed &&
+                               result.foreign_inventory.status == SystemAurUpdateForeignInventoryPhaseStatus::NotAttempted &&
+                               result.query.status == SystemAurUpdateQueryPhaseStatus::NotAttempted &&
+                               result.aur.status == SystemAurUpdateAurPhaseStatus::NotAttempted &&
+                               result.aur.not_attempted_reason == SystemAurUpdateNotAttemptedReason::RepositoryFailure &&
+                               !result.is_success() && !result.has_inconsistency(),
+                           scenario + ": secondary evidence changed primary failure");
+                    const auto& post_failure = *result.cross_source_version_lock_correlation;
+                    expect(post_failure.observation.has_value() == retained->observation.has_value() &&
+                               post_failure.failure.has_value() == retained->failure.has_value() &&
+                               post_failure.assessments.size() == retained->assessments.size(),
+                           "Independent post-failure evidence differs from fixture");
+                    if(post_failure.observation.has_value()) expect(post_failure.observation->status == retained->observation->status, "Post-failure observation status lost");
+                    if(post_failure.failure.has_value()) expect(post_failure.failure->kind == retained->failure->kind, "Post-failure exception classification lost");
+                    for(std::size_t i = 0; i < post_failure.assessments.size(); ++i)
+                        expect(post_failure.assessments[i].status == retained->assessments[i].status, "Post-failure assessment classification lost");
+                }
+            }
+            expect(retained.has_value() && retained->basis == CrossSourceVersionLockObservationBasis::BeforeRepositoryMutation,
+                   scenario + ": preflight correlation missing or promoted to post-repository authority");
+            const auto& correlation = *retained;
+            if(state.observation_exception != 0) {
+                const auto expected = state.observation_exception == 1
+                                          ? CrossSourceVersionLockCorrelationFailureKind::ResourceExhaustion
+                                      : state.observation_exception == 2 ? CrossSourceVersionLockCorrelationFailureKind::UnexpectedException
+                                                                         : CrossSourceVersionLockCorrelationFailureKind::UnknownException;
+                expect(correlation.failure.has_value() && correlation.failure->kind == expected &&
+                           !correlation.observation.has_value() && correlation.assessments.empty(),
+                       scenario + ": observation exception was not retained");
+            } else {
+                const auto expected_observation = scenario == "failed" ? CrossSourceVersionLockObservationStatus::Failed
+                                                  : (scenario == "partial" || scenario == "query-failure" || scenario == "repository-failure")
+                                                      ? CrossSourceVersionLockObservationStatus::Partial
+                                                      : CrossSourceVersionLockObservationStatus::Complete;
+                expect(correlation.observation.has_value() && correlation.observation->status == expected_observation &&
+                           !correlation.failure.has_value(),
+                       scenario + ": observation status differs");
+                expect(correlation.observation->issues.empty() == (expected_observation == CrossSourceVersionLockObservationStatus::Complete),
+                       scenario + ": observation issue was lost");
+                if(scenario == "unrelated") {
+                    expect(correlation.possible_blocker_assessment_indices.empty(), "Unrelated update became a lock");
+                } else if(expects_candidate) {
+                    const auto expected_assessment = scenario == "missing"         ? CrossSourceVersionLockStatus::MissingReplacement
+                                                     : scenario == "query-failure" ? CrossSourceVersionLockStatus::QueryFailure
+                                                     : scenario == "incompatible"  ? CrossSourceVersionLockStatus::IncompatibleReplacement
+                                                     : scenario == "ambiguous"     ? CrossSourceVersionLockStatus::Ambiguous
+                                                                                   : CrossSourceVersionLockStatus::CompatibleReplacement;
+                    expect(correlation.assessments.size() == 1 && correlation.possible_blocker_assessment_indices == std::vector<std::size_t>{0},
+                           scenario + ": possible blocker correlation differs");
+                    const auto& assessment = correlation.assessments.front();
+                    expect(assessment.status == expected_assessment &&
+                               assessment.evidence.repository_upgrade.repository_candidate.package_name == "virtualbox" &&
+                               *assessment.evidence.repository_upgrade.repository_candidate.package_version->version() == "7.2.18-1" &&
+                               assessment.evidence.installed_consumer.package.package_name == "virtualbox-ext-oracle" &&
+                               *assessment.evidence.installed_consumer.package.package_version.version() == "7.2.16-1" &&
+                               assessment.evidence.installed_consumer.requirement.raw_specification() == "virtualbox=7.2.16" &&
+                               assessment.installed_requirement_against_installed_version->satisfaction() == ConstraintSatisfaction::Satisfied &&
+                               assessment.installed_requirement_against_repository_candidate->satisfaction() == ConstraintSatisfaction::Unsatisfied,
+                           scenario + ": identity/version/constraint/assessment lost");
+                    if(expected_assessment == CrossSourceVersionLockStatus::CompatibleReplacement) {
+                        const auto& replacement = std::get<AurReplacementCandidateQuerySuccess>(assessment.evidence.aur_replacement).candidates.front();
+                        expect(replacement.package_name == "virtualbox-ext-oracle" && *replacement.package_version.version() == "7.2.18-1" &&
+                                   assessment.replacement_requirement->raw_specification() == "virtualbox=7.2.18" &&
+                                   assessment.replacement_requirement_against_repository_candidate->satisfaction() == ConstraintSatisfaction::Satisfied,
+                               scenario + ": replacement identity/version/constraint lost");
+                    }
+                } else {
+                    expect(correlation.assessments.empty() && correlation.possible_blocker_assessment_indices.empty(),
+                           scenario + ": incomplete observation became a blocker");
+                }
+            }
+            expect(query_stub::repository_configuration_calls() == 2 && query_stub::inventory_calls() == 2 &&
+                       query_stub::info_many_call_history().size() == (is_dry_run ? 1U : 0U) &&
+                       query_stub::info_strict_call_history().size() == (expects_candidate ? (is_dry_run || scenario == "repository-success" ? 1U : 2U) : 0U),
+                   scenario + ": observation retried or ordinary AUR query started");
+            query_stub::require_script_consumed();
+            query_stub::reset();
+            expect_no_system_aur_later_authority(scenario);
         }
-        expect(query_stub::repository_configuration_calls() == 1 && query_stub::inventory_calls() == 1 &&
-                   query_stub::info_many_call_history().empty() &&
-                   query_stub::info_strict_call_history().size() == (expects_candidate ? 1U : 0U),
-               scenario + ": observation retried or ordinary AUR query started");
-        query_stub::require_script_consumed();
-        query_stub::reset();
-        expect_no_system_aur_later_authority(scenario);
     }
 }
 
@@ -1929,8 +1981,8 @@ void test_system_aur_success_without_aur_updates_is_not_false_noop() {
         require_system_aur_child(result, "system+AUR no updates");
 
     expect(
-        query_stub::repository_configuration_calls() == 1 &&
-            query_stub::inventory_calls() == 1 &&
+        query_stub::repository_configuration_calls() == 2 &&
+            query_stub::inventory_calls() == 2 &&
             query_stub::info_many_call_history().empty(),
         "No-update path did not obtain exactly one fresh empty inventory");
     expect(
@@ -1995,8 +2047,8 @@ void test_system_aur_inventory_failure_is_partial() {
                 SystemAurUpdateOperationStatus::StoppedBeforeAurExecution,
         "Inventory failure aggregate semantics differ");
     expect(
-        query_stub::repository_configuration_calls() == 1 &&
-            query_stub::inventory_calls() == 1 &&
+        query_stub::repository_configuration_calls() == 2 &&
+            query_stub::inventory_calls() == 2 &&
             query_stub::info_many_call_history().empty() &&
             preflight_stub::resolver_call_count() == 0 &&
             execution_stub::call_history().empty(),
@@ -2612,11 +2664,11 @@ void test_system_aur_success_uses_only_post_repository_inventory_and_ignore() {
                 std::vector<bool>{true},
         "Repository phase lost exact ordered args or noconfirm policy");
     expect(
-        query_stub::repository_configuration_calls() == 1 &&
-            query_stub::inventory_calls() == 1 &&
-            query_stub::inventory_configuration_history().size() == 1 &&
+        query_stub::repository_configuration_calls() == 2 &&
+            query_stub::inventory_calls() == 2 &&
+            query_stub::inventory_configuration_history().size() == 2 &&
             query_stub::inventory_configuration_history()
-                    .front()
+                    .back()
                     .repository_names ==
                 std::vector<std::string>{"after-repository"} &&
             query_stub::info_many_call_history() ==

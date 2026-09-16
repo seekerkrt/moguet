@@ -1,6 +1,7 @@
 #include "dry_run.hpp"
 
 #include "app_config.hpp"
+#include "aur_update_cli_presentation.hpp"
 #include "aur_update_query.hpp"
 #include "aur_devel_update.hpp"
 #include "cli_authority.hpp"
@@ -112,8 +113,14 @@ int run_system_aur_update_dry_run(
     const SystemAurUpdateDryRunObservation observation =
         observe_system_aur_update_dry_run(
             std::move(request.value()), config);
-    return render_system_aur_update_dry_run_projection(
+    const int status = render_system_aur_update_dry_run_projection(
         project_system_aur_update_unified_plan(observation));
+    if(observation.preflight_version_lock_correlation.has_value()) {
+        const auto text = format_cross_source_version_lock_cli_presentation(
+            *observation.preflight_version_lock_correlation);
+        if(text.has_value()) std::cout << *text;
+    }
+    return status;
 }
 
 int run_root_selection_dry_run(

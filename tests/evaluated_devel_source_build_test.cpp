@@ -1019,6 +1019,29 @@ private:
             AcceptedReviewedSourceCheckoutResult materialized =
                 materialize_accepted_reviewed_source_checkout(
                     accept_initial(std::move(*requirement)), checkout());
+            if(const auto* failure = std::get_if<ReviewedSourcePinnedCheckoutFailure>(&materialized)) {
+                // Retain the typed cause: a generic failure cannot distinguish
+                // checkout/lease interference from Git or filesystem failure.
+                std::ostringstream message;
+                message << "Accepted checkout materialization failed: package=" << package_name_
+                        << " checkout=" << checkout_->path()
+                        << " reason=" << static_cast<int>(failure->reason);
+                if(failure->system_error) message << " errno=" << failure->system_error->value();
+                if(failure->boundary_failure) {
+                    message << " boundary-stage=" << static_cast<int>(failure->boundary_failure->stage)
+                            << " boundary-code=" << static_cast<int>(failure->boundary_failure->code);
+                }
+                if(failure->git_failure) {
+                    message << " git-stage=" << static_cast<int>(failure->git_failure->stage)
+                            << " git-reason=" << static_cast<int>(failure->git_failure->reason);
+                    if(failure->git_failure->exit_code) message << " git-exit=" << *failure->git_failure->exit_code;
+                    if(failure->git_failure->boundary_failure) {
+                        message << " git-boundary-stage=" << static_cast<int>(failure->git_failure->boundary_failure->stage)
+                                << " git-boundary-code=" << static_cast<int>(failure->git_failure->boundary_failure->code);
+                    }
+                }
+                throw std::runtime_error(message.str());
+            }
             AcceptedReviewedSourceCheckout accepted =
                 take_arm<AcceptedReviewedSourceCheckout>(
                     materialized,
