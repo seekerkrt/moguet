@@ -3164,7 +3164,20 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
                 integration_recipe.source_destination = "";
                 upstream.add_upstream_inputs({{"docs/src/assets/images/favicon-16x16.png", png},
                                               {"crates/cli/main.txt", "tree-sitter-cli-built\n"}});
+                // Native Git maintenance created these derived indexes in the
+                // real tree-sitter bootstrap. Force both forms in a tiny repo
+                // rather than depending on Git's auto-maintenance threshold.
                 integration_recipe.recipe_suffix = R"(
+prepare() {
+    cd "$srcdir/tree-sitter"
+    git commit-graph write --reachable --split
+    test -s .git/objects/info/commit-graphs/commit-graph-chain
+}
+build() {
+    cd "$srcdir/tree-sitter"
+    git commit-graph write --reachable
+    test -s .git/objects/info/commit-graph
+}
 package() {
     install -Dm644 "$srcdir/tree-sitter/crates/cli/main.txt" "$pkgdir/usr/share/$pkgname/payload.txt"
 }
@@ -3314,6 +3327,7 @@ package() {
         fs::path acquisition_root, closure_root, integration_root;
         std::optional<struct stat> integration_identity, closure_identity;
         unsigned source_preparations = 0, package_builds = 0, closure_cleanup_attempts = 0;
+        std::optional<int> preparation_exit, package_build_exit;
         unsigned initial_evaluations = 0, root_observations = 0, closure_reviews = 0, workspace_clones = 0, closure_phase_points = 0;
         std::map<std::string, fs::path> closure_remotes{{upstream.url(), upstream.remote()}};
         if(pinned) {
@@ -3381,6 +3395,12 @@ package() {
                 return capture_bounded_explicit_process_output_raw(cancelled, policy);
             }
             auto observed = capture_bounded_explicit_process_output_raw(invocation, policy);
+            if(!observed.cancellation_signal) {
+                if(const auto* exited = std::get_if<BoundedProcessExited>(&observed.outcome)) {
+                    if(phase == EvaluatedDevelSourceBuildProcess::SourcePreparation) preparation_exit = exited->exit_code;
+                    if(phase == EvaluatedDevelSourceBuildProcess::PackageBuild) package_build_exit = exited->exit_code;
+                }
+            }
             if(split_group && mode.ends_with("-reordered") && phase == EvaluatedDevelSourceBuildProcess::PreparedPackagelist) {
                 const auto newline = observed.output.find('\n');
                 require(newline != std::string::npos && newline + 1 < observed.output.size(), "split packagelist cannot be reordered");
@@ -4214,6 +4234,15 @@ package() {
             const bool process_cancelled = mode == "acquire-cancel" || mode == "acquire-cancel-zero";
             const bool cancelled = mode == "cancel" || mode == "eof" || mode == "review-cancel" || mode == "review-eof" || mode == "review-cancel-cleanup" || process_cancelled;
             if(success) {
+                if(mode == "topology-tree-sitter") {
+                    require(preparation_exit == 0 && package_build_exit == 0,
+                            "Git commit-graph metadata prevented a terminal package build result");
+                    const auto& snapshot = *filtered.execution->work_item_results[bootstrap_index].devel_execution;
+                    require(snapshot.owner && snapshot.owner->build_completed() && !snapshot.owner->build_failure() &&
+                                snapshot.build_completed && snapshot.complete && !snapshot.projection_failed &&
+                                snapshot.production_outcome->build_outcome == ProductionSourceBuildCommandOutcome::Succeeded,
+                            "Native build terminal outcome lost through S4/bridge/snapshot projection");
+                }
                 require(result.is_success() && target.status == AurUpdateOperationTargetStatus::Updated, "bootstrap did not complete");
                 require(target.update.devel_assessment.state() == DevelUpdateAssessmentState::RequiresCheck && !aur_update_basis(target.update), "bootstrap fabricated update availability");
                 require(filtered.execution && filtered.execution->work_item_results.size() == (multi ? 3U : 1U), "bootstrap execution missing");
@@ -5826,7 +5855,7 @@ protected:
         "wrong-root", "wrong-child", "gitfile", "absolute-gitfile", "symlink-gitfile", "missing-gitdir", "wrong-name", "extra-module",
         "missing-child", "index-drift", "declaration-drift", "unexpected-repo", "workspace-replaced", "root-gitdir-replaced",
         "cleanup-refusal", "object-cleanup-refusal", "cancel", "git-failure", "allocation", "moved-input", "object-transfer-failure",
-        "config-drift", "object-alternate", "name-collision", "preexisting-workspace", "unclean-source", "partial-cleanup-replacement"};
+        "config-drift", "object-alternate", "http-object-alternate", "name-collision", "preexisting-workspace", "unclean-source", "partial-cleanup-replacement"};
     const auto read = [](const fs::path& path) {
         std::ifstream input(path, std::ios::binary);
         require(input.good(), "Workspace fixture read failed: " + path.string());
@@ -6008,6 +6037,7 @@ protected:
             }
             if(kind == "config-drift") git(child_path, {"config", "core.worktree", "../wrong"});
             if(kind == "object-alternate") write_file(child_gitdir / "objects/info/alternates", (object_root / "node-1/objects").string() + "\n");
+            if(kind == "http-object-alternate") write_file(child_gitdir / "objects/info/http-alternates", "https://fixture.invalid/objects\n");
             if(kind == "unclean-source") write_file(child_path / "payload.txt", "unaccepted source\n");
         };
         const std::set<std::string> positives{"single", "nested", "siblings", "sha256", "attributes", "root-only", "move", "destructor", "explicit-reproof"};
@@ -6089,7 +6119,7 @@ protected:
                 if(kind == "missing-gitdir" || kind == "missing-child") expected = Reason::MissingModule;
                 if(kind == "wrong-name" || kind == "extra-module" || kind == "unexpected-repo") expected = Reason::UnexpectedModule;
                 if(kind == "declaration-drift") expected = Reason::DeclarationDrift;
-                if(kind == "config-drift" || kind == "object-alternate" || kind == "name-collision") expected = Reason::GitdirMismatch;
+                if(kind == "config-drift" || kind == "object-alternate" || kind == "http-object-alternate" || kind == "name-collision") expected = Reason::GitdirMismatch;
                 if(kind == "allocation") expected = Reason::ResourceLimitExceeded;
                 if(kind == "moved-input") expected = Reason::InvalidAcceptedClosure;
                 if(kind == "object-transfer-failure" || kind == "git-failure" || kind == "partial-cleanup-replacement") expected = Reason::MaterializationFailed;

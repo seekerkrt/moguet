@@ -110,6 +110,9 @@ local refをnative selectorへbindする。4A backingには書き込まない。
 準備はnative `--nobuild --nodeps --noconfirm --holdver`を使う。`--holdver`はsource mirrorのremote更新を止める。
 native extractionの`git fetch`はinvocation内のmirrorだけを読む。review済みrecipeの
 `git submodule update --init --recursive`は既に存在するaccepted childを使える。
+native Gitが生成する`objects/info/commit-graph`、`objects/info/commit-graphs/`等の派生indexは
+外部object backingではなく、通常のfilesystem検証とGit proofの対象として許容する。
+`objects/info/alternates`と`objects/info/http-alternates`、shallow、promisor、grafts、replaceの拒否は維持する。
 `--noextract`はprepare()も省略するため準備には使わず、既存build phaseだけで使う。
 [makepkgのoption契約](https://man.archlinux.org/man/makepkg.8.en)とactual native fixtureを根拠とする。
 
