@@ -984,7 +984,73 @@ run_status 0 upgrade
 assert_exact_line "sudo pacman -Syu" "$command_log"
 assert_pipeline_absent
 
-if [ "$case_count" -ne 71 ]; then
+# Ordinary repository failure shares #460's typed supplemental projection.
+for correlation_case in compatible incompatible missing unknown query-failure ambiguous partial-compatible complete-zero partial-zero failed-zero correlation-failure invalid-index; do
+    setup_case "syu-version-lock-$correlation_case" no-installed-foreign
+    export MOGUET_TEST_SYSTEM_AUR_PRESENTATION_CASE="version-lock-$correlation_case"
+    run_status 1 -Syu
+    assert_contains "The repository system upgrade failed." "$stderr_file"
+    assert_exact_line "The AUR update was not attempted." "$stdout_file"
+    assert_not_contains "upgrade-all" "$stdout_file"
+    assert_pipeline_absent
+    assert_no_external_mutation
+    assert_cache_absent
+    case "$correlation_case" in
+        complete-zero|partial-zero|failed-zero|correlation-failure|invalid-index)
+            assert_not_contains "Possible repository/AUR cross-source version-lock candidate" "$stdout_file"
+            ;;
+        *)
+            assert_exact_line "Possible repository/AUR cross-source version-lock candidate: 1" "$stdout_file"
+            assert_exact_line "    observed repository candidate: virtualbox 7.2.18-1 (repository: extra)" "$stdout_file"
+            assert_exact_line "    installed foreign package: virtualbox-ext-oracle 7.2.16-1" "$stdout_file"
+            assert_exact_line "    installed requirement: virtualbox=7.2.16" "$stdout_file"
+            assert_contains "this correlation does not identify the cause" "$stdout_file"
+            assert_contains "review the displayed versions and dependency constraints manually" "$stdout_file"
+            ;;
+    esac
+    case "$correlation_case" in
+        compatible|partial-compatible)
+            assert_exact_line "    observed AUR replacement candidate: virtualbox-ext-oracle 7.2.18-1" "$stdout_file"
+            assert_exact_line "    replacement requirement: virtualbox=7.2.18" "$stdout_file"
+            assert_contains "the direct runtime requirement matches the observed repository candidate" "$stdout_file"
+            ;;
+        incompatible)
+            assert_contains "the direct runtime requirement does not match the observed repository candidate" "$stdout_file"
+            ;;
+        missing) assert_contains "a matching candidate was not found" "$stdout_file" ;;
+        query-failure)
+            assert_contains "metadata could not be queried" "$stdout_file"
+            assert_not_contains "a matching candidate was not found" "$stdout_file"
+            ;;
+        ambiguous) assert_contains "evidence is ambiguous" "$stdout_file" ;;
+        unknown) assert_contains "compatibility could not be determined" "$stdout_file" ;;
+    esac
+    if [ "$correlation_case" = partial-compatible ]; then
+        assert_contains "supplemental candidate observation was incomplete" "$stdout_file"
+    fi
+    case "$correlation_case" in
+        compatible|partial-compatible) ;;
+        *) assert_not_contains "the direct runtime requirement matches the observed repository candidate" "$stdout_file" ;;
+    esac
+done
+
+# Actual dispatcher/coordinator failure without a candidate remains generic.
+setup_case syu-unrelated-repository-failure no-installed-foreign
+export MOGUET_TEST_PACMAN_CONF_REPOSITORY_LIST=core
+export MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE=$case_dir/foreign-packages
+: > "$MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE"
+run_status 1 -Syu
+assert_exact_line "sudo pacman -Syu" "$command_log"
+assert_contains "The repository system upgrade failed." "$stderr_file"
+assert_exact_line "The AUR update was not attempted." "$stdout_file"
+assert_not_contains "Possible repository/AUR" "$stdout_file"
+assert_pipeline_absent
+assert_not_contains "makepkg " "$command_log"
+assert_not_contains "git " "$command_log"
+assert_not_contains "sudo pacman -U" "$command_log"
+assert_cache_absent
+
+if [ "$case_count" -ne 84 ]; then
     fail_case "internal test case count changed: $case_count"
 fi
 echo "AUR update command integration tests passed ($case_count cases)."

@@ -250,30 +250,6 @@ struct UpgradeAllExternallySatisfiedAurBuildUnit {
     std::vector<FilteredAurUpdateBuildUnitRootCorrelation> root_correlations;
 };
 
-enum class UpgradeAllCrossSourceVersionLockCorrelationFailureKind {
-    ResourceExhaustion,
-    UnexpectedException,
-    UnknownException,
-};
-
-struct UpgradeAllCrossSourceVersionLockCorrelationFailure {
-    UpgradeAllCrossSourceVersionLockCorrelationFailureKind kind =
-        UpgradeAllCrossSourceVersionLockCorrelationFailureKind::
-            UnknownException;
-    std::optional<std::string> diagnostic;
-};
-
-// Secondary evidence collected only after a system-upgrade failure. The
-// observation status remains the Complete/Partial/Failed authority. Indices
-// identify only possible candidate correlations; they neither identify the
-// pacman transaction target nor confirm the cause of its failure.
-struct UpgradeAllCrossSourceVersionLockCorrelationResult {
-    std::optional<CrossSourceVersionLockObservationResult> observation;
-    std::vector<CrossSourceVersionLockAssessment> assessments;
-    std::vector<std::size_t> possible_blocker_assessment_indices;
-    std::optional<UpgradeAllCrossSourceVersionLockCorrelationFailure> failure;
-};
-
 struct UpgradeAllOperationResult {
     UpgradeAllOperationStatus status =
         UpgradeAllOperationStatus::InconsistentResult;
@@ -287,7 +263,7 @@ struct UpgradeAllOperationResult {
         duplicate_excluded_aur_targets;
     std::vector<UpgradeAllExternallySatisfiedAurBuildUnit>
         externally_satisfied_aur_build_units;
-    std::optional<UpgradeAllCrossSourceVersionLockCorrelationResult>
+    std::optional<CrossSourceVersionLockCorrelationResult>
         cross_source_version_lock_correlation;
     std::vector<UpgradeAllOperationWarning> warnings;
     std::vector<UpgradeAllOperationIssue> issues;

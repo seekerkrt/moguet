@@ -1,6 +1,8 @@
 #include "aur_update_cli_presentation.hpp"
 
 #include "aur_update_operation_result.hpp"
+#include "application_identity.hpp"
+#include "cross_source_version_lock_observation.hpp"
 #include "localization.hpp"
 #include "reviewed_source_production_failure.hpp"
 #include "reviewed_source_production_outcome.hpp"
@@ -808,4 +810,242 @@ AurUpdateCliPresentation format_aur_update_cli_presentation(
             " " + aur_update_cli_target_failure_summary(target));
     }
     return presentation;
+}
+
+namespace {
+
+constexpr std::string_view AUR_SERVICE = "AUR";
+
+void append_cross_source_version_lock_line(
+    std::string& output, std::string_view line) {
+    output.append(line);
+    output.push_back('\n');
+}
+
+bool append_cross_source_version_lock_replacement(
+    std::string& output,
+    const CrossSourceVersionLockAssessment& assessment) {
+    switch(assessment.status) {
+        case CrossSourceVersionLockStatus::CompatibleReplacement:
+        case CrossSourceVersionLockStatus::IncompatibleReplacement: {
+            const auto* query =
+                std::get_if<AurReplacementCandidateQuerySuccess>(
+                    &assessment.evidence.aur_replacement);
+            if(query == nullptr || query->candidates.size() != 1U ||
+               !assessment.replacement_requirement.has_value()) {
+                return false;
+            }
+            const AurPackageConstraintMetadata& replacement =
+                query->candidates.front();
+            const std::string* replacement_version =
+                replacement.package_version.version();
+            if(replacement.package_name.empty() || replacement_version == nullptr) {
+                return false;
+            }
+            // TRANSLATORS: The placeholders are the service name "AUR", an AUR
+            // package name, and its version.
+            append_cross_source_version_lock_line(
+                output,
+                localization::format_translated_message(
+                    "    observed {} replacement candidate: {} {}",
+                    AUR_SERVICE, replacement.package_name,
+                    *replacement_version));
+            // TRANSLATORS: The placeholder is one validated dependency expression.
+            append_cross_source_version_lock_line(
+                output,
+                localization::format_translated_message(
+                    "    replacement requirement: {}",
+                    assessment.replacement_requirement->raw_specification()));
+            if(assessment.status ==
+               CrossSourceVersionLockStatus::CompatibleReplacement) {
+                append_cross_source_version_lock_line(
+                    output,
+                    localization::translate_message(
+                        "    replacement metadata: the direct runtime requirement matches the observed repository candidate"));
+            } else {
+                append_cross_source_version_lock_line(
+                    output,
+                    localization::translate_message(
+                        "    replacement metadata: the direct runtime requirement does not match the observed repository candidate"));
+            }
+            return true;
+        }
+        case CrossSourceVersionLockStatus::MissingReplacement:
+            if(!std::holds_alternative<AurReplacementCandidateNotFound>(
+                   assessment.evidence.aur_replacement)) {
+                return false;
+            }
+            append_cross_source_version_lock_line(
+                output,
+                localization::format_translated_message(
+                    // TRANSLATORS: The placeholder is the service name
+                    // "AUR".
+                    "    observed {} replacement: a matching candidate was not found",
+                    AUR_SERVICE));
+            return true;
+        case CrossSourceVersionLockStatus::Unknown:
+            append_cross_source_version_lock_line(
+                output,
+                localization::translate_message(
+                    "    replacement metadata: compatibility could not be determined"));
+            return true;
+        case CrossSourceVersionLockStatus::QueryFailure:
+            if(!std::holds_alternative<AurReplacementCandidateQueryFailure>(
+                   assessment.evidence.aur_replacement)) {
+                return false;
+            }
+            append_cross_source_version_lock_line(
+                output,
+                localization::format_translated_message(
+                    // TRANSLATORS: The placeholder is the service name
+                    // "AUR".
+                    "    observed {} replacement: metadata could not be queried",
+                    AUR_SERVICE));
+            return true;
+        case CrossSourceVersionLockStatus::Ambiguous:
+            append_cross_source_version_lock_line(
+                output,
+                localization::format_translated_message(
+                    // TRANSLATORS: The placeholder is the service name
+                    // "AUR".
+                    "    observed {} replacement: evidence is ambiguous",
+                    AUR_SERVICE));
+            return true;
+    }
+    return false;
+}
+
+} // namespace
+
+std::optional<std::string>
+format_cross_source_version_lock_cli_presentation(
+    const CrossSourceVersionLockCorrelationResult& correlation) noexcept try {
+    if(correlation.failure.has_value() || !correlation.observation.has_value() ||
+       correlation.possible_blocker_assessment_indices.empty()) {
+        return std::nullopt;
+    }
+
+    const CrossSourceVersionLockObservationStatus observation_status =
+        correlation.observation->status;
+    if(observation_status != CrossSourceVersionLockObservationStatus::Complete &&
+       observation_status != CrossSourceVersionLockObservationStatus::Partial) {
+        // Failed observation currently returns before candidate assessment. Do
+        // not turn an incoherent synthetic index into public evidence.
+        return std::nullopt;
+    }
+
+    const std::size_t candidate_count =
+        correlation.possible_blocker_assessment_indices.size();
+    const unsigned long plural_count =
+        static_cast<unsigned long>(candidate_count);
+    std::string output = "\n";
+    // TRANSLATORS: The first placeholder is the service name "AUR"; the
+    // second is the number of possible metadata correlations shown below.
+    append_cross_source_version_lock_line(
+        output,
+        localization::format_translated_plural_message(
+            "Possible repository/{} cross-source version-lock candidate: {}",
+            "Possible repository/{} cross-source version-lock candidates: {}",
+            plural_count, AUR_SERVICE, candidate_count));
+
+    // POLICY(#460): Slice 4's index vector is the sole public-inclusion
+    // authority. Presentation must not recompute or strengthen blocker status.
+    std::set<std::size_t> rendered_indices;
+    for(const std::size_t assessment_index :
+        correlation.possible_blocker_assessment_indices) {
+        if(!rendered_indices.insert(assessment_index).second) {
+            return std::nullopt;
+        }
+        const CrossSourceVersionLockAssessment& assessment =
+            correlation.assessments.at(assessment_index);
+        const RepositoryUpgradeCandidate& repository_upgrade =
+            assessment.evidence.repository_upgrade;
+        const RepositoryPackagePresent& repository_candidate =
+            repository_upgrade.repository_candidate;
+        const InstalledCrossSourceVersionLockConsumer& installed_consumer =
+            assessment.evidence.installed_consumer;
+        const std::string* installed_repository_version =
+            repository_upgrade.installed_package.observed_version.version();
+        const std::string* repository_candidate_version =
+            repository_candidate.package_version.has_value()
+                ? repository_candidate.package_version->version()
+                : nullptr;
+        const std::string* installed_consumer_version =
+            installed_consumer.package.package_version.version();
+        if(repository_candidate.package_name.empty() ||
+           repository_candidate.repository_name.empty() ||
+           installed_consumer.package.package_name.empty() ||
+           installed_repository_version == nullptr ||
+           repository_candidate_version == nullptr ||
+           installed_consumer_version == nullptr) {
+            return std::nullopt;
+        }
+
+        append_cross_source_version_lock_line(output, "");
+        // TRANSLATORS: The placeholder is a repository package name.
+        append_cross_source_version_lock_line(
+            output,
+            localization::format_translated_message(
+                "  - repository package: {}",
+                repository_candidate.package_name));
+        // TRANSLATORS: The placeholder is the installed package version.
+        append_cross_source_version_lock_line(
+            output,
+            localization::format_translated_message(
+                "    installed version: {}",
+                *installed_repository_version));
+        // TRANSLATORS: The placeholders are a repository package name, its
+        // observed version, and the configured repository name.
+        append_cross_source_version_lock_line(
+            output,
+            localization::format_translated_message(
+                "    observed repository candidate: {} {} (repository: {})",
+                repository_candidate.package_name,
+                *repository_candidate_version,
+                repository_candidate.repository_name));
+        // TRANSLATORS: The placeholders are an installed foreign package name
+        // and version. "foreign" does not assert historical AUR provenance.
+        append_cross_source_version_lock_line(
+            output,
+            localization::format_translated_message(
+                "    installed foreign package: {} {}",
+                installed_consumer.package.package_name,
+                *installed_consumer_version));
+        // TRANSLATORS: The placeholder is one validated installed dependency
+        // expression.
+        append_cross_source_version_lock_line(
+            output,
+            localization::format_translated_message(
+                "    installed requirement: {}",
+                installed_consumer.requirement.raw_specification()));
+        if(!append_cross_source_version_lock_replacement(output, assessment)) {
+            return std::nullopt;
+        }
+    }
+
+    if(observation_status ==
+       CrossSourceVersionLockObservationStatus::Partial) {
+        append_cross_source_version_lock_line(output, "");
+        append_cross_source_version_lock_line(
+            output,
+            localization::translate_message(
+                "  The supplemental candidate observation was incomplete."));
+    }
+
+    append_cross_source_version_lock_line(output, "");
+    append_cross_source_version_lock_line(
+        output,
+        localization::translate_message(
+            "The observed repository candidate is metadata evidence only; this correlation does not identify the cause of the system update failure."));
+    append_cross_source_version_lock_line(
+        output,
+        localization::format_translated_message(
+            // TRANSLATORS: The placeholders are the project name
+            // "Moguet" and service name "AUR".
+            "{} did not perform a coordinated repository/{} update; review the displayed versions and dependency constraints manually.",
+            application_identity::PROJECT_NAME, AUR_SERVICE));
+    return output;
+} catch(...) {
+    // Secondary formatting must not replace the primary repository failure.
+    return std::nullopt;
 }

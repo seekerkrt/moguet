@@ -654,6 +654,9 @@ execute_prepared_system_aur_update_operation(
         mark_later_not_attempted(
             result,
             SystemAurUpdateNotAttemptedReason::RepositoryFailure);
+        // Primary failure and the unattempted AUR tail are final.
+        result.cross_source_version_lock_correlation =
+            observe_cross_source_version_lock_correlation();
         return reduce_system_aur_update_result(std::move(result));
     } catch(...) {
         result.repository.status =
@@ -665,6 +668,9 @@ execute_prepared_system_aur_update_operation(
         mark_later_not_attempted(
             result,
             SystemAurUpdateNotAttemptedReason::RepositoryFailure);
+        // Primary failure and the unattempted AUR tail are final.
+        result.cross_source_version_lock_correlation =
+            observe_cross_source_version_lock_correlation();
         return reduce_system_aur_update_result(std::move(result));
     }
 
@@ -678,6 +684,9 @@ execute_prepared_system_aur_update_operation(
         mark_later_not_attempted(
             result,
             SystemAurUpdateNotAttemptedReason::RepositoryFailure);
+        // Primary failure and the unattempted AUR tail are final.
+        result.cross_source_version_lock_correlation =
+            observe_cross_source_version_lock_correlation();
         return reduce_system_aur_update_result(std::move(result));
     }
     result.repository.status =

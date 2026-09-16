@@ -957,7 +957,7 @@ assert_event_at 1 "sudo pacman -Syux"
 assert_event_count 1 "sudo pacman -Syux"
 assert_event_prefix_absent '^aur info-many'
 
-setup_case system-aur-update-repository-failure-stops-fresh-authority
+setup_case system-aur-update-repository-failure-allows-secondary-observation
 foreign_inventory=$case_dir/foreign-inventory.state
 printf 'system-update-a 0.9-1 explicit\n' > "$foreign_inventory"
 export MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE=$foreign_inventory
@@ -967,8 +967,12 @@ run_status 1 --noedit --nodiff --noconfirm -Syu
 assert_event_at 1 "sudo pacman -Syu --noconfirm"
 assert_event_count 1 "sudo pacman -Syu --noconfirm"
 assert_event_prefix_absent '^aur '
-assert_event_prefix_absent '^pacman-conf '
-assert_event_prefix_absent '^alpm '
+# #581 permits only read-only secondary metadata after the failed transaction.
+assert_event_before "sudo pacman -Syu --noconfirm" "pacman-conf --verbose RootDir DBPath"
+assert_event_count 1 "pacman-conf --verbose RootDir DBPath"
+assert_event_count 1 "pacman-conf --repo-list"
+assert_event_pattern_count 0 '^sudo pacman -(R|U) '
+assert_not_contains "Possible repository/AUR cross-source version-lock" "$output_file"
 assert_event_prefix_absent '^(git|makepkg) '
 assert_contains "The repository system upgrade failed." "$output_file"
 assert_contains "The AUR update was not attempted." "$output_file"

@@ -195,7 +195,11 @@ detailed plan.
 - Exact target-less `moguet -Syu` is also sequential: it completes the official
   repository system upgrade first, then obtains a fresh installed-foreign/AUR
   inventory and performs the normal AUR update. A repository failure leaves
-  the AUR phase unattempted. A blocker, execution failure, or cleanup failure
+  the AUR phase unattempted. As with `upgrade-all`, a best-effort read-only
+  scan may append possible repository/AUR exact-version-lock evidence after
+  failure, including replacement compatibility or query limitations. This
+  does not confirm the failure cause or authorize a coordinated update.
+  A blocker, execution failure, or cleanup failure
   after repository completion is reported as a non-zero partial outcome; the
   completed repository transaction is not rolled back.
 

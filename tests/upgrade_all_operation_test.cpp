@@ -600,7 +600,7 @@ void expect_no_inventory_or_aur(const std::string& context) {
         context + ": AUR boundary was crossed");
 }
 
-const UpgradeAllCrossSourceVersionLockCorrelationResult*
+const CrossSourceVersionLockCorrelationResult*
 require_cross_source_correlation(
     const UpgradeAllOperationResult& result,
     const char* context) {
@@ -1452,7 +1452,7 @@ void test_system_failure_observer_bad_alloc_is_secondary() {
             correlation.possible_blocker_assessment_indices.empty() &&
             correlation.failure.has_value() &&
             correlation.failure->kind ==
-                UpgradeAllCrossSourceVersionLockCorrelationFailureKind::
+                CrossSourceVersionLockCorrelationFailureKind::
                     ResourceExhaustion &&
             !correlation.failure->diagnostic.has_value(),
         "Allocation failure did not remain allocation-free secondary evidence");
@@ -1480,7 +1480,7 @@ void test_system_failure_observer_runtime_error_is_secondary() {
         !correlation.observation.has_value() &&
             correlation.failure.has_value() &&
             correlation.failure->kind ==
-                UpgradeAllCrossSourceVersionLockCorrelationFailureKind::
+                CrossSourceVersionLockCorrelationFailureKind::
                     UnexpectedException &&
             correlation.failure->diagnostic ==
                 std::optional<std::string>{
@@ -1509,7 +1509,7 @@ void test_system_failure_observer_unknown_exception_is_secondary() {
         !correlation.observation.has_value() &&
             correlation.failure.has_value() &&
             correlation.failure->kind ==
-                UpgradeAllCrossSourceVersionLockCorrelationFailureKind::
+                CrossSourceVersionLockCorrelationFailureKind::
                     UnknownException &&
             !correlation.failure->diagnostic.has_value(),
         "Non-std exception did not become typed secondary evidence");
