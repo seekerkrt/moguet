@@ -320,9 +320,12 @@ struct PinnedSubmoduleWorkspaceData {
                 if((binding.worktree.path / relative).lexically_normal() != binding.gitdir.path) fail(active, Reason::GitdirMismatch);
             }
             if(read_regular(binding.gitdir.descriptor.get(), "config", active) != binding.config) fail(active, Reason::GitdirMismatch);
-            // Fresh independent object stores must never acquire external backing.
+            // Reject external backing, not Git's derived indexes. Native
+            // makepkg extraction runs git fetch, whose maintenance can write
+            // objects/info/commit-graph(s) even when the accepted OID is unchanged.
             for(const auto& [path, identity] : entries) {
-                if(S_ISREG(identity.st_mode) && (within(path, binding.gitdir.path / "objects/info") ||
+                if(S_ISREG(identity.st_mode) && (path == binding.gitdir.path / "objects/info/alternates" ||
+                                                 path == binding.gitdir.path / "objects/info/http-alternates" ||
                                                  path == binding.gitdir.path / "commondir" || path == binding.gitdir.path / "shallow" ||
                                                  path == binding.gitdir.path / "info/grafts" || within(path, binding.gitdir.path / "refs/replace") ||
                                                  (within(path, binding.gitdir.path / "objects/pack") && path.extension() == ".promisor"))) fail(active, Reason::GitdirMismatch);

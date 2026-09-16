@@ -80,6 +80,11 @@ four application libraries and nested dlg; the existing sibling-reuse cases rema
 independent. The artifact oracle checks all five child payloads and exact binary
 icon bytes. DKMS checks the evaluated template, module source and installed
 modprobe/udev paths. The CLI case checks its selected upstream input in the archive.
+Its native `prepare()` writes a real split Git commit-graph and `build()` writes
+the single-file form. Both reproof points must accept these derived indexes;
+the test checks real makepkg exit zero through S4, the reviewed execution owner,
+snapshot, executor and S6. This reproduces the tree-sitter bootstrap rejection
+without relying on the size-dependent auto-maintenance threshold.
 
 Cargo registry downloads, upstream application compilation and kernel DKMS
 execution are not exercised. These tests prove Moguet's source topology and
