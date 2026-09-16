@@ -183,8 +183,18 @@ transition candidateも表示します。単一consumerの削除後もinstalled 
 refresh前の根拠によるexpected-state snapshotであり、execution authorityや将来の全状態の
 証明ではありません。実行にはexplicit confirmationとfreshなmutation-time revalidationが
 必要です。遷移はnon-atomicで、後続failureによりconsumerが未installのまま残り得ます。
-automatic rollbackはありません。現段階では表示だけで、新しいprompt、coordinated
-remove/install、retry、transaction順序の変更は行いません。
+automatic rollbackはありません。actualのtarget-less Auto経路でReadOnlyReadyの場合だけ
+coordinated executionへ進みます。defaultなし[y/n]の明示y/yesが必要で、--noconfirmや
+非対話入力は承認になりません。拒否や入力failureはmutation前に停止します。
+承認後に全根拠をfreshに再取得し、確認済みsnapshotと一致しなければ再実行を求めます。
+差分の自動承認やlegacy経路へのfallbackは行いません。
+通常のdependency checkを有効にした旧foreign consumerの単一削除後、既存のfull repository
+system upgradeを実行します。実際のinstalled repository versionとfreshなAUR replacementが
+一致する場合だけ、対象replacementを既存の安全なAUR build/install経路で処理します。
+built versionと旧Explicit/Dependency install reasonを保持し、最後に両version、exact runtime
+requirement、install reasonをfreshに検証します。failure時は完了phaseと観測できたconsumer状態を
+保持してnon-zeroを返し、retryやrollbackは行いません。dry-runは確認もmutationも行いません。
+RepoOnly、target付きsync、upgrade-all、non-ready planは既存経路を維持します。
 .
 .PP
 upgrade-allおよびexact target-less Auto -Syuでは、repository system-upgrade phaseが

@@ -195,8 +195,20 @@ This evidence from databases not yet refreshed is an expected-state snapshot, no
 authority or a complete future system state. Execution requires explicit
 confirmation and fresh mutation-time revalidation. The transition is non-atomic:
 a later failure may leave the consumer absent. No automatic rollback is implied.
-This version only presents the candidate; it adds no prompt, coordinated
-remove/install, retry, or transaction sequencing.
+Only ReadOnlyReady on the actual target-less Auto route enters coordinated execution.
+The required no-default [y/n] prompt accepts explicit y/yes; --noconfirm and
+noninteractive input are not approval. Decline or input failure stops before mutation.
+After approval a fresh full observation must match the confirmed snapshot;
+changes require a new invocation, with no automatic acceptance or fallback.
+Only the old foreign consumer is removed with ordinary dependency checks,
+then the existing full repository system upgrade runs. Actual installed repository
+version and fresh AUR replacement metadata must match before the existing safe
+AUR build/install path runs for that replacement. Built version and the old
+Explicit/Dependency install reason are preserved. Fresh post-state verification
+checks both versions, the exact runtime requirement, and install reason.
+Failures retain completed phases, report the observed consumer state, and return
+non-zero; no retry or rollback occurs. Dry-run never confirms or mutates.
+RepoOnly, targeted sync, upgrade-all and non-ready plans keep their existing routes.
 .
 .PP
 For upgrade-all and exact target-less Auto -Syu, after the repository

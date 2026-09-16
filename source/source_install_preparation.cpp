@@ -224,6 +224,9 @@ void require_static_production_source_build_work_item(
                 "Production source-build work item contains duplicate required package target: " +
                 target.package_name + ".");
         }
+        if(target.expected_full_version && work_item.artifact_lifecycle_intent != ArtifactLifecycleIntent::PackageBaseSet) {
+            throw std::logic_error("Exact replacement version requires the PackageBase artifact lifecycle.");
+        }
         switch(target.desired_reason) {
             case DesiredInstallReason::Explicit:
             case DesiredInstallReason::Dependency:

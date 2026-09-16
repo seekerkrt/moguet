@@ -71,9 +71,12 @@ setup_case() {
     unset MOGUET_TEST_PACKAGE_METADATA_STATE_FILE
     unset MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE
     unset MOGUET_TEST_CROSS_SOURCE_TRANSITION_CASE
+    unset MOGUET_TEST_CROSS_SOURCE_CASE
+    unset MOGUET_TEST_CROSS_SOURCE_PHASE_FILE
     unset MOGUET_TEST_INSPECTION_SCENARIO
     export MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG=$metadata_log
     unset MOGUET_TEST_PACKAGE_METADATA_INITIALIZE_FAILURE
+    unset MOGUET_TEST_PACKAGE_METADATA_INITIALIZE_FAILURE_AT
     unset MOGUET_TEST_PACKAGE_METADATA_QUERY_FAILURE_PACKAGE
     unset MOGUET_TEST_SYNC_CACHE_FAILURE_REPOSITORY
     unset MOGUET_TEST_REPOSITORY_QUERY_FAILURE_PACKAGE
@@ -384,7 +387,7 @@ assert_two_info_blocks_have_one_blank_line() {
 }
 
 assert_no_mutation_events() {
-    if grep -E '^(sudo pacman -(S|U)|pacman -U|git (clone|fetch)( |$)|makepkg )' "$command_log" >/dev/null; then
+    if grep -E '^(sudo pacman -(S|R|U|D)|pacman -U|git (clone|fetch)( |$)|makepkg )' "$command_log" >/dev/null; then
         echo "mutation event occurred before validation/plan barrier in case $case_name" >&2
         cat "$command_log" >&2
         exit 1
@@ -1024,11 +1027,12 @@ for mode in actual dry-run repo-only; do
         export MOGUET_TEST_SUDO_MAIN_STATUS=42
         if [ "$mode" = actual ]; then
             run_status 1 --noedit --nodiff --noconfirm -Syu
-            assert_event_count 1 "sudo pacman -Syu --noconfirm"
             if [ "$transition_case" = ready ]; then
-                assert_output_line_before "Possible coordinated transition" "Running: sudo pacman"
+                assert_no_mutation_events
+            else
+                assert_event_count 1 "sudo pacman -Syu --noconfirm"
+                assert_contains "The repository system upgrade failed." "$output_file"
             fi
-            assert_contains "The repository system upgrade failed." "$output_file"
         elif [ "$mode" = repo-only ]; then
             run_status 0 --dry-run -Syu --repo
             assert_no_mutation_events
@@ -1062,6 +1066,174 @@ for mode in actual dry-run repo-only; do
             fi
         fi
     done
+done
+
+# #581 Slice 4: production dispatcher/coordinator, confirmation, fresh metadata
+# adapters, dependency/source/artifact/install owners remain real. Only external
+# transports and their installed database transitions are deterministic fixtures.
+setup_coordinated_execution() {
+    coordinated_scenario=$1
+    coordinated_reason=$2
+    setup_case "coordinated-execution-$coordinated_scenario-$coordinated_reason"
+    export MOGUET_TEST_CROSS_SOURCE_TRANSITION_CASE=ready
+    export MOGUET_TEST_CROSS_SOURCE_CASE=$coordinated_scenario
+    export MOGUET_TEST_CROSS_SOURCE_PHASE_FILE=$case_dir/phase
+    printf 'initial\n' > "$MOGUET_TEST_CROSS_SOURCE_PHASE_FILE"
+    foreign_inventory=$case_dir/foreign-inventory.state
+    printf 'virtualbox 7.2.16-1 explicit\nvirtualbox-ext-oracle 7.2.16-1 %s\n' "$coordinated_reason" > "$foreign_inventory"
+    # An unrelated pending AUR update must never become an execution target.
+    printf 'system-update-a 0.9-1 explicit\n' >> "$foreign_inventory"
+    if [ "$coordinated_scenario" = revalidation-removal ]; then
+        printf 'other-package 1-1 explicit\n' >> "$foreign_inventory"
+    fi
+    export MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE=$foreign_inventory
+    export MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG=$command_log
+    printf 'core virtualbox 1 1\n' > "$repository_metadata_state"
+    /usr/bin/awk '{print $1, $2}' "$foreign_inventory" > "$package_metadata_state"
+    export MOGUET_TEST_SUDO_MAIN_STATUS=0
+    export MOGUET_TEST_MAKEPKG_ARTIFACT_IDENTITIES='virtualbox-ext-oracle|virtualbox-ext-oracle|7.2.18-1'
+}
+
+assert_coordinated_only_target() {
+    assert_event_pattern_count 1 '^sudo pacman -R -- virtualbox-ext-oracle$'
+    assert_event_pattern_count 1 '^sudo pacman -Syu$'
+    assert_event_pattern_count 0 '^sudo pacman -R.*(nodeps|cascade|recursive)'
+    assert_event_pattern_count 0 '^sudo pacman -R(dd|s|c)'
+    assert_event_pattern_count 0 '^sudo pacman -S '
+    assert_event_prefix_absent '^aur info-many.*system-update-a'
+    assert_event_prefix_absent '^git clone.*system-update-a'
+    assert_event_pattern_count 0 '^sudo pacman -U.*system-update-a'
+    assert_event_pattern_count 0 '^sudo pacman -U.*7\.2\.16'
+}
+
+for reason in explicit dependency; do
+    setup_coordinated_execution success "$reason"
+    run_status_pty 0 'yes\nyes\nyes\n' --noedit --nodiff -Syu
+    removal='sudo pacman -R -- virtualbox-ext-oracle'
+    repository_update='sudo pacman -Syu'
+    assert_coordinated_only_target
+    assert_event_count_before 2 "aur info-strict virtualbox-ext-oracle" "$removal"
+    assert_event_before "$removal" "$repository_update"
+    assert_event_before "$repository_update" "fixture phase repository"
+    assert_event_before "fixture phase repository" "fixture cross-source inventory repository"
+    assert_event_before "fixture cross-source inventory repository" "git clone https://aur.archlinux.org/virtualbox-ext-oracle.git virtualbox-ext-oracle"
+    assert_event_before "git clone https://aur.archlinux.org/virtualbox-ext-oracle.git virtualbox-ext-oracle" "makepkg -sc"
+    assert_event_before "makepkg -sc" "fixture phase installed"
+    assert_event_before "fixture phase installed" "fixture cross-source inventory installed"
+    assert_event_pattern_count 1 '^sudo pacman -U .*virtualbox-ext-oracle-7\.2\.18-1-x86_64\.pkg\.tar\.zst$'
+    if [ "$reason" = dependency ]; then
+        assert_event_pattern '^sudo pacman -U --asdeps -- '
+    fi
+    assert_contains 'virtualbox 7.2.18-1 explicit' "$foreign_inventory"
+    assert_contains "virtualbox-ext-oracle 7.2.18-1 $reason" "$foreign_inventory"
+    assert_contains 'system-update-a 0.9-1 explicit' "$foreign_inventory"
+    assert_output_line_before "Possible coordinated transition" "Running: sudo pacman"
+    if [ "$reason" = explicit ]; then
+        # Pin the two primary snapshot ordinals from this real successful route.
+        # The injected runs below must stop in the named phase and still report
+        # a successful supplemental current-state observation.
+        repository_snapshot_ordinal=$(/usr/bin/awk '
+            /^alpm initialize$/ { count++ }
+            /^fixture cross-source inventory repository$/ { print count; exit }
+        ' "$command_log")
+        reason_snapshot_ordinal=$(/usr/bin/awk '
+            /^alpm initialize$/ { count++ }
+            END { print count - 1 }
+        ' "$command_log")
+    fi
+done
+
+for phase in repository reason; do
+    setup_coordinated_execution success explicit
+    if [ "$phase" = repository ]; then
+        export MOGUET_TEST_PACKAGE_METADATA_INITIALIZE_FAILURE_AT=$repository_snapshot_ordinal
+        stopped_phase='repository post-state verification'
+        current_state='Observed replacement state: virtualbox-ext-oracle absent.'
+    else
+        export MOGUET_TEST_PACKAGE_METADATA_INITIALIZE_FAILURE_AT=$reason_snapshot_ordinal
+        stopped_phase='install reason restoration'
+        current_state='Observed replacement state: virtualbox-ext-oracle 7.2.18-1 installed.'
+    fi
+    run_status_pty 1 'yes\nyes\nyes\n' --noedit --nodiff -Syu
+    assert_coordinated_only_target
+    assert_contains "Coordinated cross-source transition stopped during $stopped_phase." "$output_file"
+    assert_contains 'Query failure: Failed to initialize package metadata session: system error. [source=pacman]' "$output_file"
+    assert_output_count 1 'Failed to initialize package metadata session: system error.'
+    assert_contains "$current_state" "$output_file"
+    assert_output_line_before 'Failed to initialize package metadata session' "$current_state"
+    assert_not_contains 'Expected repository post-state was not observed' "$output_file"
+    assert_not_contains 'The replacement install reason was not restored' "$output_file"
+    assert_not_contains 'Coordinated cross-source transition completed' "$output_file"
+    if [ "$phase" = repository ]; then
+        assert_event_prefix_absent '^(git|makepkg) '
+        assert_event_prefix_absent '^sudo pacman -(U|D)'
+    else
+        assert_event_pattern_count 1 '^sudo pacman -U '
+        assert_event 'fixture phase installed'
+    fi
+done
+
+for scenario in decline cancel eof no-confirm noninteractive; do
+    setup_coordinated_execution "$scenario" explicit
+    case $scenario in
+        decline) run_status_pty 1 'no\n' --noedit --nodiff -Syu ;;
+        cancel) run_status_pty 1 'q\n' --noedit --nodiff -Syu ;;
+        eof) run_status_pty 1 '\004' --noedit --nodiff -Syu ;;
+        no-confirm) run_status_pty 1 'yes\n' --noedit --nodiff --noconfirm -Syu ;;
+        noninteractive) run_status 1 --noedit --nodiff -Syu ;;
+    esac
+    assert_no_mutation_events
+    assert_event_count 1 'aur info-strict virtualbox-ext-oracle'
+    assert_contains 'virtualbox-ext-oracle 7.2.16-1 explicit' "$foreign_inventory"
+done
+
+for scenario in revalidation-candidate revalidation-installed revalidation-reason revalidation-runtime revalidation-removal; do
+    setup_coordinated_execution "$scenario" explicit
+    run_status_pty 1 'yes\n' --noedit --nodiff -Syu
+    assert_no_mutation_events
+    assert_event_count 2 'pacman-conf --verbose RootDir DBPath'
+    assert_contains 'virtualbox-ext-oracle 7.2.16-1 explicit' "$foreign_inventory"
+done
+
+for scenario in removal-failure repo-failure repo-post-mismatch aur-changed source-failure build-failure install-failure post-repo-version post-version post-runtime post-reason; do
+    setup_coordinated_execution "$scenario" explicit
+    case $scenario in
+        source-failure) export MOGUET_TEST_GIT_CLONE_EXIT_CODE=43 ;;
+        build-failure)
+            export MOGUET_TEST_MAKEPKG_EXIT_CODE=47
+            export MOGUET_TEST_MAKEPKG_PACKAGELIST_EXIT_CODE=0
+            ;;
+    esac
+    run_status_pty 1 'yes\nyes\nyes\n' --noedit --nodiff -Syu
+    assert_event_count 1 'sudo pacman -R -- virtualbox-ext-oracle'
+    assert_event_pattern_count 0 '^sudo pacman -U.*7\.2\.16'
+    assert_event_pattern_count 0 '^sudo pacman -S '
+    if [ "$scenario" = removal-failure ]; then
+        assert_event_prefix_absent '^sudo pacman -(S|U|D)'
+        assert_event_prefix_absent '^(git|makepkg) '
+        assert_contains 'virtualbox-ext-oracle 7.2.16-1 explicit' "$foreign_inventory"
+        continue
+    fi
+    assert_coordinated_only_target
+    case $scenario in
+        repo-failure|repo-post-mismatch|aur-changed)
+            assert_event_prefix_absent '^(git|makepkg) '
+            assert_event_prefix_absent '^sudo pacman -(U|D)'
+            assert_not_contains 'virtualbox-ext-oracle' "$foreign_inventory"
+            ;;
+        source-failure|build-failure)
+            assert_event_prefix_absent '^sudo pacman -(U|D)'
+            assert_not_contains 'virtualbox-ext-oracle' "$foreign_inventory"
+            ;;
+        install-failure)
+            assert_event_pattern_count 1 '^sudo pacman -U '
+            assert_not_contains 'virtualbox-ext-oracle' "$foreign_inventory"
+            ;;
+        post-*)
+            assert_event_pattern_count 1 '^sudo pacman -U '
+            assert_event 'fixture phase installed'
+            ;;
+    esac
 done
 
 setup_case system-aur-update-fresh-configuration-failure-reports-cause

@@ -400,6 +400,7 @@ bool same_aur_update_entry(
     const AurUpdatePlanEntry& rhs) noexcept {
     return lhs.installed_name == rhs.installed_name &&
            lhs.installed_version == rhs.installed_version &&
+           lhs.coordinated_replacement_version == rhs.coordinated_replacement_version &&
            lhs.install_reason == rhs.install_reason &&
            same_aur_remote_package(lhs.aur_package, rhs.aur_package) &&
            lhs.classification == rhs.classification &&
@@ -568,9 +569,11 @@ bool source_observation_matches_ready_preflight(
             if(observed.package_base != attributed.package_base ||
                observed.package_name != attributed.package_name ||
                observed.desired_reason != attributed.desired_reason ||
+               observed.expected_full_version != attributed.expected_full_version ||
                observed.package_base != projected.package_base ||
                observed.package_name != projected.package_name ||
-               observed.desired_reason != projected.desired_reason) {
+               observed.desired_reason != projected.desired_reason ||
+               observed.expected_full_version != projected.expected_full_version) {
                 return false;
             }
         }
@@ -784,7 +787,8 @@ bool same_required_artifact_target(
     const RequiredPackageArtifactTarget& rhs) noexcept {
     return lhs.package_base == rhs.package_base &&
            lhs.package_name == rhs.package_name &&
-           lhs.desired_reason == rhs.desired_reason;
+           lhs.desired_reason == rhs.desired_reason &&
+           lhs.expected_full_version == rhs.expected_full_version;
 }
 
 void validate_configured_repository_identity(
@@ -1200,6 +1204,7 @@ project_aur_update_artifact_targets(
         }
         matched_child->desired_reason =
             update_target.desired_install_reason.value();
+        matched_child->expected_full_version = update_target.update.coordinated_replacement_version;
     }
     return units;
 }

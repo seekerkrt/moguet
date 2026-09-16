@@ -23,6 +23,11 @@ std::string aur_update_cli_target_failure_summary(
     const AurUpdateOperationTargetResult& target);
 
 struct CrossSourceVersionLockCorrelationResult;
+struct CrossSourceCoordinatedTransitionPlan;
+
+// Required confirmation presentation must propagate formatting failures.
+std::string format_cross_source_transition_plan(
+    const CrossSourceCoordinatedTransitionPlan& plan);
 
 // Candidate indices remain the sole inclusion authority. Incomplete or invalid
 // evidence cannot become a confirmed cause; formatting failure is secondary.

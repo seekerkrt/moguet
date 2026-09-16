@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.7.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-12 15:37+0900\n"
+"POT-Creation-Date: 2026-09-16 18:55+0900\n"
 "PO-Revision-Date: 2026-09-09 16:53+0900\n"
 "Last-Translator: Moguet contributors\n"
 "Language-Team: Japanese\n"
@@ -1061,8 +1061,90 @@ msgstr "この読み取り専用計画は実行権限ではありません。実
 msgid "The transition is non-atomic: a later failure may leave the removed package absent. No automatic rollback is implied."
 msgstr "遷移は不可分ではありません。後続処理が失敗すると、削除したパッケージが未インストールのまま残る可能性があります。自動ロールバックは行いません。"
 
-msgid "No coordinated transition is executed or prompted here; the existing repository transaction policy is unchanged."
-msgstr "ここでは連携遷移の実行や確認入力は行いません。既存のリポジトリトランザクション方針を維持します。"
+#, c++-format
+msgid "Dry-run remains read-only. Actual execution requires a separate explicit approval; {} is not approval."
+msgstr "dry-runは読み取り専用のままです。実行には別途明示的な承認が必要で、{}は承認になりません。"
+
+#, c++-format
+msgid "    observed {} replacement candidate: {} {}"
+msgstr "    観測した{}置換候補: {} {}"
+
+#, c++-format
+msgid "    replacement requirement: {}"
+msgstr "    置換候補の依存条件: {}"
+
+msgid "    replacement metadata: the direct runtime requirement matches the observed repository candidate"
+msgstr "    置換メタデータ: direct runtime依存条件は観測したリポジトリ候補で満たされます"
+
+msgid "    replacement metadata: the direct runtime requirement does not match the observed repository candidate"
+msgstr "    置換メタデータ: direct runtime依存条件は観測したリポジトリ候補と一致しません"
+
+#. TRANSLATORS: The placeholder is the service name
+#. "AUR".
+#, c++-format
+msgid "    observed {} replacement: a matching candidate was not found"
+msgstr "    観測した{}置換候補: 一致する候補は見つかりませんでした"
+
+msgid "    replacement metadata: compatibility could not be determined"
+msgstr "    置換メタデータ: 互換性を判断できませんでした"
+
+#. TRANSLATORS: The placeholder is the service name
+#. "AUR".
+#, c++-format
+msgid "    observed {} replacement: metadata could not be queried"
+msgstr "    観測した{}置換候補: メタデータを問い合わせできませんでした"
+
+#. TRANSLATORS: The placeholder is the service name
+#. "AUR".
+#, c++-format
+msgid "    observed {} replacement: evidence is ambiguous"
+msgstr "    観測した{}置換候補: 根拠が曖昧です"
+
+msgid "Read-only version-lock preflight uses current local/sync databases without refreshing them; candidates may change during the repository update and are not selected transaction targets."
+msgstr "version-lockのread-only事前観測は、refreshせず現在のlocal / sync databaseを使用します。candidateはrepository更新中に変わる可能性があり、選択済みtransaction targetではありません。"
+
+msgid "Version-lock preflight observation failed; candidate absence is not established. This diagnostic does not change the repository transaction policy."
+msgstr "version-lockの事前観測に失敗しました。candidateが存在しないとは判断できません。この診断はrepository transactionの実行方針を変更しません。"
+
+msgid "Version-lock preflight observation is partial; candidate absence is not established. This diagnostic does not change the repository transaction policy."
+msgstr "version-lockの事前観測は一部のみ完了しました。candidateが存在しないとは判断できません。この診断はrepository transactionの実行方針を変更しません。"
+
+#, c++-format
+msgid "Possible repository/{} cross-source version-lock candidate: {}"
+msgid_plural "Possible repository/{} cross-source version-lock candidates: {}"
+msgstr[0] "repository/{}をまたぐversion-lock候補: {}件"
+
+#, c++-format
+msgid "  - repository package: {}"
+msgstr "  - リポジトリパッケージ: {}"
+
+#, c++-format
+msgid "    installed version: {}"
+msgstr "    インストール済みバージョン: {}"
+
+#, c++-format
+msgid "    observed repository candidate: {} {} (repository: {})"
+msgstr "    観測したリポジトリ候補: {} {}（リポジトリ: {}）"
+
+#, c++-format
+msgid "    installed foreign package: {} {}"
+msgstr "    インストール済みforeignパッケージ: {} {}"
+
+#, c++-format
+msgid "    installed requirement: {}"
+msgstr "    インストール済み依存条件: {}"
+
+msgid "  The supplemental candidate observation was incomplete."
+msgstr "  補助的な候補観測は不完全です。"
+
+msgid "The observed repository candidate is metadata evidence only; this correlation does not identify the cause of the system update failure."
+msgstr "観測したリポジトリ候補はメタデータ上の根拠に限られ、この相関はシステム更新の失敗原因を特定しません。"
+
+#. TRANSLATORS: The placeholders are the project name
+#. "Moguet" and service name "AUR".
+#, c++-format
+msgid "{} did not perform a coordinated repository/{} update; review the displayed versions and dependency constraints manually."
+msgstr "{}はrepository/{}をまたぐ協調更新を実行していません。表示されたバージョンと依存条件を手動で確認してください。"
 
 msgid "Devel package update status requires check: the suffix is candidate evidence only, and authoritative build provenance is unavailable."
 msgstr "devel packageの更新状態は確認が必要です。suffixは候補根拠にすぎず、authoritativeなbuild provenanceは利用できません。"
@@ -1552,6 +1634,9 @@ msgstr "{} のインストール準備失敗が準備済みの {} と一致し�
 #, c++-format
 msgid "{}: devel tracking baseline is missing. Fully review the source, rebuild and install it to establish {} tracking?"
 msgstr "{}: devel追跡の基準情報がありません。ソース全体をレビューして再ビルド・インストールし、{}による追跡を開始しますか？"
+
+msgid "The required confirmation was declined. Any earlier completed phases remain unchanged."
+msgstr "必須の確認が拒否されました。これより前に完了した処理は変更されません。"
 
 msgid "Preparation target snapshot does not match the targets eligible in this preflight phase."
 msgstr "準備対象のスナップショットが、この事前検査段階で対象となる項目と一致しません。"
@@ -3659,8 +3744,68 @@ msgstr "リポジトリのシステム更新は完了しましたが、パッケ
 msgid "The completed repository system upgrade was not rolled back."
 msgstr "完了済みのリポジトリシステム更新はロールバックされていません。"
 
+msgid "Explicitly approve this non-atomic removal, system upgrade and replacement?"
+msgstr "不可分ではない、この削除・システム更新・置換を明示的に承認しますか？"
+
+msgid "confirmation"
+msgstr "承認確認"
+
+msgid "mutation-time revalidation"
+msgstr "変更直前の再検証"
+
+msgid "bounded foreign package removal"
+msgstr "対象を限定した外部パッケージ削除"
+
+msgid "repository system upgrade"
+msgstr "リポジトリのシステム更新"
+
+msgid "repository post-state verification"
+msgstr "リポジトリ更新後の状態確認"
+
+#, c++-format
+msgid "fresh {} replacement authority"
+msgstr "新しい{}置換根拠の取得"
+
+#, c++-format
+msgid "{} replacement build/install"
+msgstr "{}置換パッケージのビルド・インストール"
+
+msgid "install reason restoration"
+msgstr "インストール理由の復元確認"
+
+msgid "exact-version post-state verification"
+msgstr "遷移後の厳密なバージョン関係の検証"
+
+msgid "complete"
+msgstr "完全"
+
+msgid "unknown phase"
+msgstr "不明な段階"
+
+msgid "Coordinated cross-source transition completed; exact versions, runtime requirement and install reason verified."
+msgstr "リポジトリとAURをまたぐ協調遷移が完了しました。厳密なバージョン、実行時依存要件、インストール理由を検証済みです。"
+
+#, c++-format
+msgid "Coordinated cross-source transition stopped during {}."
+msgstr "リポジトリとAURをまたぐ協調遷移は、{}で停止しました。"
+
+msgid "The old foreign package was removed. It may remain absent; no automatic rollback or reinstall was attempted."
+msgstr "旧外部パッケージは削除済みです。未インストールのまま残る可能性があります。自動ロールバックや再インストールは行っていません。"
+
 msgid "The repository system upgrade completed."
 msgstr "リポジトリのシステム更新が完了しました。"
+
+#, c++-format
+msgid "Observed replacement state: {} {} installed."
+msgstr "観測した置換パッケージの状態: {} {} はインストール済みです。"
+
+#, c++-format
+msgid "Observed replacement state: {} absent."
+msgstr "観測した置換パッケージの状態: {} は未インストールです。"
+
+#, c++-format
+msgid "Current replacement state is unavailable: {}."
+msgstr "置換パッケージの現在状態を取得できません: {}。"
 
 #. TRANSLATORS: AUR is a runtime project identity.
 #, c++-format
@@ -4426,87 +4571,6 @@ msgid "    reason [{}]: {}"
 msgstr "    理由 [{}]: {}"
 
 #, c++-format
-msgid "    observed {} replacement candidate: {} {}"
-msgstr "    観測した{}置換候補: {} {}"
-
-#, c++-format
-msgid "    replacement requirement: {}"
-msgstr "    置換候補の依存条件: {}"
-
-msgid "    replacement metadata: the direct runtime requirement matches the observed repository candidate"
-msgstr "    置換メタデータ: direct runtime依存条件は観測したリポジトリ候補で満たされます"
-
-msgid "    replacement metadata: the direct runtime requirement does not match the observed repository candidate"
-msgstr "    置換メタデータ: direct runtime依存条件は観測したリポジトリ候補と一致しません"
-
-#. TRANSLATORS: The placeholder is the service name
-#. "AUR".
-#, c++-format
-msgid "    observed {} replacement: a matching candidate was not found"
-msgstr "    観測した{}置換候補: 一致する候補は見つかりませんでした"
-
-msgid "    replacement metadata: compatibility could not be determined"
-msgstr "    置換メタデータ: 互換性を判断できませんでした"
-
-#. TRANSLATORS: The placeholder is the service name
-#. "AUR".
-#, c++-format
-msgid "    observed {} replacement: metadata could not be queried"
-msgstr "    観測した{}置換候補: メタデータを問い合わせできませんでした"
-
-#. TRANSLATORS: The placeholder is the service name
-#. "AUR".
-#, c++-format
-msgid "    observed {} replacement: evidence is ambiguous"
-msgstr "    観測した{}置換候補: 根拠が曖昧です"
-
-msgid "Read-only version-lock preflight uses current local/sync databases without refreshing them; candidates may change during the repository update and are not selected transaction targets."
-msgstr "version-lockのread-only事前観測は、refreshせず現在のlocal / sync databaseを使用します。candidateはrepository更新中に変わる可能性があり、選択済みtransaction targetではありません。"
-
-msgid "Version-lock preflight observation failed; candidate absence is not established. This diagnostic does not change the repository transaction policy."
-msgstr "version-lockの事前観測に失敗しました。candidateが存在しないとは判断できません。この診断はrepository transactionの実行方針を変更しません。"
-
-msgid "Version-lock preflight observation is partial; candidate absence is not established. This diagnostic does not change the repository transaction policy."
-msgstr "version-lockの事前観測は一部のみ完了しました。candidateが存在しないとは判断できません。この診断はrepository transactionの実行方針を変更しません。"
-
-#, c++-format
-msgid "Possible repository/{} cross-source version-lock candidate: {}"
-msgid_plural "Possible repository/{} cross-source version-lock candidates: {}"
-msgstr[0] "repository/{}をまたぐversion-lock候補: {}件"
-
-#, c++-format
-msgid "  - repository package: {}"
-msgstr "  - リポジトリパッケージ: {}"
-
-#, c++-format
-msgid "    installed version: {}"
-msgstr "    インストール済みバージョン: {}"
-
-#, c++-format
-msgid "    observed repository candidate: {} {} (repository: {})"
-msgstr "    観測したリポジトリ候補: {} {}（リポジトリ: {}）"
-
-#, c++-format
-msgid "    installed foreign package: {} {}"
-msgstr "    インストール済みforeignパッケージ: {} {}"
-
-#, c++-format
-msgid "    installed requirement: {}"
-msgstr "    インストール済み依存条件: {}"
-
-msgid "  The supplemental candidate observation was incomplete."
-msgstr "  補助的な候補観測は不完全です。"
-
-msgid "The observed repository candidate is metadata evidence only; this correlation does not identify the cause of the system update failure."
-msgstr "観測したリポジトリ候補はメタデータ上の根拠に限られ、この相関はシステム更新の失敗原因を特定しません。"
-
-#. TRANSLATORS: The placeholders are the project name
-#. "Moguet" and service name "AUR".
-#, c++-format
-msgid "{} did not perform a coordinated repository/{} update; review the displayed versions and dependency constraints manually."
-msgstr "{}はrepository/{}をまたぐ協調更新を実行していません。表示されたバージョンと依存条件を手動で確認してください。"
-
-#, c++-format
 msgid "excluded from {} update: {}"
 msgstr "{}更新から除外: {}"
 
@@ -5238,9 +5302,6 @@ msgstr "（{} と入力するとキャンセル）"
 msgid "Please answer yes, no, or cancel."
 msgstr "yes、no、cancelのいずれかで回答してください。"
 
-msgid "The required confirmation was declined. Any earlier completed phases remain unchanged."
-msgstr "必須の確認が拒否されました。これより前に完了した処理は変更されません。"
-
 msgid "The current operation was cancelled because interactive input ended. Any earlier completed phases remain unchanged."
 msgstr "対話入力が終了したため、現在の操作をキャンセルしました。これより前に完了した処理は変更されません。"
 
@@ -5687,6 +5748,9 @@ msgstr "準備済み{}成果物インストール用ワークスペースは後�
 msgid "Prepared {} artifact install workspace was already cleaned."
 msgstr "準備済み{}成果物インストール用ワークスペースはすでに後処理済みです。"
 
+msgid "Built replacement version differs from the confirmed transition; rerun required."
+msgstr "ビルドした置換パッケージのバージョンが承認済みの遷移と異なります。再実行が必要です。"
+
 #. TRANSLATORS: {} is the literal command "pacman -U".
 #, c++-format
 msgid "The {} transaction execution threw an exception."
@@ -6018,9 +6082,6 @@ msgstr "リポジトリ情報"
 msgid "unknown-role"
 msgstr "不明な役割"
 
-msgid "complete"
-msgstr "完全"
-
 msgid "partial"
 msgstr "一部のみ"
 
@@ -6171,6 +6232,15 @@ msgstr "宣言済み関係の判定待ち: 宣言元パッケージ{}は{} {} �
 
 msgid "Invalid relation metadata or observation."
 msgstr "関係メタデータまたは観測が不正です。"
+
+msgid "Exact upstream source snapshot (separate from recipe review)\n"
+msgstr "固定された上流ソースのスナップショット（レシピのレビューとは別です）\n"
+
+msgid "Acceptance authorizes this snapshot as build input; it does not certify source-code safety. Upstream blob contents are not displayed.\n"
+msgstr "この承認はスナップショットをビルド入力として使うためのもので、ソースコードの安全性を保証しません。上流の各ファイルの本文は表示しません。\n"
+
+msgid "Use this exact upstream source snapshot as build input?"
+msgstr "この固定された上流ソースのスナップショットをビルド入力として使用しますか？"
 
 #, c++-format
 msgid "Invalid {} target for operation {}: {}"
@@ -7535,6 +7605,36 @@ msgstr "{}照会が不明な例外で失敗しました。"
 #, c++-format
 msgid "{} assessment failed with an unknown exception."
 msgstr "{}評価が不明な例外で失敗しました。"
+
+msgid "Cross-source state changed after confirmation; rerun required. No package mutation was attempted."
+msgstr "承認後にリポジトリとAURの遷移根拠が変わりました。再実行が必要です。パッケージ変更は開始していません。"
+
+msgid "Expected repository post-state was not observed; the replacement was not started. Rerun required."
+msgstr "期待したリポジトリ更新後の状態を確認できませんでした。置換は開始していません。再実行が必要です。"
+
+#, c++-format
+msgid "The {} replacement changed or is unavailable; rerun required. Build and install were not started."
+msgstr "{}置換候補が変わったか、取得できません。再実行が必要です。ビルドとインストールは開始していません。"
+
+#, c++-format
+msgid "The prepared {} replacement differs from the confirmed transition; rerun required. Build and install were not started."
+msgstr "準備した{}置換候補が承認済みの遷移と異なります。再実行が必要です。ビルドとインストールは開始していません。"
+
+#, c++-format
+msgid "The confirmed {} replacement was not executable; the coordinated transition is incomplete."
+msgstr "承認済みの{}置換を実行できませんでした。協調遷移は未完了です。"
+
+msgid "The replacement install reason was not restored; the coordinated transition is incomplete."
+msgstr "置換パッケージのインストール理由が復元されていません。協調遷移は未完了です。"
+
+msgid "Expected exact-version post-state was not verified; the coordinated transition is incomplete."
+msgstr "期待した厳密なバージョン関係を遷移後に検証できませんでした。協調遷移は未完了です。"
+
+msgid "The coordinated transition stopped on an unexpected failure."
+msgstr "予期しない失敗により協調遷移が停止しました。"
+
+msgid "Current replacement state could not be observed."
+msgstr "置換パッケージの現在状態を観測できませんでした。"
 
 msgid "The system upgrade failed with an unknown exception."
 msgstr "システム更新が不明な例外で失敗しました。"
@@ -9509,6 +9609,9 @@ msgstr "{}のデフォルト状態ログを段階{}で安全に使用できま�
 msgid "Unknown state log error code."
 msgstr "不明な状態ログエラーコードです。"
 
+#~ msgid "No coordinated transition is executed or prompted here; the existing repository transaction policy is unchanged."
+#~ msgstr "ここでは連携遷移の実行や確認入力は行いません。既存のリポジトリトランザクション方針を維持します。"
+
 #, c++-format
 #~ msgid "Prepared {} artifact install has an unknown transaction directive."
 #~ msgstr "準備済み{}成果物のインストールに不明なパッケージ処理指示があります。"
@@ -9954,15 +10057,3 @@ msgstr "不明な状態ログエラーコードです。"
 #, c++-format
 #~ msgid "Failed to remove {}"
 #~ msgstr "{}を削除できませんでした"
-
-#: source/pinned_submodule_closure_review.cpp
-msgid "Exact upstream source snapshot (separate from recipe review)\n"
-msgstr "固定された上流ソースのスナップショット（レシピのレビューとは別です）\n"
-
-#: source/pinned_submodule_closure_review.cpp
-msgid "Use this exact upstream source snapshot as build input?"
-msgstr "この固定された上流ソースのスナップショットをビルド入力として使用しますか？"
-
-#: source/pinned_submodule_closure_review.cpp
-msgid "Acceptance authorizes this snapshot as build input; it does not certify source-code safety. Upstream blob contents are not displayed.\n"
-msgstr "この承認はスナップショットをビルド入力として使うためのもので、ソースコードの安全性を保証しません。上流の各ファイルの本文は表示しません。\n"

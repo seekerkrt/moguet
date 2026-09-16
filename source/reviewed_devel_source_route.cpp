@@ -56,6 +56,12 @@ ReviewedProductionSourceExecution select_normal_reviewed_source_execution(
         }
     }
     const bool authoritative = selects_reviewed_devel_execution(checkout, intent, pin.editor_overlay_status() != ReviewedSourceEditorOverlayStatus::None);
+    // The exact-version coordinated intent is currently supported by the
+    // PackageBase archive installer. Never switch it to an unpinned owner.
+    if(authoritative && std::any_of(intent->required_targets.begin(), intent->required_targets.end(),
+                                    [](const auto& target) { return target.expected_full_version.has_value(); })) {
+        return ReviewedDevelSourceBuildRejected{ReviewedDevelSourceBuildIssue::IdentityMismatch};
+    }
     if(!intent) return make_reviewed_production_artifact_source_tree(checkout, std::move(pin), outcome, abnormal);
     return prepare_reviewed_production_source_execution(authoritative ? ReviewedProductionExecutionChoice::AuthoritativeDevel : ReviewedProductionExecutionChoice::Legacy,
                                                         checkout, std::move(pin), outcome, abnormal, *intent, acquisition);

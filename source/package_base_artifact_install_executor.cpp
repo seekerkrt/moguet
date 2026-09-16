@@ -538,6 +538,16 @@ prepare_package_base_artifact_install(
         package_base, required_targets, artifacts, identity_set,
         selected, aggregate_identities);
 
+    // The archive identity is bound to immutable install bytes above. A newer
+    // source result cannot silently replace a user-confirmed exact transition.
+    for(std::size_t i = 0; i < required_targets.size(); ++i) {
+        const auto& expected = required_targets[i].expected_full_version;
+        if(expected && selected.selected_artifacts[i].identity.full_version != *expected) {
+            throw std::runtime_error(localization::translate_message(
+                "Built replacement version differs from the confirmed transition; rerun required."));
+        }
+    }
+
     std::vector<InstalledArtifactPolicyState> installed_states;
     installed_states.reserve(selected.selected_artifacts.size());
     {

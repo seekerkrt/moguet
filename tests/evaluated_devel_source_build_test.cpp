@@ -3157,6 +3157,7 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
                                              "cleanup-failure", "retirement-failure", "no-allocation", "registered-different", "registered-same", "registered-unknown", "registered-check",
                                              "outer-singular-publication-failure", "outer-singular-publication-unknown", "outer-singular-cleanup-failure", "outer-singular-no-allocation",
                                              "outer-set-publication-failure", "outer-set-publication-unknown", "outer-set-cleanup-failure", "outer-set-no-allocation"};
+    if(normal && !bootstrap) bridge_cases.emplace_back("exact-version-intent");
     if(bootstrap) bridge_cases = {bootstrap_case};
     for(const std::string& case_name : bridge_cases) {
         const bool outer = case_name.starts_with("outer-");
@@ -4515,6 +4516,22 @@ package() {
             intent.required_targets[0].package_name = "wrong-child";
         }
 #ifdef MOGUET_TEST_NORMAL_REVIEWED_DEVEL_EXECUTION
+        if(normal && mode == "exact-version-intent") {
+            intent.request.authoritative_devel_update = true;
+            intent.required_targets.front().expected_full_version = "2-1";
+            auto pin = fixture.execution_pin(false);
+            auto selected = select_normal_reviewed_source_execution(
+                fixture.execution_checkout(), std::move(pin), ProductionReviewedSourceOutcome::InitialFullReview,
+                std::nullopt, &intent);
+            const auto* rejected = std::get_if<ReviewedDevelSourceBuildRejected>(&selected);
+            require(rejected && rejected->issue == Issue::IdentityMismatch,
+                    "Authoritative devel selection discarded the exact replacement version intent");
+            require(build_entries == 0 && prepare_calls == 0 && execute_calls == 0,
+                    "Exact replacement intent entered an unpinned devel build/install owner");
+            fixture.require_no_provenance_publication();
+            std::cout << "S581 exact replacement / authoritative devel rejected / build0 / install0 PASS\n";
+            continue;
+        }
         if(normal && (mode == "registered-same" || mode == "registered-unknown" || mode == "registered-check")) {
             const auto result = fixture.normal_execution(intent, true);
             const auto expected_status = mode == "registered-same" ? SourceBuildExecutionStatus::UpToDate : mode == "registered-check" ? SourceBuildExecutionStatus::DevelRequiresCheckSkipped

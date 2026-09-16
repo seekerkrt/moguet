@@ -128,6 +128,7 @@ bool same_update_entry(
     const AurUpdatePlanEntry& rhs) {
     return lhs.installed_name == rhs.installed_name &&
            lhs.installed_version == rhs.installed_version &&
+           lhs.coordinated_replacement_version == rhs.coordinated_replacement_version &&
            lhs.install_reason == rhs.install_reason &&
            lhs.classification == rhs.classification &&
            lhs.devel_classification == rhs.devel_classification &&

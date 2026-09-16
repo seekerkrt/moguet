@@ -31,6 +31,9 @@ struct RequiredPackageArtifactTarget {
     // 未指定reasonをExplicitへvalue-initializeせず、pure boundaryでunknownとして拒否する。
     DesiredInstallReason desired_reason =
         static_cast<DesiredInstallReason>(-1);
+    // A confirmed coordinated replacement pins the full archive version.
+    // Ordinary source/devel updates leave this unset.
+    std::optional<std::string> expected_full_version = std::nullopt;
 };
 
 struct PackageBaseArtifactSelectionRequest {

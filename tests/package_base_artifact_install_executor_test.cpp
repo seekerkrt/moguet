@@ -799,6 +799,39 @@ void test_selection_order_and_success_ownership() {
     }
 }
 
+void test_confirmed_replacement_full_version_guard() {
+    for(const std::string actual_version : {"7.2.18-1", "7.2.16-1", "7.2.18-2"}) {
+        ArtifactSetFixture fixture({"replacement.pkg.tar.zst", "unselected.pkg.tar.zst"});
+        reset_stubs();
+        expect_identity_queries(fixture, {{"virtualbox-ext-oracle", actual_version}, {"unselected", "1-1"}});
+        auto required = target("virtualbox-ext-oracle", DesiredInstallReason::Explicit);
+        required.expected_full_version = "7.2.18-1";
+        if(actual_version != *required.expected_full_version) {
+            const auto diagnostic = expect_runtime_error(
+                [&] { static_cast<void>(prepare_fixture(fixture, {required})); },
+                "confirmed replacement version mismatch");
+            expect(diagnostic.find("Built replacement version differs") != std::string::npos,
+                   "Exact replacement guard lost its actionable diagnostic");
+            expect(metadata_stub::initialize_call_count() == 0 && process_stub::run_command_call_count() == 0,
+                   "Wrong full replacement version reached installed policy or pacman");
+            expect_caller_ownership(fixture, "version mismatch retains caller ownership");
+            fixture.artifacts().cleanup_workspace();
+            continue;
+        }
+        metadata_stub::enqueue_local_package_query_absent(required.package_name);
+        auto result = prepare_fixture(fixture, {required});
+        auto& prepared = expect_prepared(result, "confirmed exact replacement");
+        const auto command = expected_install_command({fixture.path_at(0)}, false, false);
+        process_stub::expect_run_command(command, 0);
+        const auto execution = execute_prepared_package_base_artifact_install(prepared, ArtifactInstallExecutionOptions{});
+        expect(execution.is_success() && process_stub::run_command_call_count() == 1 &&
+                   execution.selected_artifacts().size() == 1 &&
+                   execution.selected_artifacts().front().identity.full_version == "7.2.18-1",
+               "Matching exact replacement did not use one existing install transaction");
+        prepared.cleanup_workspace();
+    }
+}
+
 void test_selection_failure_and_preparation_guards() {
     {
         ArtifactSetFixture fixture(
@@ -1949,6 +1982,9 @@ int main() {
         run_case(
             "selection failure and preparation guards",
             test_selection_failure_and_preparation_guards);
+        run_case(
+            "confirmed replacement full version guard",
+            test_confirmed_replacement_full_version_guard);
         run_case(
             "selected metadata mapping and order",
             test_selected_metadata_mapping_and_order);

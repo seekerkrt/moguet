@@ -102,7 +102,8 @@ bool same_required_target(
     const RequiredPackageArtifactTarget& expected) noexcept {
     return actual.package_base == expected.package_base &&
            actual.package_name == expected.package_name &&
-           actual.desired_reason == expected.desired_reason;
+           actual.desired_reason == expected.desired_reason &&
+           actual.expected_full_version == expected.expected_full_version;
 }
 
 bool same_required_targets(
@@ -707,6 +708,9 @@ execute_prepared_package_base_source_build_work_item_typed(
         "AUR update set executor stub has an unknown scripted outcome.");
 }
 
+#ifndef MOGUET_TEST_REAL_INTERACTIVE_CONFIRMATION
 ConfirmationResult request_confirmation(const std::string&, ConfirmationDefault, bool) {
     throw std::logic_error("Runner fixture received an unexpected bootstrap confirmation.");
 }
+
+#endif

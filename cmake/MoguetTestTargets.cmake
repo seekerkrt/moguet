@@ -2704,6 +2704,7 @@ set(
     source/provider_selection.cpp
     source/filtered_aur_update_operation.cpp
     source/system_aur_update_operation.cpp
+    source/interactive_confirmation.cpp
     source/cross_source_version_lock.cpp
     source/cross_source_version_lock_observation.cpp
     source/package_relation_observation.cpp
@@ -2759,6 +2760,7 @@ moguet_add_cpp_test(
     REAL_ALPM
     SOURCES ${_moguet_filtered_aur_update_operation_test_sources}
     DEFINITIONS
+        MOGUET_TEST_REAL_INTERACTIVE_CONFIRMATION
         MOGUET_ENABLE_AUR_UPDATE_EXECUTION_PREPARATION_TEST_HOOKS
         MOGUET_ENABLE_AUR_UPDATE_EXECUTION_RUNNER_TEST_HOOKS
     INCLUDE_DIRECTORIES "${_moguet_test_source_include_dir}"
@@ -3588,7 +3590,7 @@ set(
     aur-update-execution-preflight-test=167eca6cef76a54712dd3281a015d38e406ae9fde1a264919d69b115a743cfd3
     aur-update-execution-runner-test=8766d5d10a5444e6ecb04ff945f2ef39341e4a0d99352817a0ab93c3fabb6197
     aur-update-operation-result-test=794c70c37241de19fa40d3e5369fadebe282fb321fd0e3771b8b3d89e0a369d2
-    filtered-aur-update-operation-test=3e546e341ccefd1af816e0030b83dfd2810dfe9f85abb5d014923fb58f2404a7
+    filtered-aur-update-operation-test=bd7f0ba6208cd64ea1a064415f31458c734af63e4b9df4dc501d406099e928f3
     upgrade-all-operation-test=475e5cc5d82f209254c180e603b310d8686b32c33a7c86e944ddac6e9b2c9819
     cli-diagnostic-model-test=8002a5929300ab26775ef525a5e3b893392b53d967963206061b68db35b4147c
     runtime-cli-connection-test=910b5e17c6405017a7cde1fdec2ae8bb55fd9b8464e6a9c282624232c2675a82
