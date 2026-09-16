@@ -108,6 +108,8 @@ constexpr std::array PUBLIC_SPECIAL_OPERATION_ORDER = {
     SpecialOperationId::SyncSelect,
     SpecialOperationId::SystemAurUpdate,
     SpecialOperationId::SystemRepositoryUpdate,
+    SpecialOperationId::SystemAurUpdateNoRefresh,
+    SpecialOperationId::SystemRepositoryUpdateNoRefresh,
 };
 
 } // namespace

@@ -146,10 +146,11 @@ inline constexpr std::string_view PKGBUILD_EXPORT_OPERATION = "-G";
 inline constexpr std::string_view PKGBUILD_PRINT_OPERATION = "-Gp";
 
 // Pacman-compatible syntax constants are public grammar identities, not a
-// parser allowlist. -Syu also keys the exact intercepted forms below; the
+// parser allowlist. -Syu / -Su key the exact intercepted forms below; the
 // remaining spellings stay open delegated examples.
 inline constexpr std::string_view PACMAN_SYNC_INSTALL_SYNTAX = "-S <pkg>";
 inline constexpr std::string_view PACMAN_SYSTEM_UPGRADE_SYNTAX = "-Syu";
+inline constexpr std::string_view PACMAN_SYSTEM_UPGRADE_NO_REFRESH_SYNTAX = "-Su";
 inline constexpr std::string_view PACMAN_SYNC_SEARCH_SYNTAX = "-Ss <query>";
 inline constexpr std::string_view PACMAN_SYNC_INFO_SYNTAX = "-Si <pkg>";
 inline constexpr std::string_view PACMAN_FOREIGN_UPDATES_SYNTAX = "-Qua";
@@ -914,7 +915,7 @@ constexpr OptionRelationContract delegated_needed_option_relation() noexcept {
         OptionForwardingOccurrence::PreserveAll};
 }
 
-// Exact targetless -Syu keeps --needed in the repository transaction only.
+// Exact supported targetless system-update forms keep --needed in the repository transaction only.
 // The later normal-AUR transaction deliberately does not inherit it.
 constexpr OptionRelationContract system_aur_needed_option_relation() noexcept {
     return OptionRelationContract{
@@ -1268,6 +1269,8 @@ enum class SpecialOperationId {
     SyncSelect,
     SystemRepositoryUpdate,
     SystemAurUpdate,
+    SystemRepositoryUpdateNoRefresh,
+    SystemAurUpdateNoRefresh,
     DelegatedPacmanGrammar,
     Count,
 };
@@ -1382,6 +1385,41 @@ inline constexpr std::array<SpecialOperationSpec,
          DelegatedPacmanTailPolicy::RepositoryOnly},
         {SpecialOperationId::SystemAurUpdate,
          PACMAN_SYSTEM_UPGRADE_SYNTAX, no_token_aliases(),
+         GrammarOwnership::InterceptedPacman, false,
+         OperationSemanticScope::SystemAndNormalAurUpgrade,
+         DryRunSupport::Supported, no_operands(),
+         TargetPolicy::None,
+         operation_option_relations(
+             OptionId::Edit, OptionId::NoEdit,
+             OptionId::Diff, OptionId::NoDiff,
+             source_no_confirm_option_relation(), OptionId::DryRun,
+             OptionId::BuildMode, OptionId::Rebuild,
+             OptionId::CleanBuild,
+             public_syntax_option_relation(
+                 system_aur_needed_option_relation(),
+                 OptionPublicSyntax::Optional)),
+         "exit.partial-mutation", "cli.pacman.system-aur-update"},
+        {SpecialOperationId::SystemRepositoryUpdateNoRefresh,
+         PACMAN_SYSTEM_UPGRADE_NO_REFRESH_SYNTAX, no_token_aliases(),
+         GrammarOwnership::InterceptedPacman, false,
+         OperationSemanticScope::RepositorySystemUpgrade,
+         DryRunSupport::Supported, no_operands(),
+         TargetPolicy::None,
+         operation_option_relations(
+             public_syntax_option_relation(
+                 consumed_option_relation(
+                     OptionId::Repo,
+                     OptionRelationRequirement::Required),
+                 OptionPublicSyntax::Required),
+             public_syntax_option_relation(
+                 system_aur_needed_option_relation(),
+                 OptionPublicSyntax::Optional),
+             pacman_no_confirm_option_relation(), OptionId::DryRun),
+         "exit.delegated-pacman",
+         "cli.pacman.system-repository-update",
+         DelegatedPacmanTailPolicy::RepositoryOnly},
+        {SpecialOperationId::SystemAurUpdateNoRefresh,
+         PACMAN_SYSTEM_UPGRADE_NO_REFRESH_SYNTAX, no_token_aliases(),
          GrammarOwnership::InterceptedPacman, false,
          OperationSemanticScope::SystemAndNormalAurUpgrade,
          DryRunSupport::Supported, no_operands(),

@@ -23,6 +23,12 @@ moguet \- 検証済みsource buildを備えたpacman-first AUR helper
 .B -Syu --repo [--needed]
 .
 .B moguet
+.B -Su [--needed]
+.
+.B moguet
+.B -Su --repo [--needed]
+.
+.B moguet
 .BR -h | --help
 .
 .B moguet
@@ -371,7 +377,9 @@ source-awareなofficial repository / AUR candidateを表示して、interactive�
 をroute-owned final installationだけへ適用します。
 .
 .TP
-.B "-Syu [--needed] | -Syu --repo [--needed]"
+.B "-Syu [--needed] | -Syu --repo [--needed] | -Su [--needed] | -Su --repo [--needed]"
+-Su formはrefreshを追加せず現在のsync DBを使います。以下のrepository-first、fresh AUR、
+dry-run、source selection、failure、coordinated transition契約は-Syuと-Suで共有します。
 exact target-less Auto formは通常のAUR helper updateです。official repository system
 upgradeを先に実行し、成功後にだけfreshなinstalled-foreign inventoryとexact AUR metadataを
 取得して、normal installed-AUR updateをplan・実行します。
@@ -421,21 +429,23 @@ Autoでinitially対応するpacman semantic optionは
 だけです。exact ordered repository transactionにだけ保持し、later AUR transactionへ適用しません。
 その他のpacman semantic optionやunsupported argument formはrepository mutation前に拒否し、
 .B "moguet -Syu --repo"
+または
+.B "moguet -Su --repo"
 を案内します。RepoOnly formはsemantic selectorをpacmanへ渡さず、compatibleなpacman
 pass-through tailを維持してrepository system upgradeだけを行います。AUR query、source
 preference、cache、Git、makepkg、source runnerへ到達しません。
-.B -Syu --aur
+.B -Syu --aur / -Su --aur
 はunsupportedです。AUR-only updateにはsource-awareな
 .B upgrade-aur
 を使います。
 .
 .PP
-combined semanticsを持つのはexact canonical target-less tokenだけです。
+combined semanticsを持つのはexact target-less -Syu / -Su tokenだけです。
 .BR -Sy 、
-.BR -Su 、
+.BR -Syy 、
 .BR -Suy 、
 separated / long modifier spelling、target-bearing
-.BR "-Syu <pkg>" 、
+.BR "-Syu <pkg>" / "-Su <pkg>" 、
 unknown modifier formはexisting routingを維持し、installed-AUR sweepを開始しません。
 .
 .TP

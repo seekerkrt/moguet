@@ -192,7 +192,7 @@ detailed plan.
   retrying; the package may already be installed. In `upgrade-all`, provider
   selection for the filtered AUR phase occurs before clone, build, pacman, or
   sudo work in that phase, but earlier phases may already have completed.
-- Exact target-less `moguet -Syu` is also sequential: normally it completes the official
+- Exact target-less `moguet -Syu` / `moguet -Su` is also sequential: normally it completes the official
   repository system upgrade first, then obtains a fresh installed-foreign/AUR
   inventory and performs the normal AUR update. Before repository mutation,
   a read-only preflight reports possible repo/AUR exact-version locks; the same
@@ -401,10 +401,12 @@ revert <pkg>...
 -S --select [--needed] <query>
 -Syu [--needed]
 -Syu --repo [--needed]
+-Su [--needed]
+-Su --repo [--needed]
 ```
 <!-- CLI CANONICAL GRAMMAR END -->
 
-The two exact target-less `-Syu` forms are Moguet-intercepted semantic routes;
+The exact target-less `-Syu` and `-Su` forms are Moguet-intercepted semantic routes;
 the repository-only form still accepts a compatible delegated pacman tail.
 Other pacman operation forms remain delegated open grammar, not a Moguet
 allowlist. The closed grammar rejects a second bare operand for remote or local
@@ -496,7 +498,7 @@ is not reused as an approval token, execution capability, or cached provider
 choice: a later actual invocation revalidates current state. The v2.2.0 surface
 is human-readable only and adds no JSON or other machine-readable plan schema.
 
-For exact target-less `moguet --dry-run -Syu`, the repository system-update
+For exact target-less `moguet --dry-run -Syu` / `moguet --dry-run -Su`, the repository system-update
 intent and the later normal-AUR transaction intents are shown separately. The
 AUR assessment is based on the currently installed state, not the state after
 a hypothetical repository transaction. Actual `moguet -Syu` does not reuse
@@ -531,17 +533,19 @@ targets. `upgrade-all` performs the repository update, configured-source
 lifecycle, and remaining AUR update. These commands are not aliases for
 ordinary `-Syu`.
 
-Only the exact target-less canonical `-Syu` token enters the combined route.
-`-Sy`, `-Su`, alternate or separated modifier spellings, target-bearing
-`-Syu <pkg>`, and unknown modifier forms retain their existing routing and do
+Only the exact target-less `-Syu` and `-Su` tokens enter the combined route.
+`-Su` uses the current sync databases without adding a refresh; it shares the
+repository-first, fresh-AUR, dry-run, source-selection, and safety contracts of `-Syu`.
+`-Sy`, `-Syy`, alternate or separated modifier spellings, target-bearing
+`-Syu <pkg>` / `-Su <pkg>`, and unknown modifier forms retain their existing routing and do
 not start an installed-AUR sweep. Initially, `--needed` is the only pacman
 semantic option supported by automatic combined `-Syu`; it applies only to
 the repository transaction. Any other pacman semantic option or unsupported
 argument form fails before repository mutation, with guidance to use
-`moguet -Syu --repo`. The repository-only form removes the semantic selector
+`moguet -Syu --repo` or `moguet -Su --repo`. The repository-only form removes the semantic selector
 before invoking pacman, preserves the compatible pacman pass-through surface,
 and performs no AUR inventory, AUR RPC, preference, cache, Git, or makepkg
-work. `moguet -Syu --aur` is unsupported; use the source-aware
+work. `moguet -Syu --aur` and `moguet -Su --aur` are unsupported; use the source-aware
 `moguet upgrade-aur` for an AUR-only update. `--noconfirm` never bypasses
 provider, conflict/replacement, required `RequiresCheck`, or other safety
 guards, and it never approves an unverified devel update.
@@ -627,8 +631,8 @@ installed artifact binding changes. See the [devel tracking and migration contra
 
 `--aur` limits supported `-S`, `-Ss`, and `-Si` forms to AUR. `--repo`
 limits those forms to official binary repositories and is also the
-repository-only selector for exact target-less `-Syu`. `--aur` is not accepted
-with `-Syu`. Combining the selectors is an error before an external command or
+repository-only selector for exact target-less `-Syu` / `-Su`. `--aur` is not accepted
+with either form. Combining the selectors is an error before an external command or
 AUR query. Pacman-only routes preserve compatible pacman options; a
 source-build route rejects options whose meaning cannot be preserved instead
 of silently ignoring them.
@@ -887,6 +891,10 @@ route. Operations handled entirely by pacman pass through options that Moguet
 does not consume. When Moguet takes responsibility for an AUR or source-build
 route, it preserves only options with an explicitly defined equivalent and
 fails before mutation for the rest.
+
+Exact target-less `moguet -Su` now also updates normal installed AUR packages
+after repository success. Use `moguet -Su --repo` to retain repository-only
+behavior without refreshing sync databases.
 
 Moguet v2.6.0 changes exact target-less `moguet -Syu` from repository-only to
 the ordinary AUR-helper behavior: repository system update followed by a

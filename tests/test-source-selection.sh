@@ -689,9 +689,9 @@ unsupported_index=0
 for selector in --aur --repo; do
     assert_unsupported_operation "$selector" upgrade
     assert_unsupported_operation "$selector" upgrade-aur
-    assert_unsupported_operation "$selector" -Su
     assert_unsupported_operation "$selector" -S -u
     if [ "$selector" = "--aur" ]; then
+        assert_unsupported_operation "$selector" -Su
         unsupported_index=$((unsupported_index + 1))
         setup_case unsupported-$unsupported_index
         run_fail -Syu --aur
@@ -708,6 +708,12 @@ for selector in --aur --repo; do
         assert_command_log_empty
         assert_request_log_empty
     else
+        setup_case repository-system-update-no-refresh
+        run_ok -Su --repo
+        assert_only_command "sudo pacman -Su"
+        assert_request_log_empty
+        assert_cache_root_absent
+
         unsupported_index=$((unsupported_index + 1))
         setup_case repository-system-update-$unsupported_index
         prepare_preference_store

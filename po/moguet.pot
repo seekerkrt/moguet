@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.7.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-16 18:55+0900\n"
+"POT-Creation-Date: 2026-09-17 05:14+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -5588,6 +5588,9 @@ msgstr ""
 msgid "Allow the full {}-compatible repository argument tail"
 msgstr ""
 
+msgid "Use the current sync databases without refreshing them"
+msgstr ""
+
 msgid "Search for packages"
 msgstr ""
 
@@ -5617,7 +5620,7 @@ msgstr ""
 msgid "Show assessed conflict/replacement blockers before any supported mutation"
 msgstr ""
 
-#. TRANSLATORS: The placeholders are the literal -Syu token and AUR project identity.
+#. TRANSLATORS: The placeholders are the literal -Syu / -Su tokens and AUR project identity.
 #, c++-format
 msgid "For {}, assess the current installed {} state; actual execution re-evaluates it after the repository upgrade succeeds"
 msgstr ""
@@ -5688,12 +5691,12 @@ msgstr ""
 msgid "Limit {}, {}, and {} to {}; do not fall back to repositories"
 msgstr ""
 
-#. TRANSLATORS: The placeholders are literal -Syu, upgrade-aur, and AUR identities.
+#. TRANSLATORS: The placeholders are literal -Syu / -Su, upgrade-aur, and AUR identities.
 #, c++-format
 msgid "Do not use with {}; use {} for an {}-only source-aware update"
 msgstr ""
 
-#. TRANSLATORS: -S, -Ss, -Si, -Syu, and AUR are literal CLI/project identities.
+#. TRANSLATORS: -S, -Ss, -Si, -Syu / -Su, and AUR are literal CLI/project identities.
 #, c++-format
 msgid "Limit {}, {}, and {} to official binary repositories; with {}, run the repository system upgrade only; do not use {} or source builds"
 msgstr ""

@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.7.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-16 18:55+0900\n"
+"POT-Creation-Date: 2026-09-17 05:14+0900\n"
 "PO-Revision-Date: 2026-09-09 16:53+0900\n"
 "Last-Translator: Moguet contributors\n"
 "Language-Team: Japanese\n"
@@ -5580,6 +5580,9 @@ msgstr "リポジトリのシステム更新だけを実行"
 msgid "Allow the full {}-compatible repository argument tail"
 msgstr "{}互換のリポジトリ引数をすべて許可"
 
+msgid "Use the current sync databases without refreshing them"
+msgstr "同期データベースを更新せず現在の内容を使用"
+
 msgid "Search for packages"
 msgstr "パッケージを検索"
 
@@ -5609,7 +5612,7 @@ msgstr "未対応経路を拒否し、state、cache、workspaceを作成しま�
 msgid "Show assessed conflict/replacement blockers before any supported mutation"
 msgstr "対応する変更の前に判定済みの競合/置換ブロッカーを表示"
 
-#. TRANSLATORS: The placeholders are the literal -Syu token and AUR project identity.
+#. TRANSLATORS: The placeholders are the literal -Syu / -Su tokens and AUR project identity.
 #, c++-format
 msgid "For {}, assess the current installed {} state; actual execution re-evaluates it after the repository upgrade succeeds"
 msgstr "{}では現在インストールされている{}状態を評価し、実行時はリポジトリ更新成功後に再評価します"
@@ -5680,12 +5683,12 @@ msgstr "分離されたソースビルドでは未対応です。依存パッケ
 msgid "Limit {}, {}, and {} to {}; do not fall back to repositories"
 msgstr "{}、{}、{}を{}に限定し、リポジトリへフォールバックしません"
 
-#. TRANSLATORS: The placeholders are literal -Syu, upgrade-aur, and AUR identities.
+#. TRANSLATORS: The placeholders are literal -Syu / -Su, upgrade-aur, and AUR identities.
 #, c++-format
 msgid "Do not use with {}; use {} for an {}-only source-aware update"
 msgstr "{}とは併用できません。{}を使用すると{}専用のソース対応更新になります"
 
-#. TRANSLATORS: -S, -Ss, -Si, -Syu, and AUR are literal CLI/project identities.
+#. TRANSLATORS: -S, -Ss, -Si, -Syu / -Su, and AUR are literal CLI/project identities.
 #, c++-format
 msgid "Limit {}, {}, and {} to official binary repositories; with {}, run the repository system upgrade only; do not use {} or source builds"
 msgstr "{}、{}、{}を公式バイナリリポジトリに限定し、{}ではリポジトリのシステム更新だけを実行して、{}やソースビルドを使用しません"

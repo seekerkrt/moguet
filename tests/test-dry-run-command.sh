@@ -485,66 +485,68 @@ run_supported \
     "Identity: AUR/clean-root (PackageBase: clean-root)" \
     --dry-run -S clean-root
 
-setup_case sync-system-aur-update
-set_foreign_inventory 'clean-root 0.9-1 explicit'
-MOGUET_TEST_VERCMP_OUTPUT=1
-MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG=$command_log
-export MOGUET_TEST_VERCMP_OUTPUT MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG
-: > "$command_log"
-start_mutation_sentinel
-if (cd "$case_work_dir" &&
-        "$repository_test_binary" --dry-run -Syu) \
-    </dev/null > "$output_file" 2>&1
-then
-    status=0
-else
-    status=$?
-fi
-if [ "$status" -ne 0 ]; then
-    echo "combined system/AUR dry-run returned $status" >&2
-    sed -n '1,240p' "$output_file" >&2
-    exit 1
-fi
-grep -Fx -- "System + normal AUR update plan:" "$output_file" >/dev/null
-grep -Fx -- "  Status: Ready" "$output_file" >/dev/null
-grep -Fx -- "Repository system phase:" "$output_file" >/dev/null
-grep -Fx -- "Current-state normal AUR phase:" "$output_file" >/dev/null
-grep -Fx -- "  AUR assessment is based on the current installed state." "$output_file" >/dev/null
-grep -Fx -- "  Actual execution re-evaluates AUR state after the repository upgrade succeeds." "$output_file" >/dev/null
-grep -Fx -- "  The repository system transaction and later normal AUR transactions are separate intents." "$output_file" >/dev/null
-assert_text_before \
-    "Repository system phase:" \
-    "Current-state normal AUR phase:" \
-    "$output_file"
-assert_protected_storage_unchanged
-assert_read_only_commands
+for sync_operation in -Syu -Su; do
+    setup_case "sync-system-aur-update-$sync_operation"
+    set_foreign_inventory 'clean-root 0.9-1 explicit'
+    MOGUET_TEST_VERCMP_OUTPUT=1
+    MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG=$command_log
+    export MOGUET_TEST_VERCMP_OUTPUT MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG
+    : > "$command_log"
+    start_mutation_sentinel
+    if (cd "$case_work_dir" &&
+            "$repository_test_binary" --dry-run "$sync_operation") \
+        </dev/null > "$output_file" 2>&1
+    then
+        status=0
+    else
+        status=$?
+    fi
+    if [ "$status" -ne 0 ]; then
+        echo "combined system/AUR dry-run returned $status" >&2
+        sed -n '1,240p' "$output_file" >&2
+        exit 1
+    fi
+    grep -Fx -- "System + normal AUR update plan:" "$output_file" >/dev/null
+    grep -Fx -- "  Status: Ready" "$output_file" >/dev/null
+    grep -Fx -- "Repository system phase:" "$output_file" >/dev/null
+    grep -Fx -- "Current-state normal AUR phase:" "$output_file" >/dev/null
+    grep -Fx -- "  AUR assessment is based on the current installed state." "$output_file" >/dev/null
+    grep -Fx -- "  Actual execution re-evaluates AUR state after the repository upgrade succeeds." "$output_file" >/dev/null
+    grep -Fx -- "  The repository system transaction and later normal AUR transactions are separate intents." "$output_file" >/dev/null
+    assert_text_before \
+        "Repository system phase:" \
+        "Current-state normal AUR phase:" \
+        "$output_file"
+    assert_protected_storage_unchanged
+    assert_read_only_commands
 
-setup_case sync-system-aur-no-updates-not-whole-noop
-set_foreign_inventory 'clean-root 1.0-1 explicit'
-MOGUET_TEST_VERCMP_OUTPUT=0
-MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG=$command_log
-export MOGUET_TEST_VERCMP_OUTPUT MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG
-: > "$command_log"
-start_mutation_sentinel
-if (cd "$case_work_dir" &&
-        "$repository_test_binary" --dry-run -Syu) \
-    </dev/null > "$output_file" 2>&1
-then
-    status=0
-else
-    status=$?
-fi
-if [ "$status" -ne 0 ]; then
-    echo "combined no-update dry-run returned $status" >&2
-    sed -n '1,240p' "$output_file" >&2
-    exit 1
-fi
-grep -Fx -- "System + normal AUR update plan:" "$output_file" >/dev/null
-grep -Fx -- "  Status: Ready" "$output_file" >/dev/null
-grep -Fx -- "Current-state normal AUR phase:" "$output_file" >/dev/null
-assert_text_occurrence_count 1 "  Status: NoOp" "$output_file"
-assert_protected_storage_unchanged
-assert_read_only_commands
+    setup_case "sync-system-aur-no-updates-not-whole-noop-$sync_operation"
+    set_foreign_inventory 'clean-root 1.0-1 explicit'
+    MOGUET_TEST_VERCMP_OUTPUT=0
+    MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG=$command_log
+    export MOGUET_TEST_VERCMP_OUTPUT MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG
+    : > "$command_log"
+    start_mutation_sentinel
+    if (cd "$case_work_dir" &&
+            "$repository_test_binary" --dry-run "$sync_operation") \
+        </dev/null > "$output_file" 2>&1
+    then
+        status=0
+    else
+        status=$?
+    fi
+    if [ "$status" -ne 0 ]; then
+        echo "combined no-update dry-run returned $status" >&2
+        sed -n '1,240p' "$output_file" >&2
+        exit 1
+    fi
+    grep -Fx -- "System + normal AUR update plan:" "$output_file" >/dev/null
+    grep -Fx -- "  Status: Ready" "$output_file" >/dev/null
+    grep -Fx -- "Current-state normal AUR phase:" "$output_file" >/dev/null
+    assert_text_occurrence_count 1 "  Status: NoOp" "$output_file"
+    assert_protected_storage_unchanged
+    assert_read_only_commands
+done
 
 setup_case sync-system-aur-requires-check
 set_foreign_inventory 'moguet-fixture-rc-one-git 1.0-1 explicit
@@ -651,50 +653,53 @@ fi
 assert_protected_storage_unchanged
 assert_read_only_commands
 
-setup_case sync-system-repository-only
-MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG=$command_log
-export MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG
-: > "$command_log"
-start_mutation_sentinel
-if (cd "$case_work_dir" &&
-        "$repository_test_binary" --dry-run -Syu --repo \
-            --config custom.conf) \
-    </dev/null > "$output_file" 2>&1
-then
-    status=0
-else
-    status=$?
-fi
-if [ "$status" -ne 0 ]; then
-    echo "repository-only system dry-run returned $status" >&2
-    sed -n '1,240p' "$output_file" >&2
-    exit 1
-fi
-grep -Fx -- "Repository system update plan:" "$output_file" >/dev/null
-grep -Fx -- "  Status: Ready" "$output_file" >/dev/null
-grep -Fx -- "Repository update phase:" "$output_file" >/dev/null
-grep -Fx -- "Repository system phase:" "$output_file" >/dev/null
-grep -F -- "Repository system transaction intent" "$output_file" >/dev/null
-# A successful RepoOnly projection with this value-taking tail preserves the
-# delegated --config argument form without executing a repository query.
-if grep -F -- "System + normal AUR update plan:" "$output_file" >/dev/null ||
-   grep -F -- "Combined update phases:" "$output_file" >/dev/null ||
-   grep -F -- "Current-state normal AUR phase:" "$output_file" >/dev/null ||
-   grep -F -- "AUR assessment is based on" "$output_file" >/dev/null ||
-   grep -F -- "Attention-required details:" "$output_file" >/dev/null ||
-   grep -F -- "later normal AUR" "$output_file" >/dev/null
-then
-    echo "repository-only dry-run exposed AUR observation semantics" >&2
-    sed -n '1,240p' "$output_file" >&2
-    exit 1
-fi
-if [ -s "$command_log" ]; then
-    echo "repository-only dry-run performed a read-only AUR/repository query" >&2
-    cat "$command_log" >&2
-    exit 1
-fi
-assert_protected_storage_unchanged
-assert_read_only_commands
+for sync_operation in -Syu -Su; do
+    setup_case "sync-system-repository-only-$sync_operation"
+    MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG=$command_log
+    export MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG
+    : > "$command_log"
+    start_mutation_sentinel
+    if (cd "$case_work_dir" &&
+            "$repository_test_binary" --dry-run "$sync_operation" --repo \
+                --config custom.conf) \
+        </dev/null > "$output_file" 2>&1
+    then
+        status=0
+    else
+        status=$?
+    fi
+    if [ "$status" -ne 0 ]; then
+        echo "repository-only system dry-run returned $status" >&2
+        sed -n '1,240p' "$output_file" >&2
+        exit 1
+    fi
+    grep -Fx -- "Repository system update plan:" "$output_file" >/dev/null
+    grep -Fx -- "  Status: Ready" "$output_file" >/dev/null
+    grep -Fx -- "Repository update phase:" "$output_file" >/dev/null
+    grep -Fx -- "Repository system phase:" "$output_file" >/dev/null
+    grep -F -- "Repository system transaction intent" "$output_file" >/dev/null
+    # A successful RepoOnly projection with this value-taking tail preserves the
+    # delegated --config argument form without executing a repository query.
+    if grep -F -- "System + normal AUR update plan:" "$output_file" >/dev/null ||
+       grep -F -- "Combined update phases:" "$output_file" >/dev/null ||
+       grep -F -- "Current-state normal AUR phase:" "$output_file" >/dev/null ||
+       grep -F -- "AUR assessment is based on" "$output_file" >/dev/null ||
+       grep -F -- "Attention-required details:" "$output_file" >/dev/null ||
+       grep -F -- "later normal AUR" "$output_file" >/dev/null
+    then
+        echo "repository-only dry-run exposed AUR observation semantics" >&2
+        sed -n '1,240p' "$output_file" >&2
+        exit 1
+    fi
+    if [ -s "$command_log" ]; then
+        echo "repository-only dry-run performed a read-only AUR/repository query" >&2
+        cat "$command_log" >&2
+        exit 1
+    fi
+    assert_protected_storage_unchanged
+    assert_read_only_commands
+done
+
 run_supported \
     fetch Ready 1 \
     "Identity: AUR/clean-root (PackageBase: clean-root)" \

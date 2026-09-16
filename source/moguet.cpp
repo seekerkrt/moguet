@@ -904,28 +904,36 @@ void print_help() {
             // TRANSLATORS: The placeholder is the AUR project identity.
             "Require an interactive terminal; install selected repository roots first, then build selected {} roots only if that transaction succeeds",
             "AUR"));
-    print_help_entry(
-        cli_special_operation_syntax(
-            SpecialOperationId::SystemAurUpdate),
-        localization::format_translated_message(
+    for(const bool refresh : {true, false}) {
+        const auto aur_operation = refresh ? SpecialOperationId::SystemAurUpdate : SpecialOperationId::SystemAurUpdateNoRefresh;
+        const auto repository_operation = refresh ? SpecialOperationId::SystemRepositoryUpdate : SpecialOperationId::SystemRepositoryUpdateNoRefresh;
+        print_help_entry(
+            cli_special_operation_syntax(
+                aur_operation),
+            localization::format_translated_message(
+                // TRANSLATORS: The placeholder is the AUR project identity.
+                "Upgrade official repository packages and normal installed {} packages",
+                "AUR"));
+        print_help_continuation(
+            localization::translate_message(
+                "Do not read or apply saved source-build preferences"));
+        print_help_continuation(localization::format_translated_message(
             // TRANSLATORS: The placeholder is the AUR project identity.
-            "Upgrade official repository packages and normal installed {} packages",
+            "Run repository and {} phases sequentially; a later failure does not roll back the repository upgrade",
             "AUR"));
-    print_help_continuation(
-        localization::translate_message(
-            "Do not read or apply saved source-build preferences"));
-    print_help_continuation(localization::format_translated_message(
-        // TRANSLATORS: The placeholder is the AUR project identity.
-        "Run repository and {} phases sequentially; a later failure does not roll back the repository upgrade",
-        "AUR"));
-    print_help_entry(
-        cli_special_operation_syntax(
-            SpecialOperationId::SystemRepositoryUpdate),
-        localization::translate_message(
-            "Run the repository system upgrade only"));
-    print_help_continuation(localization::format_translated_message(
-        // TRANSLATORS: The placeholder is the pacman program identity.
-        "Allow the full {}-compatible repository argument tail", "pacman"));
+        print_help_entry(
+            cli_special_operation_syntax(
+                repository_operation),
+            localization::translate_message(
+                "Run the repository system upgrade only"));
+        print_help_continuation(localization::format_translated_message(
+            // TRANSLATORS: The placeholder is the pacman program identity.
+            "Allow the full {}-compatible repository argument tail", "pacman"));
+        if(!refresh) {
+            print_help_continuation(localization::translate_message(
+                "Use the current sync databases without refreshing them"));
+        }
+    }
     print_help_entry(
         cli_authority::PACMAN_SYNC_SEARCH_SYNTAX,
         localization::translate_message("Search for packages"));
@@ -956,9 +964,9 @@ void print_help() {
     print_help_continuation(localization::translate_message(
         "Show assessed conflict/replacement blockers before any supported mutation"));
     print_help_continuation(localization::format_translated_message(
-        // TRANSLATORS: The placeholders are the literal -Syu token and AUR project identity.
+        // TRANSLATORS: The placeholders are the literal -Syu / -Su tokens and AUR project identity.
         "For {}, assess the current installed {} state; actual execution re-evaluates it after the repository upgrade succeeds",
-        "-Syu", "AUR"));
+        "-Syu / -Su", "AUR"));
     print_help_entry(
         cli_option_syntax(OptionId::Edit),
         localization::format_translated_message(
@@ -1037,15 +1045,15 @@ void print_help() {
             "Limit {}, {}, and {} to {}; do not fall back to repositories",
             "-S", "-Ss", "-Si", "AUR"));
     print_help_continuation(localization::format_translated_message(
-        // TRANSLATORS: The placeholders are literal -Syu, upgrade-aur, and AUR identities.
+        // TRANSLATORS: The placeholders are literal -Syu / -Su, upgrade-aur, and AUR identities.
         "Do not use with {}; use {} for an {}-only source-aware update",
-        "-Syu", "upgrade-aur", "AUR"));
+        "-Syu / -Su", "upgrade-aur", "AUR"));
     print_help_entry(
         cli_option_syntax(OptionId::Repo),
         localization::format_translated_message(
-            // TRANSLATORS: -S, -Ss, -Si, -Syu, and AUR are literal CLI/project identities.
+            // TRANSLATORS: -S, -Ss, -Si, -Syu / -Su, and AUR are literal CLI/project identities.
             "Limit {}, {}, and {} to official binary repositories; with {}, run the repository system upgrade only; do not use {} or source builds",
-            "-S", "-Ss", "-Si", "-Syu", "AUR"));
+            "-S", "-Ss", "-Si", "-Syu / -Su", "AUR"));
     std::cout << std::endl;
     print_help_section(localization::translate_message("CONFIGURATION"));
     print_help_entry(

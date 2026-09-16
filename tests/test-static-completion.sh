@@ -42,7 +42,7 @@ assert_reply() {
 root_candidates=(
     build upgrade upgrade-aur upgrade-all clean deps plan fetch
     add-src edit-src list-src del-src revert
-    -G -Gp -S -Syu -Ss -Si -Qua
+    -G -Gp -S -Syu -Su -Ss -Si -Qua
     -h --help -V --version
     --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode=
     --rebuild --cleanbuild --rmdeps --select --aur --repo
@@ -195,24 +195,26 @@ assert_reply \
 run_completion moguet -S --select query extra ""
 assert_reply "source-aware select extra query後は候補を提示しない"
 
-run_completion moguet -Syu ""
-assert_reply \
-    "-Syu Autoはnormal AUR対応optionとRepoOnly escape hatchを提示" \
-    --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= \
-    --rebuild --cleanbuild --needed --repo
+for sync_operation in -Syu -Su; do
+    run_completion moguet $sync_operation ""
+    assert_reply \
+        "$sync_operation Autoはnormal AUR対応optionとRepoOnly escape hatchを提示" \
+        --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= \
+        --rebuild --cleanbuild --needed --repo
 
-run_completion moguet -Syu --repo ""
-assert_reply \
-    "-Syu RepoOnlyはrepository surfaceだけを提示" \
-    --repo --needed --noconfirm --dry-run
+    run_completion moguet $sync_operation --repo ""
+    assert_reply \
+        "$sync_operation RepoOnlyはrepository surfaceだけを提示" \
+        --repo --needed --noconfirm --dry-run
 
-run_completion moguet -Syu package ""
-assert_reply \
-    "target-bearing -Syuはopen pacman grammarを維持" \
-    --needed --noconfirm
+    run_completion moguet $sync_operation package ""
+    assert_reply \
+        "target-bearing $sync_operationはopen pacman grammarを維持" \
+        --needed --noconfirm
 
-run_completion moguet -Syu --a
-assert_reply "-Syuはunsupported --aurを提示しない"
+    run_completion moguet $sync_operation --a
+    assert_reply "$sync_operationはunsupported --aurを提示しない"
+done
 
 run_completion moguet -Q ""
 assert_reply "未列挙pacman operationもopen grammarとして扱う" --needed --noconfirm

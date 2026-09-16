@@ -20,6 +20,8 @@
 #   -S --select [--needed] <query>
 #   -Syu [--needed]
 #   -Syu --repo [--needed]
+#   -Su [--needed]
+#   -Su --repo [--needed]
 
 function __moguet_option_id --argument-names word
     switch $word
@@ -95,7 +97,7 @@ end
 function __moguet_operation
     for word in (commandline -opc)[2..-1]
         switch $word
-        case '-h' '--help' '-V' '--version' 'build' 'upgrade' 'upgrade-aur' 'upgrade-all' 'clean' 'deps' 'plan' 'fetch' 'add-src' 'edit-src' 'list-src' 'del-src' 'revert' '-G' '-Gp' '-S' '-Syu' '-Ss' '-Si' '-Qua'
+        case '-h' '--help' '-V' '--version' 'build' 'upgrade' 'upgrade-aur' 'upgrade-all' 'clean' 'deps' 'plan' 'fetch' 'add-src' 'edit-src' 'list-src' 'del-src' 'revert' '-G' '-Gp' '-S' '-Syu' '-Su' '-Ss' '-Si' '-Qua'
             echo $word
             return 0
         end
@@ -195,6 +197,12 @@ function __moguet_form_prefix_valid --argument-names expected_operation form_ind
         case '-Syu:1'
             test (count $operands) -le 0; and return 0
             return 1
+        case '-Su:0'
+            test (count $operands) -le 0; and return 0
+            return 1
+        case '-Su:1'
+            test (count $operands) -le 0; and return 0
+            return 1
     end
     return 1
 end
@@ -279,6 +287,17 @@ function __moguet_operation_allows --argument-names option_id
             else
                 contains -- $option_id 0 1 2 3 4 5 6 7 8 18 12 19; and return 0; or return 1
             end
+        case '-Su'
+            set -l selected false
+            __moguet_has_option_id 12; and set selected true
+            if test $selected = true
+                __moguet_form_prefix_valid '-Su' 1; or return 1
+                contains -- $option_id 12 18 4 5 19; and return 0; or return 1
+            else if __moguet_has_operand '-Su'
+                contains -- $option_id 18 4; and return 0; or return 1
+            else
+                contains -- $option_id 0 1 2 3 4 5 6 7 8 18 12 19; and return 0; or return 1
+            end
         case '-Ss'
             contains -- $option_id 18 4; and return 0; or return 1
         case '-Si'
@@ -345,6 +364,7 @@ complete -c moguet -f -n '__moguet_no_operation' -a '-G' -d 'Export one AUR Pack
 complete -c moguet -f -n '__moguet_no_operation' -a '-Gp' -d 'Print one AUR PackageBase PKGBUILD without keeping a checkout'
 complete -c moguet -f -n '__moguet_no_operation' -a '-S' -d 'Install packages'
 complete -c moguet -f -n '__moguet_no_operation' -a '-Syu' -d 'Update repository packages and normal installed AUR packages without saved source-build preferences'
+complete -c moguet -f -n '__moguet_no_operation' -a '-Su' -d 'Update repository packages and normal installed AUR packages without refreshing sync databases or using saved source-build preferences'
 complete -c moguet -f -n '__moguet_no_operation' -a '-Ss' -d 'Search for packages'
 complete -c moguet -f -n '__moguet_no_operation' -a '-Si' -d 'Show package information'
 complete -c moguet -f -n '__moguet_no_operation' -a '-Qua' -d 'Check AUR and foreign-package updates'
@@ -364,7 +384,7 @@ complete -c moguet -f -n '__moguet_candidate_available 8' -a '--cleanbuild' -d '
 complete -c moguet -f -n '__moguet_candidate_available 9' -a '--rmdeps' -d 'Unsupported for separated source builds; no dependency cleanup is performed'
 complete -c moguet -f -n '__moguet_candidate_available 10' -a '--select' -d 'Interactively select source-aware package candidates for plain -S'
 complete -c moguet -f -n '__moguet_candidate_available 11' -a '--aur' -d 'Limit supported sync operations to AUR'
-complete -c moguet -f -n '__moguet_candidate_available 12' -a '--repo' -d 'Use only official binary repositories; with -Syu, run the repository system upgrade only'
+complete -c moguet -f -n '__moguet_candidate_available 12' -a '--repo' -d 'Use only official binary repositories; with -Syu / -Su, run the repository system upgrade only'
 complete -c moguet -f -n '__moguet_candidate_available 15' -a '--local' -d 'Use one local PKGBUILD directory as the build root'
 complete -c moguet -f -n '__moguet_candidate_available 16' -a '--output-dir=' -d 'Select an existing export parent for -G'
 complete -c moguet -f -n '__moguet_candidate_available 17' -a '--recursive' -d 'Resolve dependencies recursively'
