@@ -70,6 +70,7 @@ setup_case() {
     unset MOGUET_TEST_PACKAGE_METADATA_PACMAN_CONF_FAILURE_AT
     unset MOGUET_TEST_PACKAGE_METADATA_STATE_FILE
     unset MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE
+    unset MOGUET_TEST_CROSS_SOURCE_TRANSITION_CASE
     unset MOGUET_TEST_INSPECTION_SCENARIO
     export MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG=$metadata_log
     unset MOGUET_TEST_PACKAGE_METADATA_INITIALIZE_FAILURE
@@ -1001,6 +1002,66 @@ for mode in actual dry-run; do
     assert_not_contains "Possible repository/AUR cross-source version-lock candidate" "$output_file"
     assert_event_prefix_absent '^(git|makepkg|aur) '
     assert_event_pattern_count 0 '^sudo pacman -(R|U) '
+done
+
+
+# #581 Slice 3: real dispatcher, metadata adapters, collector, planner and
+# presentation; only libalpm/AUR/external command transports are fixtures.
+for mode in actual dry-run repo-only; do
+    for transition_case in ready reverse-dependent unknown-reason missing query-failure incompatible; do
+        setup_case "coordinated-transition-$mode-$transition_case"
+        export MOGUET_TEST_CROSS_SOURCE_TRANSITION_CASE=$transition_case
+        foreign_inventory=$case_dir/foreign-inventory.state
+        reason=dependency
+        if [ "$transition_case" = unknown-reason ]; then reason=unknown; fi
+        printf 'virtualbox 7.2.16-1 explicit\nvirtualbox-ext-oracle 7.2.16-1 %s\n' "$reason" > "$foreign_inventory"
+        if [ "$transition_case" = reverse-dependent ]; then
+            printf 'other-package 1-1 explicit\n' >> "$foreign_inventory"
+        fi
+        export MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE=$foreign_inventory
+        printf 'core virtualbox 1 1\n' > "$repository_metadata_state"
+        printf 'virtualbox 7.2.16-1\nvirtualbox-ext-oracle 7.2.16-1\n' > "$package_metadata_state"
+        export MOGUET_TEST_SUDO_MAIN_STATUS=42
+        if [ "$mode" = actual ]; then
+            run_status 1 --noedit --nodiff --noconfirm -Syu
+            assert_event_count 1 "sudo pacman -Syu --noconfirm"
+            if [ "$transition_case" = ready ]; then
+                assert_output_line_before "Possible coordinated transition" "Running: sudo pacman"
+            fi
+            assert_contains "The repository system upgrade failed." "$output_file"
+        elif [ "$mode" = repo-only ]; then
+            run_status 0 --dry-run -Syu --repo
+            assert_no_mutation_events
+            assert_event_prefix_absent '^aur '
+            assert_not_contains "coordinated transition" "$output_file"
+        else
+            # Existing normal-AUR planning may resolve the repository candidate.
+            # Supplemental transition status must not redefine that authority.
+            case "$transition_case" in
+                unknown-reason|query-failure|incompatible) expected=1 ;;
+                ready|reverse-dependent|missing) expected=0 ;;
+            esac
+            run_status "$expected" --dry-run -Syu
+            assert_no_mutation_events
+        fi
+        assert_event_pattern_count 0 '^sudo pacman -(R|U) '
+        assert_event_prefix_absent '^(git|makepkg) '
+        if [ "$mode" != repo-only ]; then
+            if [ "$transition_case" = ready ]; then
+                assert_contains "Possible coordinated transition (structure supported by read-only evidence)" "$output_file"
+                assert_contains "1. temporarily remove: virtualbox-ext-oracle 7.2.16-1" "$output_file"
+                assert_contains "2. repository system upgrade; observed relevant candidate: virtualbox 7.2.18-1" "$output_file"
+                assert_contains "3. rebuild/install: virtualbox-ext-oracle 7.2.18-1 (PackageBase: virtualbox-ext-oracle)" "$output_file"
+                assert_contains "preserve install reason: dependency" "$output_file"
+                assert_contains "4. verify resulting relation: virtualbox-ext-oracle requires virtualbox=7.2.18" "$output_file"
+                assert_contains "Execution requires explicit confirmation and fresh mutation-time revalidation." "$output_file"
+                assert_contains "The transition is non-atomic" "$output_file"
+                assert_contains "No automatic rollback is implied." "$output_file"
+            else
+                assert_not_contains "1. temporarily remove:" "$output_file"
+            fi
+        fi
+    done
 done
 
 setup_case system-aur-update-fresh-configuration-failure-reports-cause

@@ -173,6 +173,17 @@ fail-closedで停止します。v2.xは、Moguetのsource-aware入口、安全�
   execution failure、cleanup failureはnon-zeroのpartial outcomeとして報告し、完了済み
   repository transactionをrollbackしません。
 
+  完全かつ一意なpreflight evidenceが揃う場合、旧foreign consumerの一時削除 →
+  repository **system upgrade** → AUR replacementのrebuild/install → exact relationの確認、
+  というread-only coordinated transition candidateも表示します。単一consumerの削除後も
+  installed runtime dependency（Providesを含む）が充足され、既知のinstall reasonを
+  保持できることが必要です。これはexpected-state snapshotであり、execution authorityや
+  system upgrade後の全状態の証明ではありません。実行にはexplicit confirmationと
+  freshなmutation-time revalidationが必要です。遷移はnon-atomicで、後続failureにより
+  consumerが未installのまま残り得ます。automatic rollbackはありません。
+  現段階では表示だけで、新しいprompt、coordinated remove/install、retry、
+  transaction順序の変更は行いません。
+
 詳細なcompatibility / routing契約は
 [docs/COMPATIBILITY.md](https://github.com/seekerkrt/moguet/blob/develop/docs/COMPATIBILITY.md)、
 採用済み設計判断は

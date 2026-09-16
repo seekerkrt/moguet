@@ -182,8 +182,21 @@ Candidates may change during the repository update and are not selected
 transaction targets or post-repository execution authority. Partial or failed
 preflight is reported even without a displayable candidate; it does not change
 transaction policy, prompt behavior, or the normal dry-run plan exit status.
-No coordinated plan, automatic remove/reinstall, or execution authority is
+No coordinated execution, automatic remove/reinstall, or execution authority is
 created by this diagnostic.
+.
+.PP
+With complete, unambiguous evidence, preflight can display a read-only coordinated
+transition candidate: temporarily remove the foreign consumer, perform the
+repository system upgrade, rebuild/install the AUR replacement, and verify the
+exact relation. Removing that consumer must preserve installed runtime dependencies
+(including Provides), and its known install reason is retained.
+This evidence from databases not yet refreshed is an expected-state snapshot, not execution
+authority or a complete future system state. Execution requires explicit
+confirmation and fresh mutation-time revalidation. The transition is non-atomic:
+a later failure may leave the consumer absent. No automatic rollback is implied.
+This version only presents the candidate; it adds no prompt, coordinated
+remove/install, retry, or transaction sequencing.
 .
 .PP
 For upgrade-all and exact target-less Auto -Syu, after the repository

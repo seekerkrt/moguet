@@ -2223,7 +2223,10 @@ PackageMetadataSession::
         inventory.push_back(InstalledPackageRuntimeDependencyMetadata{
             std::move(package_name),
             std::get<std::vector<std::string>>(
-                std::move(dependencies))});
+                std::move(dependencies)),
+            alpm_pkg_get_version(package) == nullptr
+                ? std::nullopt
+                : std::optional<std::string>(alpm_pkg_get_version(package))});
     }
     return inventory;
 }

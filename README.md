@@ -204,6 +204,17 @@ detailed plan.
   scan may append possible repository/AUR exact-version-lock evidence after
   failure, including replacement compatibility or query limitations. This
   does not confirm the failure cause or authorize a coordinated update.
+  A complete, unambiguous preflight can also display a read-only coordinated
+  transition candidate: temporarily remove the installed foreign consumer,
+  perform the repository **system upgrade**, rebuild/install its AUR replacement,
+  then verify the exact relation. This requires evidence that removing only that
+  consumer preserves installed runtime dependencies, including Provides, and
+  retains its known install reason. It is an expected-state snapshot, not
+  execution authority or proof of a complete future system state. Execution
+  requires explicit confirmation and fresh mutation-time revalidation; this
+  non-atomic transition could leave the consumer absent after a later failure,
+  with no automatic rollback. This release only presents the candidate: no new
+  prompt, coordinated removal/install, retry, or transaction sequencing is added.
   A blocker, execution failure, or cleanup failure
   after repository completion is reported as a non-zero partial outcome; the
   completed repository transaction is not rolled back.

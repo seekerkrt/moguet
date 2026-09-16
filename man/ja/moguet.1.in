@@ -173,7 +173,18 @@ refreshしていない現在のlocal / sync databaseを使用するため、upda
 変わる可能性があります。selected transaction targetやpost-repository execution
 のauthorityではありません。Partial / Failedは表示可能なcandidateがなくても明示し、
 transaction可否、prompt、通常のdry-run planの終了codeは変更しません。
-coordinated plan、automatic remove / reinstall、execution authorityは作りません。
+coordinated execution、automatic remove / reinstall、execution authorityは作りません。
+.
+.PP
+完全かつ一意な根拠が揃えば、旧foreign consumerの一時削除、repository system upgrade、
+AUR replacementのrebuild/install、exact relationの確認というread-only coordinated
+transition candidateも表示します。単一consumerの削除後もinstalled runtime dependency
+（Providesを含む）が充足され、既知のinstall reasonを保持できることが必要です。
+refresh前の根拠によるexpected-state snapshotであり、execution authorityや将来の全状態の
+証明ではありません。実行にはexplicit confirmationとfreshなmutation-time revalidationが
+必要です。遷移はnon-atomicで、後続failureによりconsumerが未installのまま残り得ます。
+automatic rollbackはありません。現段階では表示だけで、新しいprompt、coordinated
+remove/install、retry、transaction順序の変更は行いません。
 .
 .PP
 upgrade-allおよびexact target-less Auto -Syuでは、repository system-upgrade phaseが
