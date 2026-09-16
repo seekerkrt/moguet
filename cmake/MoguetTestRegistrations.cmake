@@ -135,6 +135,11 @@ _moguet_add_direct_ctest(
     cpp.invocation_owned_source_build_context
     invocation-owned-source-build-context-test
 )
+# This test also snapshots all /tmp/moguet-source-build-context-* entries to
+# prove failed construction never falls back to the production parent. Other
+# context-producing tests change that namespace despite owning unique roots.
+# Preserve the global inventory assertion by excluding overlap for this test.
+set_tests_properties(cpp.invocation_owned_source_build_context PROPERTIES RUN_SERIAL TRUE)
 # The owner CTest below covers the common S4 suite. This lane builds its own
 # actual S4 inputs inside each transport scenario without repeating that suite.
 moguet_add_ctest(

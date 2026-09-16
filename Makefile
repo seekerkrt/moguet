@@ -3,6 +3,9 @@ TARGET := moguet
 PACKAGE_NAME := moguet
 CMAKE ?= cmake
 CTEST ?= ctest
+# Only the full host CTest lane consumes this bound; focused aliases keep
+# their own scheduling. CTest 3.29+ also respects the outer Make jobserver.
+CTEST_JOBS ?= 8
 CMAKE_COMPILER_PREFLIGHT := cmake/MoguetCompilerPreflight.cmake
 CMAKE_COMPILE_COMMANDS_PUBLISHER := \
 	cmake/MoguetPublishCompileCommands.cmake
@@ -394,7 +397,11 @@ cmake-release-build: cmake-cli-authority-exporter-build
 		--target $(CMAKE_RELEASE_CTEST_TARGETS)
 
 test-cmake: cmake-test-build
-	$(CTEST) --test-dir $(CMAKE_CTEST_BUILD_DIR) --output-on-failure
+	@case '$(CTEST_JOBS)' in ''|*[!0-9]*) \
+		echo 'error: CTEST_JOBS must be a positive integer' >&2; exit 2 ;; esac; \
+		[ '$(CTEST_JOBS)' -gt 0 ] || { \
+			echo 'error: CTEST_JOBS must be a positive integer' >&2; exit 2; }
+	+$(CTEST) --test-dir $(CMAKE_CTEST_BUILD_DIR) --output-on-failure --parallel $(CTEST_JOBS)
 
 # CMake owns the focused target/CTest mapping. This frontend carries no source
 # closure, compile definition, include path, link library, or runtime recipe.

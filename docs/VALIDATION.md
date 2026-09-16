@@ -81,6 +81,43 @@ ccacheとmoldにはdefault approval targetを設けない。`CCACHE`はCMakeのc
 CMakeが生成するlink commandへ外部inputとして同期される。実行時は対象target、clean / incremental
 条件、実際にwrapper / linkerを消費した範囲を記録し、default compiler / linker gateの代替にしない。
 
+### Host CTest scheduling
+
+`make test-cmake`はbuild完了後、1つのCTest processを`--parallel $(CTEST_JOBS)`で実行する。
+`CTEST_JOBS`は正の整数、既定値は8とし、このfull CTest laneだけで消費する。
+小さいmachineでは`make -j2 CTEST_JOBS=2 test-cmake`のように明示的に下げられる。
+explicit parallel levelはambient `CTEST_PARALLEL_LEVEL`より優先し、focused aliasやstandalone
+`release-check`へ新しい並列設定をexportしない。`test`のCTest→repository validation、
+`test-host-release`のA–D→Gの段階境界は維持する。
+
+CTest recipeの`+`はGNU Make jobserverを渡すためのもの。対応するPOSIX CTest（3.29以降）は
+上記上限に加えてavailable job tokenの範囲で実行するため、canonical `make -j8`と協調する。
+jobserver非対応の古いCTestやjobserverのない実行でも、explicitな8 slots上限は有効である。
+低いouter `-j`を古いCTestでも上限にしたい場合は`CTEST_JOBS`も同じ値にする。
+無指定`--parallel`のCPU数依存や`0`の無制限実行には依存しない。
+
+host suiteの並列安全性はtestの隔離とproduction registrationを根拠とする。
+
+- filesystem / Git / makepkg / receipt fixtureは`mkdtemp`、`mktemp`、またはcase名＋PIDのrootを使う。
+  HOME / XDG / cache / ALPM fixture DB、Unix socket、Git working treeも各rootへ閉じる。
+- loopback RPC / HTTPS serverはport 0をbindし、OSが割り当てたportをそのtestだけへ渡す。
+- build tree内のsource-environment、execution-preparation、production-source-build preferenceは
+  それぞれ別directoryである。negative compileのprobe / diagnostic directoryは1登録だけが書く。
+  catalogとlink-firewall対象objectは事前build済みで、CTest中は共有read-only inputとなる。
+- pure / stubbed testのstateはprocess内に閉じる。package transactionは既存のstub / test seamを
+  維持し、host system pacman DB、sudo/root mutationへ並列実行を拡張しない。
+- heavy makepkg fixtureは小さなpayloadの生成・archiveとGit操作を順次実行し、内部で`make -j8`
+  等を起動しない。negative compileもcompilerを順次実行する。
+
+`cpp.invocation_owned_source_build_context`は失敗時にproduction parentへfallbackしなかったことを
+証明するため、`/tmp/moguet-source-build-context-*`全体のinventoryも前後比較する。
+他のcontext生成testがこのnamespaceを変えるので、この1登録だけ`RUN_SERIAL=TRUE`とする。
+他の152登録にはserial指定なし。`RESOURCE_LOCK`、`PROCESSORS` overrideもなし（既定1 slot）。
+既存TIMEOUTと全test/assertionを維持する。
+将来共有write resourceや内部CPU並列処理を追加する場合は、fixture隔離または該当testだけの
+CTest native `RESOURCE_LOCK` / `PROCESSORS`等で宣言する。同一build treeに対する別のCTestや
+build processの同時実行は、このsuite内の並列安全性の対象外である。
+
 ## Evidenceの種類と記録
 
 validation resultは次の3種類に分ける。
