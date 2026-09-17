@@ -3288,6 +3288,8 @@ pkgver() {
 prepare() {
     cd "$srcdir/wezterm"
     git submodule update --init --recursive --depth=1
+    mkdir -p "$SRCDEST/fixture-cache"
+    printf 'auxiliary input\n' > "$SRCDEST/fixture-cache/input"
 }
 build() {
     cd "$srcdir/wezterm"
@@ -3323,6 +3325,7 @@ package() {
             if(mode == "pinned-missing") mutation = "rm deps/a/.git\n";
             if(mode == "pinned-extra") mutation = "mkdir -p extra/.git\n";
             integration_recipe.recipe_suffix = "\nprepare() {\ncd \"$srcdir/$pkgname\"\ngit submodule update --init --recursive\n"
+                                               "mkdir -p \"$SRCDEST/fixture-cache\"\nprintf 'auxiliary\\n' > \"$SRCDEST/fixture-cache/input\"\n"
                                                "printf 'prepared\\n' >> payload.txt\nprintf 'generated\\n' > generated.txt\n"
                                                "git add -- payload.txt generated.txt\n" +
                                                mutation + "}\n"
@@ -3371,7 +3374,7 @@ package() {
         fs::path acquisition_root, closure_root, integration_root;
         std::optional<struct stat> integration_identity, closure_identity;
         unsigned source_preparations = 0, package_builds = 0, closure_cleanup_attempts = 0;
-        std::optional<int> preparation_exit, package_build_exit;
+        std::optional<int> preparation_exit, prepared_srcinfo_exit, prepared_packagelist_exit, package_build_exit;
         unsigned initial_evaluations = 0, root_observations = 0, closure_reviews = 0, workspace_clones = 0, closure_phase_points = 0;
         std::map<std::string, fs::path> closure_remotes{{upstream.url(), upstream.remote()}};
         if(pinned) {
@@ -3442,6 +3445,8 @@ package() {
             if(!observed.cancellation_signal) {
                 if(const auto* exited = std::get_if<BoundedProcessExited>(&observed.outcome)) {
                     if(phase == EvaluatedDevelSourceBuildProcess::SourcePreparation) preparation_exit = exited->exit_code;
+                    if(phase == EvaluatedDevelSourceBuildProcess::PreparedPrintSrcinfo) prepared_srcinfo_exit = exited->exit_code;
+                    if(phase == EvaluatedDevelSourceBuildProcess::PreparedPackagelist) prepared_packagelist_exit = exited->exit_code;
                     if(phase == EvaluatedDevelSourceBuildProcess::PackageBuild) package_build_exit = exited->exit_code;
                 }
             }
@@ -4278,6 +4283,14 @@ package() {
             const bool process_cancelled = mode == "acquire-cancel" || mode == "acquire-cancel-zero";
             const bool cancelled = mode == "cancel" || mode == "eof" || mode == "review-cancel" || mode == "review-eof" || mode == "review-cancel-cleanup" || process_cancelled;
             if(success) {
+                if(mode == "topology-wezterm") {
+                    require(preparation_exit == 0 && prepared_srcinfo_exit == 0 && prepared_packagelist_exit == 0,
+                            "Auxiliary cache fixture did not complete native preparation/metadata");
+                    const auto& snapshot = *filtered.execution->work_item_results[bootstrap_index].devel_execution;
+                    require(!snapshot.owner->build_failure() && package_builds == 1 && package_build_exit == 0 &&
+                                closure_phase_points == 5 && snapshot.complete && snapshot.publication == Pub::Complete,
+                            "Auxiliary SRCDEST cache prevented the retained-mirror authority lifecycle");
+                }
                 if(mode == "topology-tree-sitter") {
                     require(preparation_exit == 0 && package_build_exit == 0,
                             "Git commit-graph metadata prevented a terminal package build result");
@@ -6040,6 +6053,8 @@ protected:
         bool mirror;
     };
     std::vector<Case> cases{{"lightweight", 0, false}, {"annotated", 0, false}, {"sha256", 0, false}, {"empty", 0, false}, {"packed", 0, false}, {"projection-conflict", 0, false}, {"projection-cancel", 0, false}};
+    for(const std::string mutation : {"mirror-missing", "mirror-replaced", "mirror-symlink", "mirror-config", "mirror-remote", "mirror-head", "mirror-alternate"})
+        cases.push_back({mutation, 4, true});
     for(unsigned point : {1U, 3U, 4U, 5U})
         for(bool mirror : {false, true}) {
             if(point == 1 && mirror) continue;
@@ -6048,6 +6063,7 @@ protected:
         }
     for(const auto& test : cases) {
         const bool projection_failure = test.mutation.starts_with("projection-");
+        const bool mirror_failure = test.mutation.starts_with("mirror-");
         const auto label = test.mutation + "-" + std::to_string(test.point) + (test.mirror ? "-mirror" : "-root");
         struct Reset {
             ~Reset() {
@@ -6069,6 +6085,7 @@ protected:
                 mapping["refs/tags/unreachable"] = upstream.root_tag("unreachable", upstream.unrelated_commit());
             }
         }
+        const auto tagged_commit = upstream.oid();
         upstream.commit("after release tag\n");
         ArchitectureFixture architecture;
         if(test.mutation != "empty") architecture.recipe_suffix = R"(
@@ -6084,6 +6101,14 @@ pkgver() {
             plain_version = proof.artifact().evidence().identity.full_version;
             cleanup_proof(proof);
         }
+        // Only the pinned path borrows an already-retained native mirror.
+        // Keep the plain-path comparison's existing SRCDEST contract intact.
+        architecture.recipe_suffix += R"(
+prepare() {
+    mkdir -p "$SRCDEST/fixture-cache"
+    printf 'auxiliary input\n' > "$SRCDEST/fixture-cache/input"
+}
+)";
         ReviewedBuildFixture fixture("tag-pinned-" + label, upstream, RecipeShape::Valid, false, test.mutation == "annotated", false, true, architecture);
         auto context = fixture.make_context();
         const auto context_root = context.owned_root();
@@ -6198,6 +6223,7 @@ pkgver() {
             ++points;
             verify_mapping(root);
             if(points >= 3) verify_mapping(mirror_path);
+            if(points >= 4) require(fs::is_regular_file(mirror_path.parent_path() / "fixture-cache/input"), "Prepared cache fixture missing");
             if(test.mutation == "packed") {
                 git(root, {"pack-refs", "--all"});
                 if(points >= 3) git(mirror_path, {"pack-refs", "--all"});
@@ -6209,6 +6235,18 @@ pkgver() {
             // Exercise logical comparison with packed originals and loose
             // overrides; identical packed/loose representations also pass.
             git(target, {"pack-refs", "--all"});
+            if(mirror_failure) {
+                const auto saved = mirror_path.parent_path() / "fixture-cache/saved-mirror";
+                if(test.mutation == "mirror-missing" || test.mutation == "mirror-replaced" || test.mutation == "mirror-symlink") {
+                    fs::rename(mirror_path, saved);
+                    if(test.mutation == "mirror-replaced") fs::copy(saved, mirror_path, fs::copy_options::recursive);
+                    if(test.mutation == "mirror-symlink") fs::create_directory_symlink(saved, mirror_path);
+                }
+                if(test.mutation == "mirror-config") git(target, {"config", "core.abbrev", "12"});
+                if(test.mutation == "mirror-remote") git(target, {"remote", "set-url", "origin", "https://unaccepted.invalid/source.git"});
+                if(test.mutation == "mirror-head") git(target, {"update-ref", "HEAD", tagged_commit});
+                if(test.mutation == "mirror-alternate") write_file(mirror_path / "objects/info/alternates", (root / ".git/objects").string() + "\n");
+            }
             if(test.mutation == "addition") {
                 unaccepted_tag = gitdir / "refs/tags/unaccepted/extra";
                 git(target, {"update-ref", "refs/tags/unaccepted/extra", upstream.oid()});
@@ -6258,19 +6296,26 @@ pkgver() {
             }
         };
         set_pinned_workspace_test_hooks(workspace);
+        unsigned package_builds = 0;
+        set_evaluated_devel_source_build_process_test_hook([&](const auto& invocation, const auto& policy, auto phase) {
+            if(phase == EvaluatedDevelSourceBuildProcess::PackageBuild) ++package_builds;
+            return capture_bounded_explicit_process_output_raw(invocation, policy);
+        });
         auto materialized = materialize_pinned_submodule_workspace(std::move(accepted));
         std::optional<PinnedWorkspaceFailure> failure;
+        std::optional<EvaluatedDevelSourceBuildFailure> build_failure;
         if(auto* error = std::get_if<PinnedWorkspaceFailure>(&materialized))
             failure = *error;
         else {
             auto ready = take_arm<SourceReadyPinnedSubmoduleWorkspace>(materialized, "No tag workspace");
             auto built = resume_evaluated_devel_source(std::move(ready));
             if(auto* error = std::get_if<EvaluatedDevelSourceBuildFailure>(&built)) {
+                build_failure = *error;
                 require(bool(error->pinned_workspace_failure), "Tag build failure lost workspace detail: " + label);
                 failure = *error->pinned_workspace_failure;
             } else {
                 auto proof = take_arm<EvaluatedDevelSourceBuildProof>(built, "No tag build proof");
-                require(test.point == 0 && points == 5 && proof.artifact().evidence().identity.full_version == plain_version,
+                require(test.point == 0 && points == 5 && package_builds == 1 && proof.artifact().evidence().identity.full_version == plain_version,
                         "Plain/pinned version or reproof point mismatch: " + label);
                 cleanup_proof(proof);
             }
@@ -6294,6 +6339,25 @@ pkgver() {
             const std::string bytes((std::istreambuf_iterator<char>(retained)), {});
             require(bytes == mapping.at("refs/tags/alias/with-slash") + "\n", "Projection cleanup removed preexisting tag metadata");
             require(!fs::exists(unaccepted_tag.parent_path().parent_path() / "2024"), "Failed transaction partially created tags");
+        } else if(mirror_failure) {
+            require(tampered && points == 4 && package_builds == 0 && build_failure && failure, "Mirror mutation bypassed prepared proof: " + label);
+            if(test.mutation == "mirror-head" || test.mutation == "mirror-alternate") {
+                require(build_failure->stage == EvaluatedDevelSourceBuildStage::GitRevision &&
+                            build_failure->reason == (test.mutation == "mirror-head" ? EvaluatedDevelSourceBuildFailureReason::GitRevisionMismatch
+                                                                                     : EvaluatedDevelSourceBuildFailureReason::GitRepositoryInvalid),
+                        "Common Git proof accepted changed mirror authority: " + label);
+            } else {
+                const bool identity_failure = test.mutation == "mirror-missing" || test.mutation == "mirror-replaced" || test.mutation == "mirror-symlink";
+                require(build_failure->reason == EvaluatedDevelSourceBuildFailureReason::PreparedClosureDrift &&
+                            failure->stage == PinnedWorkspaceStage::PreparedReproof &&
+                            failure->reason == (identity_failure ? PinnedWorkspaceFailureReason::UnsafeFilesystem : PinnedWorkspaceFailureReason::GitdirMismatch),
+                        "Retained mirror identity/config rejection changed: " + label);
+                if(identity_failure)
+                    require(failure->cleanup.workspace && failure->cleanup.closure.selection &&
+                                failure->cleanup.closure.selection->reason == InvocationOwnedSourceBuildContextFailureReason::UnprovenCleanupContent &&
+                                fs::is_directory(mirror_path.parent_path() / "fixture-cache/saved-mirror"),
+                            "Mirror substitution lost cleanup refusal");
+            }
         } else if(test.point != 0) {
             require(tampered && failure && (failure->reason == PinnedWorkspaceFailureReason::TagNamespaceDrift || failure->reason == PinnedWorkspaceFailureReason::TagObjectInvalid), "Tag drift minted proof or wrong failure: " + label + (failure ? " reason=" + std::to_string(static_cast<int>(failure->reason)) : ""));
             const auto expected_stage = test.point == 1 ? PinnedWorkspaceStage::SourceReadyReproof : test.point == 3 ? PinnedWorkspaceStage::NativePreparation

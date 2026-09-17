@@ -2813,13 +2813,28 @@ EvaluatedDevelSourceBuildResult EvaluatedDevelSourceBuildAuthority::execute(Sele
             EvaluatedDevelSourceBuildStage::DynamicVersion);
 
         FixedExecutable git("/usr/bin/git");
-        RetainedDirectory mirror = locate_git_mirror(
-            context.srcdest_descriptor(), context.srcdest(),
-            context.root_device());
+        RetainedDirectory mirror = [&]() {
+            if(!pinned_workspace) return locate_git_mirror(context.srcdest_descriptor(), context.srcdest(), context.root_device());
+            auto observed = PinnedSubmoduleWorkspaceAuthority::prepared_native_mirror(*pinned_workspace);
+            if(auto* failure = std::get_if<PinnedWorkspaceFailure>(&observed))
+                closure_failure(std::move(*failure), EvaluatedDevelSourceBuildFailureReason::PreparedClosureDrift);
+            const auto& native = std::get<PinnedSubmoduleWorkspaceAuthority::NativeMirror>(observed);
+            // Keep the already-proven object, not a reopened sibling selected
+            // by its spelling. Recheck its name against this context's SRCDEST.
+            OwnedDescriptor descriptor(::fcntl(native.descriptor, F_DUPFD_CLOEXEC, 3));
+            if(descriptor.get() < 0)
+                throw_build_failure(EvaluatedDevelSourceBuildStage::SourceWorkspace,
+                                    EvaluatedDevelSourceBuildFailureReason::SourceContainmentFailure, errno);
+            const auto identity = descriptor_identity(descriptor.get(), EvaluatedDevelSourceBuildStage::SourceWorkspace,
+                                                      EvaluatedDevelSourceBuildFailureReason::SourceContainmentFailure);
+            require_safe_directory(identity, context.root_device(), EvaluatedDevelSourceBuildStage::SourceWorkspace,
+                                   EvaluatedDevelSourceBuildFailureReason::SourceContainmentFailure);
+            RetainedDirectory retained{context.srcdest() / native.relative_path, native.relative_path, std::move(descriptor), identity};
+            require_named_directory_unchanged(context.srcdest_descriptor(), retained, EvaluatedDevelSourceBuildStage::SourceWorkspace);
+            return retained;
+        }();
         RetainedDirectory workspace = [&]() {
             if(!pinned_workspace) return locate_git_workspace(context.builddir_descriptor(), context.builddir(), context.root_device());
-            if(auto failure = PinnedSubmoduleWorkspaceAuthority::reprove_execution(*pinned_workspace, PinnedWorkspaceStage::PreparedReproof))
-                closure_failure(std::move(*failure), EvaluatedDevelSourceBuildFailureReason::PreparedClosureDrift);
             const auto relative = pinned_workspace->root().lexically_relative(context.builddir());
             auto descriptor = open_beneath(context.builddir_descriptor(), relative.string(), O_RDONLY | O_DIRECTORY,
                                            EvaluatedDevelSourceBuildStage::SourceWorkspace, EvaluatedDevelSourceBuildFailureReason::SourceContainmentFailure);

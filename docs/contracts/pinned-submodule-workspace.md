@@ -138,6 +138,13 @@ childのrelative gitfile/core.worktree bindingとinodeを保ち、native親direc
 local refをnative selectorへbindする。4A backingには書き込まない。SRCDESTのpreexisting contentやnative leaf collisionは
 採用せずfail-closedとし、ambient/persistent cacheを使わない。
 
+Issue #591では、prepared metadata/packagelist後の既存PreparedReproofが成功した場合だけ、private bridgeから
+このretained native mirrorのdescriptorとSRCDEST相対名をcommon S4へ借用する。S4はdescriptorを複製し、
+同じcontextのSRCDEST内でnamed entryとretained identityの一致、およびdevice/owner/mode/containmentを確認して
+既存Git proofへ渡す。prepareがSRCDEST内へ作る補助cache等のsiblingはmirror候補・選択authorityではなく、
+SRCDEST全entry数からmirrorを再発見しない。保持済みmirrorのmissing/replacement/symlinkやconfig/tag等のdriftの拒否と、
+未知metadataのcleanup refusalを維持する。通常selection入力のlocatorは変更しない。
+
 準備はnative `--nobuild --nodeps --noconfirm --holdver`を使う。`--holdver`はsource mirrorのremote更新を止める。
 native extractionの`git fetch`はinvocation内のmirrorだけを読む。review済みrecipeの
 `git submodule update --init --recursive`は既に存在するaccepted childを使える。
