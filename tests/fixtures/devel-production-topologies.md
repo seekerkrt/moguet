@@ -81,6 +81,14 @@ independent. The artifact oracle checks all five child payloads and exact binary
 icon bytes. Issue #589 adds a real annotated date tag, a later commit and the
 WezTerm-shaped `git describe --long --tags --abbrev=7` / alphabetic-exclusion
 `pkgver()` to this topology. It must succeed through native preparation and S4.
+Issue #591 also makes native `prepare()` create a generic `SRCDEST/fixture-cache/`
+with a small regular file. The preparation, prepared SRCINFO and packagelist
+processes must exit zero; the retained mirror must then pass prepared/post-build
+proof and exactly one package build through S6 Complete. No live Cargo fetch is
+needed to retain this auxiliary-cache topology. The recursive negative lane and
+root-tag workspace lane also keep this sibling during execution; the latter
+adds mirror missing/replacement/symlink/config/remote/HEAD/alternate rejection
+and verifies that identity substitution still refuses cleanup.
 The root-tag workspace lane separately compares plain and pinned dynamic versions,
 lightweight/nested/non-reachable/empty/SHA-256 tags, and both stores at all four
 phase boundaries. It renames the fixture remote offline after acceptance so

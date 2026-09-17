@@ -156,6 +156,11 @@ workspace cardinality / `.git/modules` / `.gitmodules`拒否を置換する。�
 rootのindependent object storeはalternateなし。root mirror/ref/HEADの共通producerと
 `prove_actual_built_git_revision()`を維持し、観測したroot OIDをaccepted Xへ明示的に相関する。
 
+SourceReady入力のmirrorは、PreparedReproof成功後にworkspace ownerが保持するnative mirrorを内部borrowして使う。
+SRCDEST直下のentry数で再選択せず、prepare生成の補助siblingはmirror authorityにしない。
+named/retained identityの再検証と詳細は[workspace contract](pinned-submodule-workspace.md)を正とし、
+通常selection入力のexactly-one locatorと共通Git proofは維持する。
+
 prepared metadataとpackagelistの完了後、build開始前にclosureを再証明する。build/check/package完了後にも
 S4 mint前に同じ証明を行う。root/child HEAD、parent indexの全gitlinks、accepted exact `.gitmodules`の
 index/working bytes、expected gitfile↔gitdir↔worktree、retained identities、extra/missing moduleを確認する。

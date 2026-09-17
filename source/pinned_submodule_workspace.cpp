@@ -617,6 +617,13 @@ std::optional<PinnedWorkspaceFailure> PinnedSubmoduleWorkspaceAuthority::reprove
     }
 }
 
+std::variant<PinnedSubmoduleWorkspaceAuthority::NativeMirror, PinnedWorkspaceFailure>
+PinnedSubmoduleWorkspaceAuthority::prepared_native_mirror(SourceReadyPinnedSubmoduleWorkspace& workspace) {
+    if(auto failure = reprove_execution(workspace, Stage::PreparedReproof)) return std::move(*failure);
+    const auto& mirror = *workspace.data_->mirror;
+    return NativeMirror{mirror.path, mirror.descriptor.get()};
+}
+
 PinnedWorkspaceCleanupResult PinnedSubmoduleWorkspaceAuthority::cleanup(PinnedSubmoduleWorkspaceData& data) noexcept {
     if(data.closed) return data.cleanup_result;
     data.closed = true;

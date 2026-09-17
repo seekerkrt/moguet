@@ -63,6 +63,13 @@ class PinnedSubmoduleWorkspaceAuthority final {
     static EvaluatedDevelSourceSelection& selection(InvocationOwnedPinnedSubmoduleClosure& closure);
     static std::optional<PinnedWorkspaceFailure> prepare_native(SourceReadyPinnedSubmoduleWorkspace& workspace);
     static std::optional<PinnedWorkspaceFailure> reprove_execution(SourceReadyPinnedSubmoduleWorkspace& workspace, PinnedWorkspaceStage stage);
+    struct NativeMirror {
+        std::filesystem::path relative_path;
+        int descriptor; // Borrowed from the whole SourceReady owner.
+    };
+    // Run the existing prepared proof before exposing the retained mirror.
+    // SRCDEST siblings are generated content, never mirror-selection authority.
+    static std::variant<NativeMirror, PinnedWorkspaceFailure> prepared_native_mirror(SourceReadyPinnedSubmoduleWorkspace& workspace);
     static int srcdest_descriptor(const EvaluatedDevelSourceSelection& selection);
     static const InvocationOwnedSourceBuildContext& context(const EvaluatedDevelSourceSelection& selection);
     static int builddir_descriptor(const EvaluatedDevelSourceSelection& selection);
