@@ -88,7 +88,8 @@ S5が保持する固定operation factsをfinalize/publisherへ渡す。
 initial selection→4A exact closure→4B0 explicit closure review→4B1 SourceReady→common S4を通す。
 explicit migration acceptanceとrecipe full review/acceptanceをこのbridgeで短絡しない。
 SourceReady consumerは同一selectionを保持し、prepared/post-build closure reproofとroot X相関だけを
-workspace-specific branchとして加える。別build pipelineやS4 proofを作らない。
+workspace-specific branchとして加える。root tag mappingの取得・明示承認・projection・phase-point reproofも
+同じowner chainで保持する（[Issue #589 contract](pinned-submodule-closure.md#root-tag-authority-issue-589)）。別build pipelineやS4 proofを作らない。
 
 4A acquisition/review failureは`closure_failure()` / `closure_review_failure()`に元のprocess/cancel/cleanupを保持する。
 SourceReady以降は既存build failureへnarrow closure detailを追加する。失敗からlegacyや別revisionへfallbackしない。
@@ -100,8 +101,8 @@ runner/reducerのpure link境界を保つため、snapshotはownerのreview fail
 S4取得後のartifact correlation、transport、install policy、S5/S6は上記のcommon executionをそのまま使う。
 SourceReady whole ownerもS6→S5→S4 resultの寿命まで保持する。
 
-対象はexact target-less ordinary `-Syu` Autoのinitial Missingだけ。normal valid-provenance、non-devel、
-`-Su`、upgrade-aur/all、dry-run、explicit targetにはactivationを追加しない。
+対象はexact target-less ordinary `-Syu` / `-Su` Autoのinitial Missingだけ。normal valid-provenance、non-devel、
+upgrade-aur/all、dry-run、explicit targetにはactivationを追加しない。
 provenance v1 / 27 keysは不変。Slice 5はordinary split groupを既存chainへ接続する。Slice 6代表topologyのcoverage closureは残る。
 
 ## Lossless result / lifetime

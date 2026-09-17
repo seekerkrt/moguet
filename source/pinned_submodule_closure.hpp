@@ -13,6 +13,8 @@ struct PinnedClosureLimits {
     std::size_t aggregate_declaration_bytes = 1024 * 1024;
     std::size_t metadata_bytes = 64 * 1024 * 1024;
     std::size_t processes = 4096;
+    std::size_t root_tags = 1024;
+    std::size_t tag_depth = 64;
 };
 
 enum class PinnedClosureStage {
@@ -86,7 +88,23 @@ struct PinnedSubmoduleEdge {
     ReviewedSourceObjectId pin;
 };
 
-struct PinnedSubmoduleClosureData; // No friendship or minting privileges.
+// Validated full tag name and raw object identity. Peeling is observation
+// metadata only; materialization must preserve the original tag object bytes.
+class PinnedRootTag final {
+public:
+    [[nodiscard]] const std::string& ref_name() const noexcept;
+    [[nodiscard]] const ReviewedSourceObjectId& raw() const noexcept;
+    [[nodiscard]] const std::optional<ReviewedSourceObjectId>& peeled() const noexcept;
+
+private:
+    friend struct PinnedSubmoduleClosureData;
+    PinnedRootTag(std::string, ReviewedSourceObjectId, std::optional<ReviewedSourceObjectId>);
+    std::string ref_name_;
+    ReviewedSourceObjectId raw_;
+    std::optional<ReviewedSourceObjectId> peeled_;
+};
+
+struct PinnedSubmoduleClosureData; // No capability-construction privileges.
 class InvocationOwnedPinnedSubmoduleClosure;
 using PinnedSubmoduleClosureResult = std::variant<InvocationOwnedPinnedSubmoduleClosure, PinnedClosureFailure>;
 
@@ -104,6 +122,7 @@ public:
     [[nodiscard]] const EvaluatedDevelSourceSelection& selection() const;
     [[nodiscard]] const std::vector<PinnedSubmoduleNode>& nodes() const;
     [[nodiscard]] const std::vector<PinnedSubmoduleEdge>& edges() const;
+    [[nodiscard]] const std::vector<PinnedRootTag>& root_tags() const;
     // Retrieves only an inventoried non-gitlink entry from the owned backing.
     // Caller cannot substitute a path, repository, ref or arbitrary object.
     [[nodiscard]] std::variant<std::string, PinnedClosureFailure> read_blob(

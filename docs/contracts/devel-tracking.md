@@ -76,7 +76,7 @@ deterministic positive fixtureはreviewed recipeに`options=('!debug')`を明示
 | normal RPC Version newer | Version precedence。Git queryなしで既存candidateを維持 |
 | valid Git same | UpToDate、automatic buildなし |
 | valid Git different | GitRevision candidate。normal preflightとreviewed executionを通す |
-| RequiresCheck | automatic buildなし。ordinary -Syuのindependent targetはwarning/skip。初回Missingの試行適格性を確認できる場合だけ明示bootstrapを提示。required relationとstrict routeはblock |
+| RequiresCheck | automatic buildなし。ordinary -Syu / -Suのindependent targetはwarning/skip。初回Missingの試行適格性を確認できる場合だけ明示bootstrapを提示。required relationとstrict routeはblock |
 | Unknown | remote observation failureを保持、automatic buildなし／nonzero |
 | Unsupported / unsupported devel source | automatic authoritative buildなし。suffixだけでVCSを確定しない。local proof不足はRequiresCheck |
 | ordinary non-devel AUR | normal version policy。missing provenanceからGit baselineを生成しない |
@@ -145,7 +145,7 @@ public provider/AUR/local live acceptanceやrelease approvalをdeterministic sea
 
 ## Ordinary initial bootstrap (#553)
 
-exact target-less ordinary `-Syu` Autoだけが、initial ProvenanceMissingの独立targetへdefault-Noの
+exact target-less ordinary `-Syu` / `-Su` Autoだけが、initial ProvenanceMissingの独立targetへdefault-Noの
 bootstrap確認を提示できる。試行適格性はexact recipeとcurrent local observationsに結び付くread-only値であり、
 review/build/install/publication proofではない。one Git rootとboundedなrecipe直下のrenameなしlocal inputsを候補にできる。
 追加source fileのtracked/regular/exact bytesはfull review/S3/S4で証明する。old recipe cacheのclean/dirty/HEAD/originに依存せず、
@@ -165,14 +165,15 @@ S6 OutcomeUnknownではrecordが存在する可能性を保ち、baseline succes
 上記exact routeのtyped intentだけが、recipe full review/acceptance→exact S3→actual initial evaluation→
 4A parent-pinned recursive closure→別途explicit closure review→SourceReady→native makepkg→common S4→S5→S6を通る。
 root-onlyを含むこのbootstrap chainでは、recipe内容reviewとは別にexact upstream snapshotをbuild inputとして
-使う明示承認を要求する。Slice 6ではremote/selector/root/tree、complete inventory metadataとsubmodule pinを
+使う明示承認を要求する。Slice 6ではremote/selector/root/tree、complete inventory metadata、submodule pin、root tagのfull name/raw OID/annotated peeled OID mappingを
 提示し、上流全blobの全文reviewは要求しない。binary/large blobの存在だけでは拒否しない。承認はsource-codeの
 安全性保証ではなくsnapshot選択である。metadata/取得/workspaceの上限とidentity不整合の拒否は維持する。
 通常のvalid provenanceやnon-devel経路にはこの承認を追加しない。
 
 SourceReady whole ownerがsame selection/accepted root X/child pinsを保持する。prepared metadata/packagelist後と
 post-buildにHEAD、gitlinks、exact `.gitmodules`、native metadata identityを再証明し、通常source contentの
-合法的なprepare/build mutationを許可する。phase-point proofでありcontinuous attestationではない。
+合法的なprepare/build mutationを許可する。root workspace/private mirrorの全tag namespaceもaccepted mappingへ
+再照合する。tag mappingはinvocation-localに限定し、root X不変のtag-only更新検出やprovenance schema変更は追加しない。phase-point proofでありcontinuous attestationではない。
 
 root `ActualBuiltGitRevision == X`を既存producerで証明し、child pinsはinvocation-localな別evidenceとして保持する。
 root treeのgitlinksがchild/nested pinsをtransitively固定するため、schema v1 / 27 keysは変更しない。

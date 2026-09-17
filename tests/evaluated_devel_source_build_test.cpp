@@ -78,6 +78,7 @@ extern unsigned failures;
 
 #include <algorithm>
 #include <chrono>
+#include <cerrno>
 #include <csignal>
 #include <sys/wait.h>
 #include <cstdlib>
@@ -90,6 +91,7 @@ extern unsigned failures;
 #include <iterator>
 #include <memory>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -350,6 +352,17 @@ public:
     }
 
 #ifdef MOGUET_ENABLE_PINNED_SUBMODULE_CLOSURE_TEST_HOOKS
+    std::string root_tag(const std::string& name, const std::string& target = "HEAD", bool annotated = false) {
+        if(annotated)
+            run_git({"tag", "-a", name, target, "-m", "tag metadata " + name});
+        else
+            run_git({"tag", name, target});
+        run_git({"push", "origin", "refs/tags/" + name});
+        return output_git({"rev-parse", "refs/tags/" + name});
+    }
+    std::string unrelated_commit() const {
+        return output_git({"commit-tree", "HEAD^{tree}", "-m", "unreachable tagged history"});
+    }
     std::string pin_tree(const std::string& modules, const std::vector<std::pair<std::string, std::string>>& pins) {
         write_file(work_ / ".gitmodules", modules);
         run_git({"add", "--", ".gitmodules"});
@@ -3264,7 +3277,14 @@ package() {
                     representative_children.push_back(std::move(child));
                 }
                 upstream.pin_tree(modules, pins);
+                upstream.root_tag("20240203-110809-fixture", "HEAD", true);
+                upstream.commit("post-tag revision\n");
                 integration_recipe.recipe_suffix = R"(
+pkgver() {
+    cd "$srcdir/wezterm"
+    git describe --long --tags --abbrev=7 --exclude='[a-zA-Z][a-zA-Z]*' | sed 's/\([^-]*-g\)/r\1/;s/-/./g'
+}
+
 prepare() {
     cd "$srcdir/wezterm"
     git submodule update --init --recursive --depth=1
@@ -3612,7 +3632,7 @@ package() {
                                                                                            "DKMS template/module/config packaging was not evaluated");
                                                                                } else {
                                                                                    const auto payload = extract("usr/share/" + fixture.package_name() + "/payload.txt");
-                                                                                   require(payload == (mode == "topology-tree-sitter" ? "tree-sitter-cli-built\n" : "revision-one\nharfbuzz/harfbuzz input\nfreetype/libpng input\ndeps/freetype/zlib input\nfreetype2 input\ndlg input\n"),
+                                                                                   require(payload == (mode == "topology-tree-sitter" ? "tree-sitter-cli-built\n" : "post-tag revision\nharfbuzz/harfbuzz input\nfreetype/libpng input\ndeps/freetype/zlib input\nfreetype2 input\ndlg input\n"),
                                                                                            "Representative build did not consume the selected source inputs");
                                                                                    if(mode == "topology-wezterm")
                                                                                        require(extract("usr/share/pixmaps/org.wezfurlong.wezterm.png") == std::string("\x89PNG\r\n\x1a\n\0", 9), "Binary asset changed before packaging");
@@ -5184,6 +5204,135 @@ void test_selection_process_failures() {
 std::string module_declaration(const std::string& name, const std::string& path, const std::string& url) {
     return "[submodule \"" + name + "\"]\n\tpath = " + path + "\n\turl = " + url + "\n";
 }
+[[maybe_unused]] void test_root_tag_acquisition() {
+    using Reason = PinnedClosureFailureReason;
+    for(const std::string kind : {"mapping", "sha256", "empty", "freeze", "duplicate", "duplicate-peel", "orphan-peel",
+                                  "bad-name", "wrong-namespace", "bad-oid", "wrong-width", "framing", "peel-mismatch",
+                                  "missing-peel", "spurious-peel", "unavailable", "tag-count", "tag-depth", "tag-bytes", "chain-header", "corrupt-backing", "cancel"}) {
+        struct Reset {
+            ~Reset() {
+                set_pinned_closure_test_hooks({});
+            }
+        } reset;
+        UpstreamGitFixture upstream("root-tags-" + kind, kind == "sha256" ? GitObjectFormat::Sha256 : GitObjectFormat::Sha1);
+        std::map<std::string, std::pair<std::string, std::optional<std::string>>> expected;
+        const auto add = [&](const std::string& name, const std::string& target, bool annotated, std::optional<std::string> peeled) {
+            expected.emplace("refs/tags/" + name, std::make_pair(upstream.root_tag(name, target, annotated), peeled));
+        };
+        if(kind != "empty") {
+            add("2024", "HEAD", false, {});
+            add("release/annotated", "HEAD", true, upstream.oid());
+            add("nested", "refs/tags/release/annotated", true, upstream.oid());
+            add("unreachable", upstream.unrelated_commit(), false, {});
+            add("tree", "HEAD^{tree}", false, {});
+            add("blob", "HEAD:payload.txt", true, upstream.object_oid("HEAD:payload.txt"));
+        }
+        ReviewedBuildFixture fixture("tag-acquisition-" + kind, upstream);
+        auto context = fixture.make_context();
+        auto environment = fixture.make_environment(context);
+        auto selected = select_evaluated_devel_source(std::move(context), std::move(environment));
+        auto selection = take_arm<EvaluatedDevelSourceSelection>(selected, "Tag selection failed");
+        PinnedClosureTestHooks hooks;
+        PinnedClosureLimits limits;
+        if(kind == "tag-count") limits.root_tags = 1;
+        if(kind == "tag-depth") limits.tag_depth = 1;
+        hooks.limits = limits;
+        unsigned observations = 0, fetches = 0;
+        hooks.process = [&](const auto& original, const auto& policy) {
+            auto invocation = original;
+            const auto has = [&](const std::string& arg) { return std::find(original.arguments.begin(), original.arguments.end(), arg) != original.arguments.end(); };
+            for(auto& arg : invocation.arguments) {
+                if(arg == "protocol.file.allow=never")
+                    arg = "protocol.file.allow=always";
+                else if(arg == upstream.url())
+                    arg = "file://" + upstream.remote().string();
+            }
+            if(has("fetch")) {
+                ++fetches;
+                const auto remote = std::find(original.arguments.begin(), original.arguments.end(), upstream.url());
+                require(remote != original.arguments.end() && remote + 1 != original.arguments.end(), "Missing exact object fetch");
+                std::set<std::string> actual;
+                for(auto oid = remote + 1; oid != original.arguments.end(); ++oid) {
+                    static_cast<void>(ReviewedSourceObjectId::make(*oid));
+                    require(actual.insert(*oid).second, "Duplicate exact fetch OID");
+                }
+                std::set<std::string> wanted{upstream.oid()};
+                if(fetches != 1) {
+                    wanted.clear();
+                    for(const auto& [name, value] : expected)
+                        if(value.first != upstream.oid()) wanted.insert(value.first);
+                }
+                require(actual == wanted, "Fetch re-resolved a tag name or omitted raw authority");
+            }
+            if(kind == "unavailable" && has("fetch") && has(expected.at("refs/tags/nested").first))
+                return BoundedCapturedProcessResult{{}, BoundedProcessExited{128}};
+            if(kind == "corrupt-backing" && has("fsck") && has(expected.at("refs/tags/nested").first)) {
+                const auto raw = expected.at("refs/tags/nested").first;
+                const auto repo = fs::read_symlink("/proc/self/fd/" + std::to_string(*original.working_directory_fd));
+                fs::create_directories(repo / "objects" / raw.substr(0, 2));
+                write_file(repo / "objects" / raw.substr(0, 2) / raw.substr(2), "corrupt tag object\n");
+            }
+            auto result = capture_bounded_explicit_process_output_raw(invocation, policy);
+            if(has("ls-remote")) {
+                ++observations;
+                const auto raw = expected.empty() ? upstream.oid() : expected.at("refs/tags/release/annotated").first;
+                const auto record = upstream.oid() + "\trefs/tags/2024\n";
+                if(kind == "duplicate") result.output += record;
+                if(kind == "duplicate-peel") result.output += upstream.oid() + "\trefs/tags/release/annotated^{}\n";
+                if(kind == "orphan-peel") result.output += upstream.oid() + "\trefs/tags/orphan^{}\n";
+                if(kind == "bad-name") result.output += upstream.oid() + "\trefs/tags/bad..name\n";
+                if(kind == "wrong-namespace") result.output += upstream.oid() + "\trefs/heads/other\n";
+                if(kind == "bad-oid") result.output += std::string(40, 'A') + "\trefs/tags/bad\n";
+                if(kind == "wrong-width") result.output += std::string(64, '1') + "\trefs/tags/bad\n";
+                if(kind == "framing") result.output.pop_back();
+                if(kind == "peel-mismatch") {
+                    const auto offset = result.output.find(upstream.oid() + "\trefs/tags/release/annotated^{}");
+                    result.output.replace(offset, upstream.oid().size(), raw);
+                }
+                if(kind == "missing-peel") {
+                    const auto offset = result.output.find(upstream.oid() + "\trefs/tags/release/annotated^{}");
+                    result.output.erase(offset, result.output.find('\n', offset) - offset + 1);
+                }
+                if(kind == "spurious-peel") result.output += upstream.oid() + "\trefs/tags/2024^{}\n";
+                if(kind == "freeze") {
+                    // Retarget/delete after observation. Raw advertised objects
+                    // remain obtainable; acquisition must not resolve names again.
+                    require_process_success("/usr/bin/git", {"--git-dir=" + upstream.remote().string(), "update-ref", "refs/tags/2024", raw}, git_environment(fixture.home()));
+                    require_process_success("/usr/bin/git", {"--git-dir=" + upstream.remote().string(), "update-ref", "-d", "refs/tags/nested"}, git_environment(fixture.home()));
+                }
+                if(kind == "cancel") result.cancellation_signal = SIGINT;
+            }
+            if(kind == "tag-bytes" && has("cat-file") && has("tag")) result.output.assign(256 * 1024 + 1, 'x');
+            if(kind == "chain-header" && has("cat-file") && has("tag")) result.output = "object malformed\ntype tag\n";
+            return result;
+        };
+        set_pinned_closure_test_hooks(hooks);
+        auto acquired = acquire_pinned_submodule_closure(std::move(selection));
+        if(kind == "mapping" || kind == "sha256" || kind == "empty" || kind == "freeze") {
+            auto closure = take_arm<InvocationOwnedPinnedSubmoduleClosure>(acquired, "Root tag acquisition failed: " + kind);
+            require(closure.root_tags().size() == expected.size() && observations == 1 && fetches == (kind == "empty" ? 1U : 2U), "Tag mapping cardinality/observation changed");
+            std::string previous;
+            for(const auto& tag : closure.root_tags()) {
+                require(previous < tag.ref_name() && expected.at(tag.ref_name()).first == tag.raw().value() &&
+                            expected.at(tag.ref_name()).second == (tag.peeled() ? std::optional<std::string>(tag.peeled()->value()) : std::nullopt),
+                        "Raw/peeled mapping changed");
+                previous = tag.ref_name();
+            }
+            require(closure.cleanup().succeeded(), "Root tag cleanup failed");
+        } else {
+            const auto& failure = require_arm<PinnedClosureFailure>(acquired, "Bad tag observation accepted: " + kind);
+            const auto reason = kind.starts_with("tag-") ? Reason::ResourceLimitExceeded : kind == "chain-header"  ? Reason::UnexpectedObjectType
+                                                                                       : kind == "corrupt-backing" ? Reason::GitProcessFailed
+                                                                                       : kind == "unavailable"     ? Reason::PinnedObjectUnavailable
+                                                                                       : kind == "cancel"          ? Reason::Cancelled
+                                                                                                                   : Reason::MalformedObservation;
+            require(failure.reason == reason && failure.cleanup.succeeded(), "Root tag failure classification: " + kind);
+        }
+        std::cout << "S589 acquisition " << kind << " PASS\n"
+                  << std::flush;
+    }
+}
+
 [[maybe_unused]] void test_pinned_closure() {
     using Closure = InvocationOwnedPinnedSubmoduleClosure;
     using Reason = PinnedClosureFailureReason;
@@ -5420,7 +5569,7 @@ std::string module_declaration(const std::string& name, const std::string& path,
                 require(std::find(original.environment.begin(), original.environment.end(), required) != original.environment.end(), "Trusted environment missing");
             if(has("ls-remote")) {
                 ++observations;
-                require(argv[argv.size() - 2] == root.url() && argv.back() == (kind == "branch" ? "refs/heads/main" : "HEAD"), "Child HEAD or wrong root selector queried");
+                require(argv[argv.size() - 3] == root.url() && argv[argv.size() - 2] == (kind == "branch" ? "refs/heads/main" : "HEAD") && argv.back() == "refs/tags/*", "Child HEAD or wrong root selector queried");
             }
             if(has("fetch")) {
                 ++fetches;
@@ -5693,6 +5842,8 @@ protected:
             pins.emplace_back("deps/b", child.oid());
         }
         root.pin_tree(declaration, pins);
+        root.root_tag("review/lightweight");
+        const auto reviewed_tag = root.root_tag("review/annotated", "HEAD", true);
         const auto root_pin = root.oid(), child_pin = child.oid();
         ReviewedBuildFixture fixture("review-" + kind, root);
         auto context = fixture.make_context();
@@ -5817,6 +5968,12 @@ protected:
                             rendered.find("selector: HEAD") != std::string::npos &&
                             rendered.find("tree: " + accepted.closure().nodes()[0].tree.value()) != std::string::npos,
                         "Snapshot acceptance meaning/root identity omitted");
+                require(rendered.find("root tag count: 2") != std::string::npos &&
+                            rendered.find("root tag: refs/tags/review/lightweight") != std::string::npos &&
+                            rendered.find("root tag: refs/tags/review/annotated") != std::string::npos &&
+                            rendered.find("raw object: " + reviewed_tag) != std::string::npos &&
+                            rendered.find("peeled object: " + root_pin) != std::string::npos,
+                        "Review lost complete raw/peeled tag mapping");
                 for(const auto& node : accepted.closure().nodes())
                     for(const auto& file : node.inventory.entries) {
                         require(rendered.find(file.path().raw_bytes()) != std::string::npos &&
@@ -5876,6 +6033,287 @@ protected:
 
 
 #ifdef MOGUET_ENABLE_PINNED_SUBMODULE_WORKSPACE_TEST_HOOKS
+[[maybe_unused]] void test_root_tag_workspace() {
+    struct Case {
+        std::string mutation;
+        unsigned point;
+        bool mirror;
+    };
+    std::vector<Case> cases{{"lightweight", 0, false}, {"annotated", 0, false}, {"sha256", 0, false}, {"empty", 0, false}, {"packed", 0, false}, {"projection-conflict", 0, false}, {"projection-cancel", 0, false}};
+    for(unsigned point : {1U, 3U, 4U, 5U})
+        for(bool mirror : {false, true}) {
+            if(point == 1 && mirror) continue;
+            for(const std::string mutation : {"addition", "deletion", "retarget", "same-peel", "symbolic", "dangling-symbolic", "malformed", "missing", "corrupt"})
+                cases.push_back({mutation, point, mirror});
+        }
+    for(const auto& test : cases) {
+        const bool projection_failure = test.mutation.starts_with("projection-");
+        const auto label = test.mutation + "-" + std::to_string(test.point) + (test.mirror ? "-mirror" : "-root");
+        struct Reset {
+            ~Reset() {
+                set_pinned_workspace_test_hooks({});
+                set_pinned_closure_test_hooks({});
+                set_pinned_closure_review_test_hooks({});
+                set_evaluated_devel_source_build_process_test_hook({});
+            }
+        } reset;
+        UpstreamGitFixture upstream("tag-workspace-" + label, test.mutation == "sha256" ? GitObjectFormat::Sha256 : GitObjectFormat::Sha1);
+        std::map<std::string, std::string> mapping;
+        if(test.mutation != "empty") {
+            mapping["refs/tags/2024"] = upstream.root_tag("2024", "HEAD", test.mutation != "lightweight");
+            if(test.mutation != "lightweight") {
+                mapping["refs/tags/nested"] = upstream.root_tag("nested", "refs/tags/2024", true);
+                mapping["refs/tags/same-peel"] = upstream.root_tag("same-peel", "HEAD", true);
+                mapping["refs/tags/alias/with-slash"] = upstream.root_tag("alias/with-slash");
+                mapping["refs/tags/quote\"name"] = upstream.root_tag("quote\"name");
+                mapping["refs/tags/unreachable"] = upstream.root_tag("unreachable", upstream.unrelated_commit());
+            }
+        }
+        upstream.commit("after release tag\n");
+        ArchitectureFixture architecture;
+        if(test.mutation != "empty") architecture.recipe_suffix = R"(
+pkgver() {
+    cd "$srcdir/$pkgname"
+    git describe --long --tags --abbrev=7 --exclude='[a-zA-Z][a-zA-Z]*' | sed 's/-/./g'
+}
+)";
+        std::string plain_version;
+        if(test.point == 0 && !projection_failure) {
+            ReviewedBuildFixture plain("tag-plain-" + label, upstream, RecipeShape::Valid, false, test.mutation == "annotated", false, true, architecture);
+            auto proof = build_success(plain);
+            plain_version = proof.artifact().evidence().identity.full_version;
+            cleanup_proof(proof);
+        }
+        ReviewedBuildFixture fixture("tag-pinned-" + label, upstream, RecipeShape::Valid, false, test.mutation == "annotated", false, true, architecture);
+        auto context = fixture.make_context();
+        const auto context_root = context.owned_root();
+        const auto mirror_path = context.srcdest() / fixture.package_name();
+        struct stat context_identity{};
+        require(::lstat(context_root.c_str(), &context_identity) == 0, "Missing tag context");
+        struct FixtureCleanup {
+            fs::path root;
+            struct stat identity;
+            ~FixtureCleanup() noexcept {
+                if(fs::exists(root)) try {
+                        cleanup_retained_fixture(root, identity);
+                    } catch(...) {
+                    }
+            }
+        } fixture_cleanup{context_root, context_identity};
+        auto environment = fixture.make_environment(context);
+        auto selected = select_evaluated_devel_source(std::move(context), std::move(environment));
+        auto selection = take_arm<EvaluatedDevelSourceSelection>(selected, "Tag workspace selection failed");
+        bool accepted_phase = false;
+        PinnedClosureTestHooks acquisition;
+        acquisition.process = [&](const auto& original, const auto& policy) {
+            require(!accepted_phase, "Moguet reacquired tags after acceptance");
+            auto invocation = original;
+            for(auto& arg : invocation.arguments) {
+                if(arg == "protocol.file.allow=never")
+                    arg = "protocol.file.allow=always";
+                else if(arg == upstream.url())
+                    arg = "file://" + upstream.remote().string();
+            }
+            return capture_bounded_explicit_process_output_raw(invocation, policy);
+        };
+        set_pinned_closure_test_hooks(acquisition);
+        auto acquired = acquire_pinned_submodule_closure(std::move(selection));
+        auto closure = take_arm<InvocationOwnedPinnedSubmoduleClosure>(acquired, "Tag workspace acquisition failed");
+        require(closure.root_tags().size() == mapping.size(), "Accepted tag set is incomplete");
+        std::istringstream input("yes\n");
+        std::ostringstream output;
+        PinnedClosureReviewTestHooks review;
+        review.input = &input;
+        review.output = &output;
+        review.interactive = true;
+        set_pinned_closure_review_test_hooks(review);
+        auto reviewed = review_pinned_submodule_closure(std::move(closure));
+        auto accepted = take_arm<AcceptedPinnedSubmoduleClosure>(reviewed, "Tag acceptance failed");
+        for(const auto& tag : accepted.closure().root_tags()) {
+            require(output.str().find("root tag: " + tag.ref_name()) != std::string::npos &&
+                        output.str().find("raw object: " + tag.raw().value()) != std::string::npos &&
+                        (!tag.peeled() || output.str().find("peeled object: " + tag.peeled()->value()) != std::string::npos),
+                    "Incomplete tag review");
+        }
+        accepted_phase = true;
+        // Native makepkg has a fixture insteadOf rule. Removing that rule's
+        // actual remote endpoint proves child Git cannot reacquire it either.
+        fs::rename(upstream.remote(), upstream.remote().string() + ".offline");
+        const auto git = [&](const fs::path& cwd, std::vector<std::string> args) {
+            args.insert(args.begin(), {"-C", cwd.string()});
+            auto result = capture_process("/usr/bin/git", std::move(args), git_environment(fixture.home()));
+            require(result.exit_code == 0, "Tag fixture Git failed: " + result.output);
+            return result.output;
+        };
+        const auto verify_mapping = [&](const fs::path& path) {
+            std::string expected;
+            for(const auto& [name, raw] : mapping)
+                expected += name + " " + raw + "\n";
+            require(git(path, {"for-each-ref", "--sort=refname", "--format=%(refname) %(objectname)", "refs/tags/"}) == expected,
+                    "Accepted/workspace/mirror tag sets differ");
+        };
+        unsigned points = 0;
+        bool tampered = false;
+        fs::path unaccepted_tag;
+        unsigned sealed_transactions = 0;
+        std::optional<BoundedCapturedProcessResult> projection_process;
+        PinnedWorkspaceTestHooks workspace;
+        workspace.process = [&](const auto& invocation, const auto& policy) {
+            for(const auto& arg : invocation.arguments)
+                require(arg != "ls-remote" && arg != "fetch", "Post-acceptance acquisition");
+            const auto& args = invocation.arguments;
+            const bool projection = std::find(args.begin(), args.end(), "update-ref") != args.end() &&
+                                    std::find(args.begin(), args.end(), "--stdin") != args.end();
+            if(projection) {
+                ++sealed_transactions;
+                require(invocation.standard_input_fd.has_value(), "Projection lost stdin FD");
+                const int fd = *invocation.standard_input_fd;
+                constexpr int REQUIRED_SEALS = F_SEAL_WRITE | F_SEAL_GROW | F_SEAL_SHRINK | F_SEAL_SEAL;
+                const int seals = ::fcntl(fd, F_GET_SEALS);
+                require(seals >= 0 && (seals & REQUIRED_SEALS) == REQUIRED_SEALS, "Projection stdin was not sealed");
+                require(::lseek(fd, 0, SEEK_CUR) == 0, "Projection stdin was not rewound");
+                errno = 0;
+                require(::pwrite(fd, "!", 1, 0) == -1 && errno == EPERM, "Sealed projection stdin permitted pwrite");
+                errno = 0;
+                require(::write(fd, "!", 1) == -1 && errno == EPERM, "Sealed projection stdin permitted write");
+                if(projection_failure) {
+                    require(invocation.working_directory_fd.has_value(), "Projection lost cwd FD");
+                    const auto root = fs::read_symlink("/proc/self/fd/" + std::to_string(*invocation.working_directory_fd));
+                    const std::string name = "refs/tags/alias/with-slash";
+                    unaccepted_tag = root / ".git" / name;
+                    git(root, {"update-ref", name, mapping.at(name)});
+                    tampered = true;
+                }
+            }
+            auto result = capture_bounded_explicit_process_output_raw(invocation, policy);
+            if(projection && projection_failure) {
+                const auto* exited = std::get_if<BoundedProcessExited>(&result.outcome);
+                require(exited && exited->exit_code != 0, "Create-only projection overwrote preexisting tag");
+                if(test.mutation == "projection-cancel") result.cancellation_signal = SIGINT;
+                projection_process = result;
+            }
+            return result;
+        };
+        workspace.before_reproof = [&](const fs::path& root) {
+            ++points;
+            verify_mapping(root);
+            if(points >= 3) verify_mapping(mirror_path);
+            if(test.mutation == "packed") {
+                git(root, {"pack-refs", "--all"});
+                if(points >= 3) git(mirror_path, {"pack-refs", "--all"});
+            }
+            if(points != test.point) return;
+            tampered = true;
+            const auto target = test.mirror ? mirror_path : root;
+            const auto gitdir = test.mirror ? mirror_path : root / ".git";
+            // Exercise logical comparison with packed originals and loose
+            // overrides; identical packed/loose representations also pass.
+            git(target, {"pack-refs", "--all"});
+            if(test.mutation == "addition") {
+                unaccepted_tag = gitdir / "refs/tags/unaccepted/extra";
+                git(target, {"update-ref", "refs/tags/unaccepted/extra", upstream.oid()});
+            }
+            if(test.mutation == "deletion") git(target, {"update-ref", "-d", "refs/tags/2024"});
+            if(test.mutation == "retarget") git(target, {"update-ref", "refs/tags/2024", upstream.oid()});
+            if(test.mutation == "same-peel") git(target, {"update-ref", "refs/tags/2024", mapping.at("refs/tags/same-peel")});
+            if(test.mutation == "symbolic" || test.mutation == "dangling-symbolic")
+                git(target, {"symbolic-ref", "refs/tags/extra", test.mutation == "symbolic" ? "refs/tags/2024" : "refs/tags/absent"});
+            if(test.mutation == "malformed") write_file(gitdir / "refs/tags/bad..name", upstream.oid() + "\n");
+            if(test.mutation == "missing" || test.mutation == "corrupt") {
+                const auto raw = mapping.at("refs/tags/2024");
+                const auto object = gitdir / "objects" / raw.substr(0, 2) / raw.substr(2);
+                bool damaged = false;
+                if(fs::is_regular_file(object)) {
+                    damaged = true;
+                    if(test.mutation == "missing")
+                        fs::remove(object);
+                    else {
+                        const auto mode = fs::status(object).permissions();
+                        fs::permissions(object, fs::perms::owner_write, fs::perm_options::add);
+                        write_file(object, "invalid compressed object\n");
+                        fs::permissions(object, mode);
+                    }
+                }
+                std::vector<fs::path> packs;
+                for(const auto& entry : fs::directory_iterator(gitdir / "objects/pack")) {
+                    if(entry.path().extension() == ".idx" && git(target, {"verify-pack", "-v", entry.path().string()}).find(raw + " ") != std::string::npos)
+                        packs.push_back(entry.path());
+                }
+                for(auto pack : packs) {
+                    damaged = true;
+                    if(test.mutation == "corrupt") {
+                        pack.replace_extension(".pack");
+                        const auto mode = fs::status(pack).permissions();
+                        fs::permissions(pack, fs::perms::owner_write, fs::perm_options::add);
+                        write_file(pack, "invalid pack bytes\n");
+                        fs::permissions(pack, mode);
+                    } else {
+                        for(const auto* extension : {".idx", ".pack", ".rev"}) {
+                            pack.replace_extension(extension);
+                            fs::remove(pack);
+                        }
+                    }
+                }
+                require(damaged, "Tag fixture did not damage any object backing");
+            }
+        };
+        set_pinned_workspace_test_hooks(workspace);
+        auto materialized = materialize_pinned_submodule_workspace(std::move(accepted));
+        std::optional<PinnedWorkspaceFailure> failure;
+        if(auto* error = std::get_if<PinnedWorkspaceFailure>(&materialized))
+            failure = *error;
+        else {
+            auto ready = take_arm<SourceReadyPinnedSubmoduleWorkspace>(materialized, "No tag workspace");
+            auto built = resume_evaluated_devel_source(std::move(ready));
+            if(auto* error = std::get_if<EvaluatedDevelSourceBuildFailure>(&built)) {
+                require(bool(error->pinned_workspace_failure), "Tag build failure lost workspace detail: " + label);
+                failure = *error->pinned_workspace_failure;
+            } else {
+                auto proof = take_arm<EvaluatedDevelSourceBuildProof>(built, "No tag build proof");
+                require(test.point == 0 && points == 5 && proof.artifact().evidence().identity.full_version == plain_version,
+                        "Plain/pinned version or reproof point mismatch: " + label);
+                cleanup_proof(proof);
+            }
+        }
+        require(sealed_transactions == (mapping.empty() ? 0U : 1U), "Wrong sealed projection count");
+        if(projection_failure) {
+            require(tampered && points == 0 && failure && projection_process && failure->process &&
+                        failure->stage == PinnedWorkspaceStage::RootMaterialization &&
+                        failure->reason == (test.mutation == "projection-cancel" ? PinnedWorkspaceFailureReason::Cancelled : PinnedWorkspaceFailureReason::GitProcessFailed),
+                    "Projection failure lost its primary stage/reason or reached reproof");
+            const auto* exited = std::get_if<BoundedProcessExited>(&failure->process->outcome);
+            require(exited && exited->exit_code == std::get<BoundedProcessExited>(projection_process->outcome).exit_code &&
+                        failure->process->output == projection_process->output &&
+                        failure->process->cancellation_signal == projection_process->cancellation_signal,
+                    "Projection failure changed the original process outcome");
+            require(failure->cleanup.workspace && failure->cleanup.closure.selection &&
+                        failure->cleanup.workspace->reason == PinnedWorkspaceFailureReason::UnsafeFilesystem &&
+                        failure->cleanup.closure.selection->reason == InvocationOwnedSourceBuildContextFailureReason::UnprovenCleanupContent,
+                    "Projection failure lost separate cleanup refusal");
+            std::ifstream retained(unaccepted_tag);
+            const std::string bytes((std::istreambuf_iterator<char>(retained)), {});
+            require(bytes == mapping.at("refs/tags/alias/with-slash") + "\n", "Projection cleanup removed preexisting tag metadata");
+            require(!fs::exists(unaccepted_tag.parent_path().parent_path() / "2024"), "Failed transaction partially created tags");
+        } else if(test.point != 0) {
+            require(tampered && failure && (failure->reason == PinnedWorkspaceFailureReason::TagNamespaceDrift || failure->reason == PinnedWorkspaceFailureReason::TagObjectInvalid), "Tag drift minted proof or wrong failure: " + label + (failure ? " reason=" + std::to_string(static_cast<int>(failure->reason)) : ""));
+            const auto expected_stage = test.point == 1 ? PinnedWorkspaceStage::SourceReadyReproof : test.point == 3 ? PinnedWorkspaceStage::NativePreparation
+                                                                                                 : test.point == 4   ? PinnedWorkspaceStage::PreparedReproof
+                                                                                                                     : PinnedWorkspaceStage::PostBuildReproof;
+            require(failure->stage == expected_stage, "Tag failure at wrong phase point");
+            require(failure->cleanup.workspace && failure->cleanup.closure.selection &&
+                        failure->cleanup.workspace->reason == PinnedWorkspaceFailureReason::UnsafeFilesystem &&
+                        failure->cleanup.closure.selection->reason == InvocationOwnedSourceBuildContextFailureReason::UnprovenCleanupContent,
+                    "Tag proof failure lost separate cleanup refusal");
+            if(test.mutation == "addition") require(fs::is_regular_file(unaccepted_tag), "Cleanup adopted unknown tag subtree");
+        } else
+            require(!failure, "Positive tag workspace failed: " + label);
+        if(fs::exists(context_root)) cleanup_retained_fixture(context_root, context_identity);
+        fixture.require_no_provenance_publication();
+        std::cout << "S589 workspace " << label << " PASS\n"
+                  << std::flush;
+    }
+}
+
 [[maybe_unused]] void test_pinned_submodule_workspace() {
     using Ready = SourceReadyPinnedSubmoduleWorkspace;
     using Accepted = AcceptedPinnedSubmoduleClosure;
@@ -6203,6 +6641,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
 #if defined(MOGUET_ENABLE_PINNED_SUBMODULE_WORKSPACE_TEST_HOOKS) && !defined(MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION)
         if(argc != 2 || std::string(argv[1]) != "--pinned-submodule-workspace") throw std::invalid_argument("Explicit workspace mode required");
         test_pinned_submodule_workspace();
+        test_root_tag_workspace();
         require(context_root_inventory() == before, "Workspace retained selection context");
         return 0;
 #endif
@@ -6216,6 +6655,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
         if(argc != 2 || std::string(argv[1]) != "--pinned-closure") throw std::invalid_argument("Explicit closure mode required");
         test_pinned_closure_allocation_cleanup();
         test_pinned_closure();
+        test_root_tag_acquisition();
         require(context_root_inventory() == before, "Closure retained selection context");
         return 0;
 #endif

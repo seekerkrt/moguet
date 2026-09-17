@@ -28,6 +28,8 @@ enum class PinnedWorkspaceFailureReason {
     UnsafeFilesystem,
     ResourceLimitExceeded,
     Cancelled,
+    TagNamespaceDrift,
+    TagObjectInvalid,
 };
 struct PinnedWorkspaceCleanupFailure {
     PinnedWorkspaceFailureReason reason;

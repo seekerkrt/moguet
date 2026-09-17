@@ -28,7 +28,10 @@ recipe inputs retain their separate full content review semantics.
 
 The presentation includes the selected remote and selector, resolved root X,
 each node's commit/tree/object format, every inventory entry's path/mode/object
-ID/blob size, and all submodule logical names, paths, URLs and exact parent pins.
+ID/blob size, all submodule logical names, paths, URLs and exact parent pins,
+and the complete root tag count/name/raw-OID/annotated-peeled-OID mapping.
+An explicit zero count represents the accepted empty namespace. Raw tag objects
+are retained; this presentation does not assert signature verification.
 Locators describe transport; parent Gitlinks own child revision authority.
 All values are terminal-safe. Each occurrence is shown even for reused children.
 

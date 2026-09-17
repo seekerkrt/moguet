@@ -9,6 +9,7 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <linux/openat2.h>
+#include <linux/memfd.h>
 #include <map>
 #include <set>
 #include <sys/stat.h>
@@ -26,6 +27,7 @@ constexpr auto CLEANUP_TIMEOUT = std::chrono::seconds(5);
 constexpr std::size_t MAX_ENTRIES = 262144, MAX_DEPTH = 128, MAX_PROCESSES = 4096;
 constexpr std::uintmax_t MAX_BYTES = 1024ULL * 1024 * 1024;
 constexpr std::size_t MAX_CAPTURE = 1024 * 1024;
+constexpr int TAG_TRANSACTION_SEALS = F_SEAL_WRITE | F_SEAL_GROW | F_SEAL_SHRINK | F_SEAL_SEAL;
 constexpr const char* WORKSPACE_LEAF = "pinned-submodule-workspace";
 #ifdef MOGUET_ENABLE_PINNED_SUBMODULE_WORKSPACE_TEST_HOOKS
 PinnedWorkspaceTestHooks g_hooks;
@@ -210,7 +212,7 @@ struct PinnedSubmoduleWorkspaceData {
         scan(root->descriptor.get(), {}, root->identity.st_dev, 0, active, budget, result, execution_started);
         return result;
     }
-    std::string run(int cwd, std::vector<std::string> operation, std::size_t limit = MAX_CAPTURE) {
+    std::string run(int cwd, std::vector<std::string> operation, std::size_t limit = MAX_CAPTURE, int input_fd = -1, bool diagnostics = false) {
         check();
         ++processes;
         auto arguments = trusted_git_recipe_acquisition_process_arguments();
@@ -222,10 +224,10 @@ struct PinnedSubmoduleWorkspaceData {
         if(input.get() < 0) fail(active, Reason::UnsafeFilesystem, errno);
         ExplicitProcessInvocation invocation{"/usr/bin/git", std::move(arguments), trusted_git_process_environment(TrustedGitProcessEnvironmentMode::ReadOnlyObservation)};
         invocation.working_directory_fd = cwd;
-        invocation.standard_input_fd = input.get();
+        invocation.standard_input_fd = input_fd < 0 ? input.get() : input_fd;
         const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - Clock::now());
         if(remaining.count() <= 0) fail(active, Reason::ResourceLimitExceeded);
-        auto result = execute_git(invocation, {remaining, std::chrono::milliseconds(200), limit, true, false});
+        auto result = execute_git(invocation, {remaining, std::chrono::milliseconds(200), limit, true, diagnostics});
         const auto* exited = std::get_if<BoundedProcessExited>(&result.outcome);
         if(result.cancellation_signal || !exited || exited->exit_code != 0) {
             PinnedWorkspaceFailure failure{active, result.cancellation_signal ? Reason::Cancelled : Reason::GitProcessFailed};
@@ -233,6 +235,104 @@ struct PinnedSubmoduleWorkspaceData {
             throw Failure(std::move(failure));
         }
         return std::move(result.output);
+    }
+    void project_root_tags() {
+        active = Stage::RootMaterialization;
+        std::string transaction;
+        for(const auto& tag : accepted.closure().root_tags()) {
+            transaction += "create " + tag.ref_name();
+            transaction.push_back('\0');
+            transaction += tag.raw().value();
+            transaction.push_back('\0');
+        }
+        if(transaction.empty()) return;
+        Descriptor input(static_cast<int>(::syscall(SYS_memfd_create, "moguet-root-tags", MFD_CLOEXEC | MFD_ALLOW_SEALING)));
+        if(input.get() < 0) fail(active, Reason::UnsafeFilesystem, errno);
+        for(std::size_t written = 0; written < transaction.size();) {
+            const auto count = ::write(input.get(), transaction.data() + written, transaction.size() - written);
+            if(count < 0 && errno == EINTR) continue;
+            if(count <= 0) fail(active, Reason::UnsafeFilesystem, errno);
+            written += static_cast<std::size_t>(count);
+        }
+        int sealed;
+        do {
+            sealed = ::fcntl(input.get(), F_ADD_SEALS, TAG_TRANSACTION_SEALS);
+        } while(sealed < 0 && errno == EINTR);
+        if(sealed < 0) fail(active, Reason::UnsafeFilesystem, errno);
+        int seals;
+        do {
+            seals = ::fcntl(input.get(), F_GET_SEALS);
+        } while(seals < 0 && errno == EINTR);
+        if(seals < 0) fail(active, Reason::UnsafeFilesystem, errno);
+        if((seals & TAG_TRANSACTION_SEALS) != TAG_TRANSACTION_SEALS) fail(active, Reason::UnsafeFilesystem);
+        // Reprove the immutable cross-process input against the typed mapping,
+        // including its exact length; sealing alone cannot prove copied bytes.
+        const auto metadata = status(input.get(), active);
+        if(metadata.st_size < 0 || static_cast<std::uintmax_t>(metadata.st_size) != transaction.size())
+            fail(active, Reason::UnsafeFilesystem);
+        std::array<char, 4096> buffer{};
+        for(std::size_t offset = 0; offset < transaction.size();) {
+            const auto count = ::pread(input.get(), buffer.data(), std::min(buffer.size(), transaction.size() - offset), static_cast<off_t>(offset));
+            if(count < 0 && errno == EINTR) continue;
+            if(count < 0) fail(active, Reason::UnsafeFilesystem, errno);
+            if(count == 0 || !std::equal(buffer.begin(), buffer.begin() + count, transaction.begin() + offset))
+                fail(active, Reason::UnsafeFilesystem);
+            offset += static_cast<std::size_t>(count);
+        }
+        ssize_t extra;
+        do {
+            extra = ::pread(input.get(), buffer.data(), 1, static_cast<off_t>(transaction.size()));
+        } while(extra < 0 && errno == EINTR);
+        if(extra < 0) fail(active, Reason::UnsafeFilesystem, errno);
+        if(extra != 0) fail(active, Reason::UnsafeFilesystem);
+        if(::lseek(input.get(), 0, SEEK_SET) != 0) fail(active, Reason::UnsafeFilesystem, errno);
+        // One create-only transaction: no dereferencing, replacement, partial
+        // batch success, or mutation of the accepted object-only backing.
+        try {
+            run(root->descriptor.get(), {"update-ref", "--no-deref", "--stdin", "-z"}, MAX_CAPTURE, input.get());
+        } catch(const Failure&) {
+            // A failed create may expose preexisting, unproved tag metadata
+            // before seal/prove. Preserve the primary process/cancel failure
+            // without letting cleanup adopt that namespace as our own.
+            refuse_cleanup = true;
+            throw;
+        }
+    }
+    void prove_tags(int cwd) {
+        bool namespace_proven = false;
+        try {
+            std::string expected;
+            for(const auto& tag : accepted.closure().root_tags()) {
+                expected += tag.ref_name();
+                expected.push_back('\0');
+                expected += tag.raw().value();
+                expected.append("\0\0\n", 3); // a symbolic tag never matches
+            }
+            // Include diagnostics: Git may warn and omit malformed refs.
+            if(run(cwd, {"for-each-ref", "--sort=refname", "--format=%(refname)%00%(objectname)%00%(symref)%00", "refs/tags/"}, MAX_CAPTURE, -1, true) != expected)
+                fail(active, Reason::TagNamespaceDrift);
+            namespace_proven = true;
+            const auto format = accepted.closure().nodes().front().commit.format();
+            if(run(cwd, {"rev-parse", "--show-object-format=storage"}) != (format == GitObjectFormat::Sha256 ? "sha256\n" : "sha1\n"))
+                fail(active, Reason::TagObjectInvalid);
+            // Do not pass explicit object roots here: fsck must walk the ref
+            // namespace too, including dangling symbolic refs omitted by both
+            // for-each-ref and refs verify. The exact logical mapping above
+            // makes all accepted raw tags roots of this hash/connectivity proof.
+            run(cwd, {"fsck", "--strict", "--no-reflogs", "--no-dangling"});
+        } catch(Failure& error) {
+            // An unproved root/mirror tag store may contain unknown metadata
+            // subtrees. Keep the primary semantic/process failure, but never
+            // let generic context cleanup adopt that state as generated content.
+            refuse_cleanup = true;
+            if(error.detail.reason == Reason::GitProcessFailed && error.detail.process &&
+               std::holds_alternative<BoundedProcessExited>(error.detail.process->outcome))
+                error.detail.reason = namespace_proven ? Reason::TagObjectInvalid : Reason::TagNamespaceDrift;
+            throw;
+        } catch(...) {
+            refuse_cleanup = true;
+            throw;
+        }
     }
     void bind(std::size_t node, const fs::path& worktree_path, const fs::path& gitdir_path) {
         active = Stage::GitdirBinding;
@@ -257,7 +357,7 @@ struct PinnedSubmoduleWorkspaceData {
     }
     void prove(Stage stage = Stage::SourceReadyReproof) {
         active = stage;
-        const bool clean = stage == Stage::SourceReadyReproof;
+        const bool clean = stage == Stage::SourceReadyReproof || stage == Stage::NativePreparation;
         check();
 #ifdef MOGUET_ENABLE_PINNED_SUBMODULE_WORKSPACE_TEST_HOOKS
         if(g_hooks.before_reproof) g_hooks.before_reproof(root_path);
@@ -330,6 +430,11 @@ struct PinnedSubmoduleWorkspaceData {
                                                  path == binding.gitdir.path / "info/grafts" || within(path, binding.gitdir.path / "refs/replace") ||
                                                  (within(path, binding.gitdir.path / "objects/pack") && path.extension() == ".promisor"))) fail(active, Reason::GitdirMismatch);
             }
+        }
+        prove_tags(bindings.front().worktree.descriptor.get());
+        if(mirror) {
+            if(read_regular(mirror->descriptor.get(), "config", active) != mirror_config) fail(active, Reason::GitdirMismatch);
+            prove_tags(mirror->descriptor.get());
         }
         // Validate every binding before Git status can descend into children.
         for(std::size_t i = 0; i < bindings.size(); ++i) {
@@ -472,11 +577,14 @@ std::optional<PinnedWorkspaceFailure> PinnedSubmoduleWorkspaceAuthority::prepare
         data.run(data.mirror->descriptor.get(), {"symbolic-ref", "HEAD", "refs/heads/" + branch});
         data.run(data.mirror->descriptor.get(), {"remote", "set-url", "origin", node.locator});
         data.run(data.root->descriptor.get(), {"remote", "set-url", "origin", mirror_path.string()});
+        // The derived symbolic HEAD must already have its exact local target
+        // before ref-aware fsck, rather than waiting for makepkg extraction.
+        data.run(data.root->descriptor.get(), {"update-ref", "refs/remotes/origin/" + branch, node.commit.value()});
         data.run(data.root->descriptor.get(), {"symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/" + branch});
         data.bindings.front().config = read_regular(data.bindings.front().gitdir.descriptor.get(), "config", data.active);
         data.mirror_config = read_regular(data.mirror->descriptor.get(), "config", data.active);
         data.cleanup_inventory = data.inventory(data.deadline);
-        data.prove();
+        data.prove(Stage::NativePreparation);
         data.native_prepared = true;
         data.execution_started = true;
         return std::nullopt;
@@ -617,6 +725,7 @@ PinnedSubmoduleWorkspaceResult PinnedSubmoduleWorkspaceAuthority::materialize(Ac
             }
             data->bind(i, worktrees[i], gitdirs[i]);
         }
+        data->project_root_tags();
         data->seal();
         data->prove();
         data->ready = true;
