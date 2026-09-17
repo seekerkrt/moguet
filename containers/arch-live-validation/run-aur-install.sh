@@ -1159,7 +1159,7 @@ assert_contains "'makepkg' '--packagelist'" "$normalized_output"
 assert_contains "'makepkg' '-sc' '--noconfirm'" "$normalized_output"
 assert_not_contains "Running: LC_ALL=C 'pacman' '-U' '--print' '--print-format'" \
     "$normalized_output"
-assert_contains "Running: 'sudo' 'pacman' '-U' '--noconfirm' '--'" \
+assert_contains "Running: '/usr/bin/sudo' '--' '/usr/local/libexec/moguet/moguet-source-artifact-install-helper' 'install-legacy'" \
     "$normalized_output"
 assert_contains "PackageBase result: $package_base" "$normalized_output"
 assert_contains \
@@ -1228,6 +1228,7 @@ assert_directory_non_symlink "$evidence_directory" 'gateway evidence directory'
 assert_metadata "$evidence_directory" \
     'root:moguet-validation:750:directory' 'gateway evidence directory'
 for evidence_name in \
+    trusted-source.json \
     original-argv.nul \
     original-artifact-path.txt \
     staged-artifact-path.txt \
@@ -1290,6 +1291,9 @@ original_lines = exact_lines(original_path, "original artifact")
 if len(original_lines) != 1:
     raise SystemExit(f"gateway original artifact evidence drift: {original_lines!r}")
 original_artifact = original_lines[0]
+import re
+if not re.fullmatch(r"/run/moguet/source-artifact-installs/active/[0-9a-f]{64}/artifacts/artifact-0\.pkg\.tar\.zst", original_artifact):
+    raise SystemExit("gateway trusted root staging identity drift")
 
 staged_lines = exact_lines(staged_path, "staged artifact")
 expected_staged_artifact = str(
@@ -1330,21 +1334,22 @@ if completion_lines != expected_completion:
     raise SystemExit(f"gateway validation-complete evidence drift: {completion_lines!r}")
 
 execution_lines = exact_lines(execution_path, "real pacman execution")
-expected_execution = [f"argv=-U --noconfirm -- {staged_artifact}"]
+expected_execution = [f"argv=-U --noconfirm -- {original_artifact}"]
 if execution_lines != expected_execution:
     raise SystemExit(f"gateway real-pacman execution evidence drift: {execution_lines!r}")
 PY
-case "$original_artifact" in
-    "$cache_root"/.artifact-workspace~-??????/"$package_name-$expected_version-$expected_architecture.pkg.tar.zst")
-        ;;
-    *)
-        fail 'gateway original artifact path escaped the exact workspace boundary'
-        ;;
-esac
-[ ! -e "$original_artifact" ] && [ ! -L "$original_artifact" ] ||
+# The helper owns private /run cleanup. Inspect only our readable cache here;
+# an unprivileged test ! -e on /run would mistake EACCES for absence.
+remaining_workspaces=$case_root/remaining-artifact-workspaces.txt
+validation_capture_output "$remaining_workspaces" /usr/bin/find "$cache_root" \
+    -mindepth 1 -maxdepth 1 -name '.artifact-workspace~-*' -print ||
+    fail 'artifact workspace inventory failed'
+[ ! -s "$remaining_workspaces" ] ||
     fail 'production did not clean the original artifact workspace'
-[ ! -e "$(dirname "$original_artifact")" ] ||
-    fail 'production retained the original artifact workspace directory'
+[ "$(awk -F= '$1 == "source_uid" {print $2}' "$evidence_directory/stage-hashes.txt")" = 0 ] ||
+    fail 'trusted artifact source uid drift'
+[ "$(awk -F= '$1 == "source_mode" {print $2}' "$evidence_directory/stage-hashes.txt")" = 0600 ] ||
+    fail 'trusted artifact source mode drift'
 assert_regular_non_symlink "$staged_artifact" 'root-staged artifact'
 assert_metadata "$staged_artifact" \
     'root:moguet-validation:440:regular file' 'root-staged artifact'
@@ -1407,7 +1412,7 @@ validation_capture_output "$staging_directories" \
     fail "gateway staging directory producer failed with status $?"
 [ "$(wc -l <"$staging_directories")" -eq 6 ] ||
     fail 'gateway must retain one positive and five independent negative staging directories'
-printf '  artifact original: %s (production-cleaned)\n' "$original_artifact"
+printf '  artifact trusted input: %s (cleanup owned by root helper)\n' "$original_artifact"
 printf '  artifact staged: %s\n' "$staged_artifact"
 printf '  artifact identity: %s %s %s\n' \
     "$package_name" "$expected_version" "$expected_architecture"

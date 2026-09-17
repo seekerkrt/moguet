@@ -2,6 +2,7 @@
 
 from collections import Counter
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
@@ -118,6 +119,124 @@ def hash_descriptor(descriptor: int) -> str:
         if not chunk:
             return digest.hexdigest()
         digest.update(chunk)
+
+
+TRUSTED_STAGE_PATTERN = re.compile(
+    r"/run/moguet/source-artifact-installs/active/[0-9a-f]{64}/artifacts/artifact-0\.pkg\.tar\.zst"
+)
+
+
+def require_trusted_status(value: os.stat_result) -> None:
+    if (not stat.S_ISREG(value.st_mode) or value.st_uid != 0 or value.st_gid != 0
+            or stat.S_IMODE(value.st_mode) != 0o600 or value.st_nlink != 1):
+        fail("trusted source has unsafe type, owner, mode, or links")
+    age = time.time_ns() - value.st_mtime_ns
+    if age < -FUTURE_SKEW_SECONDS * 1_000_000_000 or age > MAX_ARTIFACT_AGE_SECONDS * 1_000_000_000:
+        fail("trusted source timestamp is outside this live invocation")
+
+
+class TrustedStageInput:
+    """Retain the fixed root namespace and reprove every named component."""
+
+    def __init__(self, raw: str):
+        if not TRUSTED_STAGE_PATTERN.fullmatch(raw):
+            fail("artifact path is outside the exact trusted root staging boundary")
+        self.raw = raw
+        self.directories = []
+        self.descriptor = -1
+        try:
+            root = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW)
+            self.directories.append((root, None, "", os.fstat(root)))
+            root_metadata = os.fstat(root)
+            if root_metadata.st_uid != 0 or root_metadata.st_gid != 0 or root_metadata.st_mode & 0o022:
+                fail("root directory has unsafe ownership or mode")
+            for component in raw.split("/")[1:-1]:
+                parent = self.directories[-1][0]
+                fd = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW, dir_fd=parent)
+                metadata = os.fstat(fd)
+                self.directories.append((fd, parent, component, metadata))
+                if (metadata.st_uid != 0 or metadata.st_gid != 0
+                        or (stat.S_IMODE(metadata.st_mode) & 0o022)
+                        or (component != "run" and stat.S_IMODE(metadata.st_mode) != 0o700)):
+                    fail("trusted directory has unsafe ownership or mode")
+            parent = self.directories[-1][0]
+            if os.listdir(parent) != ["artifact-0.pkg.tar.zst"]:
+                fail("trusted artifact directory contains unexpected entries")
+            self.descriptor = os.open("artifact-0.pkg.tar.zst", os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+            self.metadata = os.fstat(self.descriptor)
+            require_trusted_status(self.metadata)
+            self.reprove()
+        except BaseException:
+            self.close()
+            raise
+
+    def reprove(self) -> None:
+        for fd, parent, name, before in self.directories:
+            current = os.fstat(fd)
+            identity = lambda s: (s.st_dev, s.st_ino, s.st_mode, s.st_uid, s.st_gid)
+            if identity(current) != identity(before):
+                fail("trusted directory descriptor changed identity")
+            if parent is not None and identity(os.stat(name, dir_fd=parent, follow_symlinks=False)) != identity(before):
+                fail("trusted directory path changed identity")
+        parent = self.directories[-1][0]
+        if os.listdir(parent) != ["artifact-0.pkg.tar.zst"]:
+            fail("trusted artifact directory entries changed")
+        current = os.fstat(self.descriptor)
+        require_trusted_status(current)
+        if stable_identity(current) != stable_identity(self.metadata):
+            fail("trusted source descriptor changed identity or metadata")
+        if stable_identity(os.stat("artifact-0.pkg.tar.zst", dir_fd=parent, follow_symlinks=False)) != stable_identity(self.metadata):
+            fail("trusted source pathname changed identity or metadata")
+
+    def close(self) -> None:
+        if self.descriptor >= 0:
+            os.close(self.descriptor)
+            self.descriptor = -1
+        for fd, _, _, _ in reversed(self.directories):
+            os.close(fd)
+        self.directories = []
+
+
+def check_trusted(arguments: list[str]) -> int:
+    if len(arguments) != 1:
+        fail("check-trusted requires one source")
+    source = TrustedStageInput(arguments[0])
+    source.close()
+    return 0
+
+
+def trusted_record(source: TrustedStageInput, digest: str) -> str:
+    return json.dumps({"path": source.raw, "identity": stable_identity(source.metadata), "sha256": digest}) + "\n"
+
+
+def verify_trusted(arguments: list[str]) -> int:
+    if len(arguments) != 3:
+        fail("verify-trusted requires source, snapshot, and identity evidence")
+    source = TrustedStageInput(arguments[0])
+    descriptors = []
+    saved_metadata = []
+    try:
+        for raw, mode in ((arguments[1], 0o440), (arguments[2], 0o640)):
+            fd = os.open(raw, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK)
+            descriptors.append(fd)
+            metadata = os.fstat(fd)
+            saved_metadata.append(stable_identity(metadata))
+            if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != 0 or metadata.st_gid != 1000
+                    or metadata.st_nlink != 1 or stat.S_IMODE(metadata.st_mode) != mode):
+                fail("trusted snapshot/evidence metadata drift")
+        record = json.loads(os.read(descriptors[1], 4097))
+        digest = hash_descriptor(source.descriptor)
+        source.reprove()
+        if record != json.loads(trusted_record(source, digest)) or hash_descriptor(descriptors[0]) != digest:
+            fail("trusted source/snapshot/evidence differs before real pacman")
+        source.reprove()
+        if any(stable_identity(os.fstat(fd)) != saved for fd, saved in zip(descriptors, saved_metadata)):
+            fail("trusted snapshot/evidence changed while reading")
+    finally:
+        for fd in descriptors:
+            os.close(fd)
+        source.close()
+    return 0
 
 
 def stable_identity(value: os.stat_result) -> tuple[int, ...]:
@@ -797,11 +916,44 @@ def validate_staged_archive(arguments: list[str]) -> int:
     return 0
 
 
+def stage_trusted(arguments: list[str]) -> int:
+    if len(arguments) != 3:
+        fail("stage-trusted requires source, snapshot, and evidence directory")
+    destination = Path(arguments[1])
+    evidence = Path(arguments[2])
+    if destination.parent != STAGING_ROOT / "aur-install" or evidence != Path("/var/log/moguet-live-aur/aur-install"):
+        fail("trusted positive destination/case mismatch")
+    require_destination_path(destination)
+    source = TrustedStageInput(arguments[0])
+    try:
+        require_source_status(source.metadata, 0)
+        digest = hash_descriptor(source.descriptor)
+        source.reprove()
+        copied, staged = copy_and_hash(source.descriptor, destination, 1000)
+        source.reprove()
+        after = hash_descriptor(source.descriptor)
+        source.reprove()
+        if len({digest, copied, staged, after}) != 1:
+            fail("trusted source/copy/snapshot hashes differ")
+        write_new_file(evidence / "trusted-source.json", trusted_record(source, digest).encode("utf-8"), 0o640, 1000)
+        print(f"source_sha256_before={digest}\ncopy_sha256={copied}\nstaged_sha256={staged}\nsource_sha256_after={after}")
+        print(f"source_mtime_ns={source.metadata.st_mtime_ns}\nsource_uid=0\nsource_mode=0600")
+    finally:
+        source.close()
+    return 0
+
+
 def main() -> int:
     if len(sys.argv) < 2:
         print("usage: aur-stage-artifact.py COMMAND ...", file=sys.stderr)
         return 2
     command = sys.argv[1]
+    if command == "check-trusted":
+        return check_trusted(sys.argv[2:])
+    if command == "stage-trusted":
+        return stage_trusted(sys.argv[2:])
+    if command == "verify-trusted":
+        return verify_trusted(sys.argv[2:])
     if command == "stage":
         return stage_artifact(sys.argv[2:])
     if command == "manifest":

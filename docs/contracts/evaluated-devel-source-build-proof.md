@@ -210,7 +210,6 @@ makepkg failure、process outcome、parent cancellationは既存分類を維持�
 4A objects→selection/contextの順で、一度だけ行う。primary failureとworkspace/object/context cleanupを分離し、
 成功proofの明示cleanupにも`pinned_workspace_cleanup()`で詳細を保持する。通常のpackage-build開始後のrefusalは維持する。
 
-
 phase、reason、existing parser/context/process/revision causeをtyped failureとして保持する。失敗時はcontextの
 descriptor-relative cleanupを明示実行し、cleanupも失敗した場合はprimary failureを置換せず
 `cleanup_consequence`へ別に保持する。retained archive queryで発生したruntime failureは狭いquery境界で

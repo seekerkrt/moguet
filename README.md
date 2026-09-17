@@ -49,12 +49,13 @@ a new storage direction: source-build preferences now use only the executing
 user's XDG config context, while the published v2.0.0 tag, Release, and release
 notes remain historical records.
 
-Moguet v2.7.1 is the latest maintenance release. It hardens v2.7.0 by
-strengthening legacy artifact content binding, honoring `.SRCINFO` epoch values
-during source update checks, distinguishing AUR info query failures from
-confirmed absence, and safely presenting known devel `RequiresCheck` states.
-See the [v2.7.1 release](https://github.com/seekerkrt/moguet/releases/tag/v2.7.1)
-for the complete user-visible changes.
+Moguet v2.8.0 is the latest feature and correctness release. It completes major
+parts of ordinary system + AUR updates and devel package migration/tracking for
+representative real packages, strengthens exact Git source handling for supported
+submodule and tag-dependent builds, and adds guarded repo/AUR exact-version
+transitions. It also fixes persistent-state, resource, and diagnostic issues.
+See the [v2.8.0 release](https://github.com/seekerkrt/moguet/releases/tag/v2.8.0)
+for the supported scope and complete user-visible changes.
 
 The canonical repository identity is Moguet on GitHub, with a GitLab mirror.
 The Moguet package does not provide a `jpacker` command alias. AUR publication
