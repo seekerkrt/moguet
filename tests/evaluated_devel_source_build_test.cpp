@@ -3304,6 +3304,12 @@ package() {
         }
         const bool pinned = mode.starts_with("pinned-");
         const bool closure_interaction = mode.starts_with("pinned-review-");
+        const bool generated_output = mode.starts_with("pinned-generated-") || mode.starts_with("pinned-native-output");
+        const bool native_output = mode.starts_with("pinned-native-output");
+        const bool prepared_output = mode == "pinned-generated-prepared";
+        const bool unexpected_generated_git = mode.ends_with("-extra") && generated_output;
+        constexpr std::uintmax_t INVENTORY_BYTE_LIMIT = 1024 * 1024;
+
         std::unique_ptr<UpstreamGitFixture> submodule, nested;
         std::string old_child;
         if(pinned) {
@@ -3317,6 +3323,13 @@ package() {
             submodule->pin_tree(declaration("leaf-name", "nested/d", nested->url()), {{"nested/d", nested->oid()}});
             upstream.pin_tree(declaration("logical/A", "deps/a", submodule->url()) + declaration("sibling-B", "deps/b", submodule->url()),
                               {{"deps/a", submodule->oid()}, {"deps/b", submodule->oid()}});
+            const std::string generate_output = generated_output ? std::string(native_output ? "output_dir=\"$srcdir/generated-output\"\n" : "output_dir=generated-output\n") + R"(
+mkdir -p "$output_dir"
+for part in 1 2 3 4; do
+    head -c 524288 /dev/zero | tr '\0' 'x' > "$output_dir/part-$part"
+done
+)"
+                                                                 : "";
             std::string mutation;
             if(mode == "pinned-prepared-root") mutation = "git checkout --detach HEAD~ --\n";
             if(mode == "pinned-prepared-child") mutation = "git -C deps/a checkout --detach HEAD~ --\n";
@@ -3328,9 +3341,10 @@ package() {
                                                "mkdir -p \"$SRCDEST/fixture-cache\"\nprintf 'auxiliary\\n' > \"$SRCDEST/fixture-cache/input\"\n"
                                                "printf 'prepared\\n' >> payload.txt\nprintf 'generated\\n' > generated.txt\n"
                                                "git add -- payload.txt generated.txt\n" +
-                                               mutation + "}\n"
-                                                          "build() {\ncd \"$srcdir/$pkgname\"\n"
-                                                          "cat payload.txt deps/a/payload.txt deps/a/nested/d/payload.txt deps/b/payload.txt generated.txt > combined.txt\n" +
+                                               mutation + (prepared_output ? generate_output : "") + "}\n"
+                                                                                                     "build() {\ncd \"$srcdir/$pkgname\"\n"
+                                                                                                     "cat payload.txt deps/a/payload.txt deps/a/nested/d/payload.txt deps/b/payload.txt generated.txt > combined.txt\n" +
+                                               (prepared_output ? "" : generate_output) +
                                                (mode == "pinned-post-child" ? "git -C deps/a checkout --detach HEAD~ --\n" : "") +
                                                // makepkg leaves pkgdirbase without read permission before
                                                // package(). Let the fixture inventory its own failed build.
@@ -3411,8 +3425,43 @@ package() {
         PinnedClosureReviewTestHooks closure_review;
         closure_review.before_render = [&] { ++closure_reviews; };
         set_pinned_closure_review_test_hooks(closure_review);
+        unsigned after_package_build = 0, artifact_inventory = 0, artifact_open = 0, generated_cleanup_attempts = 0;
+        const auto regular_bytes = [](const fs::path& root) {
+            std::uintmax_t total = 0;
+            for(const auto& entry : fs::recursive_directory_iterator(root)) {
+                struct stat identity{};
+                require(::lstat(entry.path().c_str(), &identity) == 0, "Inventory fixture stat failed");
+                if(S_ISREG(identity.st_mode)) total += static_cast<std::uintmax_t>(identity.st_size);
+            }
+            return total;
+        };
+        const auto require_generated_output = [&](const fs::path& root) {
+            const auto generated = (native_output ? root.parent_path() : root) / "generated-output";
+            require(regular_bytes(generated) == 2 * INVENTORY_BYTE_LIMIT, "Generated aggregate does not exceed test cap");
+            for(unsigned part = 1; part <= 4; ++part) {
+                const auto file = generated / ("part-" + std::to_string(part));
+                struct stat identity{};
+                require(::lstat(file.c_str(), &identity) == 0 && S_ISREG(identity.st_mode) &&
+                            identity.st_size == 524288 && identity.st_blocks * 512 >= identity.st_size,
+                        "Generated output is not ordinary non-sparse data below the individual cap");
+                std::ifstream input(file, std::ios::binary);
+                require(std::string((std::istreambuf_iterator<char>(input)), {}) == std::string(524288, 'x'), "Generated bytes changed");
+            }
+        };
         PinnedWorkspaceTestHooks workspace_hooks;
-        workspace_hooks.before_reproof = [&](const auto&) { ++closure_phase_points; };
+        if(generated_output) {
+            workspace_hooks.inventory_byte_limit = INVENTORY_BYTE_LIMIT;
+            workspace_hooks.before_cleanup = [&](const auto& root) {
+                ++generated_cleanup_attempts;
+                require_generated_output(root);
+            };
+        }
+        workspace_hooks.before_reproof = [&](const auto& root) {
+            ++closure_phase_points;
+            if(generated_output && closure_phase_points <= 3)
+                require(regular_bytes(closure_phase_points == 3 ? root.parent_path() : root) < INVENTORY_BYTE_LIMIT,
+                        "Immutable/native baseline already exceeds cap");
+        };
         workspace_hooks.process = [&](const auto& invocation, const auto& policy) {
             const auto& args = invocation.arguments;
             require(std::find(args.begin(), args.end(), "ls-remote") == args.end() && std::find(args.begin(), args.end(), "fetch") == args.end(),
@@ -3458,6 +3507,24 @@ package() {
             return observed;
         });
         set_evaluated_devel_source_build_test_hook([&](auto event, const auto& root, const auto&) {
+            if(generated_output) {
+                const auto worktree = root / "build/example-base/src" / fixture.package_name();
+                if(event == EvaluatedDevelSourceBuildTestEvent::BeforePackageBuild) {
+                    if(prepared_output)
+                        require_generated_output(worktree);
+                    else
+                        require(regular_bytes(worktree.parent_path()) < INVENTORY_BYTE_LIMIT, "Prepared baseline already exceeds cap");
+                }
+                if(event == EvaluatedDevelSourceBuildTestEvent::AfterPackageBuild) {
+                    ++after_package_build;
+                    require_generated_output(worktree);
+                    if(native_output) require(regular_bytes(worktree) < INVENTORY_BYTE_LIMIT, "Native sibling did not isolate the second scan");
+                    if(unexpected_generated_git)
+                        fs::create_directory((native_output ? worktree.parent_path() : worktree) / "generated-output/.git");
+                }
+                if(event == EvaluatedDevelSourceBuildTestEvent::AfterArtifactInventory) ++artifact_inventory;
+                if(event == EvaluatedDevelSourceBuildTestEvent::AfterArtifactOpen) ++artifact_open;
+            }
             if(event == EvaluatedDevelSourceBuildTestEvent::AfterInitialSourceSelection) {
                 integration_root = root;
                 struct stat identity{};
@@ -4277,7 +4344,7 @@ package() {
                 std::cout << "S553 production " << case_name << " PASS\n";
                 continue;
             }
-            const bool success = representative || mode == "pinned-recursive" || mode == "pinned-branch" || mode == "accept" || mode == "older" || mode == "reviewed-same" || mode == "reviewed-changed" || mode == "supplemental" || mode == "supplemental-collision" || mode == "no-cache" || mode == "clean-cache" || mode == "dirty-pkgbuild" || mode == "overlay" || mode == "ignored" || mode == "wrong-head" || mode == "malicious-config" || mode == "advance-after-revalidation";
+            const bool success = (generated_output && !unexpected_generated_git) || representative || mode == "pinned-recursive" || mode == "pinned-branch" || mode == "accept" || mode == "older" || mode == "reviewed-same" || mode == "reviewed-changed" || mode == "supplemental" || mode == "supplemental-collision" || mode == "no-cache" || mode == "clean-cache" || mode == "dirty-pkgbuild" || mode == "overlay" || mode == "ignored" || mode == "wrong-head" || mode == "malicious-config" || mode == "advance-after-revalidation";
             const bool skipped = mode == "advance-before-revalidation" || mode == "provider-decline" || mode == "decline" || mode == "default-no" || mode == "non-tty" || mode == "noconfirm" || mode == "nodiff" || mode == "diff-skip" ||
                                  mode == "unsupported" || mode == "invalid" || mode == "corrupt" || mode == "future" || mode == "unsafe";
             const bool process_cancelled = mode == "acquire-cancel" || mode == "acquire-cancel-zero";
@@ -4460,18 +4527,35 @@ package() {
                 require(initial_evaluations == 1 && root_observations == 1 && closure_reviews == 1 && workspace_clones == 6,
                         "Repeated selection/acquisition/review/materialization or wrong recursive inventory");
                 require(success ? fs::exists(closure_root) : !fs::exists(closure_root), "4A backing lifetime mismatch");
-                if(success)
+                if(success) {
                     require(closure_phase_points == 5, "Missing prepared/post-build closure proof");
-                else {
+                    if(generated_output) {
+                        require(package_builds == 1 && package_build_exit == 0 && after_package_build == 1 &&
+                                    artifact_inventory > 0 && artifact_open > 0 && execute_calls == 1,
+                                "Generated output prevented artifact proof/install");
+                        require_generated_output(integration_root / "build/example-base/src" / fixture.package_name());
+                    }
+                } else {
                     require(execute_calls == 0 && g_bridge_publication_entries == 0, "Closure failure reached install/publication");
                     const auto& execution = filtered.execution->work_item_results[bootstrap_index].devel_execution;
                     require(execution && execution->owner->build_failure(), "Closure failure lost typed build cause");
                     const auto& failure = *execution->owner->build_failure();
                     using Reason = EvaluatedDevelSourceBuildFailureReason;
                     const bool during_build = mode == "pinned-cancel" || mode == "pinned-build-failure" || mode == "pinned-cleanup-refusal";
-                    require(failure.reason == (during_build ? Reason::MakepkgPhaseFailure : mode == "pinned-post-child" ? Reason::PostBuildClosureDrift
-                                                                                                                        : Reason::PreparedClosureDrift),
+                    require(failure.reason == (during_build ? Reason::MakepkgPhaseFailure : (mode == "pinned-post-child" || generated_output) ? Reason::PostBuildClosureDrift
+                                                                                                                                              : Reason::PreparedClosureDrift),
                             "Wrong closure failure phase/reason: " + std::to_string(static_cast<int>(failure.reason)));
+                    if(unexpected_generated_git) {
+                        require(package_builds == 1 && package_build_exit == 0 && after_package_build == 1 &&
+                                    artifact_inventory == 0 && artifact_open == 0 && failure.stage == EvaluatedDevelSourceBuildStage::SourceWorkspace &&
+                                    failure.pinned_workspace_failure && failure.pinned_workspace_failure->stage == PinnedWorkspaceStage::PostBuildReproof &&
+                                    failure.pinned_workspace_failure->reason == PinnedWorkspaceFailureReason::UnexpectedModule &&
+                                    failure.pinned_workspace_failure->cleanup.workspace && failure.cleanup_consequence,
+                                "Over-budget generated subtree hid unexpected Git metadata or allowed cleanup");
+                        const auto root = integration_root / "build/example-base/src" / fixture.package_name();
+                        require(fs::exists((native_output ? root.parent_path() : root) / "generated-output/.git"), "Unproved metadata was deleted");
+                        std::cout << "S593 " << mode << " PostBuildReproof=UnexpectedModule artifact=0 install=0 cleanup=refused\n";
+                    }
                     if(mode == "pinned-cancel") require(failure.cancellation_signal == SIGINT && failure.process_outcome &&
                                                             std::get<BoundedProcessExited>(*failure.process_outcome).exit_code == 0 &&
                                                             execution->production_outcome->build_outcome != ProductionSourceBuildCommandOutcome::Succeeded,
@@ -4521,6 +4605,15 @@ package() {
                 require(sidecar_calls.size() == (decision_cancel ? 0U : continues ? 2U
                                                                                   : 1U),
                         "wrong number of unrelated target mutations");
+            }
+            if(generated_output && success) {
+                // Drop the last live S6 -> S5 -> S4 owner; production cleanup must
+                // remove the generated data without fixture cleanup assistance.
+                result.aur.operation_result.reset();
+                require(generated_cleanup_attempts == 1 && !fs::exists(integration_root) && !fs::exists(closure_root),
+                        "Successful generated-output owner cleanup was refused");
+                std::cout << "S593 " << mode << " PackageBuild=1 exit=0 artifact-inventory=" << artifact_inventory
+                          << " artifact-open=" << artifact_open << " S4/S5/S6=Complete cleanup=success\n";
             }
             std::cout << "S553 production " << case_name << " PASS\n";
             continue;
@@ -6397,7 +6490,7 @@ prepare() {
         "wrong-root", "wrong-child", "gitfile", "absolute-gitfile", "symlink-gitfile", "missing-gitdir", "wrong-name", "extra-module",
         "missing-child", "index-drift", "declaration-drift", "unexpected-repo", "workspace-replaced", "root-gitdir-replaced",
         "cleanup-refusal", "object-cleanup-refusal", "cancel", "git-failure", "allocation", "moved-input", "object-transfer-failure",
-        "config-drift", "object-alternate", "http-object-alternate", "name-collision", "preexisting-workspace", "unclean-source", "partial-cleanup-replacement"};
+        "config-drift", "object-alternate", "http-object-alternate", "name-collision", "preexisting-workspace", "unclean-source", "partial-cleanup-replacement", "inventory-byte-limit", "root-objects-replaced", "child-worktree-replaced"};
     const auto read = [](const fs::path& path) {
         std::ifstream input(path, std::ios::binary);
         require(input.good(), "Workspace fixture read failed: " + path.string());
@@ -6545,10 +6638,20 @@ prepare() {
             }
         };
         workspace.fail_next_allocation = kind == "allocation";
+        if(kind == "inventory-byte-limit") workspace.inventory_byte_limit = 1024 * 1024;
         bool tampered = false;
         const auto tamper = [&](const fs::path& root) {
             if(std::exchange(tampered, true)) return;
             const auto child_path = root / "deps/a", child_gitdir = root / ".git/modules/logical/A";
+            if(kind == "inventory-byte-limit") {
+                for(unsigned part = 0; part < 4; ++part)
+                    write_file(root / ("observation-" + std::to_string(part)), std::string(524288, 'x'));
+            }
+            if(kind == "root-objects-replaced" || kind == "child-worktree-replaced") {
+                const auto path = kind == "root-objects-replaced" ? root / ".git/objects" : child_path;
+                fs::rename(path, root.parent_path() / "saved-binding");
+                fs::copy(root.parent_path() / "saved-binding", path, fs::copy_options::recursive);
+            }
             if(kind == "wrong-root" || kind == "cleanup-refusal" || kind == "object-cleanup-refusal") git(root, {"update-ref", "HEAD", old_root});
             if(kind == "wrong-child") git(child_path, {"update-ref", "HEAD", old_child});
             if(kind == "gitfile") write_file(child_path / ".git", "gitdir: ../../.git\n");
@@ -6657,15 +6760,19 @@ prepare() {
                 const auto& failure = require_arm<PinnedWorkspaceFailure>(result, "Drift/invalid workspace minted SourceReady: " + kind);
                 Reason expected = Reason::RevisionDrift;
                 if(kind == "gitfile" || kind == "absolute-gitfile") expected = Reason::GitfileMismatch;
-                if(kind == "symlink-gitfile" || kind == "workspace-replaced" || kind == "root-gitdir-replaced" || kind == "preexisting-workspace") expected = Reason::UnsafeFilesystem;
+                if(kind == "symlink-gitfile" || kind == "workspace-replaced" || kind == "root-gitdir-replaced" || kind == "preexisting-workspace" || kind == "root-objects-replaced" || kind == "child-worktree-replaced") expected = Reason::UnsafeFilesystem;
                 if(kind == "missing-gitdir" || kind == "missing-child") expected = Reason::MissingModule;
                 if(kind == "wrong-name" || kind == "extra-module" || kind == "unexpected-repo") expected = Reason::UnexpectedModule;
                 if(kind == "declaration-drift") expected = Reason::DeclarationDrift;
                 if(kind == "config-drift" || kind == "object-alternate" || kind == "http-object-alternate" || kind == "name-collision") expected = Reason::GitdirMismatch;
-                if(kind == "allocation") expected = Reason::ResourceLimitExceeded;
+                if(kind == "allocation" || kind == "inventory-byte-limit") expected = Reason::ResourceLimitExceeded;
                 if(kind == "moved-input") expected = Reason::InvalidAcceptedClosure;
                 if(kind == "object-transfer-failure" || kind == "git-failure" || kind == "partial-cleanup-replacement") expected = Reason::MaterializationFailed;
                 if(kind == "cancel") expected = Reason::Cancelled;
+                if(kind == "inventory-byte-limit") require(failure.stage == PinnedWorkspaceStage::SourceReadyReproof,
+                                                           "Immutable byte limit failed at the wrong phase");
+                if(kind == "root-objects-replaced" || kind == "child-worktree-replaced")
+                    require(failure.cleanup.workspace && failure.cleanup.closure.selection, "Replaced binding was adopted by cleanup");
                 require(failure.reason == expected, "Workspace failure taxonomy: " + kind + " reason=" + std::to_string(static_cast<int>(failure.reason)));
                 if(kind == "cancel" || kind == "git-failure") require(failure.acquisition && failure.acquisition->process &&
                                                                           failure.acquisition->process->output == "workspace original outcome" &&

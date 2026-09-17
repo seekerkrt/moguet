@@ -64,6 +64,8 @@ struct PinnedWorkspaceTestHooks {
     std::function<void(const std::filesystem::path&)> before_cleanup;
     std::function<BoundedCapturedProcessResult(const ExplicitProcessInvocation&, const BoundedProcessPolicy&)> process;
     bool fail_next_allocation = false;
+    // Test-only observation ceiling; values above the production limit are clamped.
+    std::optional<std::uintmax_t> inventory_byte_limit;
 };
 void set_pinned_workspace_test_hooks(PinnedWorkspaceTestHooks hooks);
 #endif
