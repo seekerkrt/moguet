@@ -1,7 +1,7 @@
 # Parent-pinned recursive closure authority
 
-Issue #564 Slice 4A implements an object-level acquisition foundation. Production
-submodule integration remains pending Slice 4B. This contract does not authorize
+Issue #564 Slice 4A implements the object-level acquisition foundation used by
+the SourceReady bootstrap chain. Issue #589 adds root tag authority. This contract does not authorize
 closure review acceptance, a makepkg workspace, source-ready S3, completed S4,
 installation, or provenance publication.
 
@@ -16,7 +16,9 @@ cannot construct this owner. Its opaque backing has no construction friendship.
 
 Only the root uses a remote selector observation: the evaluated default requests
 `HEAD`, while an evaluated explicit branch requests its exact `refs/heads/...`.
-Exactly one full lowercase SHA-1/SHA-256 OID record for that ref is accepted.
+Exactly one full lowercase SHA-1/SHA-256 OID record for that ref is accepted,
+together with the complete advertised `refs/tags/*` mapping in the same bounded
+`ls-remote` response (without `--refs`, so HEAD and peeled records survive).
 This freezes upstream X; the AUR recipe revision Rr is a separate identity.
 Subsequent root acquisition specifies X directly. Remote advancement to Y cannot
 change the requested revision; an unavailable X causes failure without fallback.
@@ -65,6 +67,41 @@ Owned object databases retain retrievable backing for all inventoried entries.
 `read_blob(node, entry)` can retrieve an inventoried non-gitlink blob, rechecking
 backing/configuration and strict fsck with a 64 MiB capture ceiling. Observations
 borrowed from the owner cannot reconstruct acquisition authority.
+
+## Root tag authority (Issue #589)
+
+The live owner retains a sorted, unique `PinnedRootTag` list: validated full ref
+name, raw `ReviewedSourceObjectId`, and verified terminal peeled OID for an
+annotated tag. `^{}` advertisement lines are metadata, never materialized refs.
+Parsing rejects duplicate selector/tag/peeled records, orphan peeled records,
+foreign namespaces, malformed framing, non-lowercase or wrong-width OIDs and
+mixed object formats. Git `check-ref-format` validates full names before they
+enter the typed mapping. Empty tag sets are valid.
+
+After the exact root fetch, one bounded fetch requests the distinct observed
+raw tag OIDs (excluding X), with the existing
+`--no-tags` / no-FETCH_HEAD policy. It never resolves a tag name again. Observed
+objects that remain obtainable after remote deletion/retargeting are valid
+snapshot backing; unavailable objects or inconsistent observations stop without
+fallback. This is one bounded advertisement, not a claim of an atomic remote
+transaction or visibility of hidden refs.
+
+Strict fsck proves raw hashes and connectivity with root X and all raw tag OIDs
+as roots. Bounded raw tag traversal checks every object type, format and terminal
+OID against the advertisement. Lightweight, annotated, nested annotated,
+non-reachable, and tree/blob tags retain their original objects. Tagger metadata,
+embedded names and signature bytes are preserved; signature trust/verification
+is not asserted. Source selector and child gitlink commit-only rules are unchanged.
+
+Tag admission limits are 1024 names, 4096 bytes/name, a 1 MiB advertisement,
+64 annotated links per tag, and 256 KiB per raw tag. All reads/processes also
+consume the existing aggregate metadata, process, deadline and storage budgets.
+A limit failure never accepts a partial snapshot. Object backing remains
+ref-free; only the accepted workspace consumer creates derived tag refs.
+Child tags, other ref namespaces, original symbolic HEAD names, `describe --all`,
+new source selectors and persistent tag provenance/update detection are outside
+this contract. The list is invocation-local build authority, not a generic
+all-ref snapshot or reproducible-build framework.
 
 ## Initial declaration subset
 
@@ -139,7 +176,7 @@ unsupported topology and resource failures still stop. The
 [workspace consumer](pinned-submodule-workspace.md) retains Accepted whole
 ownership and immutable backing through native makepkg/common S4 (4B2).
 Production activation is limited to the existing typed initial-Missing
-bootstrap intent on exact target-less ordinary Auto `-Syu`.
+bootstrap intent on exact target-less ordinary Auto `-Syu` / `-Su`.
 
 ## Phase-point / remaining scope
 

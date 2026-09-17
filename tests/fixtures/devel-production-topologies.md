@@ -78,7 +78,14 @@ blob at the DLL path and 4100 child input files, crossing the old per-blob,
 aggregate and entry review limits. Small local child repositories replace the
 four application libraries and nested dlg; the existing sibling-reuse cases remain
 independent. The artifact oracle checks all five child payloads and exact binary
-icon bytes. DKMS checks the evaluated template, module source and installed
+icon bytes. Issue #589 adds a real annotated date tag, a later commit and the
+WezTerm-shaped `git describe --long --tags --abbrev=7` / alphabetic-exclusion
+`pkgver()` to this topology. It must succeed through native preparation and S4.
+The root-tag workspace lane separately compares plain and pinned dynamic versions,
+lightweight/nested/non-reachable/empty/SHA-256 tags, and both stores at all four
+phase boundaries. It renames the fixture remote offline after acceptance so
+native child Git cannot silently use the fixture `insteadOf` acquisition route.
+DKMS checks the evaluated template, module source and installed
 modprobe/udev paths. The CLI case checks its selected upstream input in the archive.
 Its native `prepare()` writes a real split Git commit-graph and `build()` writes
 the single-file form. Both reproof points must accept these derived indexes;

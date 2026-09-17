@@ -29,6 +29,37 @@ branch lookup、submodule update、remote fallbackは呼ばない。Moguet自身
 fixed executable/environment primitiveを使う。これはlocal-only code pathであり、OS network
 sandboxの保証ではない。
 
+## Root tag projection / reproof (Issue #589)
+
+accepted closureのroot tag mappingを、exact detached root checkout後に
+`git update-ref --no-deref --stdin -z`の単一create transactionでfresh作成する。
+full ref名とraw OIDはvalidated `PinnedRootTag`からだけ渡し、partial batch updateは使わない。
+transactionのmemfdはWRITE/GROW/SHRINK/SEALの4 sealsを設定・確認し、seal後のsize・全bytes・EOFを
+validated transactionと再照合してからoffsetを0へ戻してGit stdinへ渡す。seal/reproof失敗はfail-closedで、
+tempfile/path fallbackは使わない。
+update-ref attemptでのFailureは元のGit/process/cancellation情報のまま再送出し、cleanup refusalを設定する。
+seal/prove前のcreate collisionでもpreexisting tag metadataをgeneric cleanupへ採用しない。
+namespaceへ触れる前のmemfd準備失敗だけでは、このrefusalは設定しない。
+annotated tagをpeeled commitへ変換せず、nested/non-reachable tag objectsも保持する。
+そのrootからprivate native mirrorを作り、既存selected branch / derived HEAD adapterを維持する。
+
+local transfer後のSourceReady mint前、native mirror構築後のmakepkg preparation前、
+prepared metadata/packagelist後、post-build S4 mint前に、root workspaceと（存在する場合）mirrorの
+`refs/tags/*`全logical集合をaccepted mappingと比較する。診断をcaptureした`for-each-ref`と、explicit object引数なしの`fsck --strict`で、
+broken/invalid refの黙示的省略を成功扱いにしない。後者はdefault ref rootsも検査し、
+`for-each-ref`や`refs verify`が省略するdangling symbolic refも拒否する。
+loose/packedの物理表現はauthorityではない。追加・削除・retarget・symbolic tag・同じpeeled
+commitへの別raw annotated objectは`TagNamespaceDrift`で拒否する。各storeのformatとraw objectの
+strict fsck/hash/connectivity（dangling symbolic refを含む）は`TagObjectInvalid`で拒否し、process infrastructure/cancelは元の分類を保つ。
+
+semantic driftはownership replacementの`UnsafeFilesystem`と区別する。
+cleanupは既存sealed inventory/retained identityの契約を維持する。tag proofを完了できない場合は、
+root/mirrorの未知metadata subtreeをgeneric cleanupへ採用させず、primary tag/process failureとは別に
+workspace cleanup refusalとcontextの`UnprovenCleanupContent`を保持する。これは実際のinode交換を
+断定するものではなく、未証明metadataを削除しないための保守的な拒否である。
+承認後のMoguet Git acquisitionはなく、native makepkgもaccepted private mirrorを読む。
+任意PKGBUILD内部のnetwork accessの一般的な禁止はこの契約に含めない。
+
 ## Native topology
 
 child worktreeはparent worktree / edge.pathとする。native `git submodule init`と
@@ -128,7 +159,7 @@ child pinsはwhole owner内のinvocation-local evidenceでありprovenance v1 / 
 
 ## Remaining scope / validation
 
-production activationはexact target-less ordinary `-Syu` Auto + initial ProvenanceMissing + current typed bootstrap intentだけ。
+production activationはexact target-less ordinary `-Syu` / `-Su` Auto + initial ProvenanceMissing + current typed bootstrap intentだけ。
 package名や`-git` suffixでこのbranchを選択しない。通常のvalid-provenance / non-devel経路を変更しない。
 Slice 5はsplit PackageBase groupを、Slice 6は代表3topologyのdeterministic coverageを接続する。
 [fixtureの範囲](../../tests/fixtures/devel-production-topologies.md)を参照する。live Cargo取得、一般sandbox、

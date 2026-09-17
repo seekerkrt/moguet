@@ -159,6 +159,9 @@ rootのindependent object storeはalternateなし。root mirror/ref/HEADの共�
 prepared metadataとpackagelistの完了後、build開始前にclosureを再証明する。build/check/package完了後にも
 S4 mint前に同じ証明を行う。root/child HEAD、parent indexの全gitlinks、accepted exact `.gitmodules`の
 index/working bytes、expected gitfile↔gitdir↔worktree、retained identities、extra/missing moduleを確認する。
+Issue #589では同じphase-pointでroot workspace/private mirrorの全tag namespaceをaccepted raw mappingへ
+照合し、object hash/connectivityも証明する。SourceReady mint前とnative mirror構築後にも同じtag proofを行う。
+詳細とtyped failureは[workspace contract](pinned-submodule-workspace.md)を正とする。
 prepareによるtracked normal file modification、patch、staged normal content、untracked/generated inputは許可し、
 clean statusやordinary file bytes一致を要求しない。
 

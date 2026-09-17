@@ -33,6 +33,8 @@ constexpr std::size_t MAX_DEPTH = 64;
 constexpr std::uintmax_t MAX_BYTES = 1024ULL * 1024 * 1024;
 constexpr std::size_t MAX_BLOB_BYTES = 64 * 1024 * 1024;
 constexpr std::size_t MAX_CONFIG_BYTES = 8192;
+constexpr std::size_t MAX_TAG_OBSERVATION_BYTES = 1024 * 1024;
+constexpr std::size_t MAX_TAG_OBJECT_BYTES = 256 * 1024;
 constexpr auto ACQUISITION_TIMEOUT = std::chrono::minutes(10);
 constexpr auto CLEANUP_TIMEOUT = std::chrono::seconds(5);
 constexpr std::size_t MAX_PATH_BYTES = 4096;
@@ -367,6 +369,7 @@ struct PinnedSubmoduleClosureData {
     std::vector<Repository> repositories;
     std::vector<PinnedSubmoduleNode> nodes;
     std::vector<PinnedSubmoduleEdge> edges;
+    std::vector<PinnedRootTag> root_tags;
     Clock::time_point deadline = Clock::now() + ACQUISITION_TIMEOUT;
     std::size_t process_count = 0, tree_count = 0, metadata_bytes = 0, declaration_bytes = 0;
     Stage active = Stage::Input;
@@ -511,19 +514,108 @@ struct PinnedSubmoduleClosureData {
         const bool is_default = source.selector().kind() == VcsSelectorKind::DefaultHead;
         if(!is_default && source.selector().kind() != VcsSelectorKind::Branch) fail(Stage::Input, Reason::InvalidSelection);
         const std::string ref = is_default ? "HEAD" : "refs/heads/" + *source.selector().value();
-        Logger::raw_cmd("git ls-remote --exit-code " + remote + " " + ref);
-        auto output = run(Stage::RootObservation, std::nullopt, {"ls-remote", "--exit-code", "--", remote, ref}, 16384);
-        // No symref is needed: only the unique exact requested ref's full OID
-        // is frozen. Branch grammar was already proven by the live selection.
+        Logger::raw_cmd("git ls-remote --exit-code " + remote + " " + ref + " refs/tags/*");
+        const auto output = run(Stage::RootObservation, std::nullopt,
+                                {"ls-remote", "--exit-code", "--", remote, ref, "refs/tags/*"}, MAX_TAG_OBSERVATION_BYTES);
+        // Patterns also match tails. Validate every complete record rather than
+        // treating ls-remote's pattern selection as exact namespace authority.
         if(output.empty() || output.back() != '\n') fail(active, Reason::MalformedObservation);
-        output.pop_back();
-        const auto tab = output.find('\t');
-        if(tab == std::string::npos || output.substr(tab + 1) != ref || output.find('\n') != std::string::npos)
-            fail(active, Reason::MalformedObservation);
+        std::optional<ReviewedSourceObjectId> root_oid;
+        std::map<std::string, ReviewedSourceObjectId> tags, peeled;
         try {
-            return ReviewedSourceObjectId::make(output.substr(0, tab));
+            for(std::size_t begin = 0; begin < output.size();) {
+                const auto end = output.find('\n', begin);
+                const auto tab = output.find('\t', begin);
+                if(tab == std::string::npos || tab >= end) fail(active, Reason::MalformedObservation);
+                auto oid = ReviewedSourceObjectId::make(output.substr(begin, tab - begin));
+                auto name = output.substr(tab + 1, end - tab - 1);
+                if(name == ref) {
+                    if(root_oid) fail(active, Reason::MalformedObservation);
+                    root_oid = oid;
+                } else {
+                    const bool is_peeled = name.ends_with("^{}");
+                    if(is_peeled) name.resize(name.size() - 3);
+                    if(!name.starts_with("refs/tags/") || name.size() <= 10 || name.size() > MAX_PATH_BYTES ||
+                       name.find_first_of("\0\r\t\n", 0, 4) != std::string::npos)
+                        fail(active, Reason::MalformedObservation);
+                    auto& mapping = is_peeled ? peeled : tags;
+                    if(!mapping.emplace(std::move(name), oid).second) fail(active, Reason::MalformedObservation);
+                    if(mapping.size() > limits.root_tags) fail(active, Reason::ResourceLimitExceeded);
+                }
+                begin = end + 1;
+            }
+            if(!root_oid) fail(active, Reason::MalformedObservation);
+            for(const auto& [name, oid] : peeled)
+                if(!tags.contains(name)) fail(active, Reason::MalformedObservation);
+            for(const auto& [name, oid] : tags) {
+                const auto found = peeled.find(name);
+                std::optional<ReviewedSourceObjectId> terminal;
+                if(found != peeled.end()) terminal = found->second;
+                if(oid.format() != root_oid->format() || (terminal && terminal->format() != root_oid->format()))
+                    fail(active, Reason::MalformedObservation);
+                // Delegate the complete ref-name grammar to Git. A nonzero
+                // validation result is malformed observation, not a fallback.
+                try {
+                    run(Stage::RootObservation, std::nullopt, {"check-ref-format", name}, 4096);
+                } catch(Failure& error) {
+                    if(error.detail.process) {
+                        const auto* exited = std::get_if<BoundedProcessExited>(&error.detail.process->outcome);
+                        if(!error.detail.process->cancellation_signal && exited && exited->exit_code != 0)
+                            error.detail.reason = Reason::MalformedObservation;
+                    }
+                    throw;
+                }
+                root_tags.push_back(PinnedRootTag(name, oid, terminal));
+            }
+            return *root_oid;
         } catch(const std::invalid_argument&) {
             fail(active, Reason::MalformedObservation);
+        }
+    }
+    void acquire_root_tags(std::size_t index, const std::string& locator, const ReviewedSourceObjectId& root_oid) {
+        // Fetch only observed raw OIDs, never names. Object-only backing stays
+        // ref-free, including for annotated and non-reachable tags.
+        std::set<std::string> fetched{root_oid.value()};
+        std::vector<std::string> fetch{"fetch", "--no-tags", "--no-recurse-submodules", "--no-auto-maintenance", "--no-write-commit-graph", "--no-write-fetch-head", "--", locator};
+        std::string displayed = "git fetch --no-tags --no-recurse-submodules " + locator;
+        for(const auto& tag : root_tags) {
+            if(fetched.insert(tag.raw().value()).second) {
+                fetch.push_back(tag.raw().value());
+                displayed += " " + tag.raw().value();
+            }
+        }
+        // One bounded argv (at most root_tags full OIDs) avoids a separate
+        // HTTPS negotiation per tag without ever resolving a name again.
+        if(fetched.size() > 1) {
+            Logger::raw_cmd(displayed);
+            run(Stage::RootAcquisition, index, std::move(fetch), 65536);
+        }
+        std::vector<std::string> proof{"fsck", "--strict", "--no-reflogs", "--no-dangling", root_oid.value()};
+        for(const auto& tag : root_tags)
+            proof.push_back(tag.raw().value());
+        run(Stage::ObjectProof, index, std::move(proof), 65536);
+        for(const auto& tag : root_tags) {
+            auto current = tag.raw();
+            std::size_t depth = 0;
+            while(true) {
+                const auto type = run(Stage::ObjectProof, index, {"cat-file", "-t", current.value()}, 16);
+                if(type != "tag\n") {
+                    if(type != "commit\n" && type != "tree\n" && type != "blob\n") fail(active, Reason::UnexpectedObjectType);
+                    if((depth != 0) != tag.peeled().has_value() || (tag.peeled() && current != *tag.peeled()))
+                        fail(active, Reason::MalformedObservation);
+                    break;
+                }
+                if(++depth > limits.tag_depth) fail(active, Reason::ResourceLimitExceeded);
+                const auto bytes = run(Stage::ObjectProof, index, {"cat-file", "tag", current.value()}, MAX_TAG_OBJECT_BYTES);
+                const auto end = bytes.find('\n');
+                if(!bytes.starts_with("object ") || end != 7 + root_oid.value().size()) fail(active, Reason::UnexpectedObjectType);
+                try {
+                    current = ReviewedSourceObjectId::make(bytes.substr(7, end - 7));
+                } catch(const std::invalid_argument&) {
+                    fail(active, Reason::UnexpectedObjectType);
+                }
+                if(current.format() != root_oid.format()) fail(active, Reason::ObjectFormatMismatch);
+            }
         }
     }
     std::size_t acquire(const std::string& locator, const ReviewedSourceObjectId& oid, bool is_root) {
@@ -553,6 +645,7 @@ struct PinnedSubmoduleClosureData {
         // fsck validates raw hashes and connectivity including tree/blob backing;
         // parent gitlinks deliberately do not claim child object availability.
         run(Stage::ObjectProof, index, {"fsck", "--strict", "--no-reflogs", "--no-dangling", oid.value()}, 65536);
+        if(is_root) acquire_root_tags(index, locator, oid);
         return index;
     }
     std::string blob(std::size_t repository, const ReviewedSourceFileVersion& entry, std::size_t limit) {
@@ -725,6 +818,22 @@ const std::vector<PinnedSubmoduleNode>& InvocationOwnedPinnedSubmoduleClosure::n
 const std::vector<PinnedSubmoduleEdge>& InvocationOwnedPinnedSubmoduleClosure::edges() const {
     static_cast<void>(selection());
     return data_->edges;
+}
+PinnedRootTag::PinnedRootTag(std::string name, ReviewedSourceObjectId raw, std::optional<ReviewedSourceObjectId> peeled)
+    : ref_name_(std::move(name)), raw_(std::move(raw)), peeled_(std::move(peeled)) {
+}
+const std::string& PinnedRootTag::ref_name() const noexcept {
+    return ref_name_;
+}
+const ReviewedSourceObjectId& PinnedRootTag::raw() const noexcept {
+    return raw_;
+}
+const std::optional<ReviewedSourceObjectId>& PinnedRootTag::peeled() const noexcept {
+    return peeled_;
+}
+const std::vector<PinnedRootTag>& InvocationOwnedPinnedSubmoduleClosure::root_tags() const {
+    static_cast<void>(selection());
+    return data_->root_tags;
 }
 PinnedClosureCleanupResult InvocationOwnedPinnedSubmoduleClosure::cleanup() noexcept {
     return data_ ? data_->cleanup() : PinnedClosureCleanupResult{};

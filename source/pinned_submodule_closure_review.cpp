@@ -69,6 +69,12 @@ void render_identity(const InvocationOwnedPinnedSubmoduleClosure& closure, Revie
     body.field("remote: ", source.source_location());
     body.field("selector: ", source.selector().kind() == VcsSelectorKind::DefaultHead ? "HEAD" : "refs/heads/" + *source.selector().value());
     body.field("root X: ", closure.nodes().front().commit.value());
+    body.field("root tag count: ", std::to_string(closure.root_tags().size()));
+    for(const auto& tag : closure.root_tags()) {
+        body.field("root tag: ", tag.ref_name());
+        body.field("raw object: ", tag.raw().value());
+        if(tag.peeled()) body.field("peeled object: ", tag.peeled()->value());
+    }
     std::size_t entries = 0;
     std::vector<std::string> paths(closure.nodes().size());
     for(std::size_t node = 0; node < closure.nodes().size(); ++node) {
