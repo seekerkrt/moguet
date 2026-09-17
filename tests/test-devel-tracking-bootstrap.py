@@ -133,7 +133,8 @@ def main():
     for case in cases:
         cases[case] += b"y\n"
     pinned_cases = {name: b"y\ny\ny\n" for name in (
-        "pinned-recursive", "pinned-branch", "pinned-prepared-root", "pinned-prepared-child",
+        "pinned-recursive", "pinned-branch", "pinned-generated-output", "pinned-generated-prepared", "pinned-native-output",
+        "pinned-generated-extra", "pinned-native-output-extra", "pinned-prepared-root", "pinned-prepared-child",
         "pinned-post-child", "pinned-gitlink", "pinned-declaration", "pinned-missing",
         "pinned-extra", "pinned-cancel", "pinned-build-failure", "pinned-cleanup-refusal")}
     interaction_cases = {
@@ -215,7 +216,7 @@ def main():
             if "malicious-old" in output:
                 raise SystemExit(f"old cache bytes reached full review: {case}")
             for line in output.splitlines():
-                if line.startswith(("S553 lifecycle ", "S564 4B2 ", "S564 FG1 ", "S564 topology ")):
+                if line.startswith(("S593 ", "S553 lifecycle ", "S564 4B2 ", "S564 FG1 ", "S564 topology ")):
                     print(line)
             print(f"S553 production {case} PASS")
         server.shutdown()

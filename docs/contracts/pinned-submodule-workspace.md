@@ -122,7 +122,14 @@ primary failure、workspace refusal、元の4A process/failure、object/context 
 destructorから試行済みcleanupをretryしない。
 
 materialization/reproof各phaseは10分・Git process 4096回に制限する。filesystem observationは
-262144 entries・128階層・1 GiB、proof commandのcaptureは最大1 MiBとする。
+262144 entries・128階層を上限とし、immutable / pre-execution観測にはregular fileの`st_size`合計1 GiBも適用する。
+SourceReady seal/reproof、移設前proof、初期SRCDEST inventory、実行前のNativePreparationはこのbyte上限を維持する。
+Prepared/PostBuildのmutable structural traversalと実行開始済みownerのcleanupでは、通常の実行生成物の
+regular-file合計sizeをsource authorityの条件にしない。root inventoryとnative-src追加scanのどちらも
+全path/statを列挙し、生成directoryを除外せず、entry/depth/deadline、device/UID/type、no-follow/containment、
+retained identity、Git/module/tag authorityの各検証を維持する。負のregular-file sizeは両modeで拒否する。
+個別authority content read、Git owner、artifact ownerはそれぞれ既存の制限を維持し、
+proof commandのcaptureは最大1 MiBとする。
 cleanup ownership preflightは独立した5秒budgetを使い、その後に既存contextのbounded cleanupを行う。
 これらは観測budgetでありdisk quotaやsandbox保証ではない。
 
