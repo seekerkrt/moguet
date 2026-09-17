@@ -475,6 +475,13 @@ ccache / mold parityは必要なreleaseでの追加validationであり、上記d
         containers/arch-live-validation/run-local-install.sh \
         docs/DEVELOPMENT.md \
         docs/contracts/evaluated-devel-source-build-proof.md \
+        docs/contracts/devel-normal-routes.md \
+        docs/contracts/reviewed-devel-source-build-execution.md \
+        source/reviewed_devel_source_build_execution.cpp \
+        tests/evaluated_devel_source_build_test.cpp \
+        tests/test-devel-tracking-bootstrap.py \
+        tests/fixtures/devel-production-topologies.md \
+        tests/test-install-layout.sh \
         man/moguet.1 \
         man/ja/moguet.1 \
         po/moguet.pot \
@@ -488,7 +495,7 @@ ccache / mold parityは必要なreleaseでの追加validationであり、上記d
 
     gh pr create --base main --head release/vX.Y.Z
 
-上記の`git add`は、v2.8.0 release preparationでstage対象とする20 pathsを1件ずつ明示した
+上記の`git add`は、v2.8.0 release preparationでstage対象とする27 pathsを1件ずつ明示した
 current release用のexact path setです。`git add .`や代表pathだけのpartial listへ置き換えません。
 commit前にcached path一覧をactual diffと再照合し、release scopeのunstaged / untracked pathや
 unrelatedなstaged pathがないことを確認します。
@@ -509,6 +516,14 @@ production invocation assertionを同期し、static contractで再発を検出�
 さらにlive AUR/localのcross-UID sealed procfd capability不足とtrusted-helper root stagingへの
 live gateway driftをrelease-blocking fixとして修正します。Makefileの両live runだけにSYS_PTRACEを追加し、
 両gateway / staging helper / runnerを同期します。negative casesとpackage inventory / reason検証を維持します。
+さらに通常Autoのauthoritative devel更新を既存のexact closure / SourceReady経路へ接続します。
+上記production source 1件、C++ / Python lifecycle test、対応するnormal route / execution contractと
+代表topology文書を含め、bootstrap後のGitRevision更新もbuild / install / S6まで検証します。
+Missing trialの偽装や保存済みbaselineの削除は行いません。closure declineによる既存P/R保持も検証します。
+この追加修正のvalidationは新candidateに帰属し、WIP以前のgate結果を転用しません。
+さらに`tests/test-install-layout.sh`のnested Makeはtest-owned `BUILD_DIR` / `TARGET`へ隔離し、
+custom `PREFIX` / `LIBEXECDIR`検証がrepositoryのcanonical `build/cmake-production`や
+repo-root `moguet`を再configure / rewriteしないことをtest自身で確認します。
 
 `scripts/check_public_documentation.py`はroot `VERSION`からcurrent release sectionを動的に求め、
 `tests/test-public-documentation-checker.py`のversion文字列はその動作を検証する独立fixtureです。
@@ -519,7 +534,7 @@ man templateの`man/moguet.1.in` / `man/ja/moguet.1.in`は`@VERSION@`でversion 
 既存の`September 2026`も維持するため、version bumpだけでは変更しません。
 `po/POTFILES.in`はsource extraction inventoryが変わる場合だけ更新し、release numberingでは変更しません。
 今回はinventory変更なし、completionもversion independentです。
-CMake、production source、fixture package metadata、上記以外のcontainer files / testsには
+CMake、fixture package metadata、上記以外のproduction source / container files / testsには
 今回のrelease preparationまたはfinding fixによる変更contractがないため、current listへ含めません。
 v2.1.0固有の履歴は下記の`v2.1.0 post-release closure`として別に扱います。将来のreleaseでは、このlistを
 流用せず、そのreleaseで監査済みのexact path setへ置き換えます。

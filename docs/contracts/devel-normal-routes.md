@@ -54,6 +54,12 @@ explicit buildはreviewed .SRCINFOのsyntaxをselection hintにできるが、ev
 no-overlay、one floating HTTPS Git、DefaultHead/Branch、architecture-independentを維持する。ordinary split集合対応は下記に従う。
 needed/rmdeps/AsDeps/promotion等の非対応intentをS5 Defaultへ偽装しない。
 
+通常Auto更新の`ordinary_devel_package_base` intentでAuthoritativeDevelが選択された場合は、
+既存のexact closure取得・別途明示承認・SourceReady workspaceをcommon S4へ渡す。
+GitRevision更新でも既存P/RをMissingへ戻さず、通常のrecipe reviewとsource snapshot acceptanceを分離する。
+この分岐は既存のordinary execution scope内だけで、standalone/registered routeへ波及させない。
+UpToDateでは実行・source reviewを開始しない。closure未承認・失敗からplain/legacy経路へfallbackしない。
+
 既存#411のinteraction policyを維持する。--noconfirm/non-TTY/explicit diff bypassからreviewed pinをfabricateしない。
 Git automatic branchでcompatibility checkoutしか得られない場合はreject。
 explicit supported compatibility buildは従来Legacyであり、S6 publicationを起こさない。

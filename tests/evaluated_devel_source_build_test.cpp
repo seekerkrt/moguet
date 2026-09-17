@@ -3191,6 +3191,7 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
         }
 #ifdef MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
         const bool representative = mode.starts_with("topology-");
+        std::string representative_root_payload = "post-tag revision\n";
         // Actual AUR evidence and fixture reductions: fixtures/devel-production-topologies.md.
         // These are source inputs, not recipe-local supplemental declarations.
         std::vector<std::unique_ptr<UpstreamGitFixture>> representative_children;
@@ -3410,7 +3411,7 @@ done
             throw std::runtime_error("closure cleanup fixture refusal");
         };
         closure_hooks.process = [&](const auto& original, const auto& policy) {
-            require(closure_reviews == 0, "SourceReady reacquired/reviewed closure");
+            require(closure_reviews + 1 == initial_evaluations, "SourceReady reacquired/reviewed closure without a new selection");
             auto invocation = original;
             if(std::find(invocation.arguments.begin(), invocation.arguments.end(), "ls-remote") != invocation.arguments.end()) ++root_observations;
             for(auto& arg : invocation.arguments) {
@@ -3704,7 +3705,7 @@ done
                                                                                            "DKMS template/module/config packaging was not evaluated");
                                                                                } else {
                                                                                    const auto payload = extract("usr/share/" + fixture.package_name() + "/payload.txt");
-                                                                                   require(payload == (mode == "topology-tree-sitter" ? "tree-sitter-cli-built\n" : "post-tag revision\nharfbuzz/harfbuzz input\nfreetype/libpng input\ndeps/freetype/zlib input\nfreetype2 input\ndlg input\n"),
+                                                                                   require(payload == (mode == "topology-tree-sitter" ? "tree-sitter-cli-built\n" : representative_root_payload + "harfbuzz/harfbuzz input\nfreetype/libpng input\ndeps/freetype/zlib input\nfreetype2 input\ndlg input\n"),
                                                                                            "Representative build did not consume the selected source inputs");
                                                                                    if(mode == "topology-wezterm")
                                                                                        require(extract("usr/share/pixmaps/org.wezfurlong.wezterm.png") == std::string("\x89PNG\r\n\x1a\n\0", 9), "Binary asset changed before packaging");
@@ -4454,6 +4455,7 @@ done
                     std::cout << "S564 topology " << mode << " migration=Complete review=full S4=1 install=1 S5=1 S6=Complete second-mutation=0\n";
                 }
                 upstream.commit("bootstrap remote advanced\n");
+                if(representative) representative_root_payload = "bootstrap remote advanced\n";
                 const auto different = assess_current_devel_package(assessment_target);
                 require(different.assessment.state() == DevelUpdateAssessmentState::UpdateAvailable && different.update_basis == DevelPackageUpdateBasis::GitRevision,
                         "post-bootstrap remote advance was not GitRevision update");
@@ -4605,6 +4607,159 @@ done
                 require(sidecar_calls.size() == (decision_cancel ? 0U : continues ? 2U
                                                                                   : 1U),
                         "wrong number of unrelated target mutations");
+            }
+            if(representative && success) {
+                // The earlier oracle advanced the upstream but stopped at
+                // UpdateAvailable. Exercise that ordinary update all the way
+                // through S4/S5/S6, without clearing the saved baseline.
+                const auto before_publication = read_devel_build_provenance(base);
+                const auto& before_loaded = require_arm<DevelBuildProvenanceStoreLoaded>(
+                    before_publication, "ordinary update baseline missing");
+                const auto provenance_before = bootstrap_cache_snapshot(p_directory);
+                const auto reviewed_before = bootstrap_cache_snapshot(r_directory);
+                const auto migration_before = std::tuple{
+                    trial_calls, acquisition_creations, acquisition_fetches, acquisition_cleanups};
+                const auto work_before = std::tuple{
+                    source_preparations, package_builds, prepare_calls, execute_calls,
+                    consumes, g_bridge_publication_entries};
+                const auto evaluations_before = initial_evaluations;
+                const auto observations_before = root_observations;
+                const auto reviews_before = closure_reviews;
+                const auto clones_before = workspace_clones;
+                const auto reproofs_before = closure_phase_points;
+                const auto contexts_before = context_entries;
+                const auto builds_before = build_entries;
+                require(clones_before > 0 && reproofs_before > 0,
+                        "topology bootstrap omitted the pinned workspace");
+
+                // The old-cache guard has already proved bootstrap isolation.
+                // Ordinary execution must now use the normal reviewed recipe
+                // path; only its external recipe fetch is redirected here.
+                script(bin / "recipe-git", "#!/bin/sh\nfor argument do if [ \"$argument\" = fetch ]; then exit 0; fi; done\nexec /usr/bin/git \"$@\"\n");
+                std::cout << "S564 ordinary changed decline begin\n"
+                          << std::flush;
+                {
+                    auto decline_request = make_compatible_system_aur_update_request(
+                        std::get<AutoSystemUpdateRouteCandidate>(classify_sync_invocation_route(*parsed)));
+                    require(decline_request.has_value(), "ordinary decline request unavailable");
+                    auto declined = execute_prepared_system_aur_update_operation(
+                        prepare_system_aur_update_operation(*decline_request), config);
+                    require(!declined.is_success() && declined.aur.operation_result &&
+                                declined.aur.operation_result->execution &&
+                                declined.aur.operation_result->execution->work_item_results.size() == 1,
+                            "ordinary closure decline lost the failed work item");
+                    const auto& declined_work = declined.aur.operation_result->execution->work_item_results.front();
+                    require(!declined_work.bootstrap_decision && declined_work.devel_execution &&
+                                declined_work.devel_execution->owner,
+                            "ordinary decline was converted into a bootstrap");
+                    const auto& declined_owner = *declined_work.devel_execution->owner;
+                    require(declined_owner.closure_review_failure() &&
+                                declined_owner.closure_review_failure()->reason == PinnedClosureReviewFailureReason::Declined &&
+                                !declined_owner.build_completed() && !declined_owner.publication(),
+                            "ordinary decline lost its review reason or began downstream work");
+                    require(work_before == std::tuple{
+                                               source_preparations, package_builds, prepare_calls, execute_calls,
+                                               consumes, g_bridge_publication_entries} &&
+                                clones_before == workspace_clones && reproofs_before == closure_phase_points,
+                            "ordinary decline prepared, built, installed or published");
+                    require(provenance_before == bootstrap_cache_snapshot(p_directory) &&
+                                reviewed_before == bootstrap_cache_snapshot(r_directory),
+                            "ordinary decline rewrote the existing provenance/reviewed baseline");
+                    present_system_aur_update_operation_result(std::move(declined));
+                }
+                std::cout << "S564 ordinary changed decline end\n"
+                          << std::flush;
+
+                token.assign(64, 'd');
+                bridge_hooks.exact_transaction_token = token;
+                set_reviewed_devel_source_build_execution_test_hooks(bridge_hooks);
+                std::cout << "S564 ordinary changed accept begin\n"
+                          << std::flush;
+                auto update_request = make_compatible_system_aur_update_request(
+                    std::get<AutoSystemUpdateRouteCandidate>(classify_sync_invocation_route(*parsed)));
+                require(update_request.has_value(), "ordinary update request unavailable");
+                auto updated = execute_prepared_system_aur_update_operation(
+                    prepare_system_aur_update_operation(*update_request), config);
+                if(!updated.is_success() && updated.aur.operation_result)
+                    present_filtered_aur_update_execution_result(*updated.aur.operation_result);
+                require(updated.is_success() && updated.aur.operation_result &&
+                            updated.aur.operation_result->execution &&
+                            updated.aur.operation_result->execution->work_item_results.size() == 1 &&
+                            updated.aur.operation_result->reduced_operation_result.targets.size() == 1,
+                        "ordinary topology update did not complete");
+                const auto& updated_target = updated.aur.operation_result->reduced_operation_result.targets.front();
+                const auto& updated_work = updated.aur.operation_result->execution->work_item_results.front();
+                require(aur_update_basis(updated_target.update) == AurUpdateBasis::GitRevision &&
+                            updated_target.status == AurUpdateOperationTargetStatus::Updated &&
+                            !updated_target.update.bootstrap && !updated_work.bootstrap_decision &&
+                            updated_work.devel_execution && updated_work.devel_execution->owner &&
+                            updated_work.devel_execution->complete,
+                        "ordinary update lost GitRevision intent or repeated migration");
+                const auto& updated_owner = *updated_work.devel_execution->owner;
+                require(updated_owner.build_completed() && updated_owner.publication() &&
+                            updated_owner.publication()->state() == Pub::Complete &&
+                            updated_owner.publication()->installation().operation() == Operation::Succeeded &&
+                            updated_owner.source_provenance().reviewed_outcome != ProductionReviewedSourceOutcome::BootstrapFullReview,
+                        "ordinary update did not retain its own build/install/publication result");
+                require(migration_before == std::tuple{
+                                                trial_calls, acquisition_creations, acquisition_fetches, acquisition_cleanups},
+                        "ordinary update reacquired a Missing-baseline migration recipe");
+                require(initial_evaluations == evaluations_before + 2 &&
+                            root_observations == observations_before + 2 &&
+                            closure_reviews == reviews_before + 2 &&
+                            context_entries == contexts_before + 2 && build_entries == builds_before + 2 &&
+                            source_preparations == std::get<0>(work_before) + 1 &&
+                            package_builds == std::get<1>(work_before) + 1 &&
+                            prepare_calls == std::get<2>(work_before) + 1 &&
+                            execute_calls == std::get<3>(work_before) + 1 &&
+                            consumes == std::get<4>(work_before) + 1 &&
+                            g_bridge_publication_entries == std::get<5>(work_before) + 1 &&
+                            workspace_clones == clones_before * 2 && closure_phase_points == reproofs_before * 2,
+                        "ordinary topology update skipped or repeated a source/transaction phase");
+                const auto after_publication = read_devel_build_provenance(base);
+                const auto& after_loaded = require_arm<DevelBuildProvenanceStoreLoaded>(
+                    after_publication, "ordinary updated provenance missing");
+                require(after_loaded.observed.generation == before_loaded.observed.generation + 1 &&
+                            after_loaded.observed.raw_contents != before_loaded.observed.raw_contents &&
+                            *after_loaded.provenance.reviewed_recipe_revision().value().git_commit() == recipe_x &&
+                            *after_loaded.provenance.actual_built_revision().revision().value().git_commit() == upstream.oid() &&
+                            reviewed_before == bootstrap_cache_snapshot(r_directory),
+                        "ordinary publication reset lineage, adopted the wrong revision or rewrote recipe review");
+                {
+                    auto installed = PackageMetadataSession::open({"/", db});
+                    const auto actual = installed.query_installed_package(fixture.package_name());
+                    const auto* metadata = std::get_if<InstalledPackageMetadata>(&actual);
+                    require(metadata && metadata->reason == InstalledPackageReason::Explicit,
+                            "ordinary topology update changed the existing install reason");
+                }
+                present_system_aur_update_operation_result(std::move(updated));
+                std::cout << "S564 ordinary changed accept end\n"
+                          << std::flush;
+
+                const auto settled_provenance = bootstrap_cache_snapshot(p_directory);
+                const auto settled_phases = std::tuple{
+                    trial_calls, acquisition_creations, context_entries, build_entries,
+                    initial_evaluations, root_observations, closure_reviews, workspace_clones,
+                    closure_phase_points, source_preparations, package_builds,
+                    prepare_calls, execute_calls, consumes, g_bridge_publication_entries};
+                auto settled_request = make_compatible_system_aur_update_request(
+                    std::get<AutoSystemUpdateRouteCandidate>(classify_sync_invocation_route(*parsed)));
+                require(settled_request.has_value(), "post-update request unavailable");
+                auto settled = execute_prepared_system_aur_update_operation(
+                    prepare_system_aur_update_operation(*settled_request), config);
+                require(settled.is_success() && settled.aur.operation_result &&
+                            settled.aur.operation_result->reduced_operation_result.targets.size() == 1 &&
+                            settled.aur.operation_result->reduced_operation_result.targets.front().update.devel_assessment.state() == DevelUpdateAssessmentState::UpToDate &&
+                            settled_phases == std::tuple{
+                                                  trial_calls, acquisition_creations, context_entries, build_entries,
+                                                  initial_evaluations, root_observations, closure_reviews, workspace_clones,
+                                                  closure_phase_points, source_preparations, package_builds,
+                                                  prepare_calls, execute_calls, consumes, g_bridge_publication_entries} &&
+                            settled_provenance == bootstrap_cache_snapshot(p_directory) && reviewed_before == bootstrap_cache_snapshot(r_directory),
+                        "post-update steady state repeated work or changed saved provenance");
+                std::cout << "S564 ordinary " << mode
+                          << " decline-preserved=1 update=Complete generation=" << after_loaded.observed.generation
+                          << " same=UpToDate\n";
             }
             if(generated_output && success) {
                 // Drop the last live S6 -> S5 -> S4 owner; production cleanup must
