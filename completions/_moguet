@@ -21,6 +21,8 @@
 #   -S --select [--needed] <query>
 #   -Syu [--needed]
 #   -Syu --repo [--needed]
+#   -Su [--needed]
+#   -Su --repo [--needed]
 
 _moguet_option_id() {
     REPLY=
@@ -66,7 +68,7 @@ _moguet_find_operation() {
     for (( index=2; index<CURRENT; ++index )); do
         word=$words[index]
         case "$word" in
-        -h|--help|-V|--version|build|upgrade|upgrade-aur|upgrade-all|clean|deps|plan|fetch|add-src|edit-src|list-src|del-src|revert|-G|-Gp|-S|-Syu|-Ss|-Si|-Qua) REPLY=$word; return 0 ;;
+        -h|--help|-V|--version|build|upgrade|upgrade-aur|upgrade-all|clean|deps|plan|fetch|add-src|edit-src|list-src|del-src|revert|-G|-Gp|-S|-Syu|-Su|-Ss|-Si|-Qua) REPLY=$word; return 0 ;;
         esac
         _moguet_option_id "$word" && continue
         if [[ $word == -* ]]; then
@@ -187,6 +189,14 @@ _moguet_form_prefix_valid() {
             return 1
             ;;
         -Syu:1)
+            (( ${#operands[@]} <= 0 )) && return 0
+            return 1
+            ;;
+        -Su:0)
+            (( ${#operands[@]} <= 0 )) && return 0
+            return 1
+            ;;
+        -Su:1)
             (( ${#operands[@]} <= 0 )) && return 0
             return 1
             ;;
@@ -355,6 +365,19 @@ _moguet_collect_candidates() {
                 reply=(--edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --needed --repo)
             fi
             ;;
+        -Su)
+            if _moguet_has_option_id 12; then
+                if _moguet_form_prefix_valid -Su 1; then
+                    reply=(--repo --needed --noconfirm --dry-run)
+                else
+                    reply=()
+                fi
+            elif _moguet_has_operand -Su; then
+                reply=(--needed --noconfirm)
+            else
+                reply=(--edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --needed --repo)
+            fi
+            ;;
         -Ss) reply=(--needed --noconfirm) ;;
         -Si) reply=(--needed --noconfirm) ;;
         -Qua) reply=(--needed --noconfirm) ;;
@@ -386,6 +409,7 @@ _moguet_description() {
         -Gp) REPLY='Print one AUR PackageBase PKGBUILD without keeping a checkout' ;;
         -S) REPLY='Install packages' ;;
         -Syu) REPLY='Update repository packages and normal installed AUR packages without saved source-build preferences' ;;
+        -Su) REPLY='Update repository packages and normal installed AUR packages without refreshing sync databases or using saved source-build preferences' ;;
         -Ss) REPLY='Search for packages' ;;
         -Si) REPLY='Show package information' ;;
         -Qua) REPLY='Check AUR and foreign-package updates' ;;
@@ -405,7 +429,7 @@ _moguet_description() {
         --rmdeps) REPLY='Unsupported for separated source builds; no dependency cleanup is performed' ;;
         --select) REPLY='Interactively select source-aware package candidates for plain -S' ;;
         --aur) REPLY='Limit supported sync operations to AUR' ;;
-        --repo) REPLY='Use only official binary repositories; with -Syu, run the repository system upgrade only' ;;
+        --repo) REPLY='Use only official binary repositories; with -Syu / -Su, run the repository system upgrade only' ;;
         --local) REPLY='Use one local PKGBUILD directory as the build root' ;;
         --output-dir=) REPLY='Select an existing export parent for -G' ;;
         --recursive) REPLY='Resolve dependencies recursively' ;;
@@ -420,7 +444,7 @@ _moguet() {
     operation=$REPLY
 
     if [[ -z $operation ]]; then
-        candidates=(build upgrade upgrade-aur upgrade-all clean deps plan fetch add-src edit-src list-src del-src revert -G -Gp -S -Syu -Ss -Si -Qua -h --help -V --version --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --rmdeps --select --aur --repo)
+        candidates=(build upgrade upgrade-aur upgrade-all clean deps plan fetch add-src edit-src list-src del-src revert -G -Gp -S -Syu -Su -Ss -Si -Qua -h --help -V --version --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --rmdeps --select --aur --repo)
     else
         _moguet_collect_candidates "$operation"
         candidates=("${reply[@]}")

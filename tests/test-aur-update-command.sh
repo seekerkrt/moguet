@@ -59,6 +59,12 @@ setup_case() {
     export MOGUET_TEST_PACMAN_EXIT_CODE=91
     export MOGUET_TEST_SUDO_EXIT_CODE=92
     unset MOGUET_TEST_SYSTEM_AUR_PRESENTATION_CASE
+    unset MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE
+    unset MOGUET_TEST_PACMAN_CONF_REPOSITORY_LIST
+    unset LANGUAGE LOCPATH
+    LANG=C
+    LC_ALL=C
+    export LANG LC_ALL
     case_count=$((case_count + 1))
 }
 
@@ -163,6 +169,23 @@ assert_no_external_mutation() {
     if grep -E '^(git|makepkg|pacman|sudo|external) ' "$command_log" >/dev/null; then
         fail_case "unexpected external mutation"
     fi
+}
+
+setup_reviewed_system_update() {
+    export MOGUET_TEST_SUDO_EXIT_CODE=0
+    export MOGUET_TEST_PACMAN_CONF_REPOSITORY_LIST=core
+    export MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE=$case_dir/foreign-packages
+    printf '%s\n' 'preparation-pkg 1.0-1 explicit' > "$MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE"
+}
+
+assert_reviewed_preparation_stopped() {
+    assert_exact_line "reduce execution=no" "$command_log"
+    assert_not_contains "execute " "$command_log"
+    assert_not_contains "external " "$command_log"
+    assert_not_contains "makepkg " "$command_log"
+    assert_not_contains "git " "$command_log"
+    assert_not_contains "sudo pacman -U" "$command_log"
+    assert_cache_absent
 }
 
 # First characterization: an empty installed foreign inventory is a successful
@@ -295,6 +318,108 @@ assert_contains \
 assert_not_contains "fixture source preference read failed" "$stdout_file"
 assert_exact_line "reduce execution=no" "$command_log"
 assert_no_external_mutation
+
+# Unlike the legacy Incomplete fixture, these targets are Failed without an
+# execution result, exactly as the real reducer's correlation test requires.
+# Exercise the actual -Syu dispatcher/system owner with only package commands
+# and the AUR child operation stubbed; no presentation shortcut hook is used.
+while IFS='|' read -r reason specific_diagnostic; do
+    for operation in -Syu upgrade-aur; do
+        setup_case "reviewed-$reason-$operation" "reviewed-preparation-$reason"
+        if [ "$operation" = -Syu ]; then
+            setup_reviewed_system_update
+        fi
+        run_status 1 "$operation"
+        assert_exact_line "preparation-pkg: failed: $specific_diagnostic" "$stdout_file"
+        assert_not_contains "failure category unavailable" "$stdout_file"
+        assert_contains \
+            "preparation issue: generic preparation inconsistent: $specific_diagnostic" \
+            "$stderr_file"
+        assert_reviewed_preparation_stopped
+        if [ "$operation" = -Syu ]; then
+            assert_exact_line "The repository system upgrade completed." "$stdout_file"
+            assert_contains "the AUR update was blocked before execution" "$stderr_file"
+            assert_line_before "sudo pacman -Syu" "query post-repository inventory" "$command_log"
+            assert_output_count 1 "sudo pacman" "$command_log"
+        else
+            assert_no_external_mutation
+        fi
+    done
+done <<'REVIEWED_FAILURES'
+unsafe|Reviewed source state history is unsafe; the build was not started.
+store|Reviewed source state could not be read safely; the build was not started.
+future|Reviewed source state uses an unsupported future schema; the build was not started.
+inconsistent|Reviewed source state observation was inconsistent; the build was not started.
+REVIEWED_FAILURES
+
+setup_case preparation-reason-unavailable preparation-reason-unavailable
+run_status 1 upgrade-aur
+assert_exact_line "preparation-pkg: failed: failure category unavailable" "$stdout_file"
+assert_reviewed_preparation_stopped
+assert_no_external_mutation
+
+setup_case reviewed-preparation-none reviewed-preparation-none
+run_status 1 upgrade-aur
+assert_exact_line \
+    "preparation-pkg: failed: Reviewed source state history is unsafe; the build was not started." "$stdout_file"
+assert_reviewed_preparation_stopped
+assert_no_external_mutation
+
+setup_case reviewed-preparation-typed-authority reviewed-preparation-typed-authority
+run_status 1 upgrade-aur
+assert_exact_line \
+    "preparation-pkg: failed: Reviewed source state history is unsafe; the build was not started." "$stdout_file"
+assert_not_contains "unrelated preparation display text" "$stdout_file"
+assert_contains "unrelated preparation display text" "$stderr_file"
+assert_reviewed_preparation_stopped
+assert_no_external_mutation
+
+setup_case reviewed-preparation-unknown reviewed-preparation-unknown
+run_status 1 upgrade-aur
+assert_exact_line \
+    "preparation-pkg: failed: Reviewed source production preparation failed; the build was not started." "$stdout_file"
+assert_not_contains "history is unsafe" "$stdout_file"
+assert_reviewed_preparation_stopped
+assert_no_external_mutation
+
+setup_case reviewed-preparation-execution-priority reviewed-preparation-execution-priority
+run_status 1 upgrade-aur
+assert_exact_line "preparation-pkg: failed: source build failure" "$stdout_file"
+assert_not_contains "preparation-pkg: failed: Reviewed source" "$stdout_file"
+assert_contains "execution failure: source build failure" "$stderr_file"
+assert_no_external_mutation
+
+setup_case reviewed-preparation-unknown-execution reviewed-preparation-unknown-execution
+run_status 1 upgrade-aur
+assert_contains "Unknown AUR work-item failure kind." "$stderr_file"
+assert_not_contains "preparation-pkg: failed:" "$stdout_file"
+assert_no_external_mutation
+
+# Bind the test binary to the build's catalog, with a controlled non-C locale
+# rather than depending on host-installed translations or locale archives.
+mkdir -p "$tmp_dir/locales"
+localedef --no-archive -i en_US -f UTF-8 "$tmp_dir/locales/en_US.UTF-8"
+for operation in -Syu upgrade-aur; do
+    setup_case "reviewed-unsafe-ja-$operation" reviewed-preparation-unsafe
+    if [ "$operation" = -Syu ]; then
+        setup_reviewed_system_update
+    fi
+    export LOCPATH=$tmp_dir/locales
+    export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 LANGUAGE=ja
+    run_status 1 "$operation"
+    assert_exact_line \
+        "preparation-pkg: 失敗: 確認済みソースの状態履歴が安全ではないため、ビルドを開始しませんでした。" "$stdout_file"
+    assert_not_contains "失敗区分を利用できません" "$stdout_file"
+    assert_contains \
+        "準備上の問題: 汎用準備に整合性がありません: 確認済みソースの状態履歴が安全ではないため、ビルドを開始しませんでした。" "$stderr_file"
+    assert_reviewed_preparation_stopped
+    if [ "$operation" = -Syu ]; then
+        assert_line_before "sudo pacman -Syu" "query post-repository inventory" "$command_log"
+        assert_output_count 1 "sudo pacman" "$command_log"
+    else
+        assert_no_external_mutation
+    fi
+done
 
 setup_case preparation-warning preparation-warning
 run_status 0 upgrade-aur
@@ -859,7 +984,111 @@ run_status 0 upgrade
 assert_exact_line "sudo pacman -Syu" "$command_log"
 assert_pipeline_absent
 
-if [ "$case_count" -ne 55 ]; then
+# Ordinary repository failure shares #460's typed supplemental projection.
+for correlation_case in compatible incompatible missing unknown query-failure ambiguous partial-compatible complete-zero partial-zero failed-zero correlation-failure invalid-index; do
+    setup_case "syu-version-lock-$correlation_case" no-installed-foreign
+    export MOGUET_TEST_SYSTEM_AUR_PRESENTATION_CASE="version-lock-$correlation_case"
+    run_status 1 -Syu
+    assert_contains "The repository system upgrade failed." "$stderr_file"
+    assert_exact_line "The AUR update was not attempted." "$stdout_file"
+    assert_not_contains "upgrade-all" "$stdout_file"
+    assert_pipeline_absent
+    assert_no_external_mutation
+    assert_cache_absent
+    case "$correlation_case" in
+        complete-zero|partial-zero|failed-zero|correlation-failure|invalid-index)
+            assert_not_contains "Possible repository/AUR cross-source version-lock candidate" "$stdout_file"
+            ;;
+        *)
+            assert_exact_line "Possible repository/AUR cross-source version-lock candidate: 1" "$stdout_file"
+            assert_exact_line "    observed repository candidate: virtualbox 7.2.18-1 (repository: extra)" "$stdout_file"
+            assert_exact_line "    installed foreign package: virtualbox-ext-oracle 7.2.16-1" "$stdout_file"
+            assert_exact_line "    installed requirement: virtualbox=7.2.16" "$stdout_file"
+            assert_contains "this correlation does not identify the cause" "$stdout_file"
+            assert_contains "review the displayed versions and dependency constraints manually" "$stdout_file"
+            ;;
+    esac
+    case "$correlation_case" in
+        compatible|partial-compatible)
+            assert_exact_line "    observed AUR replacement candidate: virtualbox-ext-oracle 7.2.18-1" "$stdout_file"
+            assert_exact_line "    replacement requirement: virtualbox=7.2.18" "$stdout_file"
+            assert_contains "the direct runtime requirement matches the observed repository candidate" "$stdout_file"
+            ;;
+        incompatible)
+            assert_contains "the direct runtime requirement does not match the observed repository candidate" "$stdout_file"
+            ;;
+        missing) assert_contains "a matching candidate was not found" "$stdout_file" ;;
+        query-failure)
+            assert_contains "metadata could not be queried" "$stdout_file"
+            assert_not_contains "a matching candidate was not found" "$stdout_file"
+            ;;
+        ambiguous) assert_contains "evidence is ambiguous" "$stdout_file" ;;
+        unknown) assert_contains "compatibility could not be determined" "$stdout_file" ;;
+    esac
+    if [ "$correlation_case" = partial-compatible ]; then
+        assert_contains "supplemental candidate observation was incomplete" "$stdout_file"
+    fi
+    case "$correlation_case" in
+        compatible|partial-compatible) ;;
+        *) assert_not_contains "the direct runtime requirement matches the observed repository candidate" "$stdout_file" ;;
+    esac
+done
+
+# Preflight uses the same formatter but never claims an already failed transaction.
+for correlation_case in compatible incompatible missing unknown query-failure ambiguous partial-compatible complete-zero partial-zero failed-zero correlation-failure invalid-index; do
+    setup_case "syu-preflight-version-lock-$correlation_case" no-installed-foreign
+    export MOGUET_TEST_SYSTEM_AUR_PRESENTATION_CASE="preflight-version-lock-$correlation_case"
+    run_status 0 -Syu
+    assert_not_contains "this correlation does not identify the cause" "$stdout_file"
+    assert_not_contains "The repository system upgrade failed." "$stderr_file"
+    assert_pipeline_absent
+    assert_no_external_mutation
+    assert_cache_absent
+    case "$correlation_case" in
+        complete-zero|invalid-index)
+            assert_not_contains "Read-only version-lock preflight" "$stdout_file" ;;
+        *)
+            assert_contains "Read-only version-lock preflight uses current local/sync databases without refreshing them" "$stdout_file" ;;
+    esac
+    case "$correlation_case" in
+        complete-zero|partial-zero|failed-zero|correlation-failure|invalid-index)
+            assert_not_contains "Possible repository/AUR cross-source version-lock candidate" "$stdout_file" ;;
+        *)
+            assert_exact_line "Possible repository/AUR cross-source version-lock candidate: 1" "$stdout_file"
+            assert_exact_line "    observed repository candidate: virtualbox 7.2.18-1 (repository: extra)" "$stdout_file"
+            assert_exact_line "    installed requirement: virtualbox=7.2.16" "$stdout_file" ;;
+    esac
+    case "$correlation_case" in
+        compatible|partial-compatible)
+            assert_exact_line "    replacement requirement: virtualbox=7.2.18" "$stdout_file" ;;
+        missing) assert_contains "a matching candidate was not found" "$stdout_file" ;;
+        query-failure)
+            assert_contains "metadata could not be queried" "$stdout_file"
+            assert_not_contains "a matching candidate was not found" "$stdout_file" ;;
+        incompatible) assert_contains "the direct runtime requirement does not match" "$stdout_file" ;;
+        ambiguous) assert_contains "evidence is ambiguous" "$stdout_file" ;;
+        partial-zero) assert_contains "preflight observation is partial; candidate absence is not established" "$stdout_file" ;;
+        failed-zero|correlation-failure) assert_contains "preflight observation failed; candidate absence is not established" "$stdout_file" ;;
+    esac
+done
+
+# Actual dispatcher/coordinator failure without a candidate remains generic.
+setup_case syu-unrelated-repository-failure no-installed-foreign
+export MOGUET_TEST_PACMAN_CONF_REPOSITORY_LIST=core
+export MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE=$case_dir/foreign-packages
+: > "$MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE"
+run_status 1 -Syu
+assert_exact_line "sudo pacman -Syu" "$command_log"
+assert_contains "The repository system upgrade failed." "$stderr_file"
+assert_exact_line "The AUR update was not attempted." "$stdout_file"
+assert_not_contains "Possible repository/AUR" "$stdout_file"
+assert_pipeline_absent
+assert_not_contains "makepkg " "$command_log"
+assert_not_contains "git " "$command_log"
+assert_not_contains "sudo pacman -U" "$command_log"
+assert_cache_absent
+
+if [ "$case_count" -ne 96 ]; then
     fail_case "internal test case count changed: $case_count"
 fi
 echo "AUR update command integration tests passed ($case_count cases)."

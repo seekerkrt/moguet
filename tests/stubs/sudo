@@ -71,7 +71,7 @@ require_sudo_argv() {
                 -U)
                     is_typed_pacman_install "$@" || exit 2
                     ;;
-                -S|-Ss|-Ssy|-Si|-Siy|-Sc|-Syu|-R|-D|-F|-Fy|-Fyy)
+                -S|-Ss|-Ssy|-Si|-Siy|-Sc|-Sy|-Syy|-Su|-Syu|-R|-D|-F|-Fy|-Fyy)
                     shift 2
                     require_known_pacman_argument_tail "$@"
                     ;;

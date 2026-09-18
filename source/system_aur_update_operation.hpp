@@ -2,6 +2,7 @@
 
 #include "aur_update_execution_preparation.hpp"
 #include "cli_routing.hpp"
+#include "cross_source_version_lock_observation.hpp"
 #include "filtered_aur_update_operation.hpp"
 #include "package_metadata.hpp"
 
@@ -99,7 +100,7 @@ struct SystemAurUpdateDryRunIssue {
     std::string diagnostic;
 };
 
-// Current-state read-only observation for the combined -Syu route.
+// Current-state read-only observation for the combined system-update route.
 // It owns no Prepared* capability and has no conversion to the actual
 // coordinator. Auto retains exact current authority; RepoOnly retains none of
 // the AUR fields.
@@ -159,6 +160,9 @@ struct SystemAurUpdateDryRunObservation {
     ForeignPackageInventory foreign_inventory;
     std::optional<FilteredAurUpdateObservation> aur_observation;
     std::vector<SystemAurUpdateDryRunIssue> issues;
+    // Supplemental read-only evidence, never an execution capability.
+    std::optional<CrossSourceVersionLockCorrelationResult>
+        preflight_version_lock_correlation;
 
     bool is_ready() const noexcept;
     bool is_blocked() const noexcept;
@@ -213,6 +217,7 @@ enum class SystemAurUpdateOperationPhase {
     AurPreparation,
     AurExecution,
     Reduction,
+    CoordinatedTransition,
 };
 
 enum class SystemAurUpdateOperationStatus {
@@ -222,6 +227,60 @@ enum class SystemAurUpdateOperationStatus {
     StoppedOnAurFailure,
     StoppedAfterAurCleanupFailure,
     InconsistentResult,
+    StoppedOnAurCancellation,
+    StoppedOnCoordinatedTransition,
+};
+
+enum class CrossSourceExecutionPhaseStatus { NotAttempted,
+                                             Completed,
+                                             Failed };
+enum class CrossSourceExecutionPhase {
+    Confirmation,
+    Revalidation,
+    RemoveInstalledForeign,
+    RepositorySystemUpgrade,
+    RepositoryPostState,
+    AurAuthority,
+    AurReplacement,
+    InstallReasonRestoration,
+    PostStateVerification,
+    Complete,
+};
+
+// A bounded, non-atomic execution record. The read-only plan is retained as
+// expected state; only the executor's explicit acceptance + fresh equality
+// check permits the first mutation. Unreached phases stay NotAttempted.
+struct CrossSourceTransitionExecutionResult {
+    explicit CrossSourceTransitionExecutionResult(CrossSourceCoordinatedTransitionPlan plan)
+        : confirmed_plan(std::move(plan)) {
+    }
+
+    CrossSourceCoordinatedTransitionPlan confirmed_plan;
+    std::optional<CrossSourceVersionLockCorrelationResult> revalidation;
+    std::optional<ConfirmationResult> confirmation_result;
+    CrossSourceExecutionPhase stopped_phase = CrossSourceExecutionPhase::Confirmation;
+    CrossSourceExecutionPhaseStatus confirmation = CrossSourceExecutionPhaseStatus::NotAttempted;
+    CrossSourceExecutionPhaseStatus validation = CrossSourceExecutionPhaseStatus::NotAttempted;
+    CrossSourceExecutionPhaseStatus removal = CrossSourceExecutionPhaseStatus::NotAttempted;
+    CrossSourceExecutionPhaseStatus repository = CrossSourceExecutionPhaseStatus::NotAttempted;
+    CrossSourceExecutionPhaseStatus repository_post_state = CrossSourceExecutionPhaseStatus::NotAttempted;
+    CrossSourceExecutionPhaseStatus aur_authority = CrossSourceExecutionPhaseStatus::NotAttempted;
+    CrossSourceExecutionPhaseStatus aur_replacement = CrossSourceExecutionPhaseStatus::NotAttempted;
+    CrossSourceExecutionPhaseStatus install_reason = CrossSourceExecutionPhaseStatus::NotAttempted;
+    CrossSourceExecutionPhaseStatus post_state = CrossSourceExecutionPhaseStatus::NotAttempted;
+    std::optional<int> removal_exit_status;
+    std::optional<int> repository_exit_status;
+    std::optional<AurReplacementCandidateQueryResult> replacement_observation;
+    std::optional<AurUpdateQueryResult> replacement_query;
+    std::optional<FilteredAurUpdateExecutionResult> aur_result;
+    std::optional<InstalledPackageQueryResult> observed_repository;
+    std::optional<InstalledPackageQueryResult> observed_consumer;
+    // Primary phase failure survives supplemental current-state observations.
+    std::optional<PackageMetadataFailure> metadata_failure;
+    std::string diagnostic;
+
+    bool is_success() const noexcept;
+    bool has_partial_completion() const noexcept;
 };
 
 enum class SystemAurUpdateRepositoryPhaseStatus {
@@ -251,6 +310,7 @@ enum class SystemAurUpdateAurPhaseStatus {
     StoppedOnWorkItemFailure,
     StoppedAfterCleanupFailure,
     InconsistentResult,
+    StoppedOnWorkItemCancellation,
 };
 
 enum class SystemAurUpdateNotAttemptedReason {
@@ -311,6 +371,15 @@ struct SystemAurUpdateOperationResult {
     SystemAurUpdateForeignInventoryPhaseResult foreign_inventory;
     SystemAurUpdateQueryPhaseResult query;
     SystemAurUpdateAurPhaseResult aur;
+    std::optional<CrossSourceTransitionExecutionResult> coordinated_transition;
+    // Pre-mutation evidence is kept separate from the fresh failure scan.
+    // ReadOnlyReady is still only expected state; the separate coordinated
+    // execution result records confirmation and fresh matching revalidation.
+    std::optional<CrossSourceVersionLockCorrelationResult>
+        preflight_version_lock_correlation;
+    // Secondary read-only evidence; never participates in primary reduction.
+    std::optional<CrossSourceVersionLockCorrelationResult>
+        cross_source_version_lock_correlation;
 
     bool is_success() const noexcept;
     PackageStateChange package_state_change() const noexcept;
@@ -320,6 +389,10 @@ struct SystemAurUpdateOperationResult {
     bool has_query_failure() const noexcept;
     bool has_inconsistency() const noexcept;
 };
+
+// The CLI reports supplemental evidence before the repository command starts.
+using SystemAurUpdatePreflightReporter =
+    void (*)(const CrossSourceVersionLockCorrelationResult&) noexcept;
 
 class PreparedSystemAurUpdateOperation final {
     explicit PreparedSystemAurUpdateOperation(
@@ -336,7 +409,8 @@ class PreparedSystemAurUpdateOperation final {
     friend SystemAurUpdateOperationResult
     execute_prepared_system_aur_update_operation(
         PreparedSystemAurUpdateOperation prepared,
-        const AppConfig& config);
+        const AppConfig& config,
+        SystemAurUpdatePreflightReporter report_preflight);
 
 public:
     PreparedSystemAurUpdateOperation(
@@ -371,4 +445,5 @@ SystemAurUpdateOperationResult reduce_system_aur_update_result(
 SystemAurUpdateOperationResult
 execute_prepared_system_aur_update_operation(
     PreparedSystemAurUpdateOperation prepared,
-    const AppConfig& config);
+    const AppConfig& config,
+    SystemAurUpdatePreflightReporter report_preflight = nullptr);

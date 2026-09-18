@@ -1567,6 +1567,10 @@ PreparedDirectory prepare_directory(
         request, nullptr, creation_precondition);
 }
 
+std::optional<PreparedDirectory> open_existing_directory(const xdg_paths::CachePaths& paths) {
+    return DirectorySafetyAccess::open_existing(make_request(paths), nullptr);
+}
+
 PreparedDirectory prepare_directory(const xdg_paths::CachePaths& paths) {
     const DirectoryRequest request = make_request(paths);
     return DirectorySafetyAccess::prepare(request, nullptr);

@@ -75,7 +75,7 @@ using ScriptedOutcome = std::variant<
     ScriptedMetadataFailure,
     ScriptedTrustedCacheFailure,
     ScriptedTransactionFailure,
-    ScriptedUnknownFailure>;
+    ScriptedUnknownFailure, ConfirmationResult>;
 
 struct ScriptedExecution {
     stub::ExpectedExecution expected;
@@ -102,7 +102,8 @@ bool same_required_target(
     const RequiredPackageArtifactTarget& expected) noexcept {
     return actual.package_base == expected.package_base &&
            actual.package_name == expected.package_name &&
-           actual.desired_reason == expected.desired_reason;
+           actual.desired_reason == expected.desired_reason &&
+           actual.expected_full_version == expected.expected_full_version;
 }
 
 bool same_required_targets(
@@ -373,6 +374,10 @@ void enqueue_transaction_failure(
             std::move(production_outcome)});
 }
 
+void enqueue_confirmation_stop(ExpectedExecution expected, ConfirmationResult result) {
+    enqueue(std::move(expected), std::move(result));
+}
+
 void enqueue_unknown_failure(ExpectedExecution expected) {
     enqueue(std::move(expected), ScriptedUnknownFailure{});
 }
@@ -620,6 +625,9 @@ execute_prepared_package_base_source_build_work_item_typed(
     g_state.executions.pop_front();
 
     record_event(call_index, stub::EventKind::Checkout);
+    if(const auto* stop = std::get_if<ConfirmationResult>(&scripted.outcome)) {
+        throw ConfirmationOperationStopped(*stop);
+    }
     record_event(call_index, stub::EventKind::Build);
 
     if(auto* success = std::get_if<ScriptedSuccess>(&scripted.outcome)) {
@@ -699,3 +707,10 @@ execute_prepared_package_base_source_build_work_item_typed(
     throw std::logic_error(
         "AUR update set executor stub has an unknown scripted outcome.");
 }
+
+#ifndef MOGUET_TEST_REAL_INTERACTIVE_CONFIRMATION
+ConfirmationResult request_confirmation(const std::string&, ConfirmationDefault, bool) {
+    throw std::logic_error("Runner fixture received an unexpected bootstrap confirmation.");
+}
+
+#endif

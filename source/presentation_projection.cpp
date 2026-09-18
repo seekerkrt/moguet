@@ -82,6 +82,7 @@ PackageStateObservationValue aur_target_observation(
                 ObservationReason::ObservationNotPrepared};
         case AurUpdateOperationTargetStatus::Unsupported:
         case AurUpdateOperationTargetStatus::Incomplete:
+        case AurUpdateOperationTargetStatus::Cancelled:
         case AurUpdateOperationTargetStatus::Failed:
             return PackageStateObservationValue{
                 PackageStateObservation::Unverified,
@@ -166,6 +167,10 @@ void apply_aur_target_status(
             item.diagnostic_class = DiagnosticClass::RequiresCheck;
             item.requires_check = true;
             item.requires_manual_action = true;
+            return;
+        case AurUpdateOperationTargetStatus::Cancelled:
+            item.diagnostic_class = DiagnosticClass::Cancelled;
+            item.is_blocking = true;
             return;
         case AurUpdateOperationTargetStatus::Failed:
             item.diagnostic_class = DiagnosticClass::ExecutionFailure;
@@ -906,6 +911,8 @@ DiagnosticRequiredAction aur_target_required_action(
         case AurUpdateOperationTargetStatus::Unsupported:
         case AurUpdateOperationTargetStatus::Incomplete:
             return DiagnosticRequiredAction::ConfirmEvaluation;
+        case AurUpdateOperationTargetStatus::Cancelled:
+            return DiagnosticRequiredAction::None;
         case AurUpdateOperationTargetStatus::Failed:
         case AurUpdateOperationTargetStatus::UpdatedCleanupFailed:
         case AurUpdateOperationTargetStatus::NoChangeCleanupFailed:
@@ -1138,6 +1145,13 @@ PresentationItem project_aur_update_presentation_item(
         item.requires_check = true;
     }
     apply_aur_target_status(item, result.status);
+    if(result.status == AurUpdateOperationTargetStatus::Cancelled && result.cancellation) {
+        const auto diagnostic = project_confirmation_diagnostic(
+            ConfirmationResult{*result.cancellation}, DiagnosticOperation::Build,
+            DiagnosticPhase::Build, {});
+        item.diagnostic_class = diagnostic.classification;
+        item.is_blocking = diagnostic.blocking_decision != DiagnosticBlockingDecision::NonBlocking;
+    }
     if(!is_normal_aur_target_status(result.status)) {
         PresentationCorrelationIdentity correlation;
         correlation.filtered_update_plan_index = result.update_plan_index;

@@ -392,8 +392,8 @@ assert_contains "$repo_root/.gitignore" '/compile_commands.json'
 
 # Compare the historical Make aliases with the actual CMake focused targets.
 # This checks the frontend mapping without duplicating either inventory here.
-[ "$#" -eq 126 ] ||
-    fail "Make focused alias inventory is $#, expected 126"
+[ "$#" -eq 133 ] ||
+    fail "Make focused alias inventory is $#, expected 133"
 make_aliases=$test_root/make-focused-aliases.txt
 cmake_aliases=$test_root/cmake-focused-aliases.txt
 cmake_help=$test_root/cmake-target-help.txt
@@ -401,15 +401,15 @@ missing_aliases=$test_root/missing-focused-aliases.txt
 unexpected_aliases=$test_root/unexpected-focused-aliases.txt
 
 printf '%s\n' "$@" | LC_ALL=C sort > "$make_aliases"
-[ "$(LC_ALL=C sort -u "$make_aliases" | wc -l)" -eq 126 ] ||
+[ "$(LC_ALL=C sort -u "$make_aliases" | wc -l)" -eq 133 ] ||
     fail 'Make focused alias inventory contains duplicates'
 
 "$cmake_command" --build "$cmake_build_dir" --target help > "$cmake_help"
 sed -n \
     's/.*moguet-focus-\(test-[a-z0-9-][a-z0-9-]*\).*/\1/p' \
     "$cmake_help" | LC_ALL=C sort -u > "$cmake_aliases"
-[ "$(wc -l < "$cmake_aliases")" -eq 126 ] ||
-    fail "CMake focused target inventory is $(wc -l < "$cmake_aliases"), expected 126"
+[ "$(wc -l < "$cmake_aliases")" -eq 133 ] ||
+    fail "CMake focused target inventory is $(wc -l < "$cmake_aliases"), expected 133"
 
 LC_ALL=C comm -23 "$make_aliases" "$cmake_aliases" > "$missing_aliases"
 LC_ALL=C comm -13 "$make_aliases" "$cmake_aliases" > "$unexpected_aliases"
@@ -440,6 +440,64 @@ env -u MAKEFLAGS -u MFLAGS \
 assert_contains "$phony_marker" 'test-cmake'
 assert_contains "$phony_marker" 'test-repository'
 
+# Exercise the real full-lane frontend with a CTest argv probe. Stub only
+# configure/build so this contract check never recursively runs the suite.
+# Parse the scheduling option instead of freezing the complete recipe text.
+ctest_probe=$test_root/ctest-probe.py
+ctest_marker=$test_root/ctest-parallel-level.txt
+cat > "$ctest_probe" <<'PY'
+import argparse
+import os
+from pathlib import Path
+
+parser = argparse.ArgumentParser()
+parser.add_argument('-j', '--parallel', type=int)
+options, _ = parser.parse_known_args()
+level = options.parallel
+if level is None:
+    level = int(os.environ.get('CTEST_PARALLEL_LEVEL', '1'))
+Path(os.environ['MOGUET_CTEST_MARKER']).write_text(str(level) + '\n')
+raise SystemExit(int(os.environ.get('MOGUET_CTEST_EXIT', '0')))
+PY
+for ctest_jobs in default 2
+do
+    if [ "$ctest_jobs" = default ]; then
+        expected_jobs=8
+        set --
+    else
+        expected_jobs=$ctest_jobs
+        set -- "CTEST_JOBS=$ctest_jobs"
+    fi
+    MOGUET_CTEST_MARKER=$ctest_marker CTEST_PARALLEL_LEVEL=1 \
+    env -u MAKEFLAGS -u MFLAGS -u CTEST_JOBS \
+        make -f "$makefile" -C "$test_root" --no-print-directory \
+            CMAKE=true "CTEST=python3 $ctest_probe" "$@" test-cmake
+    [ "$(cat "$ctest_marker")" = "$expected_jobs" ] ||
+        fail "test-cmake did not request $expected_jobs CTest slots"
+done
+if MOGUET_CTEST_MARKER=$ctest_marker MOGUET_CTEST_EXIT=7 \
+    env -u MAKEFLAGS -u MFLAGS \
+        make -f "$makefile" -C "$test_root" --no-print-directory \
+            CMAKE=true "CTEST=python3 $ctest_probe" CTEST_JOBS=2 test-cmake
+then
+    fail 'test-cmake ignored a CTest failure'
+fi
+printf '%s\n' 'build-authority-closure-test: bounded CTest parallel frontend passed'
+
+# This global /tmp inventory oracle must retain exclusive scheduling even
+# though its own construction-failure fixtures have private parent roots.
+ctest --test-dir "$cmake_build_dir" --show-only=json-v1 > "$test_root/ctest.json"
+python3 - "$test_root/ctest.json" <<'PY'
+import json
+import sys
+
+tests = json.load(open(sys.argv[1]))['tests']
+test = next(t for t in tests if t['name'] == 'cpp.invocation_owned_source_build_context')
+properties = {p['name']: p['value'] for p in test['properties']}
+if properties.get('RUN_SERIAL') is not True:
+    raise SystemExit('global context-root inventory test must run exclusively')
+PY
+
 printf '%s\n' \
-    'build-authority-closure-test: Make aliases=126, CMake targets=126, missing=0, unexpected=0'
+    'build-authority-closure-test: Make aliases=133, CMake targets=133, missing=0, unexpected=0'
 printf '%s\n' 'build-authority-closure-test: all checks passed'

@@ -6,9 +6,9 @@
 #, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: Moguet 2.7.1\n"
+"Project-Id-Version: Moguet 2.8.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-11 07:05+0900\n"
+"POT-Creation-Date: 2026-09-17 09:57+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -939,6 +939,9 @@ msgstr ""
 msgid "An unattempted {} work item unexpectedly has a production outcome."
 msgstr ""
 
+msgid "Cancelled"
+msgstr ""
+
 msgid "transaction succeeded; exact installed proof unavailable"
 msgstr ""
 
@@ -946,6 +949,9 @@ msgid "transaction outcome unknown; installed artifact unverified"
 msgstr ""
 
 msgid "transaction failed; package effects unverified"
+msgstr ""
+
+msgid "skipped: devel tracking bootstrap"
 msgstr ""
 
 msgid "installed / updated"
@@ -1014,10 +1020,147 @@ msgstr ""
 msgid "  execution failure:"
 msgstr ""
 
+msgid "Coordinated transition candidate: blocked by replacement or removal constraints."
+msgstr ""
+
+msgid "Coordinated transition candidate: incomplete evidence (including installed identity, runtime dependencies, or install reason)."
+msgstr ""
+
+msgid "Coordinated transition candidate: ambiguous identity or replacement."
+msgstr ""
+
+msgid "Coordinated transition candidate: unsupported relation or multiple candidates requiring coordination."
+msgstr ""
+
+msgid "Possible coordinated transition (structure supported by read-only evidence):"
+msgstr ""
+
+#. TRANSLATORS: The placeholders are an installed package name and version.
+#, c++-format
+msgid "  1. temporarily remove: {} {}"
+msgstr ""
+
+#. TRANSLATORS: The placeholders are a relevant repository candidate name and version; this phase is a full system upgrade.
+#, c++-format
+msgid "  2. repository system upgrade; observed relevant candidate: {} {}"
+msgstr ""
+
+#. TRANSLATORS: The placeholders are an AUR child package name, version, the literal metadata key "PackageBase", and its value.
+#, c++-format
+msgid "  3. rebuild/install: {} {} ({}: {})"
+msgstr ""
+
+msgid "     preserve install reason: dependency"
+msgstr ""
+
+msgid "     preserve install reason: explicit"
+msgstr ""
+
+#. TRANSLATORS: The placeholders are the replacement package and its exact runtime requirement.
+#, c++-format
+msgid "  4. verify resulting relation: {} requires {}; the observed repository candidate satisfies it"
+msgstr ""
+
+msgid "This read-only plan is not execution authority. Execution requires explicit confirmation and fresh mutation-time revalidation."
+msgstr ""
+
+msgid "The transition is non-atomic: a later failure may leave the removed package absent. No automatic rollback is implied."
+msgstr ""
+
+#, c++-format
+msgid "Dry-run remains read-only. Actual execution requires a separate explicit approval; {} is not approval."
+msgstr ""
+
+#, c++-format
+msgid "    observed {} replacement candidate: {} {}"
+msgstr ""
+
+#, c++-format
+msgid "    replacement requirement: {}"
+msgstr ""
+
+msgid "    replacement metadata: the direct runtime requirement matches the observed repository candidate"
+msgstr ""
+
+msgid "    replacement metadata: the direct runtime requirement does not match the observed repository candidate"
+msgstr ""
+
+#. TRANSLATORS: The placeholder is the service name
+#. "AUR".
+#, c++-format
+msgid "    observed {} replacement: a matching candidate was not found"
+msgstr ""
+
+msgid "    replacement metadata: compatibility could not be determined"
+msgstr ""
+
+#. TRANSLATORS: The placeholder is the service name
+#. "AUR".
+#, c++-format
+msgid "    observed {} replacement: metadata could not be queried"
+msgstr ""
+
+#. TRANSLATORS: The placeholder is the service name
+#. "AUR".
+#, c++-format
+msgid "    observed {} replacement: evidence is ambiguous"
+msgstr ""
+
+msgid "Read-only version-lock preflight uses current local/sync databases without refreshing them; candidates may change during the repository update and are not selected transaction targets."
+msgstr ""
+
+msgid "Version-lock preflight observation failed; candidate absence is not established. This diagnostic does not change the repository transaction policy."
+msgstr ""
+
+msgid "Version-lock preflight observation is partial; candidate absence is not established. This diagnostic does not change the repository transaction policy."
+msgstr ""
+
+#, c++-format
+msgid "Possible repository/{} cross-source version-lock candidate: {}"
+msgid_plural "Possible repository/{} cross-source version-lock candidates: {}"
+msgstr[0] ""
+msgstr[1] ""
+
+#, c++-format
+msgid "  - repository package: {}"
+msgstr ""
+
+#, c++-format
+msgid "    installed version: {}"
+msgstr ""
+
+#, c++-format
+msgid "    observed repository candidate: {} {} (repository: {})"
+msgstr ""
+
+#, c++-format
+msgid "    installed foreign package: {} {}"
+msgstr ""
+
+#, c++-format
+msgid "    installed requirement: {}"
+msgstr ""
+
+msgid "  The supplemental candidate observation was incomplete."
+msgstr ""
+
+msgid "The observed repository candidate is metadata evidence only; this correlation does not identify the cause of the system update failure."
+msgstr ""
+
+#. TRANSLATORS: The placeholders are the project name
+#. "Moguet" and service name "AUR".
+#, c++-format
+msgid "{} did not perform a coordinated repository/{} update; review the displayed versions and dependency constraints manually."
+msgstr ""
+
 msgid "Devel package update status requires check: the suffix is candidate evidence only, and authoritative build provenance is unavailable."
 msgstr ""
 
 msgid "Devel package update status requires check."
+msgstr ""
+
+#, c++-format
+msgid "Bootstrap action does not match the ordinary {} route or target."
 msgstr ""
 
 msgid "Installed package is already up to date."
@@ -1495,12 +1638,25 @@ msgstr ""
 msgid "{} install preparation failure does not match the prepared {}."
 msgstr ""
 
+#, c++-format
+msgid "{}: devel tracking baseline is missing. Fully review the source, rebuild and install it to establish {} tracking?"
+msgstr ""
+
+msgid "The required confirmation was declined. Any earlier completed phases remain unchanged."
+msgstr ""
+
 msgid "Preparation target snapshot does not match the targets eligible in this preflight phase."
+msgstr ""
+
+msgid "Devel tracking bootstrap was skipped; package remains unverified."
 msgstr ""
 
 #. TRANSLATORS: AUR is a runtime project identity.
 #, c++-format
 msgid "Terminal execution outcomes from multiple work items were attributed to one {} update target."
+msgstr ""
+
+msgid "Devel bootstrap decisions or skipped-root correlations are inconsistent."
 msgstr ""
 
 #. TRANSLATORS: AUR is a runtime project identity.
@@ -2321,6 +2477,9 @@ msgstr ""
 msgid "reason unavailable"
 msgstr ""
 
+msgid "devel tracking baseline established"
+msgstr ""
+
 msgid "updated"
 msgstr ""
 
@@ -2504,9 +2663,6 @@ msgid "Selected"
 msgstr ""
 
 msgid "Ambiguous"
-msgstr ""
-
-msgid "Cancelled"
 msgstr ""
 
 msgid "Unavailable"
@@ -3596,7 +3752,67 @@ msgstr ""
 msgid "The completed repository system upgrade was not rolled back."
 msgstr ""
 
+msgid "Explicitly approve this non-atomic removal, system upgrade and replacement?"
+msgstr ""
+
+msgid "confirmation"
+msgstr ""
+
+msgid "mutation-time revalidation"
+msgstr ""
+
+msgid "bounded foreign package removal"
+msgstr ""
+
+msgid "repository system upgrade"
+msgstr ""
+
+msgid "repository post-state verification"
+msgstr ""
+
+#, c++-format
+msgid "fresh {} replacement authority"
+msgstr ""
+
+#, c++-format
+msgid "{} replacement build/install"
+msgstr ""
+
+msgid "install reason restoration"
+msgstr ""
+
+msgid "exact-version post-state verification"
+msgstr ""
+
+msgid "complete"
+msgstr ""
+
+msgid "unknown phase"
+msgstr ""
+
+msgid "Coordinated cross-source transition completed; exact versions, runtime requirement and install reason verified."
+msgstr ""
+
+#, c++-format
+msgid "Coordinated cross-source transition stopped during {}."
+msgstr ""
+
+msgid "The old foreign package was removed. It may remain absent; no automatic rollback or reinstall was attempted."
+msgstr ""
+
 msgid "The repository system upgrade completed."
+msgstr ""
+
+#, c++-format
+msgid "Observed replacement state: {} {} installed."
+msgstr ""
+
+#, c++-format
+msgid "Observed replacement state: {} absent."
+msgstr ""
+
+#, c++-format
+msgid "Current replacement state is unavailable: {}."
 msgstr ""
 
 #. TRANSLATORS: AUR is a runtime project identity.
@@ -4363,79 +4579,6 @@ msgid "    reason [{}]: {}"
 msgstr ""
 
 #, c++-format
-msgid "    observed {} replacement candidate: {} {}"
-msgstr ""
-
-#, c++-format
-msgid "    replacement requirement: {}"
-msgstr ""
-
-msgid "    replacement metadata: the direct runtime requirement matches the observed repository candidate"
-msgstr ""
-
-msgid "    replacement metadata: the direct runtime requirement does not match the observed repository candidate"
-msgstr ""
-
-#. TRANSLATORS: The placeholder is the service name
-#. "AUR".
-#, c++-format
-msgid "    observed {} replacement: a matching candidate was not found"
-msgstr ""
-
-msgid "    replacement metadata: compatibility could not be determined"
-msgstr ""
-
-#. TRANSLATORS: The placeholder is the service name
-#. "AUR".
-#, c++-format
-msgid "    observed {} replacement: metadata could not be queried"
-msgstr ""
-
-#. TRANSLATORS: The placeholder is the service name
-#. "AUR".
-#, c++-format
-msgid "    observed {} replacement: evidence is ambiguous"
-msgstr ""
-
-#, c++-format
-msgid "Possible repository/{} cross-source version-lock candidate: {}"
-msgid_plural "Possible repository/{} cross-source version-lock candidates: {}"
-msgstr[0] ""
-msgstr[1] ""
-
-#, c++-format
-msgid "  - repository package: {}"
-msgstr ""
-
-#, c++-format
-msgid "    installed version: {}"
-msgstr ""
-
-#, c++-format
-msgid "    observed repository candidate: {} {} (repository: {})"
-msgstr ""
-
-#, c++-format
-msgid "    installed foreign package: {} {}"
-msgstr ""
-
-#, c++-format
-msgid "    installed requirement: {}"
-msgstr ""
-
-msgid "  The supplemental candidate observation was incomplete."
-msgstr ""
-
-msgid "The observed repository candidate is metadata evidence only; this correlation does not identify the cause of the system update failure."
-msgstr ""
-
-#. TRANSLATORS: The placeholders are the project name
-#. "Moguet" and service name "AUR".
-#, c++-format
-msgid "{} did not perform a coordinated repository/{} update; review the displayed versions and dependency constraints manually."
-msgstr ""
-
-#, c++-format
 msgid "excluded from {} update: {}"
 msgstr ""
 
@@ -5112,6 +5255,9 @@ msgstr ""
 msgid "{} update candidate has no remote package identity"
 msgstr ""
 
+msgid "Devel tracking bootstrap candidate; update availability is unverified."
+msgstr ""
+
 #. TRANSLATORS: {} is the literal service name "AUR".
 #, c++-format
 msgid "{} version comparison unavailable"
@@ -5162,9 +5308,6 @@ msgid "(type {} to cancel)"
 msgstr ""
 
 msgid "Please answer yes, no, or cancel."
-msgstr ""
-
-msgid "The required confirmation was declined. Any earlier completed phases remain unchanged."
 msgstr ""
 
 msgid "The current operation was cancelled because interactive input ended. Any earlier completed phases remain unchanged."
@@ -5445,6 +5588,9 @@ msgstr ""
 msgid "Allow the full {}-compatible repository argument tail"
 msgstr ""
 
+msgid "Use the current sync databases without refreshing them"
+msgstr ""
+
 msgid "Search for packages"
 msgstr ""
 
@@ -5474,7 +5620,7 @@ msgstr ""
 msgid "Show assessed conflict/replacement blockers before any supported mutation"
 msgstr ""
 
-#. TRANSLATORS: The placeholders are the literal -Syu token and AUR project identity.
+#. TRANSLATORS: The placeholders are the literal -Syu / -Su tokens and AUR project identity.
 #, c++-format
 msgid "For {}, assess the current installed {} state; actual execution re-evaluates it after the repository upgrade succeeds"
 msgstr ""
@@ -5545,12 +5691,12 @@ msgstr ""
 msgid "Limit {}, {}, and {} to {}; do not fall back to repositories"
 msgstr ""
 
-#. TRANSLATORS: The placeholders are literal -Syu, upgrade-aur, and AUR identities.
+#. TRANSLATORS: The placeholders are literal -Syu / -Su, upgrade-aur, and AUR identities.
 #, c++-format
 msgid "Do not use with {}; use {} for an {}-only source-aware update"
 msgstr ""
 
-#. TRANSLATORS: -S, -Ss, -Si, -Syu, and AUR are literal CLI/project identities.
+#. TRANSLATORS: -S, -Ss, -Si, -Syu / -Su, and AUR are literal CLI/project identities.
 #, c++-format
 msgid "Limit {}, {}, and {} to official binary repositories; with {}, run the repository system upgrade only; do not use {} or source builds"
 msgstr ""
@@ -5611,6 +5757,9 @@ msgstr ""
 #. "PackageBase".
 #, c++-format
 msgid "Prepared {} artifact install workspace was already cleaned."
+msgstr ""
+
+msgid "Built replacement version differs from the confirmed transition; rerun required."
 msgstr ""
 
 #. TRANSLATORS: {} is the literal command "pacman -U".
@@ -5944,9 +6093,6 @@ msgstr ""
 msgid "unknown-role"
 msgstr ""
 
-msgid "complete"
-msgstr ""
-
 msgid "partial"
 msgstr ""
 
@@ -6096,6 +6242,15 @@ msgid "Declared relation awaiting assessment: declaring package {} declares {} {
 msgstr ""
 
 msgid "Invalid relation metadata or observation."
+msgstr ""
+
+msgid "Exact upstream source snapshot (separate from recipe review)\n"
+msgstr ""
+
+msgid "Acceptance authorizes this snapshot as build input; it does not certify source-code safety. Upstream blob contents are not displayed.\n"
+msgstr ""
+
+msgid "Use this exact upstream source snapshot as build input?"
 msgstr ""
 
 #, c++-format
@@ -6542,6 +6697,10 @@ msgstr ""
 
 #, c++-format
 msgid "Reviewed-source outcome for {} {}: review acceptance was declined by the safe default; this invocation has compatibility-only source authority, and reviewed state was not advanced."
+msgstr ""
+
+#, c++-format
+msgid "Reviewed-source outcome for {} {}: bootstrap full review accepted for exact upstream commit {}."
 msgstr ""
 
 #, c++-format
@@ -7056,6 +7215,9 @@ msgstr ""
 msgid "Edit install script {}?"
 msgstr ""
 
+msgid "Accept this full source review for devel tracking bootstrap?"
+msgstr ""
+
 msgid "Accept this explicit reviewed-source full rebaseline?"
 msgstr ""
 
@@ -7069,6 +7231,9 @@ msgid "Accept this explicit reviewed-source identity rebind/rebaseline?"
 msgstr ""
 
 msgid "Accept this reviewed upstream revision?"
+msgstr ""
+
+msgid "Devel tracking bootstrap recipe changed before full review; no build was started."
 msgstr ""
 
 #, c++-format
@@ -7173,6 +7338,9 @@ msgstr ""
 
 #, c++-format
 msgid "{} set source-build multiple request must not expose a singular package name."
+msgstr ""
+
+msgid "Devel tracking bootstrap observations changed; no build was started."
 msgstr ""
 
 msgid "Private artifact workspace preparation failed."
@@ -7444,6 +7612,36 @@ msgstr ""
 
 #, c++-format
 msgid "{} assessment failed with an unknown exception."
+msgstr ""
+
+msgid "Cross-source state changed after confirmation; rerun required. No package mutation was attempted."
+msgstr ""
+
+msgid "Expected repository post-state was not observed; the replacement was not started. Rerun required."
+msgstr ""
+
+#, c++-format
+msgid "The {} replacement changed or is unavailable; rerun required. Build and install were not started."
+msgstr ""
+
+#, c++-format
+msgid "The prepared {} replacement differs from the confirmed transition; rerun required. Build and install were not started."
+msgstr ""
+
+#, c++-format
+msgid "The confirmed {} replacement was not executable; the coordinated transition is incomplete."
+msgstr ""
+
+msgid "The replacement install reason was not restored; the coordinated transition is incomplete."
+msgstr ""
+
+msgid "Expected exact-version post-state was not verified; the coordinated transition is incomplete."
+msgstr ""
+
+msgid "The coordinated transition stopped on an unexpected failure."
+msgstr ""
+
+msgid "Current replacement state could not be observed."
 msgstr ""
 
 msgid "The system upgrade failed with an unknown exception."

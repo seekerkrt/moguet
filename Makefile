@@ -3,6 +3,9 @@ TARGET := moguet
 PACKAGE_NAME := moguet
 CMAKE ?= cmake
 CTEST ?= ctest
+# Only the full host CTest lane consumes this bound; focused aliases keep
+# their own scheduling. CTest 3.29+ also respects the outer Make jobserver.
+CTEST_JOBS ?= 8
 CMAKE_COMPILER_PREFLIGHT := cmake/MoguetCompilerPreflight.cmake
 CMAKE_COMPILE_COMMANDS_PUBLISHER := \
 	cmake/MoguetPublishCompileCommands.cmake
@@ -74,6 +77,7 @@ CMAKE_FOCUSED_ALIASES := \
 	test-current-installed-artifact-binding \
 	test-devel-package-assessment \
 	test-aur-devel-route \
+	test-devel-tracking-bootstrap \
 	test-normal-reviewed-devel-execution \
 	test-reviewed-devel-source-build-execution \
 	test-devel-git-revision-comparison \
@@ -84,8 +88,14 @@ CMAKE_FOCUSED_ALIASES := \
 	test-source-package-identity-projection \
 	test-source-package-compatibility \
 	test-invocation-owned-cleanup-model \
+	test-invocation-owned-recipe-acquisition \
 	test-invocation-owned-source-build-context \
+	test-pinned-submodule-closure \
+	test-pinned-submodule-closure-review \
+	test-pinned-submodule-workspace \
+	test-pinned-submodule-s4-integration \
 	test-evaluated-devel-source-build \
+	test-split-devel-artifact-authority \
 	test-evaluated-devel-source-artifact-transport \
 	test-remote-aur-cleanup-collector \
 	test-source-artifact-install-trusted-transport \
@@ -387,7 +397,11 @@ cmake-release-build: cmake-cli-authority-exporter-build
 		--target $(CMAKE_RELEASE_CTEST_TARGETS)
 
 test-cmake: cmake-test-build
-	$(CTEST) --test-dir $(CMAKE_CTEST_BUILD_DIR) --output-on-failure
+	@case '$(CTEST_JOBS)' in ''|*[!0-9]*) \
+		echo 'error: CTEST_JOBS must be a positive integer' >&2; exit 2 ;; esac; \
+		[ '$(CTEST_JOBS)' -gt 0 ] || { \
+			echo 'error: CTEST_JOBS must be a positive integer' >&2; exit 2; }
+	+$(CTEST) --test-dir $(CMAKE_CTEST_BUILD_DIR) --output-on-failure --parallel $(CTEST_JOBS)
 
 # CMake owns the focused target/CTest mapping. This frontend carries no source
 # closure, compile definition, include path, link library, or runtime recipe.
@@ -659,7 +673,7 @@ test-container-live-aur:
 			--file containers/arch-live-validation/Dockerfile.aur \
 			.; \
 		printf '%s\n' ':: Running Arch live AUR-validation container'; \
-		$(DOCKER) run --rm "$(ARCH_LIVE_AUR_VALIDATION_IMAGE)"
+		$(DOCKER) run --rm --cap-add=SYS_PTRACE "$(ARCH_LIVE_AUR_VALIDATION_IMAGE)"
 
 test-container-live-local:
 	@set -eu; \
@@ -669,7 +683,7 @@ test-container-live-local:
 			--file containers/arch-live-validation/Dockerfile.local \
 			.; \
 		printf '%s\n' ':: Running Arch live local-PKGBUILD validation container'; \
-		$(DOCKER) run --rm "$(ARCH_LIVE_LOCAL_VALIDATION_IMAGE)"
+		$(DOCKER) run --rm --cap-add=SYS_PTRACE "$(ARCH_LIVE_LOCAL_VALIDATION_IMAGE)"
 
 test-container-receipt:
 	@set -eu; \

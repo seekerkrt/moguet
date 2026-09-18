@@ -5,6 +5,8 @@
 #include "evaluated_devel_source_build.hpp"
 #include "source_build_request.hpp"
 #include "separated_package_base_source_build.hpp"
+#include "invocation_owned_recipe_acquisition.hpp"
+#include "pinned_submodule_workspace.hpp"
 
 #include <memory>
 
@@ -24,6 +26,7 @@ struct ReviewedDevelSourceBuildIntent {
 enum class ReviewedDevelSourceBuildStage {
     Intent,
     Context,
+    RecipeCleanup,
     Environment,
     Build,
     ArtifactCorrelation,
@@ -45,6 +48,7 @@ enum class ReviewedDevelSourceBuildIssue {
     UpdateSelectionRequired,
     InvalidInstallReason,
     ContextFailure,
+    RecipeCleanupFailure,
     BuildFailure,
     ArtifactMismatch,
     DatabaseWorldUnavailable,
@@ -99,7 +103,10 @@ public:
     [[nodiscard]] const std::filesystem::path& owned_root() const;
     [[nodiscard]] const ProductionSourceBuildProvenance& source_provenance() const;
     [[nodiscard]] const InvocationOwnedSourceBuildContextFailure* context_failure() const;
+    [[nodiscard]] const RecipeAcquisitionFailure* recipe_acquisition_failure() const;
     [[nodiscard]] const EvaluatedDevelSourceBuildFailure* build_failure() const;
+    [[nodiscard]] const PinnedClosureFailure* closure_failure() const;
+    [[nodiscard]] const PinnedClosureReviewFailure* closure_review_failure() const;
     [[nodiscard]] const InstalledDatabaseWorldResult* database_world() const;
     [[nodiscard]] const InstalledPackageQueryResult* install_policy_observation() const;
     [[nodiscard]] std::optional<InstallReasonDirective> install_reason_directive() const;
@@ -115,11 +122,15 @@ private:
 // The normal 7-D owner selects this at finalize_aur_checkout_authority's typed
 // pin boundary, before legacy lifetime erasure. Rejection never automatically
 // chooses the other arm.
+// Bootstrap requires its matching acquisition. On successful preparation this
+// owner is moved into the state; the pointer itself is never retained. Other
+// routes pass nullptr. Rejection/exception leaves acquisition with the caller.
 [[nodiscard]] ReviewedProductionSourceExecution prepare_reviewed_production_source_execution(
     ReviewedProductionExecutionChoice choice, ValidatedCachePath checkout, PinnedReviewedSourceBuild reviewed,
     ProductionReviewedSourceOutcome reviewed_outcome,
     std::optional<ReviewedSourceAbnormalStateReason> abnormal_state_reason,
-    const ReviewedDevelSourceBuildIntent& intent);
+    const ReviewedDevelSourceBuildIntent& intent,
+    InvocationOwnedRecipeAcquisition* acquisition = nullptr);
 
 // Nullopt only for moved-from input. Valid input consumes its one prepared
 // state before any context/build side effect. No legacy fallback on failure.

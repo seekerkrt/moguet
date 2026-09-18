@@ -413,10 +413,47 @@ bool environment_requests_unknown_reason(const char* package_name) noexcept {
            std::strcmp(unknown_reason_package, package_name) == 0;
 }
 
+std::string cross_source_fixture_phase() {
+    const char* path = std::getenv("MOGUET_TEST_CROSS_SOURCE_PHASE_FILE");
+    if(path == nullptr) return {};
+    std::ifstream input(path);
+    std::string phase;
+    input >> phase;
+    return phase;
+}
+
+void configure_cross_source_local_package(LocalPackageState& package) {
+    const char* scenario_text = std::getenv("MOGUET_TEST_CROSS_SOURCE_TRANSITION_CASE");
+    if(scenario_text == nullptr) return;
+    const char* execution_scenario = std::getenv("MOGUET_TEST_CROSS_SOURCE_CASE");
+    const std::string scenario = execution_scenario == nullptr ? scenario_text : execution_scenario;
+    const std::string phase = cross_source_fixture_phase();
+    if(package.name == "virtualbox-ext-oracle") {
+        if(phase == "observed" && scenario == "revalidation-installed") package.version = "7.2.18-1";
+        if(phase == "observed" && scenario == "revalidation-reason") {
+            package.reason = package.reason == ALPM_PKG_REASON_EXPLICIT ? ALPM_PKG_REASON_DEPEND : ALPM_PKG_REASON_EXPLICIT;
+        }
+        std::string requirement = package.version == "7.2.18-1" ? "7.2.18" : "7.2.16";
+        if((phase == "observed" && scenario == "revalidation-runtime") ||
+           (phase == "installed" && scenario == "post-runtime")) requirement = "7.2.16";
+        package.dependencies = {{std::string("virtualbox"), requirement, ALPM_DEP_MOD_EQ}};
+        if(phase == "observed" && scenario == "revalidation-runtime") {
+            package.dependencies.push_back({std::string("virtualbox-ext-oracle"), std::nullopt, ALPM_DEP_MOD_ANY});
+        }
+    } else if(package.name == "other-package" &&
+              (scenario == "reverse-dependent" || (phase == "observed" && scenario == "revalidation-removal"))) {
+        package.dependencies = {{std::string("virtualbox-ext-oracle"), std::nullopt, ALPM_DEP_MOD_ANY}};
+    }
+    rebuild_local_dependencies(package);
+}
+
 void configure_foreign_inventory_from_environment() {
     const char* state_file_path =
         std::getenv("MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE");
     if(state_file_path == nullptr) return;
+    if(const std::string phase = cross_source_fixture_phase(); !phase.empty()) {
+        append_alpm_event("fixture cross-source inventory", phase.c_str());
+    }
 
     std::ifstream state_file(state_file_path);
     if(!state_file) {
@@ -485,6 +522,9 @@ void configure_foreign_inventory_from_environment() {
         return;
     }
 
+    // #581 full-CLI transport fixture; production observation/planning remains real.
+    for(auto& package : packages)
+        configure_cross_source_local_package(package);
     g_state.local_packages = std::move(packages);
     g_state.package_cache_empty = false;
     g_state.package_cache_fails = false;
@@ -500,8 +540,12 @@ void configure_package_lookup_from_environment(
         return;
     }
 
-    const char* state_file_path =
-        std::getenv("MOGUET_TEST_PACKAGE_METADATA_STATE_FILE");
+    const bool is_cross_source_execution_fixture =
+        std::getenv("MOGUET_TEST_CROSS_SOURCE_PHASE_FILE") != nullptr;
+    const char* state_file_path = std::getenv(
+        is_cross_source_execution_fixture
+            ? "MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE"
+            : "MOGUET_TEST_PACKAGE_METADATA_STATE_FILE");
     if(state_file_path == nullptr) return;
 
     std::ifstream state_file(state_file_path);
@@ -514,6 +558,12 @@ void configure_package_lookup_from_environment(
     std::string package_name;
     std::string package_version;
     while(state_file >> package_name >> package_version) {
+        std::string reason;
+        if(is_cross_source_execution_fixture && !(state_file >> reason)) {
+            lookup_mode = PackageLookupMode::Failure;
+            query_error = ALPM_ERR_DB_OPEN;
+            return;
+        }
         if(package_name != queried_package_name) continue;
 
         lookup_mode = PackageLookupMode::Present;
@@ -524,9 +574,10 @@ void configure_package_lookup_from_environment(
         package.reason =
             environment_requests_unknown_reason(queried_package_name)
                 ? ALPM_PKG_REASON_UNKNOWN
-                : ALPM_PKG_REASON_EXPLICIT;
+                : (reason == "dependency" ? ALPM_PKG_REASON_DEPEND : ALPM_PKG_REASON_EXPLICIT);
         package.name_is_null = false;
         package.version_is_null = false;
+        if(is_cross_source_execution_fixture) configure_cross_source_local_package(package);
         return;
     }
 
@@ -589,6 +640,12 @@ void configure_repository_package_from_environment(
                                          ? fixture_package
                                          : fixture_package_base;
         package_state.package_base_is_null = false;
+        if(std::getenv("MOGUET_TEST_CROSS_SOURCE_TRANSITION_CASE") != nullptr && fixture_package == "virtualbox") {
+            const char* scenario = std::getenv("MOGUET_TEST_CROSS_SOURCE_CASE");
+            package_state.version = scenario != nullptr && cross_source_fixture_phase() == "observed" && std::strcmp(scenario, "revalidation-candidate") == 0
+                                        ? "7.2.16-1"
+                                        : "7.2.18-1";
+        }
         package_state.package_size = package_size;
         package_state.installed_size = installed_size;
         package_state.name_is_null = false;
@@ -2090,6 +2147,16 @@ alpm_pkgreason_t alpm_pkg_get_reason(alpm_pkg_t* package) {
 }
 
 int alpm_pkg_vercmp(const char* lhs, const char* rhs) {
+    if(std::getenv("MOGUET_TEST_CROSS_SOURCE_TRANSITION_CASE") != nullptr) {
+        // Explicit #581 fixture oracle, not an Arch version comparator.
+        const char* versions[] = {"7.2.16", "7.2.16-1", "7.2.18", "7.2.18-1"};
+        const int results[4][4] = {{0, 0, -1, -1}, {0, 0, -1, -1}, {1, 1, 0, 0}, {1, 1, 0, 0}};
+        for(int i = 0; i < 4; ++i)
+            for(int j = 0; j < 4; ++j)
+                if(lhs != nullptr && rhs != nullptr && std::strcmp(lhs, versions[i]) == 0 &&
+                   std::strcmp(rhs, versions[j]) == 0) return results[i][j];
+    }
+
     // This test binary intentionally does not link libalpm. Constraint cases
     // must declare the one expected comparison and its libalpm-style result;
     // the stub never implements an Arch version ordering algorithm.

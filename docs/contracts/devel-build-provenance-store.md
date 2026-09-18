@@ -18,7 +18,7 @@ current normal routeでは7-Bがhistorical tipを読み、7-CがS4/S5を完了�
     != provenance-store generation
 ```
 
-#411 bindingは、AUR source identityとPackageBase、exact reviewed recipe OID、#411 record
+Issue #411 bindingは、AUR source identityとPackageBase、exact reviewed recipe OID、#411 record
 generation、observed raw state documentのSHA-256を保持する。#411 state path、generation leaf、
 device、inode、mode、link count、mtime、ctimeはruntime filesystem/CAS proofであり、provenanceの
 persistent business identityへ保存しない。7-B consumerはcurrent #411 store readに対して、
@@ -34,7 +34,7 @@ generation ownerは次のとおり分離する。
 
 provenance payloadはprovenance generationを保存しない。これによりpayload generationとfilename
 generationが不一致になる二重authorityを作らない。
-#411 generationはlow-level storeと同じ`uint64_t`全域を保持するため、schemaではleading zeroなしの
+Issue #411 generationはlow-level storeと同じ`uint64_t`全域を保持するため、schemaではleading zeroなしの
 canonical decimal stringとして保存し、0、符号、overflow、integer representationを拒否する。
 
 ## Namespace and lookup
@@ -135,4 +135,22 @@ normal route policyを所有せず、historical decodeをfresh proofへ昇格し
 - private build workspace、actual makepkg phase変更、actual Git workspace observation
 - installed binding query、Install/Upgrade receipt、trusted post-install publisher自体（S5/6-Bの別owner）
 - Issue #475 observer connection、AUR update comparison、CLI integration
-- migration/rebind command、build history database、split PackageBase provenance
+- migration/rebind command、build history database、generic group provenance schema
+
+## Child identity / legacy lookup（Issue #564 Slice 5）
+
+production lookupは`PackageChildIdentity`を入力し、別namespaceのchild unit current tipを先に読む。
+child unitは`devel-build-provenance/aur-children/<child-key>/`。child-keyは
+`SHA256(decimal byte length of PackageBase + ":" + PackageBase + child name)`のlowercase hex。
+XDG resolverがmanaged namespaceを所有する。既存base generation unit内へ新しいentryを追加しない。
+payloadのsource/base/artifact_child/installed_childをrequested identityと再照合する。
+
+child unitがMissingの場合だけlegacy `aur/<PackageBase>/`を読む。valid record自身のartifact/bindingが
+requested childと一致するなら、そのexact observed tokenと元unitを継続利用する。
+validで別childのrecordはrequested childの不在を示す。invalid/corrupt/future/unsafe/failureをMissingへ丸めない。
+child unit自身が異常ならlegacyへfallbackしない。過去generationの検索・自動repairは行わない。
+
+base unitもMissingならfirst selected childが従来unitを使い、以後のsiblingは別child unitを使う。
+更新は自分のcurrent unitだけにexact CASで書く。同じbase tipをN childで上書きしてlast childだけ残す方式ではない。
+child unitが存在すればそのtipはlegacyと独立して読む。共通root revisionでも未selected childのrecord/generationは更新しない。
+各publicationはone-shotであり、all-or-nothing group writeの新transactionを設けない。

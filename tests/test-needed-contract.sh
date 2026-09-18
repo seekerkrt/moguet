@@ -290,8 +290,10 @@ assert_cache_root_absent() {
 assert_command_before() {
     first=$1
     second=$2
-    first_line=$(grep -nFx -- "$first" "$command_log" | sed -n '1s/:.*//p')
-    second_line=$(grep -nFx -- "$second" "$command_log" | sed -n '1s/:.*//p')
+    first_occurrence=${3:-1}
+    second_occurrence=${4:-1}
+    first_line=$(grep -nFx -- "$first" "$command_log" | sed -n "${first_occurrence}s/:.*//p")
+    second_line=$(grep -nFx -- "$second" "$command_log" | sed -n "${second_occurrence}s/:.*//p")
     if [ -z "$first_line" ] || [ -z "$second_line" ] || [ "$first_line" -ge "$second_line" ]; then
         echo "unexpected command order: $first -> $second" >&2
         cat "$command_log" >&2
@@ -373,8 +375,13 @@ assert_normal_request_log_empty
 setup_case pacman-system-upgrade
 run_ok -Syu --needed
 assert_command_count "sudo pacman -Syu --needed" 1
-assert_command_count "pacman-conf --verbose RootDir DBPath" 1
-assert_command_before "sudo pacman -Syu --needed" "pacman-conf --verbose RootDir DBPath"
+# Supplemental preflight and fresh normal AUR authority straddle the transaction.
+assert_command_count "pacman-conf --verbose RootDir DBPath" 2
+assert_command_count "pacman-conf --repo-list" 2
+assert_command_before "pacman-conf --verbose RootDir DBPath" "pacman-conf --repo-list"
+assert_command_before "pacman-conf --repo-list" "sudo pacman -Syu --needed"
+assert_command_before "sudo pacman -Syu --needed" "pacman-conf --verbose RootDir DBPath" 1 2
+assert_command_before "pacman-conf --verbose RootDir DBPath" "pacman-conf --repo-list" 2 2
 assert_no_source_build_commands
 assert_normal_request_log_empty
 
@@ -703,8 +710,12 @@ prepare_source_preference clean-root
 preference_checksum=$(cksum "$source_preference_dir/clean-root")
 run_ok -Syu --needed
 assert_command_count "sudo pacman -Syu --needed" 1
-assert_command_count "pacman-conf --verbose RootDir DBPath" 1
-assert_command_before "sudo pacman -Syu --needed" "pacman-conf --verbose RootDir DBPath"
+assert_command_count "pacman-conf --verbose RootDir DBPath" 2
+assert_command_count "pacman-conf --repo-list" 2
+assert_command_before "pacman-conf --verbose RootDir DBPath" "pacman-conf --repo-list"
+assert_command_before "pacman-conf --repo-list" "sudo pacman -Syu --needed"
+assert_command_before "sudo pacman -Syu --needed" "pacman-conf --verbose RootDir DBPath" 1 2
+assert_command_before "pacman-conf --verbose RootDir DBPath" "pacman-conf --repo-list" 2 2
 assert_no_source_build_commands
 assert_preference_unchanged clean-root "$preference_checksum"
 assert_normal_request_log_empty

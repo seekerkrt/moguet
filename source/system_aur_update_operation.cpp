@@ -1,9 +1,15 @@
 #include "system_aur_update_operation.hpp"
+#include "aur_devel_update.hpp"
 
 #include "app_config.hpp"
 #include "aur_update_execution_preflight.hpp"
 #include "aur_update_query.hpp"
 #include "commands_sync.hpp"
+#include "aur_rpc.hpp"
+#include "package_identifier.hpp"
+#include "process.hpp"
+#include "shell_words.hpp"
+#include <type_traits>
 #include "localization.hpp"
 
 #include <algorithm>
@@ -48,6 +54,8 @@ SystemAurUpdateAurPhaseStatus projected_aur_phase_status(
             StoppedOnProviderTransactionFailure:
             return SystemAurUpdateAurPhaseStatus::
                 StoppedOnProviderTransactionFailure;
+        case AurUpdateOperationStatus::StoppedOnWorkItemCancellation:
+            return SystemAurUpdateAurPhaseStatus::StoppedOnWorkItemCancellation;
         case AurUpdateOperationStatus::StoppedOnWorkItemFailure:
             return SystemAurUpdateAurPhaseStatus::
                 StoppedOnWorkItemFailure;
@@ -177,7 +185,10 @@ bool inventory_failure_tail_is_consistent(
 
 bool auto_dry_run_authority_is_complete(
     const SystemAurUpdateDryRunObservation& observation) noexcept {
-    return observation.aur_observation_basis ==
+    return (!observation.preflight_version_lock_correlation.has_value() ||
+            observation.preflight_version_lock_correlation->basis ==
+                CrossSourceVersionLockObservationBasis::BeforeRepositoryMutation) &&
+           observation.aur_observation_basis ==
                std::optional<SystemAurUpdateDryRunAurObservationBasis>{
                    SystemAurUpdateDryRunAurObservationBasis::
                        CurrentInstalledState} &&
@@ -213,7 +224,8 @@ bool repo_only_dry_run_has_no_aur_authority(
            !observation.devel_requires_check_policy.has_value() &&
            !observation.repository_configuration.has_value() &&
            observation.foreign_inventory.empty() &&
-           !observation.aur_observation.has_value();
+           !observation.aur_observation.has_value() &&
+           !observation.preflight_version_lock_correlation.has_value();
 }
 
 } // namespace
@@ -251,6 +263,10 @@ SystemAurUpdateDryRunObservation observe_system_aur_update_dry_run(
        SystemAurUpdateDryRunMode::RepoOnly) {
         return observation;
     }
+
+    observation.preflight_version_lock_correlation =
+        observe_cross_source_version_lock_correlation(
+            CrossSourceVersionLockObservationBasis::BeforeRepositoryMutation);
 
     observation.aur_observation_basis =
         SystemAurUpdateDryRunAurObservationBasis::CurrentInstalledState;
@@ -388,6 +404,15 @@ PreparedSystemAurUpdateOperation prepare_system_aur_update_operation(
 
 SystemAurUpdateOperationResult reduce_system_aur_update_result(
     SystemAurUpdateOperationResult result) noexcept {
+    if(result.coordinated_transition) {
+        const auto& transition = *result.coordinated_transition;
+        result.status = transition.is_success() ? SystemAurUpdateOperationStatus::Completed : SystemAurUpdateOperationStatus::StoppedOnCoordinatedTransition;
+        result.stopped_phase = transition.is_success() ? SystemAurUpdateOperationPhase::None : SystemAurUpdateOperationPhase::CoordinatedTransition;
+        result.repository.command_exit_status = transition.repository_exit_status;
+        result.repository.status = transition.repository == CrossSourceExecutionPhaseStatus::Completed ? SystemAurUpdateRepositoryPhaseStatus::Completed : transition.repository == CrossSourceExecutionPhaseStatus::Failed ? SystemAurUpdateRepositoryPhaseStatus::Failed
+                                                                                                                                                                                                                            : SystemAurUpdateRepositoryPhaseStatus::NotAttempted;
+        return result;
+    }
     if(result.repository.status ==
        SystemAurUpdateRepositoryPhaseStatus::Failed) {
         if(result.repository.command_exit_status ==
@@ -591,6 +616,11 @@ SystemAurUpdateOperationResult reduce_system_aur_update_result(
             result.stopped_phase =
                 SystemAurUpdateOperationPhase::AurExecution;
             return result;
+        case AurUpdateOperationStatus::StoppedOnWorkItemCancellation:
+            result.aur.status = SystemAurUpdateAurPhaseStatus::StoppedOnWorkItemCancellation;
+            result.status = SystemAurUpdateOperationStatus::StoppedOnAurCancellation;
+            result.stopped_phase = SystemAurUpdateOperationPhase::AurExecution;
+            return result;
         case AurUpdateOperationStatus::StoppedOnWorkItemFailure:
             result.aur.status = SystemAurUpdateAurPhaseStatus::
                 StoppedOnWorkItemFailure;
@@ -617,10 +647,283 @@ SystemAurUpdateOperationResult reduce_system_aur_update_result(
         std::move(result), SystemAurUpdateOperationPhase::Reduction);
 }
 
+namespace {
+
+using TransitionStatus = CrossSourceExecutionPhaseStatus;
+using TransitionPhase = CrossSourceExecutionPhase;
+
+const CrossSourceCoordinatedTransitionPlan* ready_transition(
+    const CrossSourceVersionLockCorrelationResult& correlation) {
+    if(correlation.basis != CrossSourceVersionLockObservationBasis::BeforeRepositoryMutation ||
+       correlation.failure || correlation.transition_plans.size() != 1 ||
+       correlation.transition_plans.front().status != CrossSourceTransitionPlanStatus::ReadOnlyReady)
+        return nullptr;
+    return &correlation.transition_plans.front();
+}
+
+InstalledPackageQueryResult installed_transition_package(
+    const InstalledPackageStateSnapshotResult& snapshot, const std::string& name) {
+    if(const auto* failure = std::get_if<PackageMetadataFailure>(&snapshot)) return *failure;
+    const auto& packages = std::get<InstalledPackageStateSnapshot>(snapshot);
+    const auto found = packages.find(name);
+    if(found == packages.end()) return PackageNotFound{};
+    return found->second;
+}
+
+bool installed_version_matches(const InstalledPackageQueryResult& observed,
+                               const std::string& name, const std::string& version) {
+    const auto* package = std::get_if<InstalledPackageMetadata>(&observed);
+    return package && package->name == name && package->version == version;
+}
+
+// BuildPlan owns a second RPC observation. It must not silently replace the
+// fresh, confirmed candidate while preparing the existing safe AUR lifecycle.
+bool build_plan_matches_replacement(const BuildPlan& plan,
+                                    const AurPackageConstraintMetadata& expected) {
+    if(plan.root_targets.size() != 1 || plan.root_targets.front().requested_name != expected.package_name)
+        return false;
+    const PlannedPackageRelationObservation* root = nullptr;
+    for(const auto& observed : plan.planned_relation_observations) {
+        if(observed.package.package_name != expected.package_name) continue;
+        if(root) return false;
+        root = &observed;
+    }
+    if(!root || root->package.package_base != expected.package_base ||
+       root->package.package_version != expected.package_version || root->declarations != expected.relations ||
+       root->package.provides.size() != expected.provides.size()) return false;
+    for(std::size_t i = 0; i < expected.provides.size(); ++i) {
+        if(root->package.provides[i].capability != expected.provides[i].capability ||
+           root->package.provides[i].observed_version != expected.provides[i].provided_version) return false;
+    }
+    std::vector<DependencyRequirement> runtime, build, check;
+    for(const auto& edge : plan.dependency_edges) {
+        if(edge.parent_package_name != expected.package_name) continue;
+        if(edge.parent_package_base != expected.package_base || !edge.requirement) return false;
+        switch(edge.role) {
+            case PackageRole::RuntimeDependency: runtime.push_back(*edge.requirement); break;
+            case PackageRole::BuildDependency: build.push_back(*edge.requirement); break;
+            case PackageRole::CheckDependency: check.push_back(*edge.requirement); break;
+            default: return false;
+        }
+    }
+    return runtime == expected.depends && build == expected.make_depends && check == expected.check_depends;
+}
+
+CrossSourceTransitionExecutionResult execute_coordinated_transition(
+    const CrossSourceCoordinatedTransitionPlan& plan,
+    const std::vector<std::string>& repository_args, const AppConfig& config) {
+    CrossSourceTransitionExecutionResult result{plan};
+    // Mark the active phase failed before entering its throwing boundary. A
+    // completed prefix survives exceptions; the untouched tail is NotAttempted.
+    TransitionStatus* active = &result.confirmation;
+    *active = TransitionStatus::Failed;
+    const auto start = [&](TransitionPhase phase, TransitionStatus& status) {
+        result.stopped_phase = phase;
+        active = &status;
+        status = TransitionStatus::Failed;
+    };
+    try {
+        auto confirmation = confirm_cross_source_transition(plan, config);
+        const auto* acceptance = std::get_if<ExplicitConfirmationAcceptance>(&confirmation);
+        if(!acceptance || !acceptance->valid() || config.no_confirm) {
+            std::visit([&](const auto& value) {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr(!std::is_same_v<T, ExplicitConfirmationAcceptance>)
+                    result.confirmation_result = value;
+            },
+                       confirmation);
+            if(!result.confirmation_result) result.confirmation_result = ConfirmationUnavailable{ConfirmationUnavailableReason::NoConfirm};
+            return result;
+        }
+        result.confirmation_result = ConfirmationAccepted{ConfirmationDecisionOrigin::ExplicitToken};
+        result.confirmation = TransitionStatus::Completed;
+        start(TransitionPhase::Revalidation, result.validation);
+        result.revalidation = observe_cross_source_version_lock_correlation(
+            CrossSourceVersionLockObservationBasis::BeforeRepositoryMutation);
+        const auto* fresh = ready_transition(*result.revalidation);
+        if(!fresh || *fresh != plan) {
+            result.diagnostic = localization::translate_message("Cross-source state changed after confirmation; rerun required. No package mutation was attempted.");
+            return result;
+        }
+        result.validation = TransitionStatus::Completed;
+        const auto& expected_repository = plan.correlation.evidence.repository_upgrade.repository_candidate;
+        const auto& replacement = std::get<AurReplacementCandidateQuerySuccess>(plan.correlation.evidence.aur_replacement).candidates.at(0);
+        const auto& old = plan.installed_foreign.value();
+        require_valid_package_name(old.name);
+        // Only one validated operand, with pacman's ordinary dependency safety.
+        // No recursive/cascade options, no bypass, and no fallback after approval.
+        start(TransitionPhase::RemoveInstalledForeign, result.removal);
+        result.removal_exit_status = run_command(shell_words::join({"sudo", "pacman", "-R", "--", old.name}));
+        if(result.removal_exit_status != 0) return result;
+        result.removal = TransitionStatus::Completed;
+        start(TransitionPhase::RepositorySystemUpgrade, result.repository);
+        result.repository_exit_status = execute_ordered_repository_sync_transaction(repository_args, config);
+        if(result.repository_exit_status != 0) return result;
+        result.repository = TransitionStatus::Completed;
+
+        start(TransitionPhase::RepositoryPostState, result.repository_post_state);
+        const auto paths = resolve_pacman_database_paths();
+        const auto repository_snapshot = snapshot_installed_package_states(paths);
+        if(const auto* failure = std::get_if<PackageMetadataFailure>(&repository_snapshot)) {
+            result.metadata_failure = *failure;
+            return result;
+        }
+        result.observed_repository = installed_transition_package(repository_snapshot, expected_repository.package_name);
+        result.observed_consumer = installed_transition_package(repository_snapshot, old.name);
+        if(!installed_version_matches(*result.observed_repository, expected_repository.package_name,
+                                      *expected_repository.package_version->version()) ||
+           !std::holds_alternative<PackageNotFound>(*result.observed_consumer)) {
+            result.diagnostic = localization::translate_message("Expected repository post-state was not observed; the replacement was not started. Rerun required.");
+            return result;
+        }
+        result.repository_post_state = TransitionStatus::Completed;
+
+        start(TransitionPhase::AurAuthority, result.aur_authority);
+        std::optional<AurPackageInfo> current;
+        try {
+            current = AurClient::info_strict(old.name);
+        } catch(const std::exception& error) {
+            result.replacement_observation = AurReplacementCandidateQueryFailure{{old.name}, error.what()};
+            throw;
+        }
+        if(!current)
+            result.replacement_observation = AurReplacementCandidateNotFound{old.name};
+        else if(!current->constraint_metadata)
+            result.replacement_observation = AurReplacementCandidateMetadataUnavailable{
+                old.name, current->PackageBase, ObservedVersionUnknownReason::MissingVersionMetadata};
+        else
+            result.replacement_observation = AurReplacementCandidateQuerySuccess{{*current->constraint_metadata}};
+        if(!current || !current->constraint_metadata || *current->constraint_metadata != replacement ||
+           current->Name != replacement.package_name || current->PackageBase != replacement.package_base ||
+           current->Version != *replacement.package_version.version()) {
+            result.diagnostic = localization::format_translated_message("The {} replacement changed or is unavailable; rerun required. Build and install were not started.", "AUR");
+            return result;
+        }
+        result.aur_authority = TransitionStatus::Completed;
+
+        start(TransitionPhase::AurReplacement, result.aur_replacement);
+        // The old record is historical reason/transition attribution, not a
+        // claim that B is still installed. All remote authority above is fresh.
+        auto query = query_aur_updates_for_foreign_inventory({old});
+        result.replacement_query = query;
+        if(!query.recoverable_failures.empty() || query.plan.entries.size() != 1 ||
+           query.plan.entries.front().classification != AurUpdateClassification::UpdateAvailable ||
+           !query.plan.entries.front().aur_package ||
+           query.plan.entries.front().aur_package->aur_name != current->Name ||
+           query.plan.entries.front().aur_package->package_base != current->PackageBase ||
+           query.plan.entries.front().aur_package->version != current->Version) {
+            result.diagnostic = localization::format_translated_message("The {} replacement changed or is unavailable; rerun required. Build and install were not started.", "AUR");
+            return result;
+        }
+        query.plan.entries.front().coordinated_replacement_version = current->Version;
+        auto prepared = prepare_filtered_aur_update_operation(std::move(query), NoExplicitSourceSatisfaction{},
+                                                              DevelRequiresCheckPolicy::SkipIndependentTarget, SavedSourcePreferencePolicy::Ignore, config);
+        const bool has_executable_replacement = prepared.is_prepared();
+        if(has_executable_replacement &&
+           (!prepared.execution_preflight().build_plan ||
+            !build_plan_matches_replacement(*prepared.execution_preflight().build_plan, replacement))) {
+            result.diagnostic = localization::format_translated_message("The prepared {} replacement differs from the confirmed transition; rerun required. Build and install were not started.", "AUR");
+            return result;
+        }
+        try {
+            result.aur_result.emplace(execute_prepared_filtered_aur_update_operation(std::move(prepared), config));
+        } catch(FilteredAurUpdateCancelled& stopped) {
+            result.aur_result.emplace(std::move(stopped).release_result());
+        }
+        if(!result.aur_result->is_success()) return result;
+        if(!has_executable_replacement) {
+            result.diagnostic = localization::format_translated_message("The confirmed {} replacement was not executable; the coordinated transition is incomplete.", "AUR");
+            return result;
+        }
+        result.aur_replacement = TransitionStatus::Completed;
+
+        // The install owner applies DesiredInstallReason in its transaction.
+        // Restoration is only complete once fresh installed state confirms it.
+        start(TransitionPhase::InstallReasonRestoration, result.install_reason);
+        const auto final_paths = resolve_pacman_database_paths();
+        const auto final_snapshot = snapshot_installed_package_states(final_paths);
+        if(const auto* failure = std::get_if<PackageMetadataFailure>(&final_snapshot)) {
+            result.metadata_failure = *failure;
+            return result;
+        }
+        result.observed_repository = installed_transition_package(final_snapshot, expected_repository.package_name);
+        result.observed_consumer = installed_transition_package(final_snapshot, old.name);
+        const auto* consumer = std::get_if<InstalledPackageMetadata>(&*result.observed_consumer);
+        if(!consumer || consumer->reason != plan.expected_install_reason) {
+            result.diagnostic = localization::translate_message("The replacement install reason was not restored; the coordinated transition is incomplete.");
+            return result;
+        }
+        result.install_reason = TransitionStatus::Completed;
+        start(TransitionPhase::PostStateVerification, result.post_state);
+        const auto runtime = query_installed_package_runtime_dependency_metadata(final_paths);
+        const auto* inventory = std::get_if<InstalledPackageRuntimeDependencyMetadataInventory>(&runtime);
+        if(const auto* failure = std::get_if<InstalledPackageRuntimeDependencyMetadataInventoryFailure>(&runtime)) result.metadata_failure = failure->failure;
+        bool exact_requirement_observed = false;
+        std::size_t consumer_count = 0;
+        if(inventory)
+            for(const auto& package : *inventory) {
+                if(package.package_name != old.name) continue;
+                ++consumer_count;
+                if(package.installed_version != consumer->version) continue;
+                for(const auto& specification : package.dependency_specifications) {
+                    const auto parsed = parse_dependency_requirement(specification);
+                    if(!parsed.requirement()) continue;
+                    const auto* requirement = std::get_if<ConsumerDependencyRequirement>(parsed.requirement());
+                    if(requirement && *requirement == *plan.correlation.replacement_requirement)
+                        exact_requirement_observed = true;
+                }
+            }
+        const bool versions_match = installed_version_matches(*result.observed_repository,
+                                                              expected_repository.package_name, *expected_repository.package_version->version()) &&
+                                    installed_version_matches(*result.observed_consumer, replacement.package_name, *replacement.package_version.version());
+        if(!versions_match || !exact_requirement_observed || consumer_count != 1 ||
+           evaluate_consumer_dependency_requirement(*plan.correlation.replacement_requirement,
+                                                    ObservedVersion::available(ObservedVersionSource::InstalledExactPackage,
+                                                                               std::get<InstalledPackageMetadata>(*result.observed_repository).version))
+                   .satisfaction() != ConstraintSatisfaction::Satisfied) {
+            result.diagnostic = localization::translate_message("Expected exact-version post-state was not verified; the coordinated transition is incomplete.");
+            return result;
+        }
+        result.post_state = TransitionStatus::Completed;
+        result.stopped_phase = TransitionPhase::Complete;
+        return result;
+    } catch(const PackageMetadataError& error) {
+        result.metadata_failure = error.failure();
+        result.diagnostic = error.what();
+    } catch(const std::exception& error) {
+        result.diagnostic = error.what();
+    } catch(...) {
+        result.diagnostic = localization::translate_message("The coordinated transition stopped on an unexpected failure.");
+    }
+    *active = TransitionStatus::Failed;
+    return result;
+}
+
+} // namespace
+
+bool CrossSourceTransitionExecutionResult::is_success() const noexcept {
+    const auto* acceptance = confirmation_result ? std::get_if<ConfirmationAccepted>(&*confirmation_result) : nullptr;
+    const auto* fresh = revalidation ? ready_transition(*revalidation) : nullptr;
+    return stopped_phase == CrossSourceExecutionPhase::Complete &&
+           acceptance && acceptance->origin == ConfirmationDecisionOrigin::ExplicitToken &&
+           fresh && *fresh == confirmed_plan && !metadata_failure &&
+           confirmation == TransitionStatus::Completed && validation == TransitionStatus::Completed &&
+           removal == TransitionStatus::Completed && removal_exit_status == 0 &&
+           repository == TransitionStatus::Completed && repository_exit_status == 0 &&
+           repository_post_state == TransitionStatus::Completed && aur_authority == TransitionStatus::Completed &&
+           aur_replacement == TransitionStatus::Completed && aur_result && aur_result->is_success() &&
+           install_reason == TransitionStatus::Completed && post_state == TransitionStatus::Completed && diagnostic.empty();
+}
+
+bool CrossSourceTransitionExecutionResult::has_partial_completion() const noexcept {
+    return !is_success() && removal == TransitionStatus::Completed;
+}
+
 SystemAurUpdateOperationResult
 execute_prepared_system_aur_update_operation(
     PreparedSystemAurUpdateOperation prepared,
-    const AppConfig& config) {
+    const AppConfig& config,
+    SystemAurUpdatePreflightReporter report_preflight) {
     SystemAurUpdateOperationResult result;
     if(!prepared.valid_) {
         mark_all_not_attempted_for_inconsistency(result);
@@ -630,6 +933,33 @@ execute_prepared_system_aur_update_operation(
     result.repository.ordered_pacman_args =
         prepared.request_.ordered_pacman_args();
     result.repository.compatible_request = prepared.request_;
+
+    // Only a unique complete plan enters the explicitly confirmed path. All
+    // other observations retain the ordinary repository transaction policy.
+    result.preflight_version_lock_correlation =
+        observe_cross_source_version_lock_correlation(
+            CrossSourceVersionLockObservationBasis::BeforeRepositoryMutation);
+    if(report_preflight != nullptr) {
+        report_preflight(*result.preflight_version_lock_correlation);
+    }
+
+    if(const auto* plan = ready_transition(*result.preflight_version_lock_correlation)) {
+        result.coordinated_transition.emplace(execute_coordinated_transition(*plan, result.repository.ordered_pacman_args, config));
+        auto& transition = *result.coordinated_transition;
+        if(transition.has_partial_completion()) {
+            try {
+                const auto snapshot = snapshot_installed_package_states(resolve_pacman_database_paths());
+                transition.observed_repository = installed_transition_package(snapshot, plan->correlation.evidence.repository_upgrade.repository_candidate.package_name);
+                transition.observed_consumer = installed_transition_package(snapshot, plan->installed_foreign->name);
+            } catch(const PackageMetadataError& error) {
+                transition.observed_consumer = error.failure();
+            } catch(...) {
+                transition.observed_consumer = PackageMetadataFailure{PackageMetadataErrorCode::QueryFailed,
+                                                                      localization::translate_message("Current replacement state could not be observed.")};
+            }
+        }
+        return reduce_system_aur_update_result(std::move(result));
+    }
 
     try {
         result.repository.command_exit_status =
@@ -646,6 +976,9 @@ execute_prepared_system_aur_update_operation(
         mark_later_not_attempted(
             result,
             SystemAurUpdateNotAttemptedReason::RepositoryFailure);
+        // Primary failure and the unattempted AUR tail are final.
+        result.cross_source_version_lock_correlation =
+            observe_cross_source_version_lock_correlation();
         return reduce_system_aur_update_result(std::move(result));
     } catch(...) {
         result.repository.status =
@@ -657,6 +990,9 @@ execute_prepared_system_aur_update_operation(
         mark_later_not_attempted(
             result,
             SystemAurUpdateNotAttemptedReason::RepositoryFailure);
+        // Primary failure and the unattempted AUR tail are final.
+        result.cross_source_version_lock_correlation =
+            observe_cross_source_version_lock_correlation();
         return reduce_system_aur_update_result(std::move(result));
     }
 
@@ -670,6 +1006,9 @@ execute_prepared_system_aur_update_operation(
         mark_later_not_attempted(
             result,
             SystemAurUpdateNotAttemptedReason::RepositoryFailure);
+        // Primary failure and the unattempted AUR tail are final.
+        result.cross_source_version_lock_correlation =
+            observe_cross_source_version_lock_correlation();
         return reduce_system_aur_update_result(std::move(result));
     }
     result.repository.status =
@@ -740,6 +1079,7 @@ execute_prepared_system_aur_update_operation(
     try {
         query_result = query_aur_updates_for_foreign_inventory(
             result.foreign_inventory.inventory);
+        observe_aur_devel_bootstrap_candidates(query_result, config);
     } catch(const std::exception& error) {
         result.query.status = SystemAurUpdateQueryPhaseStatus::Failed;
         result.query.diagnostic = error.what();
@@ -793,6 +1133,11 @@ execute_prepared_system_aur_update_operation(
         result.aur.operation_result.emplace(
             execute_prepared_filtered_aur_update_operation(
                 std::move(filtered.value()), config));
+    } catch(FilteredAurUpdateCancelled& stop) {
+        result.aur.operation_result.emplace(std::move(stop).release_result());
+        // Nested cancellation is authoritative; a generic aur.diagnostic would
+        // contradict this child and be rejected by the reducer.
+        return reduce_system_aur_update_result(std::move(result));
     } catch(const std::exception& error) {
         result.aur.status =
             SystemAurUpdateAurPhaseStatus::InconsistentResult;
@@ -811,6 +1156,7 @@ execute_prepared_system_aur_update_operation(
 }
 
 bool SystemAurUpdateOperationResult::is_success() const noexcept {
+    if(coordinated_transition) return coordinated_transition->is_success();
     const bool aur_completed =
         aur.status == SystemAurUpdateAurPhaseStatus::NoUpdates ||
         aur.status == SystemAurUpdateAurPhaseStatus::Completed;
@@ -842,6 +1188,7 @@ bool SystemAurUpdateOperationResult::is_success() const noexcept {
 
 PackageStateChange
 SystemAurUpdateOperationResult::package_state_change() const noexcept {
+    if(coordinated_transition) return coordinated_transition->removal == CrossSourceExecutionPhaseStatus::Completed ? PackageStateChange::Changed : PackageStateChange::Unknown;
     if(aur.operation_result.has_value() &&
        aur.operation_result->package_state_change() ==
            PackageStateChange::Changed) {
@@ -854,6 +1201,7 @@ SystemAurUpdateOperationResult::package_state_change() const noexcept {
 
 bool SystemAurUpdateOperationResult::has_partial_completion()
     const noexcept {
+    if(coordinated_transition) return coordinated_transition->has_partial_completion();
     return !is_success() &&
            repository.status ==
                SystemAurUpdateRepositoryPhaseStatus::Completed;
@@ -861,6 +1209,7 @@ bool SystemAurUpdateOperationResult::has_partial_completion()
 
 bool SystemAurUpdateOperationResult::has_not_attempted_phase()
     const noexcept {
+    if(coordinated_transition) return coordinated_transition->post_state == CrossSourceExecutionPhaseStatus::NotAttempted;
     return repository.status ==
                SystemAurUpdateRepositoryPhaseStatus::NotAttempted ||
            repository.not_attempted_reason.has_value() ||
@@ -878,11 +1227,21 @@ bool SystemAurUpdateOperationResult::has_not_attempted_phase()
 
 bool SystemAurUpdateOperationResult::has_cleanup_failure()
     const noexcept {
+    if(coordinated_transition) return coordinated_transition->aur_result && coordinated_transition->aur_result->has_cleanup_failure();
     return aur.operation_result.has_value() &&
            aur.operation_result->has_cleanup_failure();
 }
 
 bool SystemAurUpdateOperationResult::has_query_failure() const noexcept {
+    if(coordinated_transition) {
+        const auto& transition = *coordinated_transition;
+        return transition.metadata_failure.has_value() ||
+               (transition.replacement_observation && std::holds_alternative<AurReplacementCandidateQueryFailure>(*transition.replacement_observation)) ||
+               (transition.replacement_query && !transition.replacement_query->recoverable_failures.empty()) ||
+               (transition.aur_result && transition.aur_result->has_query_failure()) ||
+               (transition.observed_consumer && std::holds_alternative<PackageMetadataFailure>(*transition.observed_consumer)) ||
+               (transition.observed_repository && std::holds_alternative<PackageMetadataFailure>(*transition.observed_repository));
+    }
     return foreign_inventory.status ==
                SystemAurUpdateForeignInventoryPhaseStatus::Failed ||
            query.status == SystemAurUpdateQueryPhaseStatus::Failed ||
@@ -891,6 +1250,7 @@ bool SystemAurUpdateOperationResult::has_query_failure() const noexcept {
 }
 
 bool SystemAurUpdateOperationResult::has_inconsistency() const noexcept {
+    if(coordinated_transition) return coordinated_transition->aur_result && filtered_result_has_inconsistency(*coordinated_transition->aur_result);
     return status ==
                SystemAurUpdateOperationStatus::InconsistentResult ||
            aur.status ==

@@ -17,6 +17,7 @@ enum class AurUpdateOperationTargetStatus {
     UpdatedCleanupFailed,
     NoChangeCleanupFailed,
     NotAttempted,
+    Cancelled,
 };
 
 enum class AurUpdateOperationStatus {
@@ -27,6 +28,7 @@ enum class AurUpdateOperationStatus {
     StoppedOnWorkItemFailure,
     StoppedAfterPackageCleanupFailure,
     InconsistentResult,
+    StoppedOnWorkItemCancellation,
 };
 
 enum class AurUpdateOperationReductionStage {
@@ -97,6 +99,10 @@ struct AurUpdateOperationExecutionContribution {
         AurUpdateWorkItemFailureKind::PriorWorkItemStopped;
     AurUpdateWorkItemFailureDetail failure_detail;
     std::optional<std::string> diagnostic;
+    std::optional<ConfirmationCancelled> cancellation = std::nullopt;
+    std::optional<AurUpdateBootstrapDecision> bootstrap_decision = std::nullopt;
+    std::vector<std::size_t> bootstrap_skipped_roots = {};
+    std::optional<RecipeAcquisitionFailure> recipe_acquisition_failure = std::nullopt;
 };
 
 struct AurUpdateOperationTargetResult {
@@ -119,6 +125,10 @@ struct AurUpdateOperationTargetResult {
     std::vector<AurUpdateOperationExecutionContribution>
         execution_contributions;
     std::optional<AurUpdateExecutionSkipKind> skip_kind;
+    std::optional<ConfirmationCancelled> cancellation = std::nullopt;
+    std::optional<AurUpdateBootstrapDecision> bootstrap_decision = std::nullopt;
+    std::vector<std::size_t> bootstrap_skipped_roots = {};
+    std::optional<RecipeAcquisitionFailure> recipe_acquisition_failure = std::nullopt;
 };
 
 struct AurUpdateOperationResult {

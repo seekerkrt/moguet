@@ -398,6 +398,27 @@ DevelBuildProvenancePaths resolve_devel_build_provenance(
         managed_components};
 }
 
+DevelBuildProvenancePaths resolve_devel_build_provenance_children(
+    const EnvironmentSnapshot& environment) {
+    ResolvedBaseDirectory state_base = resolve_base_directory(
+        environment.xdg_state_home, environment.home,
+        DirectoryKind::State, fs::path(".local") / "state");
+    const std::string application_component(application_identity::XDG_IDENTITY);
+    const std::vector<std::string> managed_components{
+        std::string(DEVEL_BUILD_PROVENANCE_DIRECTORY_NAME),
+        std::string("aur-children")};
+    const fs::path directory =
+        state_base.directory / application_component /
+        std::string(DEVEL_BUILD_PROVENANCE_DIRECTORY_NAME) /
+        std::string("aur-children");
+    return DevelBuildProvenancePaths{
+        directory,
+        make_state_store_creation_boundary(
+            std::move(state_base), application_component,
+            managed_components),
+        managed_components};
+}
+
 StatePaths resolve_state(const EnvironmentSnapshot& environment) {
     ResolvedBaseDirectory state_base = resolve_base_directory(
         environment.xdg_state_home, environment.home,
@@ -475,6 +496,17 @@ resolve_devel_build_provenance_process_environment() {
         .home = process_environment_value("HOME"),
     };
     return resolve_devel_build_provenance(environment);
+}
+
+DevelBuildProvenancePaths
+resolve_devel_build_provenance_children_process_environment() {
+    const EnvironmentSnapshot environment{
+        .xdg_config_home = std::nullopt,
+        .xdg_state_home = process_environment_value("XDG_STATE_HOME"),
+        .xdg_cache_home = std::nullopt,
+        .home = process_environment_value("HOME"),
+    };
+    return resolve_devel_build_provenance_children(environment);
 }
 
 StatePaths resolve_state_process_environment() {

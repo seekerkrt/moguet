@@ -1,4 +1,7 @@
 #include "aur_update_execution_runner.hpp"
+#include "app_config.hpp"
+#include "devel_tracking_bootstrap.hpp"
+#include <unistd.h>
 
 #include "interactive_confirmation.hpp"
 #include "localization.hpp"
@@ -14,6 +17,9 @@
 #include <utility>
 
 namespace {
+#ifdef MOGUET_ENABLE_AUR_UPDATE_EXECUTION_RUNNER_TEST_HOOKS
+AurUpdateNonBootstrapExecutionTestHook g_non_bootstrap_execution_hook;
+#endif
 
 constexpr std::string_view AUR_SERVICE_NAME = "AUR";
 constexpr std::string_view PACKAGE_BASE_FIELD_NAME = "PackageBase";
@@ -64,7 +70,8 @@ bool same_required_target(
     const RequiredPackageArtifactTarget& rhs) noexcept {
     return lhs.package_base == rhs.package_base &&
            lhs.package_name == rhs.package_name &&
-           lhs.desired_reason == rhs.desired_reason;
+           lhs.desired_reason == rhs.desired_reason &&
+           lhs.expected_full_version == rhs.expected_full_version;
 }
 
 std::vector<std::string> required_package_names(
@@ -687,6 +694,12 @@ bool AurUpdateSourceBuildExecutionResult::has_not_attempted_items()
 bool AurUpdateSourceBuildExecutionResult::has_cleanup_failure()
     const noexcept {
     for(const auto& work_item_result : work_item_results) {
+        if(work_item_result.devel_execution && work_item_result.devel_execution->closure_review_failure) {
+            const auto* review = &*work_item_result.devel_execution->closure_review_failure;
+            if(review && (review->reason == PinnedClosureReviewFailureReason::Cancelled || review->reason == PinnedClosureReviewFailureReason::Declined) &&
+               !review->cleanup.succeeded()) return true;
+        }
+        if(work_item_result.recipe_acquisition_failure && work_item_result.recipe_acquisition_failure->cleanup) return true;
         if(work_item_result.status ==
                AurUpdateWorkItemExecutionStatus::UpdatedCleanupFailed ||
            work_item_result.status == AurUpdateWorkItemExecutionStatus::
@@ -701,7 +714,8 @@ std::optional<std::size_t>
 AurUpdateSourceBuildExecutionResult::stopped_work_item_index()
     const noexcept {
     for(const auto& work_item_result : work_item_results) {
-        if(work_item_result.status == AurUpdateWorkItemExecutionStatus::Failed ||
+        if(work_item_result.status == AurUpdateWorkItemExecutionStatus::Cancelled ||
+           work_item_result.status == AurUpdateWorkItemExecutionStatus::Failed ||
            work_item_result.status ==
                AurUpdateWorkItemExecutionStatus::UpdatedCleanupFailed ||
            work_item_result.status == AurUpdateWorkItemExecutionStatus::
@@ -731,15 +745,100 @@ execute_prepared_aur_update_source_build_invocation(
         result.work_item_results.push_back(make_not_attempted_result(
             production_invocation.work_items[index], attributions[index]));
     }
+    // Decisions precede every cache/provider/dependency mutation. Resolve the
+    // graph once; keep its original work-item/root indices even when a root
+    // declines, and execute only contributions of the remaining roots.
+    std::vector<std::size_t> bootstrap_items;
+    for(std::size_t index = 0; index < production_invocation.work_items.size(); ++index) {
+        if(production_invocation.work_items[index].request.devel_tracking_bootstrap) bootstrap_items.push_back(index);
+    }
+    std::sort(bootstrap_items.begin(), bootstrap_items.end(), [&](auto left, auto right) {
+        return attributions[left].affected_update_plan_indices.front() < attributions[right].affected_update_plan_indices.front();
+    });
+    std::vector<std::size_t> skipped_roots;
+    if(!bootstrap_items.empty()) result.phase = AurUpdateInvocationExecutionPhase::BootstrapDecisions;
+    for(const auto index : bootstrap_items) {
+        auto& item_result = result.work_item_results[index];
+        const auto& trial = *production_invocation.work_items[index].request.devel_tracking_bootstrap;
+        AurUpdateBootstrapDecision decision{AurUpdateBootstrapDecisionState::InteractionUnavailable, std::nullopt};
+        if(!config.no_confirm && config.user_config.review.diff == ReviewPolicy::Prompt && isatty(STDIN_FILENO) == 1) {
+            if(!revalidate_devel_tracking_bootstrap(trial)) {
+                decision.state = AurUpdateBootstrapDecisionState::ObservationChanged;
+            } else {
+                auto answer = request_confirmation(localization::format_translated_message(
+                                                       "{}: devel tracking baseline is missing. Fully review the source, rebuild and install it to establish {} tracking?",
+                                                       trial.package().package_base().package_base(), "Git"),
+                                                   ConfirmationDefault::No, false);
+                if(const auto* cancelled = std::get_if<ConfirmationCancelled>(&answer)) {
+                    item_result.status = AurUpdateWorkItemExecutionStatus::Cancelled;
+                    item_result.failure_kind = AurUpdateWorkItemFailureKind::None;
+                    item_result.cancellation = *cancelled;
+                    result.status = AurUpdateInvocationExecutionStatus::StoppedOnWorkItemCancellation;
+                    throw AurUpdateExecutionCancelled(std::move(result));
+                }
+                if(const auto* accepted = std::get_if<ConfirmationAccepted>(&answer)) {
+                    if(accepted->origin != ConfirmationDecisionOrigin::ExplicitToken)
+                        throw std::logic_error("Bootstrap requires explicit acceptance.");
+                    decision.state = AurUpdateBootstrapDecisionState::Accepted;
+                } else if(std::holds_alternative<ConfirmationDeclined>(answer)) {
+                    decision.state = AurUpdateBootstrapDecisionState::Declined;
+                } else {
+                    throw ConfirmationOperationStopped(std::move(answer));
+                }
+                decision.confirmation = std::move(answer);
+                if(decision.state == AurUpdateBootstrapDecisionState::Accepted && !revalidate_devel_tracking_bootstrap(trial))
+                    decision.state = AurUpdateBootstrapDecisionState::ObservationChanged;
+            }
+        }
+        item_result.bootstrap_decision = std::move(decision);
+        if(item_result.bootstrap_decision->state != AurUpdateBootstrapDecisionState::Accepted) {
+            for(const auto root : attributions[index].affected_update_plan_indices)
+                add_unique(skipped_roots, root);
+            item_result.status = AurUpdateWorkItemExecutionStatus::BootstrapSkipped;
+            item_result.failure_kind = AurUpdateWorkItemFailureKind::None;
+            item_result.bootstrap_skipped_roots = attributions[index].affected_update_plan_indices;
+            for(auto& child : item_result.child_results)
+                child.status = AurUpdateChildExecutionStatus::BootstrapSkipped;
+        }
+    }
+    std::vector<bool> execute_items(production_invocation.work_items.size(), true);
+    PreparedProductionSourceBuildInvocation provider_invocation;
+    provider_invocation.database_paths = production_invocation.database_paths;
+    for(std::size_t index = 0; index < execute_items.size(); ++index) {
+        const auto& roots = attributions[index].affected_update_plan_indices;
+        const bool skipped = !roots.empty() && std::all_of(roots.begin(), roots.end(), [&](auto root) {
+            return std::find(skipped_roots.begin(), skipped_roots.end(), root) != skipped_roots.end();
+        });
+        if(skipped) {
+            execute_items[index] = false;
+            auto& item = result.work_item_results[index];
+            item.status = AurUpdateWorkItemExecutionStatus::BootstrapSkipped;
+            item.failure_kind = AurUpdateWorkItemFailureKind::None;
+            item.bootstrap_skipped_roots = roots;
+            for(auto& child : item.child_results)
+                child.status = AurUpdateChildExecutionStatus::BootstrapSkipped;
+        } else {
+            provider_invocation.work_items.push_back(production_invocation.work_items[index]);
+            for(const auto& provider : production_invocation.work_items[index].selected_repository_providers)
+                add_unique(provider_invocation.selected_repository_providers, provider);
+        }
+    }
+    result.phase = AurUpdateInvocationExecutionPhase::WorkItems;
+    if(provider_invocation.work_items.empty()) return result;
     // choice/static preflight完了後、高コストなpackage transactionより先に
     // shared cache capabilityを確定する。
     activate_production_source_build_cache(production_invocation);
+    // The filtered invocation shares the retained validated state, including
+    // its descriptor identity; a pathname cannot recreate this authority.
+    provider_invocation.cache_root = production_invocation.cache_root;
+    for(auto& work_item : provider_invocation.work_items)
+        work_item.cache_root = production_invocation.cache_root;
 
     // POLICY(#272): source executionより前にexact provider transactionを
     // invocation全体で1回だけ行う。
     result.selected_repository_provider_transaction =
         execute_selected_repository_provider_transaction(
-            production_invocation, config);
+            provider_invocation, config);
     if(!result.selected_repository_provider_transaction.is_success()) {
         result.status = AurUpdateInvocationExecutionStatus::
             StoppedOnProviderTransactionFailure;
@@ -750,31 +849,85 @@ execute_prepared_aur_update_source_build_invocation(
     // owned化済み。成功時だけ次のPackageBaseへ進み、最初のfailureで停止する。
     for(std::size_t index = 0;
         index < production_invocation.work_items.size(); ++index) {
+        if(!execute_items[index]) continue;
         AurUpdateWorkItemExecutionResult& work_item_result =
             result.work_item_results[index];
         try {
-            auto execution = execute_prepared_package_base_source_build_work_item_typed(
-                production_invocation.work_items[index],
-                production_invocation.database_paths,
-                config);
+            auto execution = [&]() -> SourceBuildPackageBaseExecutionResult {
+#ifdef MOGUET_ENABLE_AUR_UPDATE_EXECUTION_RUNNER_TEST_HOOKS
+                if(!production_invocation.work_items[index].request.devel_tracking_bootstrap && g_non_bootstrap_execution_hook) {
+                    if(auto legacy = g_non_bootstrap_execution_hook(production_invocation.work_items[index])) return std::move(*legacy);
+                }
+#endif
+                try {
+                    return execute_prepared_package_base_source_build_work_item_typed(
+                        production_invocation.work_items[index], production_invocation.database_paths, config);
+                } catch(const BootstrapRecipeAcquisitionError& error) {
+                    work_item_result.recipe_acquisition_failure = error.failure();
+                    if(error.primary()) std::rethrow_exception(error.primary());
+                    throw;
+                }
+            }();
             if(auto* devel = std::get_if<ReviewedDevelExecutionSnapshot>(&execution)) {
                 work_item_result.devel_execution.emplace(std::move(*devel));
                 const auto& observed = *work_item_result.devel_execution;
+                work_item_result.recipe_acquisition_failure = observed.recipe_acquisition_failure;
+                work_item_result.production_outcome = observed.production_outcome;
+                if(observed.owner && !observed.projection_failed && observed.closure_review_failure) {
+                    const auto* review = &*observed.closure_review_failure;
+                    if(review && review->reason == PinnedClosureReviewFailureReason::Cancelled && review->cancellation) {
+                        // Reuse the formal stop handler below, retaining the
+                        // live owner, prior R facts and original cleanup detail.
+                        throw ConfirmationOperationStopped(ConfirmationCancelled{*review->cancellation});
+                    }
+                    if(review && review->reason == PinnedClosureReviewFailureReason::Declined && observed.required_review_decline &&
+                       observed.required_review_decline->reason() == ReviewedSourceOperationStopReason::NonExplicitAcceptance) {
+                        // Same required-acceptance disposition as a declined
+                        // bootstrap recipe review; no compatibility fallback.
+                        ReviewedSourceProductionFailure declined{
+                            ReviewedSourceProductionFailureStage::Acceptance,
+                            ReviewedSourceProductionFailureReason::ReviewOperationStopped,
+                            *observed.required_review_decline};
+                        work_item_result.status = AurUpdateWorkItemExecutionStatus::Failed;
+                        work_item_result.failure_kind = AurUpdateWorkItemFailureKind::BuildOrInstallFailed;
+                        work_item_result.diagnostic = localization::translate_message(
+                            "The required confirmation was declined. Any earlier completed phases remain unchanged.");
+                        work_item_result.failure_detail = AurUpdateSourceBuildFailureSnapshot{
+                            AurUpdateSourceBuildFailureCategory::Other, *work_item_result.diagnostic, std::move(declined)};
+                        result.status = AurUpdateInvocationExecutionStatus::StoppedOnWorkItemFailure;
+                        return result;
+                    }
+                }
                 work_item_result.status = observed.complete ? AurUpdateWorkItemExecutionStatus::Updated : AurUpdateWorkItemExecutionStatus::Failed;
                 work_item_result.failure_kind = observed.complete ? AurUpdateWorkItemFailureKind::None : AurUpdateWorkItemFailureKind::AuthoritativeExecutionIncomplete;
-                if(observed.artifact) {
-                    if(work_item_result.child_results.size() != 1 || observed.artifact->package_name != work_item_result.child_results.front().required_package_name)
+                for(const auto& artifact : observed.selected_artifacts) {
+                    const auto child = std::find_if(work_item_result.child_results.begin(), work_item_result.child_results.end(),
+                                                    [&](const auto& value) { return value.required_package_name == artifact.package_name; });
+                    if(child == work_item_result.child_results.end() || child->selected_artifact ||
+                       observed.operation != DevelSourceArtifactInstallOperation::Succeeded)
+                        throw std::logic_error("Authoritative execution child correlation failed.");
+                    child->selected_artifact = artifact;
+                    child->status = AurUpdateChildExecutionStatus::Installed;
+                }
+                // Compatibility snapshots in pure runner tests retain a single
+                // artifact; production fills the exact selected vector above.
+                if(observed.selected_artifacts.empty() && observed.artifact) {
+                    if(work_item_result.child_results.size() != 1 ||
+                       observed.artifact->package_name != work_item_result.child_results.front().required_package_name)
                         throw std::logic_error("Authoritative execution child correlation failed.");
                     work_item_result.child_results.front().selected_artifact = observed.artifact;
                     work_item_result.child_results.front().status = AurUpdateChildExecutionStatus::Installed;
                 }
-                work_item_result.production_outcome = observed.production_outcome;
+                work_item_result.unselected_artifacts = observed.unselected_artifacts;
                 if(!observed.complete) {
                     work_item_result.diagnostic = "Authoritative devel execution incomplete; installation/publication details retained.";
                     result.status = AurUpdateInvocationExecutionStatus::StoppedOnWorkItemFailure;
                     return result;
                 }
                 continue;
+            }
+            if(production_invocation.work_items[index].request.devel_tracking_bootstrap) {
+                throw std::logic_error("Bootstrap execution did not return authoritative devel provenance.");
             }
             auto completed = std::get<PackageBaseSourceBuildExecutionResult>(std::move(execution));
             work_item_result.production_outcome =
@@ -836,6 +989,31 @@ execute_prepared_aur_update_source_build_invocation(
             result.status = AurUpdateInvocationExecutionStatus::
                 StoppedOnWorkItemFailure;
             return result;
+        } catch(const BootstrapRecipeAcquisitionError& error) {
+            work_item_result.recipe_acquisition_failure = error.failure();
+            if(error.failure().reason == RecipeAcquisitionFailureReason::Cancelled) {
+                work_item_result.status = AurUpdateWorkItemExecutionStatus::Cancelled;
+                work_item_result.failure_kind = AurUpdateWorkItemFailureKind::None;
+                result.status = AurUpdateInvocationExecutionStatus::StoppedOnWorkItemCancellation;
+                throw AurUpdateExecutionCancelled(std::move(result));
+            }
+            work_item_result.status = AurUpdateWorkItemExecutionStatus::Failed;
+            work_item_result.failure_kind = AurUpdateWorkItemFailureKind::BuildOrInstallFailed;
+            work_item_result.failure_detail = AurUpdateSourceBuildFailureSnapshot{
+                AurUpdateSourceBuildFailureCategory::Other, error.what(), std::nullopt};
+            work_item_result.diagnostic = error.what();
+            result.status = AurUpdateInvocationExecutionStatus::StoppedOnWorkItemFailure;
+            return result;
+        } catch(const ReviewedSourceProductionError& error) {
+            // A review stop accompanied by acquisition cleanup failure bypasses
+            // the generic source-build wrapper; retain its original typed cause.
+            work_item_result.status = AurUpdateWorkItemExecutionStatus::Failed;
+            work_item_result.failure_kind = AurUpdateWorkItemFailureKind::BuildOrInstallFailed;
+            work_item_result.failure_detail = AurUpdateSourceBuildFailureSnapshot{
+                AurUpdateSourceBuildFailureCategory::Other, error.what(), error.failure()};
+            work_item_result.diagnostic = error.what();
+            result.status = AurUpdateInvocationExecutionStatus::StoppedOnWorkItemFailure;
+            return result;
         } catch(const PackageMetadataError& error) {
             work_item_result.status = AurUpdateWorkItemExecutionStatus::Failed;
             work_item_result.failure_kind =
@@ -846,12 +1024,30 @@ execute_prepared_aur_update_source_build_invocation(
             result.status = AurUpdateInvocationExecutionStatus::
                 StoppedOnWorkItemFailure;
             return result;
-        } catch(const TrustedCacheError&) {
+        } catch(const TrustedCacheError& error) {
+            if(work_item_result.recipe_acquisition_failure) {
+                // Retain both the unsafe review workspace and its failed
+                // cleanup instead of losing the accepted item's partial facts.
+                work_item_result.status = AurUpdateWorkItemExecutionStatus::Failed;
+                work_item_result.failure_kind = AurUpdateWorkItemFailureKind::BuildOrInstallFailed;
+                work_item_result.failure_detail = error.failure();
+                work_item_result.diagnostic = error.what();
+                result.status = AurUpdateInvocationExecutionStatus::StoppedOnWorkItemFailure;
+                return result;
+            }
             // Aggregate ownerがcache authorityのtyped payloadを転写できるよう、
             // ordinary work-item failureへcontainせずrethrowする。
             throw;
-        } catch(const ConfirmationOperationStopped&) {
-            throw;
+        } catch(const ConfirmationOperationStopped& stop) {
+            const auto* cancellation = std::get_if<ConfirmationCancelled>(&stop.result());
+            if(cancellation == nullptr) throw;
+            work_item_result.status = AurUpdateWorkItemExecutionStatus::Cancelled;
+            work_item_result.failure_kind = AurUpdateWorkItemFailureKind::None;
+            work_item_result.cancellation = *cancellation;
+            result.status = AurUpdateInvocationExecutionStatus::StoppedOnWorkItemCancellation;
+            // Preserve the completed prefix and untouched suffix without turning
+            // operation cancellation into an ordinary executor return.
+            throw AurUpdateExecutionCancelled(std::move(result));
         } catch(const std::exception& error) {
             work_item_result.status = AurUpdateWorkItemExecutionStatus::Failed;
             work_item_result.failure_kind =
@@ -879,3 +1075,25 @@ execute_prepared_aur_update_source_build_invocation(
 
     return result;
 }
+
+AurUpdateExecutionCancelled::AurUpdateExecutionCancelled(AurUpdateSourceBuildExecutionResult result) noexcept
+    : result_(std::move(result)) {
+}
+
+const AurUpdateSourceBuildExecutionResult& AurUpdateExecutionCancelled::result() const noexcept {
+    return result_;
+}
+
+AurUpdateSourceBuildExecutionResult AurUpdateExecutionCancelled::release_result() && noexcept {
+    return std::move(result_);
+}
+
+const char* AurUpdateExecutionCancelled::what() const noexcept {
+    return "AUR update cancelled; partial execution results retained.";
+}
+
+#ifdef MOGUET_ENABLE_AUR_UPDATE_EXECUTION_RUNNER_TEST_HOOKS
+void set_aur_update_non_bootstrap_execution_test_hook(AurUpdateNonBootstrapExecutionTestHook hook) {
+    g_non_bootstrap_execution_hook = std::move(hook);
+}
+#endif

@@ -1,6 +1,8 @@
 #include "reviewed_devel_source_route.hpp"
+#include "devel_tracking_bootstrap.hpp"
 #include "srcinfo_source_metadata.hpp"
 #include <fstream>
+#include <algorithm>
 #include <iterator>
 namespace {
 // Syntax only selects an execution path. This does not mint evaluated source
@@ -9,7 +11,7 @@ bool selects_reviewed_devel_execution(const ValidatedCachePath& checkout,
                                       const ReviewedDevelSourceBuildIntent* intent,
                                       bool overlay) {
     if(!intent) return false;
-    if(intent->request.authoritative_devel_update) return true;
+    if(intent->request.authoritative_devel_update || intent->request.devel_tracking_bootstrap) return true;
     if(overlay || intent->request.needed || intent->rm_deps || intent->required_targets.size() != 1) return false;
     std::ifstream file(checkout.canonical_path() / ".SRCINFO");
     if(!file) return false;
@@ -44,11 +46,25 @@ bool selects_reviewed_devel_execution(const ValidatedCachePath& checkout,
 ReviewedProductionSourceExecution select_normal_reviewed_source_execution(
     const ValidatedCachePath& checkout, PinnedReviewedSourceBuild pin,
     ProductionReviewedSourceOutcome outcome, std::optional<ReviewedSourceAbnormalStateReason> abnormal,
-    const ReviewedDevelSourceBuildIntent* intent) {
+    const ReviewedDevelSourceBuildIntent* intent, InvocationOwnedRecipeAcquisition* acquisition) {
+    if(intent && intent->request.devel_tracking_bootstrap) {
+        const auto& trial = *intent->request.devel_tracking_bootstrap;
+        std::ifstream file(checkout.canonical_path() / ".SRCINFO");
+        const std::string metadata((std::istreambuf_iterator<char>(file)), {});
+        if(!file || metadata != trial.source_metadata() || pin.identity().target_revision() != trial.recipe_revision()) {
+            return ReviewedDevelSourceBuildRejected{ReviewedDevelSourceBuildIssue::IdentityMismatch};
+        }
+    }
     const bool authoritative = selects_reviewed_devel_execution(checkout, intent, pin.editor_overlay_status() != ReviewedSourceEditorOverlayStatus::None);
+    // The exact-version coordinated intent is currently supported by the
+    // PackageBase archive installer. Never switch it to an unpinned owner.
+    if(authoritative && std::any_of(intent->required_targets.begin(), intent->required_targets.end(),
+                                    [](const auto& target) { return target.expected_full_version.has_value(); })) {
+        return ReviewedDevelSourceBuildRejected{ReviewedDevelSourceBuildIssue::IdentityMismatch};
+    }
     if(!intent) return make_reviewed_production_artifact_source_tree(checkout, std::move(pin), outcome, abnormal);
     return prepare_reviewed_production_source_execution(authoritative ? ReviewedProductionExecutionChoice::AuthoritativeDevel : ReviewedProductionExecutionChoice::Legacy,
-                                                        checkout, std::move(pin), outcome, abnormal, *intent);
+                                                        checkout, std::move(pin), outcome, abnormal, *intent, acquisition);
 }
 ReviewedDevelExecutionSnapshot execute_normal_reviewed_devel(PreparedReviewedDevelSourceBuildExecution prepared) {
     auto storage = std::make_shared<std::optional<ReviewedDevelSourceBuildExecutionResult>>();
@@ -70,9 +86,30 @@ ReviewedDevelExecutionSnapshot execute_normal_reviewed_devel(PreparedReviewedDev
         out.cleanup = installed.privileged_cleanup().state;
     }
     try {
+        if(const auto* failure = result.recipe_acquisition_failure()) out.recipe_acquisition_failure = *failure;
+        if(const auto* failure = result.closure_review_failure()) {
+            out.closure_review_failure = *failure;
+            if(failure->reason == PinnedClosureReviewFailureReason::Declined)
+                out.required_review_decline = ReviewedSourceOperationStop::make(ReviewedSourceOperationStopReason::NonExplicitAcceptance);
+        }
         out.production_outcome = project_reviewed_devel_execution_outcome(result);
-        if(const auto* p = result.publication(); p && p->installation().proof())
-            out.artifact = p->installation().proof()->built_proof().artifact().evidence().identity;
+        if(const auto* p = result.publication()) {
+            const auto& installed = p->installation();
+            const auto& outputs = installed.built_proof().artifacts();
+            for(std::size_t index = 0; index < outputs.size(); ++index) {
+                const auto& identity = outputs[index].evidence().identity;
+                const auto& bindings = installed.binding_observations();
+                const auto selected = std::find_if(bindings.begin(), bindings.end(), [&](const auto& child) {
+                    return child.artifact_index == index && child.package_name == identity.package_name;
+                });
+                if(selected == bindings.end())
+                    out.unselected_artifacts.push_back(identity);
+                else if(installed.operation() == DevelSourceArtifactInstallOperation::Succeeded &&
+                        installed.receipt_state() == DevelSourceArtifactInstallReceipt::Complete)
+                    out.selected_artifacts.push_back(identity);
+            }
+            if(out.selected_artifacts.size() == 1) out.artifact = out.selected_artifacts.front();
+        }
     } catch(...) {
         out.projection_failed = true;
         out.complete = false;
@@ -83,13 +120,19 @@ ReviewedDevelExecutionSnapshot execute_normal_reviewed_devel(PreparedReviewedDev
 ProductionSourceBuildStagedOutcome project_reviewed_devel_execution_outcome(const ReviewedDevelSourceBuildExecutionResult& result) {
     ProductionSourceBuildStagedOutcome out;
     out.source_provenance = result.source_provenance();
+    if(const auto* review = result.closure_review_failure(); review &&
+                                                             (review->reason == PinnedClosureReviewFailureReason::Cancelled || review->reason == PinnedClosureReviewFailureReason::Declined)) {
+        // Initial evaluation and recipe publication may already have completed;
+        // the required closure acceptance stopped before source/build execution.
+        return out;
+    }
     if(result.build_completed())
         out.build_outcome = ProductionSourceBuildCommandOutcome::Succeeded;
-    else if(result.stage() != ReviewedDevelSourceBuildStage::Intent && result.stage() != ReviewedDevelSourceBuildStage::Context && result.stage() != ReviewedDevelSourceBuildStage::Environment) {
+    else if(result.stage() != ReviewedDevelSourceBuildStage::Intent && result.stage() != ReviewedDevelSourceBuildStage::Context && result.stage() != ReviewedDevelSourceBuildStage::RecipeCleanup && result.stage() != ReviewedDevelSourceBuildStage::Environment) {
         // The S4 invocation started; do not invent a terminal makepkg outcome
         // from an incomplete proof. Preserve the original typed S4 failure.
         out.build_outcome = ProductionSourceBuildCommandOutcome::Started;
-        if(const auto* failure = result.build_failure(); failure && failure->process == EvaluatedDevelSourceBuildProcess::PackageBuild && failure->process_outcome) {
+        if(const auto* failure = result.build_failure(); failure && failure->process == EvaluatedDevelSourceBuildProcess::PackageBuild && failure->process_outcome && !failure->cancellation_signal) {
             if(const auto* exited = std::get_if<BoundedProcessExited>(&*failure->process_outcome))
                 out.build_outcome = exited->exit_code == 0 ? ProductionSourceBuildCommandOutcome::Succeeded : ProductionSourceBuildCommandOutcome::Failed;
         }

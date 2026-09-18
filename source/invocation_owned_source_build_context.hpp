@@ -1,6 +1,7 @@
 #pragma once
 
 #include "evaluated_devel_source_build_authority.hpp"
+#include "pinned_submodule_workspace_authority.hpp"
 #include "devel_build_provenance_reviewed_binding.hpp"
 #include "reviewed_source_pinned_build.hpp"
 #include "source_environment.hpp"
@@ -286,6 +287,7 @@ private:
     friend class InvocationOwnedSourceBuildContextAuthority;
     friend class EvaluatedDevelSourceBuildAuthority;
 
+    friend class PinnedSubmoduleWorkspaceAuthority;
     struct State;
     explicit InvocationOwnedSourceBuildContext(
         std::unique_ptr<State> state) noexcept;

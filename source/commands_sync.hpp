@@ -1,6 +1,7 @@
 #pragma once
 
 #include "cli_parser.hpp"
+#include "interactive_confirmation.hpp"
 #include "dependency_plan.hpp"
 #include "repository_query.hpp"
 #include "root_package_route_projection.hpp"
@@ -16,6 +17,7 @@
 #include <vector>
 
 struct AppConfig;
+struct CrossSourceCoordinatedTransitionPlan;
 struct RootPackageSelectionInvocation;
 class PreparedSystemAurUpdateOperation;
 struct SystemAurUpdateOperationResult;
@@ -234,6 +236,10 @@ int execute_prepared_sync_install(
 int execute_ordered_repository_sync_transaction(
     const std::vector<std::string>& ordered_pacman_args,
     const AppConfig& config);
+
+// Required no-default approval, including the exact non-atomic transition.
+ExplicitConfirmationResult confirm_cross_source_transition(
+    const CrossSourceCoordinatedTransitionPlan& plan, const AppConfig& config);
 
 // Execute and present the exact targetless Auto -Syu composite result.
 // Composite commands use the established custom-command exit convention:

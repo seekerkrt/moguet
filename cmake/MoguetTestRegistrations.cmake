@@ -130,13 +130,22 @@ _moguet_add_direct_ctest(
     cpp.reviewed_source_pinned_build
     reviewed-source-pinned-build-test
 )
+_moguet_add_direct_ctest(cpp.invocation_owned_recipe_acquisition invocation-owned-recipe-acquisition-test)
 _moguet_add_direct_ctest(
     cpp.invocation_owned_source_build_context
     invocation-owned-source-build-context-test
 )
-_moguet_add_direct_ctest(
-    cpp.evaluated_devel_source_artifact_transport
-    evaluated-devel-source-artifact-transport-test
+# This test also snapshots all /tmp/moguet-source-build-context-* entries to
+# prove failed construction never falls back to the production parent. Other
+# context-producing tests change that namespace despite owning unique roots.
+# Preserve the global inventory assertion by excluding overlap for this test.
+set_tests_properties(cpp.invocation_owned_source_build_context PROPERTIES RUN_SERIAL TRUE)
+# The owner CTest below covers the common S4 suite. This lane builds its own
+# actual S4 inputs inside each transport scenario without repeating that suite.
+moguet_add_ctest(
+    NAME cpp.evaluated_devel_source_artifact_transport
+    TARGETS evaluated-devel-source-artifact-transport-test
+    COMMAND "$<TARGET_FILE:evaluated-devel-source-artifact-transport-test>" --evaluated-artifact-transport
 )
 set_tests_properties(cpp.evaluated_devel_source_artifact_transport PROPERTIES TIMEOUT 240)
 moguet_add_ctest(
@@ -173,8 +182,16 @@ _moguet_add_direct_ctest(
 )
 set_tests_properties(
     cpp.evaluated_devel_source_build
-    PROPERTIES TIMEOUT 180
+    # The architecture correlation matrix runs real makepkg/archive phases.
+    PROPERTIES TIMEOUT 300
 )
+moguet_add_ctest(
+    NAME cpp.split_devel_artifact_authority
+    TARGETS evaluated-devel-source-build-test
+    COMMAND "$<TARGET_FILE:evaluated-devel-source-build-test>" --split-artifacts
+    WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+)
+set_tests_properties(cpp.split_devel_artifact_authority PROPERTIES TIMEOUT 180)
 _moguet_add_direct_ctest(
     cpp.reviewed_source_projection
     reviewed-source-projection-test
@@ -886,3 +903,43 @@ unset(_moguet_projection_forbidden_symbol_pattern)
 unset(_moguet_projection_probe_symbols)
 unset(_moguet_renderer_forbidden_symbol_pattern)
 unset(_moguet_renderer_probe_symbols)
+
+moguet_add_ctest(
+    NAME cpp.devel_tracking_bootstrap
+    TARGETS devel-tracking-bootstrap-test
+    COMMAND python3 "${PROJECT_SOURCE_DIR}/tests/test-devel-tracking-bootstrap.py" "$<TARGET_FILE:devel-tracking-bootstrap-test>"
+    WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+)
+set_tests_properties(cpp.devel_tracking_bootstrap PROPERTIES TIMEOUT 480)
+
+moguet_add_ctest(
+    NAME cpp.pinned_submodule_closure
+    TARGETS pinned-submodule-closure-test
+    COMMAND "$<TARGET_FILE:pinned-submodule-closure-test>" --pinned-closure
+)
+set_tests_properties(cpp.pinned_submodule_closure PROPERTIES TIMEOUT 300)
+
+# 4B0 foundation only; no production bootstrap/S4 integration is run here.
+moguet_add_ctest(
+    NAME cpp.pinned_submodule_closure_review
+    TARGETS pinned-submodule-closure-review-test
+    COMMAND "$<TARGET_FILE:pinned-submodule-closure-review-test>" --pinned-closure-review
+)
+set_tests_properties(cpp.pinned_submodule_closure_review PROPERTIES TIMEOUT 300)
+
+# Source-ready foundation; no makepkg preparation/build or existing suites.
+moguet_add_ctest(
+    NAME cpp.pinned_submodule_workspace
+    TARGETS pinned-submodule-workspace-test
+    COMMAND "$<TARGET_FILE:pinned-submodule-workspace-test>" --pinned-submodule-workspace
+)
+set_tests_properties(cpp.pinned_submodule_workspace PROPERTIES TIMEOUT 300)
+
+# 4B2 runs only recursive production integration cases on the existing full
+# bootstrap owner fixture. It does not execute that fixture's 68-case lane.
+moguet_add_ctest(
+    NAME cpp.pinned_submodule_s4_integration
+    TARGETS devel-tracking-bootstrap-test
+    COMMAND python3 "${PROJECT_SOURCE_DIR}/tests/test-devel-tracking-bootstrap.py" "$<TARGET_FILE:devel-tracking-bootstrap-test>" --pinned-s4
+)
+set_tests_properties(cpp.pinned_submodule_s4_integration PROPERTIES TIMEOUT 300)

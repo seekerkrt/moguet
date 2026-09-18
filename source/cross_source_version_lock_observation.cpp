@@ -157,6 +157,57 @@ bool is_direct_exact_requirement(
                DependencyVersionRelation::Equal;
 }
 
+CrossSourceTransitionInstalledSnapshot transition_installed_snapshot(
+    const PacmanDatabasePaths& paths,
+    const std::vector<PackageRelationObservedPackage>& packages,
+    const InstalledPackageRuntimeDependencyMetadataInventory& dependencies,
+    const ForeignPackageInventory& foreign_packages,
+    bool inventories_complete) {
+    CrossSourceTransitionInstalledSnapshot snapshot{
+        {paths.root_dir.lexically_normal(), paths.db_path.lexically_normal()},
+        inventories_complete ? PackageRelationObservationCompleteness::Complete
+                             : PackageRelationObservationCompleteness::Partial,
+        packages,
+        {},
+        foreign_packages};
+    std::map<std::string, const PackageRelationObservedPackage*> identities;
+    for(const auto& package : packages) {
+        if(!identities.emplace(package.package_name, &package).second ||
+           package.role != PackageRelationObservationRole::Installed ||
+           !is_same_installed_database(package, paths) ||
+           validate_package_relation_observation(package).has_value() ||
+           package.package_version.version() == nullptr) {
+            snapshot.completeness = PackageRelationObservationCompleteness::Invalid;
+        }
+    }
+    std::set<std::string> dependency_names;
+    for(const auto& metadata : dependencies) {
+        const auto identity = identities.find(metadata.package_name);
+        if(!dependency_names.insert(metadata.package_name).second ||
+           identity == identities.end() || !metadata.installed_version.has_value() ||
+           identity->second->package_version.version() == nullptr ||
+           *identity->second->package_version.version() != *metadata.installed_version) {
+            snapshot.completeness = PackageRelationObservationCompleteness::Invalid;
+        }
+        CrossSourceInstalledRuntimeRequirements runtime{metadata.package_name, {}};
+        for(const auto& specification : metadata.dependency_specifications) {
+            const auto parsed = parse_dependency_requirement(specification);
+            if(parsed.failure() != nullptr || parsed.requirement() == nullptr) {
+                snapshot.completeness = PackageRelationObservationCompleteness::Invalid;
+            } else {
+                runtime.requirements.push_back(*parsed.requirement());
+            }
+        }
+        snapshot.runtime_requirements.push_back(std::move(runtime));
+    }
+    // Coverage gaps must not erase already observed invalidity.
+    if(snapshot.completeness != PackageRelationObservationCompleteness::Invalid &&
+       identities.size() != dependency_names.size()) {
+        snapshot.completeness = PackageRelationObservationCompleteness::Partial;
+    }
+    return snapshot;
+}
+
 AurReplacementObservation observe_aur_replacement(
     const std::string& package_name) {
     std::optional<AurPackageInfo> package;
@@ -324,6 +375,10 @@ observe_cross_source_version_lock_candidates() {
                 InstalledPackageRuntimeDependencyMetadataInventory>(
                 std::move(dependency_result));
     }
+
+    result.transition_installed_snapshot = transition_installed_snapshot(
+        configuration.database_paths, installed_packages, dependency_metadata,
+        foreign_packages, result.status == CrossSourceVersionLockObservationStatus::Complete);
 
     std::map<
         std::string,
@@ -500,4 +555,102 @@ observe_cross_source_version_lock_candidates() {
     }
 
     return result;
+}
+
+namespace {
+
+bool is_possible_cross_source_version_lock_blocker_candidate(
+    const CrossSourceVersionLockAssessment& assessment) noexcept {
+    return assessment.installed_requirement_against_installed_version
+               .has_value() &&
+           assessment.installed_requirement_against_repository_candidate
+               .has_value() &&
+           assessment.installed_requirement_against_installed_version
+                   ->satisfaction() ==
+               ConstraintSatisfaction::Satisfied &&
+           assessment.installed_requirement_against_repository_candidate
+                   ->satisfaction() ==
+               ConstraintSatisfaction::Unsatisfied;
+}
+
+void record_cross_source_version_lock_correlation_failure(
+    CrossSourceVersionLockCorrelationResult& correlation,
+    CrossSourceVersionLockCorrelationFailureKind kind,
+    const char* diagnostic = nullptr) noexcept {
+    static_assert(std::is_nothrow_default_constructible_v<
+                  CrossSourceVersionLockCorrelationFailure>);
+    correlation.failure.emplace();
+    correlation.failure->kind = kind;
+    if(diagnostic == nullptr) return;
+
+    try {
+        correlation.failure->diagnostic.emplace(diagnostic);
+    } catch(...) {
+        // The typed secondary failure remains available even when retaining
+        // its optional diagnostic would require unavailable memory.
+        correlation.failure->diagnostic.reset();
+    }
+}
+
+} // namespace
+
+CrossSourceVersionLockCorrelationResult
+observe_cross_source_version_lock_correlation(
+    CrossSourceVersionLockObservationBasis basis) noexcept {
+    static_assert(std::is_nothrow_default_constructible_v<
+                  CrossSourceVersionLockCorrelationResult>);
+    CrossSourceVersionLockCorrelationResult correlation;
+    correlation.basis = basis;
+
+    try {
+        correlation.observation.emplace(
+            observe_cross_source_version_lock_candidates());
+
+        std::vector<CrossSourceVersionLockAssessment> assessments;
+        std::vector<std::size_t> possible_blocker_assessment_indices;
+        const auto& candidates = correlation.observation->candidates;
+        assessments.reserve(candidates.size());
+        possible_blocker_assessment_indices.reserve(candidates.size());
+        for(const CrossSourceVersionLockCandidateEvidence& candidate :
+            candidates) {
+            CrossSourceVersionLockAssessment assessment =
+                assess_cross_source_version_lock_candidate(candidate);
+            const bool is_possible_blocker_candidate =
+                is_possible_cross_source_version_lock_blocker_candidate(
+                    assessment);
+            const std::size_t assessment_index = assessments.size();
+            assessments.push_back(std::move(assessment));
+            if(is_possible_blocker_candidate) {
+                possible_blocker_assessment_indices.push_back(
+                    assessment_index);
+            }
+        }
+
+        // Publish assessment/index vectors together. An exception before this
+        // point retains the observation plus a typed secondary failure, not a
+        // misleading partially indexed assessment set.
+        correlation.assessments = std::move(assessments);
+        correlation.possible_blocker_assessment_indices =
+            std::move(possible_blocker_assessment_indices);
+        if(basis == CrossSourceVersionLockObservationBasis::BeforeRepositoryMutation) {
+            correlation.transition_plans = plan_cross_source_coordinated_transitions(correlation);
+        }
+    } catch(const std::bad_alloc&) {
+        record_cross_source_version_lock_correlation_failure(
+            correlation,
+            CrossSourceVersionLockCorrelationFailureKind::
+                ResourceExhaustion);
+    } catch(const std::exception& error) {
+        record_cross_source_version_lock_correlation_failure(
+            correlation,
+            CrossSourceVersionLockCorrelationFailureKind::
+                UnexpectedException,
+            error.what());
+    } catch(...) {
+        record_cross_source_version_lock_correlation_failure(
+            correlation,
+            CrossSourceVersionLockCorrelationFailureKind::
+                UnknownException);
+    }
+    return correlation;
 }

@@ -5,6 +5,7 @@
 #include <optional>
 #include <string>
 class ReviewedSourceFatalStatePreflightSlot;
+class DevelTrackingBootstrapTrial;
 
 // upgrade baselineの有無と、snapshot時点の未installを別状態として保持する。
 struct SourceUpdateBaseline {
@@ -34,4 +35,7 @@ struct SourceBuildRequest {
         reviewed_state_preflight;
     // Selection intent only; S4 owns actual built identity.
     bool authoritative_devel_update = false;
+    std::shared_ptr<const DevelTrackingBootstrapTrial> devel_tracking_bootstrap;
+    // Current #564 ordinary update activation only; explicit/standalone routes keep their scope.
+    bool ordinary_devel_package_base = false;
 };

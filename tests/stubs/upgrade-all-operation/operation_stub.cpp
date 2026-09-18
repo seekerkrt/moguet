@@ -1,3 +1,4 @@
+#include "interactive_confirmation.hpp"
 #include "operation_stub.hpp"
 
 #include "artifact_install_plan.hpp"
@@ -49,6 +50,7 @@ struct ScriptedSourceExecution {
 };
 
 enum class ScriptedAurExecutionKind {
+    Cancellation,
     Success,
     OrdinaryFailure,
     CleanupFailure,
@@ -522,6 +524,10 @@ void enqueue_aur_successes(
         ScriptedAurExecutionKind::Success,
         std::move(child_outcomes),
         std::move(unselected_artifacts));
+}
+
+void enqueue_aur_cancellation() {
+    enqueue_aur_execution(ScriptedAurExecutionKind::Cancellation);
 }
 
 void enqueue_aur_ordinary_failure(std::string diagnostic) {
@@ -1342,7 +1348,7 @@ std::optional<AurPackageInfo> AurClient::info_strict(
     return std::get<std::optional<AurPackageInfo>>(std::move(script));
 }
 
-std::string exec_command(const char* command) {
+CapturedCommandResult capture_command_output(const char* command) {
     if(command == nullptr) {
         fail_unexpected("AUR query stub received a null command.");
     }
@@ -1357,7 +1363,7 @@ std::string exec_command(const char* command) {
     if(const auto* failure = std::get_if<ScriptFailure>(&script)) {
         throw std::runtime_error(failure->diagnostic);
     }
-    return std::get<std::string>(std::move(script));
+    return CapturedCommandResult{std::get<std::string>(std::move(script)), 0};
 }
 
 BuildPlan resolve_build_plan_for_preflight(
@@ -1606,7 +1612,9 @@ execute_prepared_package_base_source_build_work_item_typed(
     // POLICY(#267): ordinary/unknown failureはbuild中、cleanup failureは
     // package transaction完了後としてcross-phase historyへ固定する。
     record_aur_lifecycle_event(call_index, stub::EventKind::AurCheckout);
-    record_aur_lifecycle_event(call_index, stub::EventKind::AurBuild);
+    if(scripted.kind != ScriptedAurExecutionKind::Cancellation) {
+        record_aur_lifecycle_event(call_index, stub::EventKind::AurBuild);
+    }
     switch(scripted.kind) {
         case ScriptedAurExecutionKind::Success:
         case ScriptedAurExecutionKind::CleanupFailure: {
@@ -1660,6 +1668,8 @@ execute_prepared_package_base_source_build_work_item_typed(
             }
             return result;
         }
+        case ScriptedAurExecutionKind::Cancellation:
+            throw ConfirmationOperationStopped(ConfirmationCancelled{ConfirmationCancellationReason::ExplicitToken});
         case ScriptedAurExecutionKind::OrdinaryFailure:
             throw std::runtime_error(scripted.diagnostic);
         case ScriptedAurExecutionKind::UnknownFailure:
@@ -1720,4 +1730,8 @@ void activate_production_source_build_cache(
     }
     seed_production_source_build_cache(
         invocation, invocation.cache_root.value());
+}
+
+ConfirmationResult request_confirmation(const std::string&, ConfirmationDefault, bool) {
+    throw std::logic_error("Upgrade-all fixture received an unexpected bootstrap confirmation.");
 }

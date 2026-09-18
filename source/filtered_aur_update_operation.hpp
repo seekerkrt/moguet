@@ -298,6 +298,18 @@ struct FilteredAurUpdateExecutionResult {
         const noexcept;
 };
 
+// Owned partial facts travel with the stop signal; callers must not resume mutation.
+class FilteredAurUpdateCancelled final : public std::exception {
+public:
+    explicit FilteredAurUpdateCancelled(FilteredAurUpdateExecutionResult result) noexcept;
+    const FilteredAurUpdateExecutionResult& result() const noexcept;
+    FilteredAurUpdateExecutionResult release_result() && noexcept;
+    const char* what() const noexcept override;
+
+private:
+    FilteredAurUpdateExecutionResult result_;
+};
+
 FilteredAurUpdateTargetAdapter adapt_aur_update_plan_for_upgrade_all(
     const AurUpdatePlan& update_plan,
     DevelRequiresCheckPolicy devel_requires_check_policy,

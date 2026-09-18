@@ -54,6 +54,9 @@ set(MOGUET_PRODUCTION_SOURCES
     source/dependency_spec.cpp
     source/diagnostic_projection.cpp
     source/dry_run.cpp
+    source/pinned_submodule_closure.cpp
+    source/pinned_submodule_closure_review.cpp
+    source/pinned_submodule_workspace.cpp
     source/evaluated_devel_source_build.cpp
     source/exact_artifact_transaction_protocol.cpp
     source/filtered_aur_update_operation.cpp
@@ -65,6 +68,7 @@ set(MOGUET_PRODUCTION_SOURCES
     source/interactive_confirmation.cpp
     source/invocation_owned_cleanup_adapter.cpp
     source/invocation_owned_cleanup_model.cpp
+    source/invocation_owned_recipe_acquisition.cpp
     source/invocation_owned_source_build_context.cpp
     source/local_dependency_plan_projection.cpp
     source/local_package_metadata.cpp

@@ -70,6 +70,7 @@ bool same_update_entry(
     const AurUpdatePlanEntry& rhs) {
     return lhs.installed_name == rhs.installed_name &&
            lhs.installed_version == rhs.installed_version &&
+           lhs.coordinated_replacement_version == rhs.coordinated_replacement_version &&
            lhs.install_reason == rhs.install_reason &&
            same_remote_package(lhs.aur_package, rhs.aur_package) &&
            lhs.classification == rhs.classification &&
@@ -382,8 +383,10 @@ AurUpdateOperationTargetStatus initial_target_status(
 bool is_known_work_item_status(
     AurUpdateWorkItemExecutionStatus status) noexcept {
     switch(status) {
+        case AurUpdateWorkItemExecutionStatus::BootstrapSkipped:
         case AurUpdateWorkItemExecutionStatus::Updated:
         case AurUpdateWorkItemExecutionStatus::NoChange:
+        case AurUpdateWorkItemExecutionStatus::Cancelled:
         case AurUpdateWorkItemExecutionStatus::Failed:
         case AurUpdateWorkItemExecutionStatus::UpdatedCleanupFailed:
         case AurUpdateWorkItemExecutionStatus::NoChangeCleanupFailed:
@@ -395,6 +398,7 @@ bool is_known_work_item_status(
 
 bool is_known_child_status(AurUpdateChildExecutionStatus status) noexcept {
     switch(status) {
+        case AurUpdateChildExecutionStatus::BootstrapSkipped:
         case AurUpdateChildExecutionStatus::Installed:
         case AurUpdateChildExecutionStatus::SkippedAsNeeded:
         case AurUpdateChildExecutionStatus::InstalledCleanupFailed:
@@ -419,7 +423,8 @@ bool is_known_failure_kind(AurUpdateWorkItemFailureKind kind) noexcept {
 }
 
 bool is_terminal_status(AurUpdateWorkItemExecutionStatus status) noexcept {
-    return status == AurUpdateWorkItemExecutionStatus::Failed ||
+    return status == AurUpdateWorkItemExecutionStatus::Cancelled ||
+           status == AurUpdateWorkItemExecutionStatus::Failed ||
            status == AurUpdateWorkItemExecutionStatus::UpdatedCleanupFailed ||
            status ==
                AurUpdateWorkItemExecutionStatus::NoChangeCleanupFailed;
@@ -436,8 +441,11 @@ bool has_consistent_failure_kind(
     AurUpdateWorkItemExecutionStatus status,
     AurUpdateWorkItemFailureKind failure_kind) noexcept {
     switch(status) {
+        case AurUpdateWorkItemExecutionStatus::BootstrapSkipped:
         case AurUpdateWorkItemExecutionStatus::Updated:
         case AurUpdateWorkItemExecutionStatus::NoChange:
+            return failure_kind == AurUpdateWorkItemFailureKind::None;
+        case AurUpdateWorkItemExecutionStatus::Cancelled:
             return failure_kind == AurUpdateWorkItemFailureKind::None;
         case AurUpdateWorkItemExecutionStatus::Failed:
             return failure_kind ==
@@ -544,6 +552,19 @@ bool transaction_failure_payload_is_consistent(
 bool failure_payload_is_consistent(
     const AurUpdateWorkItemExecutionResult& work_item) noexcept {
     if(work_item.failure_detail.valueless_by_exception()) return false;
+    const bool cancelled = work_item.status == AurUpdateWorkItemExecutionStatus::Cancelled;
+    const bool acquisition_cancelled = work_item.recipe_acquisition_failure &&
+                                       work_item.recipe_acquisition_failure->reason == RecipeAcquisitionFailureReason::Cancelled;
+    if(work_item.cancellation && acquisition_cancelled) return false;
+    if(cancelled != (work_item.cancellation.has_value() || acquisition_cancelled)) return false;
+    if(work_item.recipe_acquisition_failure &&
+       (!work_item.bootstrap_decision || work_item.bootstrap_decision->state != AurUpdateBootstrapDecisionState::Accepted ||
+        (work_item.status != AurUpdateWorkItemExecutionStatus::Failed && !cancelled))) return false;
+    if(work_item.cancellation &&
+       work_item.cancellation->reason != ConfirmationCancellationReason::ExplicitToken &&
+       work_item.cancellation->reason != ConfirmationCancellationReason::EndOfInput) return false;
+    if(cancelled && (work_item.production_outcome || work_item.devel_execution || work_item.diagnostic) &&
+       !has_consistent_closure_review_cancellation(work_item)) return false;
     const bool has_no_detail =
         std::holds_alternative<std::monostate>(
             work_item.failure_detail);
@@ -580,6 +601,8 @@ bool failure_payload_is_consistent(
 AurUpdateWorkItemExecutionStatus map_child_status(
     AurUpdateChildExecutionStatus status) noexcept {
     switch(status) {
+        case AurUpdateChildExecutionStatus::BootstrapSkipped:
+            return AurUpdateWorkItemExecutionStatus::BootstrapSkipped;
         case AurUpdateChildExecutionStatus::Installed:
             return AurUpdateWorkItemExecutionStatus::Updated;
         case AurUpdateChildExecutionStatus::SkippedAsNeeded:
@@ -610,7 +633,8 @@ AurUpdateOperationExecutionContribution make_contribution(
         status,
         work_item.failure_kind,
         work_item.failure_detail,
-        work_item.diagnostic};
+        work_item.diagnostic, work_item.cancellation, work_item.bootstrap_decision, work_item.bootstrap_skipped_roots,
+        work_item.recipe_acquisition_failure};
 }
 
 AurUpdateOperationExecutionContribution make_planned_contribution(
@@ -636,10 +660,14 @@ AurUpdateOperationExecutionContribution make_planned_contribution(
 AurUpdateOperationTargetStatus map_execution_status(
     AurUpdateWorkItemExecutionStatus status) noexcept {
     switch(status) {
+        case AurUpdateWorkItemExecutionStatus::BootstrapSkipped:
+            return AurUpdateOperationTargetStatus::Skipped;
         case AurUpdateWorkItemExecutionStatus::Updated:
             return AurUpdateOperationTargetStatus::Updated;
         case AurUpdateWorkItemExecutionStatus::NoChange:
             return AurUpdateOperationTargetStatus::NoChange;
+        case AurUpdateWorkItemExecutionStatus::Cancelled:
+            return AurUpdateOperationTargetStatus::Cancelled;
         case AurUpdateWorkItemExecutionStatus::Failed:
             return AurUpdateOperationTargetStatus::Failed;
         case AurUpdateWorkItemExecutionStatus::UpdatedCleanupFailed:
@@ -658,6 +686,7 @@ int terminal_priority(AurUpdateWorkItemExecutionStatus status) noexcept {
             return 3;
         case AurUpdateWorkItemExecutionStatus::NoChangeCleanupFailed:
             return 2;
+        case AurUpdateWorkItemExecutionStatus::Cancelled:
         case AurUpdateWorkItemExecutionStatus::Failed:
             return 1;
         default:
@@ -668,6 +697,10 @@ int terminal_priority(AurUpdateWorkItemExecutionStatus status) noexcept {
 void retain_decisive_contribution(
     AurUpdateOperationTargetResult& target,
     const AurUpdateOperationExecutionContribution& contribution) {
+    target.cancellation = contribution.cancellation;
+    target.recipe_acquisition_failure = contribution.recipe_acquisition_failure;
+    if(contribution.bootstrap_decision) target.bootstrap_decision = contribution.bootstrap_decision;
+    if(!contribution.bootstrap_skipped_roots.empty()) target.bootstrap_skipped_roots = contribution.bootstrap_skipped_roots;
     target.execution_work_item_index = contribution.work_item_index;
     if(contribution.failure_kind == AurUpdateWorkItemFailureKind::None) {
         target.execution_failure_kind.reset();
@@ -682,6 +715,30 @@ void retain_decisive_contribution(
 void fold_execution_contributions(
     AurUpdateOperationResult& result,
     AurUpdateOperationTargetResult& target) {
+    for(const auto& contribution : target.execution_contributions) {
+        if(contribution.bootstrap_decision && contribution.package_name == target.update.installed_name &&
+           contribution.bootstrap_decision->state != AurUpdateBootstrapDecisionState::Accepted &&
+           !has_aur_update_bootstrap_intent(target.update)) {
+            target.status = AurUpdateOperationTargetStatus::NotAttempted;
+            retain_decisive_contribution(target, contribution);
+            return;
+        }
+        if(contribution.bootstrap_decision && contribution.package_name == target.update.installed_name &&
+           has_aur_update_bootstrap_intent(target.update)) {
+            target.bootstrap_decision = contribution.bootstrap_decision;
+            if(contribution.bootstrap_decision->state != AurUpdateBootstrapDecisionState::Accepted) {
+                target.status = AurUpdateOperationTargetStatus::Skipped;
+                target.skip_kind = AurUpdateExecutionSkipKind::IndependentDevelRequiresCheck;
+                target.preflight_issues = {AurUpdateExecutionIssue{
+                    AurUpdateExecutionReason::DevelRequiresCheck, target.update.installed_name,
+                    target.update.aur_package->package_base, std::nullopt,
+                    localization::translate_message("Devel tracking bootstrap was skipped; package remains unverified."),
+                    std::nullopt, std::nullopt, DevelRequiresCheckReason::ProvenanceMissing}};
+                retain_decisive_contribution(target, contribution);
+                return;
+            }
+        }
+    }
     const AurUpdateOperationExecutionContribution* terminal = nullptr;
     const AurUpdateOperationExecutionContribution* unknown = nullptr;
     const AurUpdateOperationExecutionContribution* not_attempted = nullptr;
@@ -824,11 +881,23 @@ bool child_selected_artifact_is_coherent(
            !child.selected_artifact->full_version.empty();
 }
 
+bool retains_authoritative_child_install(const AurUpdateWorkItemExecutionResult& work_item,
+                                         const AurUpdateChildExecutionResult& child) noexcept {
+    // A failed group proof/publication does not erase the successful exact
+    // transaction. Failed/unknown transactions and missing receipts do not qualify.
+    return work_item.status == AurUpdateWorkItemExecutionStatus::Failed && work_item.devel_execution &&
+           work_item.devel_execution->operation == DevelSourceArtifactInstallOperation::Succeeded &&
+           work_item.devel_execution->receipt == DevelSourceArtifactInstallReceipt::Complete &&
+           child.status == AurUpdateChildExecutionStatus::Installed;
+}
+
 bool child_outcome_matches_work_item(
     AurUpdateWorkItemExecutionStatus work_item_status,
     AurUpdateChildExecutionStatus child_status, bool authoritative = false) noexcept {
     if(authoritative && work_item_status == AurUpdateWorkItemExecutionStatus::Failed && child_status == AurUpdateChildExecutionStatus::Installed) return true;
     switch(work_item_status) {
+        case AurUpdateWorkItemExecutionStatus::BootstrapSkipped:
+            return child_status == AurUpdateChildExecutionStatus::BootstrapSkipped;
         case AurUpdateWorkItemExecutionStatus::Updated:
             return child_status == AurUpdateChildExecutionStatus::Installed ||
                    child_status ==
@@ -844,6 +913,7 @@ bool child_outcome_matches_work_item(
         case AurUpdateWorkItemExecutionStatus::NoChangeCleanupFailed:
             return child_status == AurUpdateChildExecutionStatus::
                                        SkippedAsNeededCleanupFailed;
+        case AurUpdateWorkItemExecutionStatus::Cancelled:
         case AurUpdateWorkItemExecutionStatus::Failed:
         case AurUpdateWorkItemExecutionStatus::NotAttempted:
             return child_status == AurUpdateChildExecutionStatus::NotAttempted;
@@ -858,11 +928,11 @@ bool work_item_child_outcomes_are_consistent(
     bool has_installed = false;
     for(const auto& child : work_item.child_results) {
         if(!is_known_child_status(child.status)) return false;
-        if(work_item.devel_execution && work_item.status == AurUpdateWorkItemExecutionStatus::Failed &&
-           work_item.devel_execution->operation == DevelSourceArtifactInstallOperation::Succeeded &&
-           work_item.devel_execution->proof == DevelSourceArtifactInstallProof::Complete &&
-           work_item.devel_execution->artifact && child.status == AurUpdateChildExecutionStatus::Installed && child_selected_artifact_is_coherent(child)) continue;
+        if(retains_authoritative_child_install(work_item, child) && child_selected_artifact_is_coherent(child)) continue;
         switch(work_item.status) {
+            case AurUpdateWorkItemExecutionStatus::BootstrapSkipped:
+                if(child.status != AurUpdateChildExecutionStatus::BootstrapSkipped || child.selected_artifact) return false;
+                break;
             case AurUpdateWorkItemExecutionStatus::Updated:
                 if((child.status != AurUpdateChildExecutionStatus::Installed &&
                     child.status !=
@@ -899,6 +969,7 @@ bool work_item_child_outcomes_are_consistent(
                     return false;
                 }
                 break;
+            case AurUpdateWorkItemExecutionStatus::Cancelled:
             case AurUpdateWorkItemExecutionStatus::Failed:
             case AurUpdateWorkItemExecutionStatus::NotAttempted:
                 if(child.status != AurUpdateChildExecutionStatus::NotAttempted ||
@@ -998,17 +1069,30 @@ bool invocation_result_is_consistent(
     }
     if(has_unknown_status || terminal_count > 1) return false;
 
+    if(execution.phase == AurUpdateInvocationExecutionPhase::BootstrapDecisions) {
+        return execution.status == AurUpdateInvocationExecutionStatus::StoppedOnWorkItemCancellation &&
+               provider_transaction.status == SelectedRepositoryProviderTransactionStatus::NotRequired &&
+               terminal_count == 1 && execution.work_item_results[terminal_position].status == AurUpdateWorkItemExecutionStatus::Cancelled &&
+               std::all_of(execution.work_item_results.begin(), execution.work_item_results.end(), [](const auto& item) {
+                   return item.status == AurUpdateWorkItemExecutionStatus::NotAttempted ||
+                          item.status == AurUpdateWorkItemExecutionStatus::BootstrapSkipped ||
+                          item.status == AurUpdateWorkItemExecutionStatus::Cancelled;
+               });
+    }
+    if(execution.phase != AurUpdateInvocationExecutionPhase::WorkItems) return false;
     if(terminal_count == 1) {
         for(std::size_t position = 0;
             position < execution.work_item_results.size(); ++position) {
             const auto status = execution.work_item_results[position].status;
             if(position < terminal_position &&
                status != AurUpdateWorkItemExecutionStatus::Updated &&
-               status != AurUpdateWorkItemExecutionStatus::NoChange) {
+               status != AurUpdateWorkItemExecutionStatus::NoChange &&
+               status != AurUpdateWorkItemExecutionStatus::BootstrapSkipped) {
                 return false;
             }
             if(position > terminal_position &&
-               status != AurUpdateWorkItemExecutionStatus::NotAttempted) {
+               status != AurUpdateWorkItemExecutionStatus::NotAttempted &&
+               status != AurUpdateWorkItemExecutionStatus::BootstrapSkipped) {
                 return false;
             }
         }
@@ -1021,7 +1105,8 @@ bool invocation_result_is_consistent(
                        return work_item.status ==
                                   AurUpdateWorkItemExecutionStatus::Updated ||
                               work_item.status ==
-                                  AurUpdateWorkItemExecutionStatus::NoChange;
+                                  AurUpdateWorkItemExecutionStatus::NoChange ||
+                              work_item.status == AurUpdateWorkItemExecutionStatus::BootstrapSkipped;
                    });
         case AurUpdateInvocationExecutionStatus::
             StoppedOnProviderTransactionFailure:
@@ -1031,10 +1116,18 @@ bool invocation_result_is_consistent(
                         SelectedRepositoryProviderTransactionStatus::
                             OutcomeUnknown) &&
                    terminal_count == 0 && std::all_of(execution.work_item_results.begin(), execution.work_item_results.end(), [](const AurUpdateWorkItemExecutionResult& work_item) {
+                       // The preflight-aware bootstrap coherence check still
+                       // validates the decision and original root attribution.
                        return work_item.status ==
-                              AurUpdateWorkItemExecutionStatus::
-                                  NotAttempted;
+                                  AurUpdateWorkItemExecutionStatus::
+                                      NotAttempted ||
+                              work_item.status == AurUpdateWorkItemExecutionStatus::BootstrapSkipped;
                    });
+        case AurUpdateInvocationExecutionStatus::StoppedOnWorkItemCancellation:
+            return execution.selected_repository_provider_transaction.is_success() &&
+                   terminal_count == 1 &&
+                   execution.work_item_results[terminal_position].status ==
+                       AurUpdateWorkItemExecutionStatus::Cancelled;
         case AurUpdateInvocationExecutionStatus::StoppedOnWorkItemFailure:
             return execution.selected_repository_provider_transaction.is_success() &&
                    terminal_count == 1 &&
@@ -1057,6 +1150,7 @@ bool is_known_invocation_status(
         case AurUpdateInvocationExecutionStatus::Completed:
         case AurUpdateInvocationExecutionStatus::
             StoppedOnProviderTransactionFailure:
+        case AurUpdateInvocationExecutionStatus::StoppedOnWorkItemCancellation:
         case AurUpdateInvocationExecutionStatus::StoppedOnWorkItemFailure:
         case AurUpdateInvocationExecutionStatus::
             StoppedAfterPackageCleanupFailure:
@@ -1074,6 +1168,8 @@ AurUpdateOperationStatus map_invocation_status(
             StoppedOnProviderTransactionFailure:
             return AurUpdateOperationStatus::
                 StoppedOnProviderTransactionFailure;
+        case AurUpdateInvocationExecutionStatus::StoppedOnWorkItemCancellation:
+            return AurUpdateOperationStatus::StoppedOnWorkItemCancellation;
         case AurUpdateInvocationExecutionStatus::StoppedOnWorkItemFailure:
             return AurUpdateOperationStatus::StoppedOnWorkItemFailure;
         case AurUpdateInvocationExecutionStatus::
@@ -1086,6 +1182,7 @@ AurUpdateOperationStatus map_invocation_status(
 bool is_valid_success_target_snapshot(
     const AurUpdateOperationTargetResult& target,
     DevelRequiresCheckPolicy policy) noexcept {
+    if(target.cancellation.has_value() || target.recipe_acquisition_failure) return false;
     switch(target.status) {
         case AurUpdateOperationTargetStatus::Updated:
         case AurUpdateOperationTargetStatus::NoChange:
@@ -1102,6 +1199,7 @@ bool is_valid_success_target_snapshot(
                         target.skip_kind, policy));
         case AurUpdateOperationTargetStatus::Unsupported:
         case AurUpdateOperationTargetStatus::Incomplete:
+        case AurUpdateOperationTargetStatus::Cancelled:
         case AurUpdateOperationTargetStatus::Failed:
         case AurUpdateOperationTargetStatus::UpdatedCleanupFailed:
         case AurUpdateOperationTargetStatus::NoChangeCleanupFailed:
@@ -1109,6 +1207,77 @@ bool is_valid_success_target_snapshot(
             return false;
     }
     return false;
+}
+
+bool bootstrap_execution_snapshots_are_consistent(
+    const AurUpdateExecutionPreflight& preflight, const AurUpdateSourceBuildExecutionResult& execution) noexcept {
+    const auto owner = [&](const AurUpdateWorkItemExecutionResult& item) -> const AurUpdateExecutionTarget* {
+        if(item.affected_update_plan_indices.empty() || item.child_results.size() != item.affected_update_plan_indices.size()) return nullptr;
+        const AurUpdateExecutionTarget* first = nullptr;
+        for(const auto index : item.affected_update_plan_indices) {
+            if(index >= preflight.targets.size()) return nullptr;
+            const auto& target = preflight.targets[index];
+            const auto child = std::find_if(item.child_results.begin(), item.child_results.end(), [&](const auto& value) {
+                return value.required_package_name == target.update.installed_name;
+            });
+            if(target.update_plan_index != index || !has_aur_update_execution_intent(target.update) ||
+               item.package_base != target.update.aur_package->package_base || child == item.child_results.end() ||
+               child->roles.size() != 1 || child->roles.front() != PackageRole::Root ||
+               (target.update.bootstrap && first && first->update.bootstrap != target.update.bootstrap)) return nullptr;
+            if(target.update.bootstrap && !first) first = &target;
+        }
+        return first;
+    };
+    for(const auto& item : execution.work_item_results) {
+        const auto* target = owner(item);
+        if(item.bootstrap_decision) {
+            if(!target || preflight.devel_requires_check_policy != DevelRequiresCheckPolicy::SkipIndependentTarget) return false;
+            const auto& decision = *item.bootstrap_decision;
+            const auto* accepted = decision.confirmation ? std::get_if<ConfirmationAccepted>(&*decision.confirmation) : nullptr;
+            const auto* declined = decision.confirmation ? std::get_if<ConfirmationDeclined>(&*decision.confirmation) : nullptr;
+            switch(decision.state) {
+                case AurUpdateBootstrapDecisionState::Accepted:
+                    if(!accepted || accepted->origin != ConfirmationDecisionOrigin::ExplicitToken ||
+                       item.status == AurUpdateWorkItemExecutionStatus::BootstrapSkipped) return false;
+                    if(item.status == AurUpdateWorkItemExecutionStatus::Updated &&
+                       (!item.devel_execution || !item.devel_execution->complete ||
+                        item.devel_execution->publication != DevelBuildProvenancePublicationState::Complete)) return false;
+                    break;
+                case AurUpdateBootstrapDecisionState::Declined:
+                    if(!declined || (declined->origin != ConfirmationDecisionOrigin::ExplicitToken && declined->origin != ConfirmationDecisionOrigin::Default)) return false;
+                    if(item.status != AurUpdateWorkItemExecutionStatus::BootstrapSkipped) return false;
+                    break;
+                case AurUpdateBootstrapDecisionState::ObservationChanged:
+                    if(decision.confirmation && (!accepted || accepted->origin != ConfirmationDecisionOrigin::ExplicitToken)) return false;
+                    if(item.status != AurUpdateWorkItemExecutionStatus::BootstrapSkipped) return false;
+                    break;
+                case AurUpdateBootstrapDecisionState::InteractionUnavailable:
+                    if(decision.confirmation || item.status != AurUpdateWorkItemExecutionStatus::BootstrapSkipped) return false;
+                    break;
+                default: return false;
+            }
+        } else if(target &&
+                  (execution.phase != AurUpdateInvocationExecutionPhase::BootstrapDecisions ||
+                   (item.status != AurUpdateWorkItemExecutionStatus::NotAttempted && item.status != AurUpdateWorkItemExecutionStatus::Cancelled))) {
+            return false;
+        }
+        if(item.status != AurUpdateWorkItemExecutionStatus::BootstrapSkipped) {
+            if(!item.bootstrap_skipped_roots.empty()) return false;
+            continue;
+        }
+        if(item.bootstrap_skipped_roots.empty() || item.bootstrap_skipped_roots != item.affected_update_plan_indices ||
+           item.production_outcome || item.devel_execution || item.diagnostic || item.transaction_failure ||
+           !item.unselected_artifacts.empty() || item.failure_kind != AurUpdateWorkItemFailureKind::None) return false;
+        for(const auto root : item.bootstrap_skipped_roots) {
+            if(std::count(item.bootstrap_skipped_roots.begin(), item.bootstrap_skipped_roots.end(), root) != 1 ||
+               !std::any_of(execution.work_item_results.begin(), execution.work_item_results.end(), [&](const auto& decision_item) {
+                   const auto* root_target = owner(decision_item);
+                   return root_target && std::find(decision_item.affected_update_plan_indices.begin(), decision_item.affected_update_plan_indices.end(), root) != decision_item.affected_update_plan_indices.end() && decision_item.bootstrap_decision &&
+                          decision_item.bootstrap_decision->state != AurUpdateBootstrapDecisionState::Accepted;
+               })) return false;
+        }
+    }
+    return true;
 }
 
 } // namespace
@@ -1213,7 +1382,13 @@ bool AurUpdateOperationResult::has_cleanup_failure() const noexcept {
     if(std::any_of(
            execution_work_items.begin(), execution_work_items.end(),
            [](const AurUpdateWorkItemExecutionResult& work_item) {
-               return is_cleanup_failure_status(work_item.status);
+               if(work_item.devel_execution && work_item.devel_execution->closure_review_failure) {
+                   const auto* review = &*work_item.devel_execution->closure_review_failure;
+                   if(review && (review->reason == PinnedClosureReviewFailureReason::Cancelled || review->reason == PinnedClosureReviewFailureReason::Declined) &&
+                      !review->cleanup.succeeded()) return true;
+               }
+               return is_cleanup_failure_status(work_item.status) ||
+                      (work_item.recipe_acquisition_failure && work_item.recipe_acquisition_failure->cleanup);
            })) {
         return true;
     }
@@ -1264,6 +1439,11 @@ AurUpdateOperationResult reduce_aur_update_operation_result(
         result.execution_work_items = execution->work_item_results;
         result.selected_repository_provider_transaction =
             execution->selected_repository_provider_transaction;
+    }
+    if(execution && !bootstrap_execution_snapshots_are_consistent(preflight, *execution)) {
+        add_reduction_issue(result, AurUpdateOperationReductionReason::WorkItemResultInconsistent,
+                            AurUpdateOperationReductionStage::Execution,
+                            localization::translate_message("Devel bootstrap decisions or skipped-root correlations are inconsistent."));
     }
     result.targets.reserve(preflight.targets.size());
 
@@ -2082,10 +2262,12 @@ AurUpdateOperationResult reduce_aur_update_operation_result(
                         continue;
                     }
                     const bool should_have_selected_artifact =
-                        work_item.status !=
-                            AurUpdateWorkItemExecutionStatus::Failed &&
-                        work_item.status != AurUpdateWorkItemExecutionStatus::
-                                                NotAttempted;
+                        retains_authoritative_child_install(work_item, child) || (work_item.status != AurUpdateWorkItemExecutionStatus::BootstrapSkipped &&
+                                                                                  work_item.status != AurUpdateWorkItemExecutionStatus::Cancelled &&
+                                                                                  work_item.status !=
+                                                                                      AurUpdateWorkItemExecutionStatus::Failed &&
+                                                                                  work_item.status != AurUpdateWorkItemExecutionStatus::
+                                                                                                          NotAttempted);
                     if(should_have_selected_artifact !=
                            child.selected_artifact.has_value() ||
                        (should_have_selected_artifact &&
@@ -2104,7 +2286,9 @@ AurUpdateOperationResult reduce_aur_update_operation_result(
                         continue;
                     }
                     const AurUpdateWorkItemExecutionStatus child_status =
-                        work_item.status ==
+                        work_item.status == AurUpdateWorkItemExecutionStatus::Cancelled
+                            ? AurUpdateWorkItemExecutionStatus::Cancelled
+                        : work_item.status ==
                                 AurUpdateWorkItemExecutionStatus::
                                     Failed
                             ? AurUpdateWorkItemExecutionStatus::Failed
@@ -2247,10 +2431,12 @@ AurUpdateOperationResult reduce_aur_update_operation_result(
                 matched_children[child_index] = true;
 
                 const bool should_have_selected_artifact =
-                    work_item.status !=
-                        AurUpdateWorkItemExecutionStatus::Failed &&
-                    work_item.status != AurUpdateWorkItemExecutionStatus::
-                                            NotAttempted;
+                    retains_authoritative_child_install(work_item, child) || (work_item.status != AurUpdateWorkItemExecutionStatus::BootstrapSkipped &&
+                                                                              work_item.status != AurUpdateWorkItemExecutionStatus::Cancelled &&
+                                                                              work_item.status !=
+                                                                                  AurUpdateWorkItemExecutionStatus::Failed &&
+                                                                              work_item.status != AurUpdateWorkItemExecutionStatus::
+                                                                                                      NotAttempted);
                 if(should_have_selected_artifact !=
                        child.selected_artifact.has_value() ||
                    (should_have_selected_artifact &&
@@ -2301,7 +2487,8 @@ AurUpdateOperationResult reduce_aur_update_operation_result(
                     continue;
                 }
 
-                if(work_item.status ==
+                if(work_item.status == AurUpdateWorkItemExecutionStatus::Cancelled ||
+                   work_item.status ==
                        AurUpdateWorkItemExecutionStatus::Failed ||
                    work_item.status == AurUpdateWorkItemExecutionStatus::
                                            NotAttempted) {
@@ -2333,11 +2520,14 @@ AurUpdateOperationResult reduce_aur_update_operation_result(
                     {}, work_item.work_item_index);
             }
 
-            if((work_item.status ==
+            if((work_item.status == AurUpdateWorkItemExecutionStatus::BootstrapSkipped ||
+                work_item.status == AurUpdateWorkItemExecutionStatus::Cancelled ||
+                work_item.status ==
                     AurUpdateWorkItemExecutionStatus::Failed ||
                 work_item.status ==
                     AurUpdateWorkItemExecutionStatus::NotAttempted) &&
-               !work_item.unselected_artifacts.empty()) {
+               !work_item.unselected_artifacts.empty() &&
+               !(work_item.devel_execution && work_item.devel_execution->build_completed)) {
                 add_reduction_issue(
                     result,
                     AurUpdateOperationReductionReason::
@@ -2395,9 +2585,10 @@ AurUpdateOperationResult reduce_aur_update_operation_result(
                 }
             }
 
-            // Failed/current and later NotAttempted work items carry no selected
+            // Cancelled/failed and later NotAttempted work items carry no selected
             // child outcome. Their target projection comes from preparation.
-            if(work_item.status == AurUpdateWorkItemExecutionStatus::Failed ||
+            if(work_item.status == AurUpdateWorkItemExecutionStatus::Cancelled ||
+               work_item.status == AurUpdateWorkItemExecutionStatus::Failed ||
                work_item.status ==
                    AurUpdateWorkItemExecutionStatus::NotAttempted) {
                 for(std::size_t child_index = 0;

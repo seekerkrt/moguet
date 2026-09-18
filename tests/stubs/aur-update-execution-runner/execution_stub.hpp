@@ -1,6 +1,7 @@
 #pragma once
 
 #include "app_config.hpp"
+#include "interactive_confirmation.hpp"
 #include "source_install.hpp"
 #include "trusted_cache.hpp"
 
@@ -112,6 +113,8 @@ void enqueue_transaction_failure(
     std::optional<std::string> returned_package_base = std::nullopt,
     std::optional<ProductionSourceBuildStagedOutcome>
         production_outcome = std::nullopt);
+
+void enqueue_confirmation_stop(ExpectedExecution expected, ConfirmationResult result);
 
 void enqueue_unknown_failure(ExpectedExecution expected);
 

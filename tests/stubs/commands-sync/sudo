@@ -70,6 +70,13 @@ require_commands_sync_pacman_argument_tail() {
 require_commands_sync_sudo_argv() {
     [ "$#" -ge 2 ] && [ "${1:-}" = "pacman" ] || exit 2
     case ${2:-} in
+        -R)
+            # The coordinated transition permits exactly one dependency-checked
+            # removal. No recursive/cascade/nodeps option is a fixture shortcut.
+            [ "$#" -eq 4 ] && [ "$3" = -- ] &&
+                [ "$4" = virtualbox-ext-oracle ] &&
+                [ -n "${MOGUET_TEST_CROSS_SOURCE_PHASE_FILE:-}" ] || exit 2
+            ;;
         -U)
             is_typed_pacman_install "$@" || exit 2
             ;;
@@ -90,6 +97,63 @@ if [ -n "${MOGUET_TEST_SUDO_MAIN_OUTPUT:-}" ]; then
     printf '%s\n' "$MOGUET_TEST_SUDO_MAIN_OUTPUT"
 fi
 exit_code=${MOGUET_TEST_SUDO_MAIN_STATUS:-99}
+if [ -n "${MOGUET_TEST_CROSS_SOURCE_PHASE_FILE:-}" ]; then
+    scenario=${MOGUET_TEST_CROSS_SOURCE_CASE:-success}
+    case $2 in
+        -R)
+            if [ "$scenario" = removal-failure ]; then exit_code=31; fi
+            ;;
+        -Syu|-Su)
+            if [ "$scenario" = repo-failure ]; then exit_code=37; fi
+            ;;
+        -U)
+            if [ "$scenario" = install-failure ]; then exit_code=41; fi
+            ;;
+    esac
+    if [ "$exit_code" -eq 0 ]; then
+        state_file=$MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE
+        phase=
+        case $2 in
+            -R)
+                /usr/bin/awk '$1 != "virtualbox-ext-oracle"' "$state_file" > "$state_file.next"
+                phase=removed
+                ;;
+            -Syu|-Su)
+                version=7.2.18-1
+                if [ "$scenario" = repo-post-mismatch ]; then version=7.2.16-1; fi
+                /usr/bin/awk -v version="$version" '
+                    $1 == "virtualbox" { $2 = version }
+                    { print }
+                ' "$state_file" > "$state_file.next"
+                phase=repository
+                ;;
+            -U)
+                reason=explicit
+                for option in "$@"; do
+                    if [ "$option" = --asdeps ]; then reason=dependency; fi
+                done
+                if [ "$scenario" = post-reason ]; then
+                    if [ "$reason" = explicit ]; then reason=dependency; else reason=explicit; fi
+                fi
+                version=7.2.18-1
+                if [ "$scenario" = post-version ]; then version=7.2.16-1; fi
+                /usr/bin/awk -v scenario="$scenario" '
+                    $1 == "virtualbox-ext-oracle" { next }
+                    $1 == "virtualbox" && scenario == "post-repo-version" { $2 = "7.2.16-1" }
+                    { print }
+                ' "$state_file" > "$state_file.next"
+                printf 'virtualbox-ext-oracle %s %s\n' "$version" "$reason" >> "$state_file.next"
+                phase=installed
+                ;;
+        esac
+        if [ -n "$phase" ]; then
+            /usr/bin/mv -- "$state_file.next" "$state_file"
+            /usr/bin/awk '{print $1, $2}' "$state_file" > "$MOGUET_TEST_PACKAGE_METADATA_STATE_FILE"
+            printf '%s\n' "$phase" > "$MOGUET_TEST_CROSS_SOURCE_PHASE_FILE"
+            printf 'fixture phase %s\n' "$phase" >> "$MOGUET_TEST_COMMAND_LOG"
+        fi
+    fi
+fi
 if [ "$exit_code" -eq 0 ] && is_typed_pacman_install "$@"; then
     state_after_success_file=${MOGUET_TEST_MAKEPKG_PACKAGE_METADATA_STATE_AFTER_SUCCESS_FILE:-}
     metadata_state_file=${MOGUET_TEST_PACKAGE_METADATA_STATE_FILE:-}

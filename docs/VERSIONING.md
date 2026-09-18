@@ -77,7 +77,7 @@ PATCH は後方互換な変更だけを含める。ただし、後方互換で�
 
 ### v2.0.1の限定例外
 
-#335は、v2.0.0で承認済みのXDG storage移行からsource-build preferenceだけが漏れ、legacy
+Issue #335は、v2.0.0で承認済みのXDG storage移行からsource-build preferenceだけが漏れ、legacy
 system storeをruntime authorityとして残した不具合を修正する。新しいstorage policyを導入する
 のではなく、`${XDG_CONFIG_HOME:-$HOME/.config}/moguet/source-build.d/`へ既存のv2 XDG契約を
 完成させる変更であるため、v2.0.1の限定的なPATCH例外として扱う。

@@ -12,6 +12,8 @@
 struct InstalledExactPackage {
     std::string package_name;
     ObservedVersion observed_version;
+
+    bool operator==(const InstalledExactPackage&) const = default;
 };
 
 struct InstalledExactPackageAbsent {

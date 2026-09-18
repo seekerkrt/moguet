@@ -205,6 +205,7 @@ bool is_valid_reviewed_outcome(
     ProductionReviewedSourceOutcome outcome) noexcept {
     switch(outcome) {
         case ProductionReviewedSourceOutcome::InitialFullReview:
+        case ProductionReviewedSourceOutcome::BootstrapFullReview:
         case ProductionReviewedSourceOutcome::UpdateReview:
         case ProductionReviewedSourceOutcome::RebaselineFullReview:
         case ProductionReviewedSourceOutcome::
@@ -449,7 +450,8 @@ bool same_required_target(
     const RequiredPackageArtifactTarget& rhs) noexcept {
     return lhs.package_base == rhs.package_base &&
            lhs.package_name == rhs.package_name &&
-           lhs.desired_reason == rhs.desired_reason;
+           lhs.desired_reason == rhs.desired_reason &&
+           lhs.expected_full_version == rhs.expected_full_version;
 }
 
 struct PreparedInvocationProjection {

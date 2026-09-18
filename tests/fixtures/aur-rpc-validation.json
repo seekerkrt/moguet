@@ -1,5 +1,46 @@
 {
   "packages": {
+    "free-text-description": {
+      "Name": "free-text-description",
+      "PackageBase": "free-text-description",
+      "Version": "1.0-1",
+      "Description": "\u001b[31mDESC\u001b[0m",
+      "Maintainer": "fixture-maintainer"
+    },
+    "free-text-maintainer": {
+      "Name": "free-text-maintainer",
+      "PackageBase": "free-text-maintainer",
+      "Version": "1.0-1",
+      "Description": "normal description",
+      "Maintainer": "\u001b[31mMAINT\u001b[0m"
+    },
+    "free-text-utf8": {
+      "Name": "free-text-utf8",
+      "PackageBase": "free-text-utf8",
+      "Version": "1.0-1",
+      "Description": "日本語 café 😀",
+      "Maintainer": "日本語 café 😀"
+    },
+    "free-text-controls": {
+      "Name": "free-text-controls",
+      "PackageBase": "free-text-controls",
+      "Version": "1.0-1",
+      "Description": "TEXT\t\n\r\u0000\u007f\u0085\\END",
+      "Maintainer": "TEXT\t\n\r\u0000\u007f\u0085\\END"
+    },
+    "free-text-empty": {
+      "Name": "free-text-empty",
+      "PackageBase": "free-text-empty",
+      "Version": "1.0-1",
+      "Description": "",
+      "Maintainer": ""
+    },
+    "depends-control": {
+      "Name": "depends-control",
+      "PackageBase": "depends-control",
+      "Version": "1.0-1",
+      "Depends": ["dependency>=1\u001b[31m"]
+    },
     "valid-minimal": {
       "Name": "valid-minimal",
       "PackageBase": "valid-minimal",
@@ -540,6 +581,11 @@
     }
   },
   "providers": {
+    "free-text-description": ["free-text-description"],
+    "free-text-maintainer": ["free-text-maintainer"],
+    "free-text-utf8": ["free-text-utf8"],
+    "free-text-controls": ["free-text-controls"],
+    "free-text-empty": ["free-text-empty"],
     "search-valid-query": ["search-valid-entry"],
     "search-invalid-query": ["search-invalid-entry"],
     "virtual-one": ["provider-one"],

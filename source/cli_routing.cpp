@@ -12,10 +12,11 @@
 
 namespace {
 
-// POLICY(#505): composite candidateのsemantic authorityはexact tokenだけとする。
+// POLICY(#505,#554): composite candidateのsemantic authorityはexact tokenだけとする。
 // cli_authority側の同綴りはpublic grammar identityであり、classifierの
 // target/selector/option semanticsやparser allowlistを置き換えない。
-constexpr std::string_view CANONICAL_SYSTEM_UPDATE_OPERATION = "-Syu";
+constexpr std::string_view SYSTEM_UPDATE_WITH_REFRESH_OPERATION = "-Syu";
+constexpr std::string_view SYSTEM_UPDATE_OPERATION = "-Su";
 
 std::string package_source_selection_option(PackageSourceSelection selection) {
     switch(selection) {
@@ -293,7 +294,8 @@ SourceSelectableSyncOperation source_selectable_sync_operation(const ParsedCliAr
 
 SyncInvocationRouteClassification classify_sync_invocation_route(
     const ParsedCliArguments& parsed) {
-    if(parsed.operation != CANONICAL_SYSTEM_UPDATE_OPERATION ||
+    if((parsed.operation != SYSTEM_UPDATE_WITH_REFRESH_OPERATION &&
+        parsed.operation != SYSTEM_UPDATE_OPERATION) ||
        !parsed.targets.empty()) {
         return OtherSyncRoute{};
     }

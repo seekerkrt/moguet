@@ -3,6 +3,7 @@
 #include "trusted_cache.hpp"
 
 #include <filesystem>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -14,6 +15,12 @@ bool has_safe_persistent_checkout_git_directory(const ValidatedCachePath& checko
 // checkout identity and recursive .git safety proof as its narrow boundary.
 void require_safe_persistent_checkout_git_metadata(
     const ValidatedCachePath& checkout);
+
+// Acquisition-only bounded companion. A caller-owned checkpoint can throw
+// before every directory read and metadata visit; normal review callers keep
+// the original validation policy and failure taxonomy.
+void require_safe_persistent_checkout_git_metadata(
+    const ValidatedCachePath& checkout, const std::function<void()>& checkpoint);
 
 // A missing-object result is authoritative only while every regular .git
 // metadata file remains readable through the same descriptor-safe traversal.

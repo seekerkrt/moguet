@@ -22,6 +22,9 @@ struct AurDevelUpdateObservation {
     std::size_t plan_index;
     std::shared_ptr<const DevelPackageAssessment> evidence;
     std::shared_ptr<const AurDevelUpdateContextObservation> context = nullptr;
+    // Trial diagnostics are separate from the original assessment and never
+    // authorize execution. Empty also covers a trial that was not attempted.
+    std::optional<DevelTrackingBootstrapUnavailable> bootstrap_unavailable = std::nullopt;
     bool operator==(const AurDevelUpdateObservation&) const = default;
 };
 

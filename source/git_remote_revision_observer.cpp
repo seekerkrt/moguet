@@ -24,6 +24,10 @@ namespace {
 constexpr std::string_view GIT_REMOTE_OBSERVER_EXECUTABLE =
     "/usr/bin/git";
 
+#if defined(MOGUET_ENABLE_GIT_REMOTE_REVISION_OBSERVER_TEST_HOOKS) || defined(MOGUET_ENABLE_EVALUATED_DEVEL_SOURCE_BUILD_TEST_HOOKS)
+ExactGitBranchValidationProcessTestHook g_exact_branch_process_test_hook;
+#endif
+
 class OwnedObserverDescriptor final {
 public:
     explicit OwnedObserverDescriptor(int descriptor = -1) noexcept
@@ -673,8 +677,18 @@ ExactGitBranchValidationResult validate_exact_git_branch(
         GIT_REMOTE_OBSERVER_PROCESS_TERMINATION_GRACE,
         VALIDATED_EXACT_GIT_BRANCH_MAX_INPUT_BYTES + 1U,
         true};
-    BoundedCapturedProcessResult process_result =
-        capture_bounded_explicit_process_output_raw(invocation, policy);
+    BoundedCapturedProcessResult process_result = [&] {
+#if defined(MOGUET_ENABLE_GIT_REMOTE_REVISION_OBSERVER_TEST_HOOKS) || defined(MOGUET_ENABLE_EVALUATED_DEVEL_SOURCE_BUILD_TEST_HOOKS)
+        if(g_exact_branch_process_test_hook) return g_exact_branch_process_test_hook(invocation, policy);
+#endif
+        return capture_bounded_explicit_process_output_raw(invocation, policy);
+    }();
+
+    if(process_result.cancellation_signal) {
+        return ExactGitBranchValidationProcessFailure{
+            ExactGitBranchValidationProcessFailureReason::Cancelled,
+            std::nullopt, std::move(process_result.outcome), process_result.cancellation_signal};
+    }
 
     if(const auto* exited =
            std::get_if<BoundedProcessExited>(&process_result.outcome)) {
@@ -719,6 +733,12 @@ ExactGitBranchValidationResult validate_exact_git_branch(
     throw std::logic_error(
         "Unknown exact Git branch validation process outcome.");
 }
+
+#if defined(MOGUET_ENABLE_GIT_REMOTE_REVISION_OBSERVER_TEST_HOOKS) || defined(MOGUET_ENABLE_EVALUATED_DEVEL_SOURCE_BUILD_TEST_HOOKS)
+void set_exact_git_branch_validation_process_test_hook(ExactGitBranchValidationProcessTestHook hook) {
+    g_exact_branch_process_test_hook = std::move(hook);
+}
+#endif
 
 ValidatedGitRemoteSelector::ValidatedGitRemoteSelector(
     ValidatedGitRemoteSelectorKind kind,

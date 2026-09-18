@@ -51,6 +51,34 @@ const char* bool_text(bool value) {
     return value ? "true" : "false";
 }
 
+bool is_preparation_presentation_scenario() {
+    return scenario().starts_with("reviewed-preparation-") ||
+           scenario() == "preparation-reason-unavailable";
+}
+
+bool accepts_update_policy(DevelRequiresCheckPolicy policy) {
+    return policy == DevelRequiresCheckPolicy::BlockOperation ||
+           (is_preparation_presentation_scenario() &&
+            policy == DevelRequiresCheckPolicy::SkipIndependentTarget);
+}
+
+ReviewedSourceProductionFailure reviewed_preparation_failure() {
+    ReviewedSourceProductionFailureReason reason =
+        ReviewedSourceProductionFailureReason::UnsafeHistory;
+    if(scenario() == "reviewed-preparation-store") {
+        reason = ReviewedSourceProductionFailureReason::StateStoreFailure;
+    } else if(scenario() == "reviewed-preparation-future") {
+        reason = ReviewedSourceProductionFailureReason::UnsupportedFuture;
+    } else if(scenario() == "reviewed-preparation-inconsistent") {
+        reason = ReviewedSourceProductionFailureReason::InconsistentStateObservation;
+    } else if(scenario() == "reviewed-preparation-unknown") {
+        reason = static_cast<ReviewedSourceProductionFailureReason>(999);
+    }
+    return ReviewedSourceProductionFailure{
+        ReviewedSourceProductionFailureStage::FatalStatePreflight,
+        reason, std::monostate{}};
+}
+
 ProductionSourceBuildProvenance reviewed_source_provenance(
     ProductionReviewedSourceOutcome outcome,
     std::uint64_t generation,
@@ -228,6 +256,8 @@ AurUpdateWorkItemExecutionResult make_work_item_result(
     child.affected_roots = {{update_plan_index, package_name}};
     child.roles = {PackageRole::Root};
     switch(status) {
+        case AurUpdateWorkItemExecutionStatus::BootstrapSkipped:
+            throw std::logic_error("Standalone fixture cannot mint bootstrap results.");
         case AurUpdateWorkItemExecutionStatus::Updated:
             child.selected_artifact =
                 ArtifactPackageIdentity{package_name, "2.0-1"};
@@ -250,10 +280,15 @@ AurUpdateWorkItemExecutionResult make_work_item_result(
             child.status = AurUpdateChildExecutionStatus::
                 SkippedAsNeededCleanupFailed;
             break;
+        case AurUpdateWorkItemExecutionStatus::Cancelled:
         case AurUpdateWorkItemExecutionStatus::Failed:
         case AurUpdateWorkItemExecutionStatus::NotAttempted:
             child.status = AurUpdateChildExecutionStatus::NotAttempted;
             break;
+    }
+    if(status == AurUpdateWorkItemExecutionStatus::Cancelled) {
+        result.failure_kind = AurUpdateWorkItemFailureKind::None;
+        result.cancellation = ConfirmationCancelled{ConfirmationCancellationReason::ExplicitToken};
     }
     result.child_results.push_back(std::move(child));
     return result;
@@ -381,6 +416,7 @@ bool target_status_is_success(
             return true;
         case AurUpdateOperationTargetStatus::Unsupported:
         case AurUpdateOperationTargetStatus::Incomplete:
+        case AurUpdateOperationTargetStatus::Cancelled:
         case AurUpdateOperationTargetStatus::Failed:
         case AurUpdateOperationTargetStatus::UpdatedCleanupFailed:
         case AurUpdateOperationTargetStatus::NoChangeCleanupFailed:
@@ -393,9 +429,12 @@ bool target_status_is_success(
 bool work_item_status_is_success(
     AurUpdateWorkItemExecutionStatus status) noexcept {
     switch(status) {
+        case AurUpdateWorkItemExecutionStatus::BootstrapSkipped:
+            return false;
         case AurUpdateWorkItemExecutionStatus::Updated:
         case AurUpdateWorkItemExecutionStatus::NoChange:
             return true;
+        case AurUpdateWorkItemExecutionStatus::Cancelled:
         case AurUpdateWorkItemExecutionStatus::Failed:
         case AurUpdateWorkItemExecutionStatus::UpdatedCleanupFailed:
         case AurUpdateWorkItemExecutionStatus::NoChangeCleanupFailed:
@@ -416,6 +455,7 @@ bool invocation_status_matches_operation(
                    *status == AurUpdateInvocationExecutionStatus::Completed;
         case AurUpdateOperationStatus::BlockedBeforeExecution:
         case AurUpdateOperationStatus::StoppedOnProviderTransactionFailure:
+        case AurUpdateOperationStatus::StoppedOnWorkItemCancellation:
         case AurUpdateOperationStatus::StoppedOnWorkItemFailure:
         case AurUpdateOperationStatus::StoppedAfterPackageCleanupFailure:
         case AurUpdateOperationStatus::InconsistentResult:
@@ -458,6 +498,11 @@ AurUpdateQueryResult query_installed_aur_updates() {
 
     AurUpdateQueryResult query;
     const std::string& test_scenario = scenario();
+    if(is_preparation_presentation_scenario()) {
+        query.plan.entries.push_back(make_plan_entry(
+            "preparation-pkg", AurUpdateClassification::UpdateAvailable));
+        return query;
+    }
     if(test_scenario == "no-installed-foreign") return query;
     if(test_scenario == "all-up-to-date") {
         query.plan.entries.push_back(make_plan_entry(
@@ -631,16 +676,19 @@ AurUpdateQueryResult query_installed_aur_updates() {
 }
 
 AurUpdateQueryResult query_aur_updates_for_foreign_inventory(
-    ForeignPackageInventory) {
-    throw std::logic_error(
-        "System AUR update queries are outside the upgrade-aur command fixture.");
+    ForeignPackageInventory inventory) {
+    if(!is_preparation_presentation_scenario() || inventory.size() != 1 ||
+       inventory.front().name != "preparation-pkg") {
+        throw std::logic_error("Unexpected system AUR preparation fixture inventory.");
+    }
+    append_event("query post-repository inventory");
+    return query_installed_aur_updates();
 }
 
 AurUpdateExecutionPreflight resolve_aur_update_execution_preflight(
     const AurUpdatePlan& update_plan,
     DevelRequiresCheckPolicy devel_requires_check_policy) {
-    if(devel_requires_check_policy !=
-       DevelRequiresCheckPolicy::BlockOperation) {
+    if(!accepts_update_policy(devel_requires_check_policy)) {
         throw std::logic_error(
             "AUR update command did not request BlockOperation RequiresCheck policy.");
     }
@@ -802,16 +850,16 @@ AurUpdateSourceBuildPreparation prepare_aur_update_source_build_invocation(
     SavedSourcePreferencePolicy saved_source_preference_policy,
     bool needed,
     const AppConfig& config) {
-    if(devel_requires_check_policy !=
-           DevelRequiresCheckPolicy::BlockOperation ||
-       preflight.devel_requires_check_policy !=
-           std::optional<DevelRequiresCheckPolicy>{
-               DevelRequiresCheckPolicy::BlockOperation}) {
+    if(!accepts_update_policy(devel_requires_check_policy) ||
+       preflight.devel_requires_check_policy != devel_requires_check_policy) {
         throw std::logic_error(
             "upgrade-aur command lost its BlockOperation RequiresCheck snapshot.");
     }
-    if(saved_source_preference_policy !=
-       SavedSourcePreferencePolicy::Strict) {
+    const SavedSourcePreferencePolicy expected_preference_policy =
+        devel_requires_check_policy == DevelRequiresCheckPolicy::SkipIndependentTarget
+            ? SavedSourcePreferencePolicy::Ignore
+            : SavedSourcePreferencePolicy::Strict;
+    if(saved_source_preference_policy != expected_preference_policy) {
         throw std::logic_error(
             "upgrade-aur command did not request strict saved source preferences.");
     }
@@ -840,6 +888,23 @@ AurUpdateSourceBuildPreparation prepare_aur_update_source_build_invocation(
             AurUpdatePreparationReason::SourcePreferenceUnavailable,
             0,
             "fixture source preference read failed"));
+    }
+    if(is_preparation_presentation_scenario()) {
+        // The production catch cannot publish an invocation after fatal
+        // preparation. Keep this distinct from the legacy Incomplete fixture.
+        preparation.invocation.reset();
+        AurUpdatePreparationIssue issue = make_preparation_issue(
+            AurUpdatePreparationReason::GenericPreparationInconsistent,
+            0, "fixture has no typed reviewed-source reason");
+        if(scenario() != "preparation-reason-unavailable") {
+            issue.reviewed_source_failure = reviewed_preparation_failure();
+            issue.diagnostic = reviewed_source_production_failure_diagnostic(
+                *issue.reviewed_source_failure);
+            if(scenario() == "reviewed-preparation-typed-authority") {
+                issue.diagnostic = "unrelated preparation display text";
+            }
+        }
+        preparation.issues.push_back(std::move(issue));
     }
     if(scenario() == "preparation-warning") {
         AurUpdatePreparationWarning warning;
@@ -986,14 +1051,9 @@ AurUpdateOperationResult reduce_aur_update_operation_result(
     const AurUpdateSourceBuildPreparation& preparation,
     DevelRequiresCheckPolicy devel_requires_check_policy,
     const std::optional<AurUpdateSourceBuildExecutionResult>& execution) {
-    if(devel_requires_check_policy !=
-           DevelRequiresCheckPolicy::BlockOperation ||
-       preflight.devel_requires_check_policy !=
-           std::optional<DevelRequiresCheckPolicy>{
-               DevelRequiresCheckPolicy::BlockOperation} ||
-       preparation.devel_requires_check_policy !=
-           std::optional<DevelRequiresCheckPolicy>{
-               DevelRequiresCheckPolicy::BlockOperation}) {
+    if(!accepts_update_policy(devel_requires_check_policy) ||
+       preflight.devel_requires_check_policy != devel_requires_check_policy ||
+       preparation.devel_requires_check_policy != devel_requires_check_policy) {
         throw std::logic_error(
             "AUR update command reducer lost its BlockOperation policy snapshot.");
     }
@@ -1048,6 +1108,30 @@ AurUpdateOperationResult reduce_aur_update_operation_result(
         result.status = AurUpdateOperationStatus::BlockedBeforeExecution;
         result.targets.front().status = AurUpdateOperationTargetStatus::Incomplete;
         result.targets.front().preparation_issues = preparation.issues;
+        return result;
+    }
+    if(is_preparation_presentation_scenario()) {
+        if(execution.has_value() || preparation.invocation.has_value()) {
+            throw std::logic_error("Reviewed preparation fixture unexpectedly executed.");
+        }
+        result.status = AurUpdateOperationStatus::BlockedBeforeExecution;
+        auto& target = result.targets.front();
+        target.status = AurUpdateOperationTargetStatus::Failed;
+        target.preparation_issues = preparation.issues;
+        if(test_scenario == "reviewed-preparation-execution-priority" ||
+           test_scenario == "reviewed-preparation-unknown-execution") {
+            // Defensive snapshots must not let a known preparation reason
+            // override an execution failure or hide an unknown execution kind.
+            target.execution_failure_kind =
+                test_scenario == "reviewed-preparation-unknown-execution"
+                    ? static_cast<AurUpdateWorkItemFailureKind>(999)
+                    : AurUpdateWorkItemFailureKind::BuildOrInstallFailed;
+            target.execution_failure_detail = AurUpdateSourceBuildFailureSnapshot{
+                AurUpdateSourceBuildFailureCategory::Build,
+                "fixture execution diagnostic", std::nullopt};
+        } else if(test_scenario == "reviewed-preparation-none") {
+            target.execution_failure_kind = AurUpdateWorkItemFailureKind::None;
+        }
         return result;
     }
     if(test_scenario == "all-updated" ||
@@ -1743,13 +1827,15 @@ PreparedFilteredAurUpdateOperation prepare_filtered_aur_update_operation(
         throw std::logic_error(
             "AUR update command stub requires no explicit source satisfaction.");
     }
-    if(devel_requires_check_policy !=
-       DevelRequiresCheckPolicy::BlockOperation) {
+    if(!accepts_update_policy(devel_requires_check_policy)) {
         throw std::logic_error(
             "AUR update command stub requires BlockOperation RequiresCheck policy.");
     }
-    if(saved_source_preference_policy !=
-       SavedSourcePreferencePolicy::Strict) {
+    const SavedSourcePreferencePolicy expected_preference_policy =
+        devel_requires_check_policy == DevelRequiresCheckPolicy::SkipIndependentTarget
+            ? SavedSourcePreferencePolicy::Ignore
+            : SavedSourcePreferencePolicy::Strict;
+    if(saved_source_preference_policy != expected_preference_policy) {
         throw std::logic_error(
             "AUR update command stub requires strict saved source preferences.");
     }
@@ -1875,4 +1961,17 @@ bool FilteredAurUpdateExecutionResult::
                devel_requires_check_policy &&
            reduced_operation_result.devel_requires_check_policy ==
                devel_requires_check_policy;
+}
+
+FilteredAurUpdateCancelled::FilteredAurUpdateCancelled(FilteredAurUpdateExecutionResult result) noexcept
+    : result_(std::move(result)) {
+}
+const FilteredAurUpdateExecutionResult& FilteredAurUpdateCancelled::result() const noexcept {
+    return result_;
+}
+FilteredAurUpdateExecutionResult FilteredAurUpdateCancelled::release_result() && noexcept {
+    return std::move(result_);
+}
+const char* FilteredAurUpdateCancelled::what() const noexcept {
+    return "AUR update cancelled; partial execution results retained.";
 }

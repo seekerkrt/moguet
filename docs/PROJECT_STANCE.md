@@ -65,12 +65,12 @@ Moguet の当面の役割は、pacman / makepkg の流れを尊重しつつ、AU
 
 重視すること:
 
-* AUR package を安全に build / install できること
-* AUR RPC の情報を使って判断材料を表示すること
-* 導入済み、out-of-date、PackageBase などの状態を分かりやすくすること
-* root / sudo 実行など危険な使い方を防ぐこと
-* `--noconfirm`、対話プロンプト、default selection の挙動を一貫させること
-* pacman / makepkg に任せるべきことを Moguet 側で抱え込みすぎないこと
+- AUR package を安全に build / install できること
+- AUR RPC の情報を使って判断材料を表示すること
+- 導入済み、out-of-date、PackageBase などの状態を分かりやすくすること
+- root / sudo 実行など危険な使い方を防ぐこと
+- `--noconfirm`、対話プロンプト、default selection の挙動を一貫させること
+- pacman / makepkg に任せるべきことを Moguet 側で抱え込みすぎないこと
 
 ## 将来のbuild tuningで広げたい方向
 
@@ -80,11 +80,11 @@ Moguet が扱うべきなのは、Arch 全体をソースビルド化するこ�
 
 たとえば:
 
-* 公式 PKGBUILD に小さな patch を当てる
-* 一部の build option を記録する
-* kernel config などの差分を保存する
-* 更新時に自分の差分を再適用する
-* 差分が当たらなくなった場合は安全に停止して確認する
+- 公式 PKGBUILD に小さな patch を当てる
+- 一部の build option を記録する
+- kernel config などの差分を保存する
+- 更新時に自分の差分を再適用する
+- 差分が当たらなくなった場合は安全に停止して確認する
 
 これは「Arch を別物にする」ためではなく、Arch の仕組みに乗ったまま、必要な部分だけを調律するための機能である。
 
@@ -92,13 +92,13 @@ Moguet が扱うべきなのは、Arch 全体をソースビルド化するこ�
 
 今後の機能追加で迷った場合は、以下を判断基準にする。
 
-* pacman / makepkg に任せるべきことを奪っていないか
-* Arch の基本運用を壊していないか
-* AUR helper として必要な判断材料や安全導線になっているか
-* 危険な操作が暗黙に実行されないか
-* 明示オプション、確認、default の関係が分かりやすいか
-* 既存 AUR helper の単なる模倣になっていないか
-* 自分の Arch / AUR 運用を安全に支える道具になっているか
+- pacman / makepkg に任せるべきことを奪っていないか
+- Arch の基本運用を壊していないか
+- AUR helper として必要な判断材料や安全導線になっているか
+- 危険な操作が暗黙に実行されないか
+- 明示オプション、確認、default の関係が分かりやすいか
+- 既存 AUR helper の単なる模倣になっていないか
+- 自分の Arch / AUR 運用を安全に支える道具になっているか
 
 ## まとめ
 

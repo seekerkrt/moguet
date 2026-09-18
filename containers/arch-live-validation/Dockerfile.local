@@ -97,6 +97,13 @@ RUN env -u MAKEFLAGS -u MFLAGS make clean \
 
 USER root:root
 
+# Install the production helper at its compiled canonical path. This fixture
+# grants sudo access only to the installed payload and canonical pacman gateway.
+RUN cmake --install build/cmake-production \
+    && test "$(stat -c '%U:%G:%a:%F' \
+        /usr/local/libexec/moguet/moguet-source-artifact-install-helper)" = \
+        'root:root:755:regular file'
+
 # Only this local-validation gateway can reach the real pacman. It accepts one
 # selected reviewed provider and one staged local fixture artifact.
 RUN install -d -o root -g root -m 0755 \
@@ -124,6 +131,7 @@ RUN install -d -o root -g root -m 0755 \
     && printf '%s\n' \
         'Defaults:moguet-validation env_keep += "MOGUET_LIVE_LOCAL_CASE"' \
         'moguet-validation ALL=(root) NOPASSWD: /usr/bin/pacman *' \
+        'moguet-validation ALL=(root) NOPASSWD: /usr/local/libexec/moguet/moguet-source-artifact-install-helper *' \
         > /etc/sudoers.d/moguet-live-local \
     && chown root:root /etc/sudoers.d/moguet-live-local \
     && chmod 0440 /etc/sudoers.d/moguet-live-local \

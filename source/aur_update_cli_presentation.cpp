@@ -1,6 +1,8 @@
 #include "aur_update_cli_presentation.hpp"
 
 #include "aur_update_operation_result.hpp"
+#include "application_identity.hpp"
+#include "cross_source_version_lock_observation.hpp"
 #include "localization.hpp"
 #include "reviewed_source_production_failure.hpp"
 #include "reviewed_source_production_outcome.hpp"
@@ -225,7 +227,7 @@ std::string failure_detail_summary(
     return std::visit(
         [](const auto& failure) -> std::string {
             using Failure = std::decay_t<decltype(failure)>;
-            if constexpr(std::is_same_v<Failure, std::monostate>) {
+            if constexpr(std::is_same_v<Failure, std::monostate> || std::is_same_v<Failure, TrustedCacheFailure>) {
                 return localization::translate_message(
                     "build or install failure");
             } else if constexpr(std::is_same_v<
@@ -265,8 +267,10 @@ std::string failure_detail_summary(
 bool is_known_work_item_status(
     AurUpdateWorkItemExecutionStatus status) noexcept {
     switch(status) {
+        case AurUpdateWorkItemExecutionStatus::BootstrapSkipped:
         case AurUpdateWorkItemExecutionStatus::Updated:
         case AurUpdateWorkItemExecutionStatus::NoChange:
+        case AurUpdateWorkItemExecutionStatus::Cancelled:
         case AurUpdateWorkItemExecutionStatus::Failed:
         case AurUpdateWorkItemExecutionStatus::UpdatedCleanupFailed:
         case AurUpdateWorkItemExecutionStatus::NoChangeCleanupFailed:
@@ -278,6 +282,7 @@ bool is_known_work_item_status(
 
 bool is_known_child_status(AurUpdateChildExecutionStatus status) noexcept {
     switch(status) {
+        case AurUpdateChildExecutionStatus::BootstrapSkipped:
         case AurUpdateChildExecutionStatus::Installed:
         case AurUpdateChildExecutionStatus::SkippedAsNeeded:
         case AurUpdateChildExecutionStatus::InstalledCleanupFailed:
@@ -300,11 +305,14 @@ bool child_status_matches_work_item(
     AurUpdateWorkItemExecutionStatus work_item_status,
     AurUpdateChildExecutionStatus child_status) noexcept {
     switch(work_item_status) {
+        case AurUpdateWorkItemExecutionStatus::BootstrapSkipped:
+            return child_status == AurUpdateChildExecutionStatus::BootstrapSkipped;
         case AurUpdateWorkItemExecutionStatus::Updated:
             return child_status == AurUpdateChildExecutionStatus::Installed ||
                    child_status == AurUpdateChildExecutionStatus::SkippedAsNeeded;
         case AurUpdateWorkItemExecutionStatus::NoChange:
             return child_status == AurUpdateChildExecutionStatus::SkippedAsNeeded;
+        case AurUpdateWorkItemExecutionStatus::Cancelled:
         case AurUpdateWorkItemExecutionStatus::Failed:
         case AurUpdateWorkItemExecutionStatus::NotAttempted:
             return child_status == AurUpdateChildExecutionStatus::NotAttempted;
@@ -324,8 +332,11 @@ bool failure_kind_matches_work_item(
     AurUpdateWorkItemExecutionStatus status,
     AurUpdateWorkItemFailureKind kind) noexcept {
     switch(status) {
+        case AurUpdateWorkItemExecutionStatus::BootstrapSkipped:
         case AurUpdateWorkItemExecutionStatus::Updated:
         case AurUpdateWorkItemExecutionStatus::NoChange:
+            return kind == AurUpdateWorkItemFailureKind::None;
+        case AurUpdateWorkItemExecutionStatus::Cancelled:
             return kind == AurUpdateWorkItemFailureKind::None;
         case AurUpdateWorkItemExecutionStatus::Failed:
             return kind == AurUpdateWorkItemFailureKind::AuthoritativeExecutionIncomplete || kind == AurUpdateWorkItemFailureKind::BuildOrInstallFailed ||
@@ -379,7 +390,18 @@ void require_coherent_work_item(
             // TRANSLATORS: AUR is a runtime project identity.
             "Unknown {} work-item execution status.", "AUR"));
     }
-    if(work_item.package_base.empty() || work_item.child_results.empty() ||
+    const bool cancelled = work_item.status == AurUpdateWorkItemExecutionStatus::Cancelled;
+    const bool acquisition_cancelled = work_item.recipe_acquisition_failure &&
+                                       work_item.recipe_acquisition_failure->reason == RecipeAcquisitionFailureReason::Cancelled;
+    const bool valid_cancellation = !(work_item.cancellation && acquisition_cancelled) &&
+                                    cancelled == (work_item.cancellation.has_value() || acquisition_cancelled) &&
+                                    (!work_item.cancellation ||
+                                     work_item.cancellation->reason == ConfirmationCancellationReason::ExplicitToken ||
+                                     work_item.cancellation->reason == ConfirmationCancellationReason::EndOfInput);
+    if(!valid_cancellation ||
+       (cancelled && (work_item.production_outcome || work_item.devel_execution || work_item.diagnostic) &&
+        !has_consistent_closure_review_cancellation(work_item)) ||
+       work_item.package_base.empty() || work_item.child_results.empty() ||
        work_item.child_results.size() != work_item.plan_package_names.size() ||
        !failure_kind_matches_work_item(work_item.status, work_item.failure_kind)) {
         throw std::logic_error(localization::format_translated_message(
@@ -421,7 +443,8 @@ void require_coherent_work_item(
            (!child_status_matches_work_item(work_item.status, child.status) &&
             !(work_item.devel_execution && work_item.status == AurUpdateWorkItemExecutionStatus::Failed &&
               work_item.devel_execution->operation == DevelSourceArtifactInstallOperation::Succeeded &&
-              work_item.devel_execution->proof == DevelSourceArtifactInstallProof::Complete && child.status == AurUpdateChildExecutionStatus::Installed))) {
+              work_item.devel_execution->receipt == DevelSourceArtifactInstallReceipt::Complete &&
+              child.status == AurUpdateChildExecutionStatus::Installed))) {
             throw std::logic_error(localization::format_translated_message(
                 // TRANSLATORS: AUR is a runtime project identity.
                 "{} child presentation snapshot is incoherent.", "AUR"));
@@ -486,9 +509,10 @@ void require_coherent_work_item(
                 "Unselected {} artifact identity is incoherent.", "AUR"));
         }
     }
-    if((work_item.status == AurUpdateWorkItemExecutionStatus::Failed ||
+    if((work_item.status == AurUpdateWorkItemExecutionStatus::Cancelled ||
+        work_item.status == AurUpdateWorkItemExecutionStatus::Failed ||
         work_item.status == AurUpdateWorkItemExecutionStatus::NotAttempted) &&
-       !work_item.unselected_artifacts.empty()) {
+       !work_item.unselected_artifacts.empty() && !work_item.devel_execution) {
         throw std::logic_error(localization::format_translated_message(
             // TRANSLATORS: AUR is a runtime project identity.
             "Uncompleted {} work item retained unselected artifacts.",
@@ -575,6 +599,9 @@ bool is_ordinary_singular_success(
 std::string child_outcome_label(
     const AurUpdateWorkItemExecutionResult& work_item,
     AurUpdateChildExecutionStatus status) {
+    if(work_item.status == AurUpdateWorkItemExecutionStatus::Cancelled) {
+        return localization::translate_message("Cancelled");
+    }
     if(status == AurUpdateChildExecutionStatus::NotAttempted && work_item.devel_execution) {
         const auto operation = work_item.devel_execution->operation;
         if(operation == DevelSourceArtifactInstallOperation::Succeeded) return localization::translate_message("transaction succeeded; exact installed proof unavailable");
@@ -582,6 +609,8 @@ std::string child_outcome_label(
         if(operation == DevelSourceArtifactInstallOperation::Failed) return localization::translate_message("transaction failed; package effects unverified");
     }
     switch(status) {
+        case AurUpdateChildExecutionStatus::BootstrapSkipped:
+            return localization::translate_message("skipped: devel tracking bootstrap");
         case AurUpdateChildExecutionStatus::Installed:
             return localization::translate_message("installed / updated");
         case AurUpdateChildExecutionStatus::SkippedAsNeeded:
@@ -713,6 +742,15 @@ std::string aur_update_cli_target_failure_summary(
     const AurUpdateOperationTargetResult& target) {
     if(!target.execution_failure_kind.has_value() ||
        *target.execution_failure_kind == AurUpdateWorkItemFailureKind::None) {
+        // Preparation can fail before any execution result exists. Use only
+        // this target's attributed payload; an execution failure above None
+        // must still pass through its existing validation and projection.
+        for(const AurUpdatePreparationIssue& issue : target.preparation_issues) {
+            if(issue.reviewed_source_failure.has_value()) {
+                return reviewed_source_production_failure_diagnostic(
+                    *issue.reviewed_source_failure);
+            }
+        }
         return localization::translate_message(
             "failure category unavailable");
     }
@@ -772,4 +810,308 @@ AurUpdateCliPresentation format_aur_update_cli_presentation(
             " " + aur_update_cli_target_failure_summary(target));
     }
     return presentation;
+}
+
+namespace {
+
+constexpr std::string_view AUR_SERVICE = "AUR";
+
+void append_cross_source_version_lock_line(
+    std::string& output, std::string_view line) {
+    output.append(line);
+    output.push_back('\n');
+}
+
+void append_coordinated_transition_plan(
+    std::string& output, const CrossSourceCoordinatedTransitionPlan& plan) {
+    const auto line = [&](const std::string& text) { append_cross_source_version_lock_line(output, text); };
+    switch(plan.status) {
+        case CrossSourceTransitionPlanStatus::Blocked:
+            line(localization::translate_message("Coordinated transition candidate: blocked by replacement or removal constraints."));
+            return;
+        case CrossSourceTransitionPlanStatus::Incomplete:
+            line(localization::translate_message("Coordinated transition candidate: incomplete evidence (including installed identity, runtime dependencies, or install reason)."));
+            return;
+        case CrossSourceTransitionPlanStatus::Ambiguous:
+            line(localization::translate_message("Coordinated transition candidate: ambiguous identity or replacement."));
+            return;
+        case CrossSourceTransitionPlanStatus::Unsupported:
+            line(localization::translate_message("Coordinated transition candidate: unsupported relation or multiple candidates requiring coordination."));
+            return;
+        case CrossSourceTransitionPlanStatus::ReadOnlyReady: break;
+    }
+    const auto& evidence = plan.correlation.evidence;
+    const auto& removed = evidence.installed_consumer.package;
+    const auto& repository = evidence.repository_upgrade.repository_candidate;
+    const auto& replacement = std::get<AurReplacementCandidateQuerySuccess>(evidence.aur_replacement).candidates.at(0);
+    line(localization::translate_message("Possible coordinated transition (structure supported by read-only evidence):"));
+    // TRANSLATORS: The placeholders are an installed package name and version.
+    line(localization::format_translated_message("  1. temporarily remove: {} {}", removed.package_name, *removed.package_version.version()));
+    // TRANSLATORS: The placeholders are a relevant repository candidate name and version; this phase is a full system upgrade.
+    line(localization::format_translated_message("  2. repository system upgrade; observed relevant candidate: {} {}", repository.package_name, *repository.package_version->version()));
+    // TRANSLATORS: The placeholders are an AUR child package name, version, the literal metadata key "PackageBase", and its value.
+    line(localization::format_translated_message("  3. rebuild/install: {} {} ({}: {})", replacement.package_name, *replacement.package_version.version(), "PackageBase", replacement.package_base));
+    line(plan.expected_install_reason == InstalledPackageReason::Dependency
+             ? localization::translate_message("     preserve install reason: dependency")
+             : localization::translate_message("     preserve install reason: explicit"));
+    // TRANSLATORS: The placeholders are the replacement package and its exact runtime requirement.
+    line(localization::format_translated_message("  4. verify resulting relation: {} requires {}; the observed repository candidate satisfies it", replacement.package_name, plan.correlation.replacement_requirement->raw_specification()));
+    line(localization::translate_message("This read-only plan is not execution authority. Execution requires explicit confirmation and fresh mutation-time revalidation."));
+    line(localization::translate_message("The transition is non-atomic: a later failure may leave the removed package absent. No automatic rollback is implied."));
+    line(localization::format_translated_message("Dry-run remains read-only. Actual execution requires a separate explicit approval; {} is not approval.", "--noconfirm"));
+}
+
+bool append_cross_source_version_lock_replacement(
+    std::string& output,
+    const CrossSourceVersionLockAssessment& assessment) {
+    switch(assessment.status) {
+        case CrossSourceVersionLockStatus::CompatibleReplacement:
+        case CrossSourceVersionLockStatus::IncompatibleReplacement: {
+            const auto* query =
+                std::get_if<AurReplacementCandidateQuerySuccess>(
+                    &assessment.evidence.aur_replacement);
+            if(query == nullptr || query->candidates.size() != 1U ||
+               !assessment.replacement_requirement.has_value()) {
+                return false;
+            }
+            const AurPackageConstraintMetadata& replacement =
+                query->candidates.front();
+            const std::string* replacement_version =
+                replacement.package_version.version();
+            if(replacement.package_name.empty() || replacement_version == nullptr) {
+                return false;
+            }
+            // TRANSLATORS: The placeholders are the service name "AUR", an AUR
+            // package name, and its version.
+            append_cross_source_version_lock_line(
+                output,
+                localization::format_translated_message(
+                    "    observed {} replacement candidate: {} {}",
+                    AUR_SERVICE, replacement.package_name,
+                    *replacement_version));
+            // TRANSLATORS: The placeholder is one validated dependency expression.
+            append_cross_source_version_lock_line(
+                output,
+                localization::format_translated_message(
+                    "    replacement requirement: {}",
+                    assessment.replacement_requirement->raw_specification()));
+            if(assessment.status ==
+               CrossSourceVersionLockStatus::CompatibleReplacement) {
+                append_cross_source_version_lock_line(
+                    output,
+                    localization::translate_message(
+                        "    replacement metadata: the direct runtime requirement matches the observed repository candidate"));
+            } else {
+                append_cross_source_version_lock_line(
+                    output,
+                    localization::translate_message(
+                        "    replacement metadata: the direct runtime requirement does not match the observed repository candidate"));
+            }
+            return true;
+        }
+        case CrossSourceVersionLockStatus::MissingReplacement:
+            if(!std::holds_alternative<AurReplacementCandidateNotFound>(
+                   assessment.evidence.aur_replacement)) {
+                return false;
+            }
+            append_cross_source_version_lock_line(
+                output,
+                localization::format_translated_message(
+                    // TRANSLATORS: The placeholder is the service name
+                    // "AUR".
+                    "    observed {} replacement: a matching candidate was not found",
+                    AUR_SERVICE));
+            return true;
+        case CrossSourceVersionLockStatus::Unknown:
+            append_cross_source_version_lock_line(
+                output,
+                localization::translate_message(
+                    "    replacement metadata: compatibility could not be determined"));
+            return true;
+        case CrossSourceVersionLockStatus::QueryFailure:
+            if(!std::holds_alternative<AurReplacementCandidateQueryFailure>(
+                   assessment.evidence.aur_replacement)) {
+                return false;
+            }
+            append_cross_source_version_lock_line(
+                output,
+                localization::format_translated_message(
+                    // TRANSLATORS: The placeholder is the service name
+                    // "AUR".
+                    "    observed {} replacement: metadata could not be queried",
+                    AUR_SERVICE));
+            return true;
+        case CrossSourceVersionLockStatus::Ambiguous:
+            append_cross_source_version_lock_line(
+                output,
+                localization::format_translated_message(
+                    // TRANSLATORS: The placeholder is the service name
+                    // "AUR".
+                    "    observed {} replacement: evidence is ambiguous",
+                    AUR_SERVICE));
+            return true;
+    }
+    return false;
+}
+
+} // namespace
+
+std::string format_cross_source_transition_plan(const CrossSourceCoordinatedTransitionPlan& plan) {
+    std::string output;
+    append_coordinated_transition_plan(output, plan);
+    return output;
+}
+
+std::optional<std::string>
+format_cross_source_version_lock_cli_presentation(
+    const CrossSourceVersionLockCorrelationResult& correlation) noexcept try {
+    const bool is_preflight = correlation.basis ==
+                              CrossSourceVersionLockObservationBasis::BeforeRepositoryMutation;
+    const std::string preflight_basis = is_preflight
+                                            ? localization::translate_message(
+                                                  "Read-only version-lock preflight uses current local/sync databases without refreshing them; candidates may change during the repository update and are not selected transaction targets.")
+                                            : std::string{};
+    if(correlation.failure.has_value() || !correlation.observation.has_value() ||
+       correlation.observation->status == CrossSourceVersionLockObservationStatus::Failed) {
+        if(!is_preflight) return std::nullopt;
+        return "\n" + preflight_basis + "\n" + localization::translate_message("Version-lock preflight observation failed; candidate absence is not established. This diagnostic does not change the repository transaction policy.") + "\n";
+    }
+    if(correlation.possible_blocker_assessment_indices.empty()) {
+        if(is_preflight && correlation.observation->status == CrossSourceVersionLockObservationStatus::Partial) {
+            return "\n" + preflight_basis + "\n" + localization::translate_message("Version-lock preflight observation is partial; candidate absence is not established. This diagnostic does not change the repository transaction policy.") + "\n";
+        }
+        return std::nullopt;
+    }
+
+    const CrossSourceVersionLockObservationStatus observation_status =
+        correlation.observation->status;
+    if(observation_status != CrossSourceVersionLockObservationStatus::Complete &&
+       observation_status != CrossSourceVersionLockObservationStatus::Partial) {
+        // Failed observation currently returns before candidate assessment. Do
+        // not turn an incoherent synthetic index into public evidence.
+        return std::nullopt;
+    }
+
+    const std::size_t candidate_count =
+        correlation.possible_blocker_assessment_indices.size();
+    const unsigned long plural_count =
+        static_cast<unsigned long>(candidate_count);
+    std::string output = "\n";
+    if(is_preflight) append_cross_source_version_lock_line(output, preflight_basis);
+    // TRANSLATORS: The first placeholder is the service name "AUR"; the
+    // second is the number of possible metadata correlations shown below.
+    append_cross_source_version_lock_line(
+        output,
+        localization::format_translated_plural_message(
+            "Possible repository/{} cross-source version-lock candidate: {}",
+            "Possible repository/{} cross-source version-lock candidates: {}",
+            plural_count, AUR_SERVICE, candidate_count));
+
+    // POLICY(#460): Slice 4's index vector is the sole public-inclusion
+    // authority. Presentation must not recompute or strengthen blocker status.
+    std::set<std::size_t> rendered_indices;
+    for(const std::size_t assessment_index :
+        correlation.possible_blocker_assessment_indices) {
+        if(!rendered_indices.insert(assessment_index).second) {
+            return std::nullopt;
+        }
+        const CrossSourceVersionLockAssessment& assessment =
+            correlation.assessments.at(assessment_index);
+        const RepositoryUpgradeCandidate& repository_upgrade =
+            assessment.evidence.repository_upgrade;
+        const RepositoryPackagePresent& repository_candidate =
+            repository_upgrade.repository_candidate;
+        const InstalledCrossSourceVersionLockConsumer& installed_consumer =
+            assessment.evidence.installed_consumer;
+        const std::string* installed_repository_version =
+            repository_upgrade.installed_package.observed_version.version();
+        const std::string* repository_candidate_version =
+            repository_candidate.package_version.has_value()
+                ? repository_candidate.package_version->version()
+                : nullptr;
+        const std::string* installed_consumer_version =
+            installed_consumer.package.package_version.version();
+        if(repository_candidate.package_name.empty() ||
+           repository_candidate.repository_name.empty() ||
+           installed_consumer.package.package_name.empty() ||
+           installed_repository_version == nullptr ||
+           repository_candidate_version == nullptr ||
+           installed_consumer_version == nullptr) {
+            return std::nullopt;
+        }
+
+        append_cross_source_version_lock_line(output, "");
+        // TRANSLATORS: The placeholder is a repository package name.
+        append_cross_source_version_lock_line(
+            output,
+            localization::format_translated_message(
+                "  - repository package: {}",
+                repository_candidate.package_name));
+        // TRANSLATORS: The placeholder is the installed package version.
+        append_cross_source_version_lock_line(
+            output,
+            localization::format_translated_message(
+                "    installed version: {}",
+                *installed_repository_version));
+        // TRANSLATORS: The placeholders are a repository package name, its
+        // observed version, and the configured repository name.
+        append_cross_source_version_lock_line(
+            output,
+            localization::format_translated_message(
+                "    observed repository candidate: {} {} (repository: {})",
+                repository_candidate.package_name,
+                *repository_candidate_version,
+                repository_candidate.repository_name));
+        // TRANSLATORS: The placeholders are an installed foreign package name
+        // and version. "foreign" does not assert historical AUR provenance.
+        append_cross_source_version_lock_line(
+            output,
+            localization::format_translated_message(
+                "    installed foreign package: {} {}",
+                installed_consumer.package.package_name,
+                *installed_consumer_version));
+        // TRANSLATORS: The placeholder is one validated installed dependency
+        // expression.
+        append_cross_source_version_lock_line(
+            output,
+            localization::format_translated_message(
+                "    installed requirement: {}",
+                installed_consumer.requirement.raw_specification()));
+        if(!append_cross_source_version_lock_replacement(output, assessment)) {
+            return std::nullopt;
+        }
+    }
+
+    if(observation_status ==
+       CrossSourceVersionLockObservationStatus::Partial) {
+        append_cross_source_version_lock_line(output, "");
+        append_cross_source_version_lock_line(
+            output,
+            localization::translate_message(
+                "  The supplemental candidate observation was incomplete."));
+    }
+
+    append_cross_source_version_lock_line(output, "");
+    if(is_preflight) {
+        for(const auto& plan : correlation.transition_plans) {
+            append_coordinated_transition_plan(output, plan);
+        }
+    }
+    if(!is_preflight) {
+        append_cross_source_version_lock_line(
+            output,
+            localization::translate_message(
+                "The observed repository candidate is metadata evidence only; this correlation does not identify the cause of the system update failure."));
+    }
+    append_cross_source_version_lock_line(
+        output,
+        localization::format_translated_message(
+            // TRANSLATORS: The placeholders are the project name
+            // "Moguet" and service name "AUR".
+            "{} did not perform a coordinated repository/{} update; review the displayed versions and dependency constraints manually.",
+            application_identity::PROJECT_NAME, AUR_SERVICE));
+    return output;
+} catch(...) {
+    // Secondary formatting must not replace the primary repository failure.
+    return std::nullopt;
 }

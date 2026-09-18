@@ -154,4 +154,5 @@ struct InstalledPackageMetadata {
         InstalledPackageBaseIdentity::unknown();
     InstalledPackageArchitectureIdentity architecture =
         InstalledPackageArchitectureIdentity::unknown();
+    bool operator==(const InstalledPackageMetadata&) const = default;
 };

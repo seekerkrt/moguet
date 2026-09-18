@@ -679,6 +679,56 @@ assert_contains "clean-root is up to date (1.0-1). Skipping." "$output_file"
 assert_command_prefix_absent "makepkg "
 assert_command_prefix_absent "moguet-test-editor "
 
+# Issue #547: injected faults validate robustness, not a natural vercmp failure.
+setup_case update-older
+prepare_upgrade_case
+write_srcinfo 0.9 1
+export MOGUET_TEST_VERCMP_OUTPUT=-1
+run_upgrade_ok --noedit --nodiff --noconfirm upgrade
+assert_command "vercmp 0.9-1 1.0-1"
+assert_contains "clean-root is up to date (1.0-1). Skipping." "$output_file"
+assert_command_prefix_absent "makepkg "
+
+for comparison_output in -1 0 1 -1garbage 0garbage 1garbage 1x '1 2' --1 garbage '' 999999999999999999999999999999; do
+    setup_case "update-vercmp-failure-$comparison_output"
+    prepare_upgrade_case
+    write_srcinfo 2.0 1
+    export MOGUET_TEST_VERCMP_OUTPUT="$comparison_output"
+    case "$comparison_output" in
+        -1|0|1) export MOGUET_TEST_VERCMP_EXIT_CODE=7 ;;
+        *) export MOGUET_TEST_VERCMP_EXIT_CODE=0 ;;
+    esac
+    run_upgrade_ok --noedit --nodiff --noconfirm upgrade
+    assert_command "vercmp 2.0-1 1.0-1"
+    assert_contains "Skipping clean-root: update status is unknown and --noconfirm is set." "$output_file"
+    assert_command_prefix_absent "makepkg "
+done
+
+for decision in noninteractive default-no yes; do
+    setup_case "update-vercmp-failure-$decision"
+    prepare_upgrade_case
+    write_srcinfo 2.0 1
+    export MOGUET_TEST_VERCMP_OUTPUT=1
+    export MOGUET_TEST_VERCMP_EXIT_CODE=7
+    case "$decision" in
+        noninteractive)
+            run_upgrade_ok --noedit --nodiff upgrade
+            assert_contains "Skipping clean-root: update status is unknown and stdin is non-interactive." "$output_file"
+            ;;
+        default-no) run_upgrade_tty_ok '\n' --noedit --nodiff upgrade ;;
+        yes) run_upgrade_tty_ok 'y\n' --noedit --nodiff upgrade ;;
+    esac
+    assert_command "vercmp 2.0-1 1.0-1"
+    if [ "$decision" != noninteractive ]; then
+        assert_contains "Update status is unknown because .SRCINFO is missing or incomplete. Continue to review/build?" "$output_file"
+    fi
+    if [ "$decision" = yes ]; then
+        assert_command "makepkg -sc"
+    else
+        assert_command_prefix_absent "makepkg "
+    fi
+done
+
 # F-537-01: use real vercmp for epoch ordering and preserve zero-epoch output.
 setup_case update-zero-epoch
 prepare_upgrade_case

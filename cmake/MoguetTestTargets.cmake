@@ -56,11 +56,13 @@ moguet_add_cpp_test(
         "MOGUET_TEST_LEGACY_INSTALL_ADAPTER_PATH=\"${CMAKE_CURRENT_SOURCE_DIR}/tests/legacy-install-test-adapter.py\""
         MOGUET_ENABLE_TEST_CONFIG_PATH
         MOGUET_ENABLE_SYSTEM_AUR_UPDATE_PRESENTATION_TEST_HOOKS
+        "MOGUET_LOCALE_DIRECTORY=\"${CMAKE_CURRENT_BINARY_DIR}/locale\""
     INCLUDE_DIRECTORIES
         "${_moguet_test_source_include_dir}"
         "${_moguet_test_alpm_stub_include_dir}"
     FORBIDDEN_SOURCES ${_moguet_aur_update_command_forbidden_sources}
 )
+add_dependencies(moguet-aur-update-command-test moguet_catalogs)
 
 set(
     _moguet_upgrade_all_command_test_sources
@@ -879,6 +881,9 @@ moguet_add_cpp_test(
     SOURCES
         source/package_metadata.cpp
         source/aur_devel_update.cpp
+        source/srcinfo_source_metadata.cpp
+        source/source_entry_parser.cpp
+        source/local_package_metadata.cpp
         source/aur_update_query.cpp
         source/aur_update_plan.cpp
         source/shell_words.cpp
@@ -926,6 +931,7 @@ moguet_add_cpp_test(
         source/localization.cpp
     DEFINITIONS
         MOGUET_TEST_AUR_DEVEL_ROUTING
+        MOGUET_ENABLE_DEVEL_TRACKING_BOOTSTRAP_TEST_HOOKS
         MOGUET_ENABLE_AUR_DEVEL_UPDATE_TEST_HOOKS
         MOGUET_ENABLE_DEVEL_PACKAGE_ASSESSMENT_TEST_HOOKS
         MOGUET_ENABLE_INSTALLED_RECORD_OBSERVATION_TEST_HOOKS
@@ -1439,6 +1445,47 @@ moguet_add_cpp_test(
         ${_moguet_invocation_owned_source_build_context_forbidden_sources}
 )
 
+# The acquisition fixture uses the real bootstrap observer and existing review/pin/S3.
+set(_moguet_recipe_acquisition_test_sources
+    ${_moguet_invocation_owned_source_build_context_test_sources}
+    tests/invocation_owned_recipe_acquisition_test.cpp
+    source/invocation_owned_recipe_acquisition.cpp
+    source/aur_devel_update.cpp
+    source/aur_update_query.cpp
+    source/aur_update_plan.cpp
+    source/package_metadata.cpp
+    source/local_package_metadata.cpp
+    source/srcinfo_source_metadata.cpp
+    source/source_entry_parser.cpp
+    source/shell_words.cpp
+    source/devel_package_assessment.cpp
+    source/devel_package_classification.cpp
+    source/devel_update_model.cpp
+    source/current_installed_artifact_binding_observer.cpp
+    source/installed_package_record_observation.cpp
+    source/source_artifact_install_trusted_protocol.cpp
+    source/trusted_alpm_receipt_protocol.cpp
+    source/devel_git_revision_comparison.cpp
+    source/devel_build_provenance_store.cpp
+    source/devel_build_provenance_codec.cpp
+    source/git_remote_revision_observer.cpp
+)
+list(REMOVE_ITEM _moguet_recipe_acquisition_test_sources tests/invocation_owned_source_build_context_test.cpp)
+_moguet_test_production_complement(_moguet_recipe_acquisition_forbidden_sources ${_moguet_recipe_acquisition_test_sources})
+moguet_add_cpp_test(
+    invocation-owned-recipe-acquisition-test
+    ALPM_COMPILE REAL_ALPM CURL
+    SOURCES ${_moguet_recipe_acquisition_test_sources}
+    DEFINITIONS
+        MOGUET_ENABLE_RECIPE_ACQUISITION_TEST_HOOKS
+        MOGUET_ENABLE_INVOCATION_OWNED_SOURCE_BUILD_CONTEXT_TEST_HOOKS
+        MOGUET_ENABLE_DEVEL_TRACKING_BOOTSTRAP_TEST_HOOKS
+        MOGUET_ENABLE_AUR_DEVEL_UPDATE_TEST_HOOKS
+        MOGUET_ENABLE_INSTALLED_RECORD_OBSERVATION_TEST_HOOKS
+    INCLUDE_DIRECTORIES "${_moguet_test_source_include_dir}"
+    FORBIDDEN_SOURCES ${_moguet_recipe_acquisition_forbidden_sources}
+)
+
 set(
     _moguet_evaluated_devel_source_build_test_sources
     tests/evaluated_devel_source_build_test.cpp
@@ -1482,6 +1529,9 @@ set(
     source/process.cpp
     source/logging.cpp
     source/localization.cpp
+    source/pinned_submodule_closure.cpp
+    source/pinned_submodule_closure_review.cpp
+    source/pinned_submodule_workspace.cpp
 )
 set(
     _moguet_evaluated_devel_source_build_forbidden_sources
@@ -1511,6 +1561,69 @@ moguet_add_cpp_test(
         "${_moguet_test_support_include_dir}"
     FORBIDDEN_SOURCES
         ${_moguet_evaluated_devel_source_build_forbidden_sources}
+)
+
+# Slice 4A consumes the real pre-prepare selection fixture in a separate lane.
+set(_moguet_pinned_closure_test_sources ${_moguet_evaluated_devel_source_build_test_sources})
+_moguet_test_production_complement(_moguet_pinned_closure_forbidden_sources ${_moguet_pinned_closure_test_sources})
+moguet_add_cpp_test(
+    pinned-submodule-closure-test
+    FIREWALL
+    ALPM_COMPILE REAL_ALPM CURL
+    SOURCES ${_moguet_pinned_closure_test_sources}
+    DEFINITIONS
+        MOGUET_ENABLE_TEST_OVERRIDES
+        MOGUET_ENABLE_REVIEWED_SOURCE_PRESENTATION_TEST_HOOKS
+        MOGUET_ENABLE_REVIEWED_SOURCE_ACCEPTANCE_TEST_HOOKS
+        MOGUET_ENABLE_REVIEWED_SOURCE_STATE_STORE_TEST_HOOKS
+        MOGUET_ENABLE_INVOCATION_OWNED_SOURCE_BUILD_CONTEXT_TEST_HOOKS
+        MOGUET_ENABLE_EVALUATED_DEVEL_SOURCE_BUILD_TEST_HOOKS
+        MOGUET_ENABLE_PINNED_SUBMODULE_CLOSURE_TEST_HOOKS
+    INCLUDE_DIRECTORIES "${_moguet_test_source_include_dir}" "${_moguet_test_support_include_dir}"
+    FORBIDDEN_SOURCES ${_moguet_pinned_closure_forbidden_sources}
+)
+
+# 4B0 uses real selection/closure fixtures, but runs only the review lane.
+set(_moguet_pinned_closure_review_test_sources ${_moguet_pinned_closure_test_sources})
+_moguet_test_production_complement(_moguet_pinned_closure_review_forbidden_sources ${_moguet_pinned_closure_review_test_sources})
+moguet_add_cpp_test(
+    pinned-submodule-closure-review-test
+    FIREWALL
+    ALPM_COMPILE REAL_ALPM CURL
+    SOURCES ${_moguet_pinned_closure_review_test_sources}
+    DEFINITIONS
+        MOGUET_ENABLE_TEST_OVERRIDES
+        MOGUET_ENABLE_REVIEWED_SOURCE_PRESENTATION_TEST_HOOKS
+        MOGUET_ENABLE_REVIEWED_SOURCE_ACCEPTANCE_TEST_HOOKS
+        MOGUET_ENABLE_REVIEWED_SOURCE_STATE_STORE_TEST_HOOKS
+        MOGUET_ENABLE_INVOCATION_OWNED_SOURCE_BUILD_CONTEXT_TEST_HOOKS
+        MOGUET_ENABLE_EVALUATED_DEVEL_SOURCE_BUILD_TEST_HOOKS
+        MOGUET_ENABLE_PINNED_SUBMODULE_CLOSURE_TEST_HOOKS
+        MOGUET_ENABLE_PINNED_CLOSURE_REVIEW_TEST_HOOKS
+    INCLUDE_DIRECTORIES "${_moguet_test_source_include_dir}" "${_moguet_test_support_include_dir}"
+    FORBIDDEN_SOURCES ${_moguet_pinned_closure_review_forbidden_sources}
+)
+
+# 4B1 reuses acquisition/acceptance setup; only workspace cases execute.
+set(_moguet_pinned_workspace_test_sources ${_moguet_pinned_closure_review_test_sources})
+_moguet_test_production_complement(_moguet_pinned_workspace_forbidden_sources ${_moguet_pinned_workspace_test_sources})
+moguet_add_cpp_test(
+    pinned-submodule-workspace-test
+    FIREWALL
+    ALPM_COMPILE REAL_ALPM CURL
+    SOURCES ${_moguet_pinned_workspace_test_sources}
+    DEFINITIONS
+        MOGUET_ENABLE_TEST_OVERRIDES
+        MOGUET_ENABLE_REVIEWED_SOURCE_PRESENTATION_TEST_HOOKS
+        MOGUET_ENABLE_REVIEWED_SOURCE_ACCEPTANCE_TEST_HOOKS
+        MOGUET_ENABLE_REVIEWED_SOURCE_STATE_STORE_TEST_HOOKS
+        MOGUET_ENABLE_INVOCATION_OWNED_SOURCE_BUILD_CONTEXT_TEST_HOOKS
+        MOGUET_ENABLE_EVALUATED_DEVEL_SOURCE_BUILD_TEST_HOOKS
+        MOGUET_ENABLE_PINNED_SUBMODULE_CLOSURE_TEST_HOOKS
+        MOGUET_ENABLE_PINNED_CLOSURE_REVIEW_TEST_HOOKS
+        MOGUET_ENABLE_PINNED_SUBMODULE_WORKSPACE_TEST_HOOKS
+    INCLUDE_DIRECTORIES "${_moguet_test_source_include_dir}" "${_moguet_test_support_include_dir}"
+    FORBIDDEN_SOURCES ${_moguet_pinned_workspace_forbidden_sources}
 )
 
 # S5-A reuses the actual Slice 4 build fixture and the existing transport
@@ -1559,6 +1672,7 @@ moguet_add_cpp_test(
     SOURCES ${_moguet_evaluated_transport_test_sources}
         source/reviewed_devel_source_build_execution.cpp
         source/source_build.cpp
+        source/invocation_owned_recipe_acquisition.cpp
         source/reviewed_devel_source_route.cpp
         tests/stubs/aur-devel-update/query_stub.cpp
         source/aur_update_plan.cpp
@@ -1606,6 +1720,7 @@ moguet_add_cpp_test(
         tests/stubs/reviewed-source-production/execution_stub.cpp
         source/reviewed_devel_source_build_execution.cpp
         source/source_build.cpp
+        source/invocation_owned_recipe_acquisition.cpp
         source/source_install.cpp
         source/reviewed_devel_source_route.cpp
         tests/stubs/aur-devel-update/query_stub.cpp
@@ -1641,6 +1756,51 @@ moguet_add_cpp_test(
     INCLUDE_DIRECTORIES
         "${_moguet_test_source_include_dir}"
         "${_moguet_test_support_include_dir}"
+    COMPILE_OPTIONS -ffunction-sections -fdata-sections
+    LINK_OPTIONS LINKER:--gc-sections
+)
+
+# #553 retains the actual CLI classifier, system/AUR coordinator, planner,
+# confirmation/review and S4/S5/S6 owners. Only network and privileged fixture
+# effects are redirected; no synthetic Complete/provenance is injected.
+set(_moguet_devel_bootstrap_test_sources ${MOGUET_PRODUCTION_SOURCES})
+list(REMOVE_ITEM _moguet_devel_bootstrap_test_sources source/moguet.cpp)
+moguet_add_cpp_test(
+    devel-tracking-bootstrap-test
+    ALPM_COMPILE REAL_ALPM CURL
+    SOURCES ${_moguet_devel_bootstrap_test_sources}
+        source/source_artifact_install_trusted_helper_state.cpp
+        tests/evaluated_devel_source_build_test.cpp
+        tests/devel_source_artifact_install_fixture.cpp
+        tests/devel_build_provenance_publication_fixture.cpp
+    DEFINITIONS
+        MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
+        MOGUET_ENABLE_PINNED_SUBMODULE_CLOSURE_TEST_HOOKS
+        MOGUET_ENABLE_PINNED_CLOSURE_REVIEW_TEST_HOOKS
+        MOGUET_ENABLE_PINNED_SUBMODULE_WORKSPACE_TEST_HOOKS
+        MOGUET_ENABLE_RECIPE_ACQUISITION_TEST_HOOKS
+        MOGUET_ENABLE_AUR_UPDATE_EXECUTION_RUNNER_TEST_HOOKS
+        MOGUET_TEST_NORMAL_REVIEWED_DEVEL_EXECUTION
+        MOGUET_TEST_REVIEWED_DEVEL_SOURCE_EXECUTION
+        MOGUET_ENABLE_SOURCE_INVOCATION_EXECUTION_TEST_HOOKS
+        MOGUET_ENABLE_REVIEWED_DEVEL_SOURCE_BUILD_EXECUTION_TEST_HOOKS
+        MOGUET_ENABLE_DEVEL_BUILD_PROVENANCE_PUBLICATION_TEST_HOOKS
+        MOGUET_ENABLE_XDG_GENERATION_STORE_TEST_HOOKS
+        MOGUET_ENABLE_DEVEL_SOURCE_ARTIFACT_INSTALL_TEST_HOOKS
+        MOGUET_ENABLE_TEST_OVERRIDES
+        MOGUET_ENABLE_REVIEWED_SOURCE_PRESENTATION_TEST_HOOKS
+        MOGUET_ENABLE_REVIEWED_SOURCE_ACCEPTANCE_TEST_HOOKS
+        MOGUET_ENABLE_REVIEWED_SOURCE_STATE_STORE_TEST_HOOKS
+        MOGUET_ENABLE_INVOCATION_OWNED_SOURCE_BUILD_CONTEXT_TEST_HOOKS
+        MOGUET_ENABLE_EVALUATED_DEVEL_SOURCE_BUILD_TEST_HOOKS
+        MOGUET_ENABLE_SOURCE_ARTIFACT_INSTALL_TRUSTED_TRANSPORT_TEST_HOOKS
+        MOGUET_TEST_EVALUATED_DEVEL_ARTIFACT_TRANSPORT
+        MOGUET_ENABLE_INSTALLED_RECORD_OBSERVATION_TEST_HOOKS
+        MOGUET_TEST_EXACT_INSTALLED_BINDING
+        MOGUET_ENABLE_AUR_DEVEL_UPDATE_TEST_HOOKS
+        MOGUET_ENABLE_DEVEL_TRACKING_BOOTSTRAP_TEST_HOOKS
+        MOGUET_ENABLE_DEVEL_PACKAGE_ASSESSMENT_TEST_HOOKS
+    INCLUDE_DIRECTORIES "${_moguet_test_source_include_dir}" "${_moguet_test_support_include_dir}"
     COMPILE_OPTIONS -ffunction-sections -fdata-sections
     LINK_OPTIONS LINKER:--gc-sections
 )
@@ -2544,6 +2704,10 @@ set(
     source/provider_selection.cpp
     source/filtered_aur_update_operation.cpp
     source/system_aur_update_operation.cpp
+    source/interactive_confirmation.cpp
+    source/cross_source_version_lock.cpp
+    source/cross_source_version_lock_observation.cpp
+    source/package_relation_observation.cpp
     source/upgrade_all_plan.cpp
     source/aur_update_query.cpp
     tests/stubs/aur-devel-update/query_stub.cpp
@@ -2596,6 +2760,7 @@ moguet_add_cpp_test(
     REAL_ALPM
     SOURCES ${_moguet_filtered_aur_update_operation_test_sources}
     DEFINITIONS
+        MOGUET_TEST_REAL_INTERACTIVE_CONFIRMATION
         MOGUET_ENABLE_AUR_UPDATE_EXECUTION_PREPARATION_TEST_HOOKS
         MOGUET_ENABLE_AUR_UPDATE_EXECUTION_RUNNER_TEST_HOOKS
     INCLUDE_DIRECTORIES "${_moguet_test_source_include_dir}"
@@ -3168,6 +3333,7 @@ moguet_add_cpp_test(
 
 set(
     MOGUET_EXPECTED_CPP_TEST_TARGETS
+    devel-tracking-bootstrap-test
     normal-reviewed-devel-execution-test
     aur-devel-route-test
     reviewed-devel-source-build-execution-test
@@ -3225,7 +3391,11 @@ set(
     reviewed-source-acceptance-test
     reviewed-source-pinned-build-test
     invocation-owned-source-build-context-test
+    invocation-owned-recipe-acquisition-test
     evaluated-devel-source-artifact-transport-test
+    pinned-submodule-closure-test
+    pinned-submodule-closure-review-test
+    pinned-submodule-workspace-test
     evaluated-devel-source-build-test
     reviewed-source-production-connection-test
     reviewed-source-projection-test
@@ -3323,6 +3493,9 @@ set(
 
 set(
     MOGUET_EXPECTED_CPP_TEST_FIREWALL_TARGETS
+    pinned-submodule-closure-review-test
+    pinned-submodule-workspace-test
+    pinned-submodule-closure-test
     moguet-aur-update-command-test
     moguet-upgrade-all-command-test
     moguet-commands-sync-test
@@ -3375,61 +3548,64 @@ set(
     evaluated-devel-source-build-test
 )
 
-# These hashes are an independent fail-closed ledger for the 50 link
+# These hashes are an independent fail-closed ledger for the 53 link
 # firewalls.  Before changing any entry, compare the target's complete CMake
 # source/link profile with the legacy Make closure and re-establish parity;
 # never derive or update this expected ledger from the configure-time actual
 # descriptors automatically.
 set(
     MOGUET_EXPECTED_CPP_TEST_FIREWALL_DESCRIPTORS
-    evaluated-devel-source-build-test=cff7745dfcc751074ea8a8eabbd5d130d899c2ed9a03f8dc5241f6b1904cc9d0
-    moguet-aur-update-command-test=114d8c7fd629aa88304677b560c60c5f5f164c41162779d5cfe185ebb0482fd3
-    moguet-upgrade-all-command-test=95f9382bdfc0add14d6e9189874726b706d9bcf42fa44d449f7bd9ad636dbd60
-    moguet-commands-sync-test=556b738b28d4021bedfc8a39a1d3b61b6f9de98c717a0436d9b6fd6540f667db
-    moguet-commands-inspect-test=b3573174fa981335e191dc15f3e1fcdd9755c26e594bb082f460a6865d2b2e95
-    moguet-test=74ef58a1bb3c1dcf4b87263ad61534e8bf975edf2b8cbaae340b55f4aa6496d0
-    moguet-cli-localization-test=7d224b51ec4b4f3c17ddeadd784abe7e1928ad21fd8ad98a8d3be330dfc40e29
-    moguet-app-config-test=4bb3d4d8cda650860c4198e2c581df1def15058d2501f803a9034e8482d3c952
-    moguet-aur-rpc-validation-test=9c570572e14e4227ebd86146ca10d34dc6976d8dc98fcf99caef2f5e50fbc91f
-    moguet-source-install-characterization-test=578020545b9f9fe328b1f95bdd99b9f9cd26866dd813c1995ea165d2eeab17df
-    moguet-upgrade-baseline-metadata-test=63c3c32a7f2d00b0fbd12455d9250ea95f292761b3f6abb79184f27e616a867b
-    root-package-candidate-test=bc4881c4212cc8ec327f28e438da00eedc8001f1fd6ee37a4973b213dc569935
-    root-package-search-test=3d25f595a9b09c454e955e3fc3743f11acb41b2acdc3346b2f93c551df454f1e
-    root-package-selection-test=b7083b4a777249db33772e0b704e2eb80f0748a75019e53c48ba13cfc87df4c0
-    root-package-route-projection-test=27f43f94445d5fb68c7921a5af6a88d2cf3bc185f9bfb6c26f3fc33ebceeb187
-    local-package-metadata-test=07ee0094aa0ce4ff8073f2e003e414aa45e6d7dd04e70bc8b47401a26f349074
-    local-source-root-test=b5a24323d187355041632a8b3026812e3c7f24f22007d82089f177e7730ed0de
-    local-dependency-plan-projection-test=c031ece1a7e127084d17fafd889acd589b6be10dff7b90f1ceda6124af677e6a
-    local-source-workspace-test=73b8c7f28557793c203fb595ce889ea6cf2723267fd273045c76bc7627dbedee
-    local-source-build-test=685cae6fffbcc4d54ef065d14445cfe5236cf5d78d6f7fba613b03c4555ab0fe
-    source-package-identity-projection-test=a3f7cb78767e482f4733ccf35735afac286ec78d3aee668041ae059f6afa4823
-    multiple-artifact-workspace-test=fa6dd9c730ecf23f09033a1c997013e70cdc8cf7dbd641387db94f9b8f40c562
-    makepkg-assignment-precedence-test=b1ae0849c07c840e51e8a7efa162e25b4ae0274906fd6312cee9d408abc62f9b
-    multiple-artifact-identity-test=532347d6fdd00683d2643d0146e121a9d720220d6476bf7ffd0eba1483a0c67f
-    package-base-artifact-install-plan-test=3ae8cc0e6669c85e6e8fa57e29d993557a800bbbe7a48d8df7ffc3d288ecf78d
-    package-base-artifact-install-executor-test=c01ef053342615b9ec87e10ff7fe364736c286ffaad7e5f2f2fb2ea4e01ade8a
-    separated-package-base-source-build-test=b98ca040a91bf28ce08efed7785c48679bd82ee3a4a3f090a22ed5cabafa98b6
-    upgrade-all-plan-test=9b1db5100580d34a133ec9627cf6fa92928c06ffbb862c92c74225f8e964f740
-    system-source-upgrade-test=b824cbe833e2939297ccb58df1f01d7476cb1a3a051e10416682673ca3ede148
+    pinned-submodule-workspace-test=b0cb8658372d453ed85bd39c17363e3b38926cd47e592e581d51f8c0f6f139d0
+    pinned-submodule-closure-review-test=ac227754c268f8bb1b08000daedbf94bc98494a4612209cc2071d191ff0dc0b5
+    pinned-submodule-closure-test=7905c27ce012e159dfb081efe9c833959669883b99a1929d3770333d569c4339
+    evaluated-devel-source-build-test=ef61c94b30b2bc3dff34ee71ba11e81caa974ea293cfffb8b93776be774e4800
+    moguet-aur-update-command-test=8eac70282e7394e39a41362e622bfbcb190aa9079e5be6478e28994d4d702aa9
+    moguet-upgrade-all-command-test=03c1ee448f004e1958a7593767227e9a7548a01a8c5561c4df4fe5de07e025b5
+    moguet-commands-sync-test=ffa148bcb97e8167c9d1dfac7a4376cd67c1126041b8dd7c4667517ea23fdf2c
+    moguet-commands-inspect-test=52ae2468bc23a5e4f42403d608a78a2a1cadba0c61f524c38a778298c978baf3
+    moguet-test=889229d598a3841bb0ce7ee3adddb3c6bd096da09d516a9064012d9c02a6141c
+    moguet-cli-localization-test=831f03a419b5efec5f824de7bb2b8bf9bb2eed7db283857d5fefca624e956bf9
+    moguet-app-config-test=834ab1820374c25347c31d655f4689c5051f39e6fb929b10025fe4c7b3ffeba4
+    moguet-aur-rpc-validation-test=dc7333d56243da3835b8b97a4432d56b311cdea003334a3d0e92547313822996
+    moguet-source-install-characterization-test=e52b265051e0d5cb25da08e622af7f02361f9a2c546fed23d4bd22cdd0bf6c25
+    moguet-upgrade-baseline-metadata-test=b1b43e97828c9937a2326dc18998fc357098a257a3e8db57e82e51b722868bdf
+    root-package-candidate-test=fff7a2f21c21307b3c6bc915ff6eadb223437b89d30fadea9bf939f84b354267
+    root-package-search-test=85372baf326f23fa6ca69160a0342d93923312a13567d0f4a532f2f2093bd3a7
+    root-package-selection-test=204ef2b8b835e6c93e3db1343f959cb3297f501ba1627b7b0268e5c81c9266e0
+    root-package-route-projection-test=06d36fa4d9aff31c2106100e94b28e20d7c7083c237c2e608b3fc163128889ca
+    local-package-metadata-test=e44128c3f09de540fd6ca7dcd258f04ccb0e8ba6c5c5e21a5de2904d06cb78a2
+    local-source-root-test=13dc4e25433c1338129767eeb59b3e85bf818564c142a2b13c02b840dba070c6
+    local-dependency-plan-projection-test=826694f5c63a73f8ed4a04d5629ed2a54347719a810b3547a941b225b54873f3
+    local-source-workspace-test=bc59b17b9ef9ba8c0d560e4ce633da32a7819637aad9ebabbc44221e5d15c76b
+    local-source-build-test=ce87f4b3bdf1fdd7938759ff4a1186fe4b8b50383b05edc7c6ef72ecfc7f25e8
+    source-package-identity-projection-test=8cda7e0c1cfb823510bd72d7e546bf7b3ab9a476de903e6e857f7b848abe2404
+    multiple-artifact-workspace-test=6a371d6a572d003a3612405d40065496f92b24762867422412a2449507981e66
+    makepkg-assignment-precedence-test=4b6674a6f0888b25952ce894db91d664cfd2c05a75327849cde83d69cc3fb3e9
+    multiple-artifact-identity-test=31fb384c44edf359cbe0ff63526f69ae4576c6bf116bc626763babff4b4df243
+    package-base-artifact-install-plan-test=2b248d65502bfcbd4375741ab641f6dc7185d6198924a8eea0af46abf84ed43b
+    package-base-artifact-install-executor-test=cb3f45b5647bb283da5b30042641c4678b7d78725256b3adaf0719e2810ffe67
+    separated-package-base-source-build-test=45896f784411c308ddf5bb8c2286379a9870e3bc50377a0b5ebf8e7e965b0d18
+    upgrade-all-plan-test=6a684cd3093bb77a64e56c28401b401af2d2195c64c5527bde12a85d53603050
+    system-source-upgrade-test=f543d8040a31db59dee6bd01c36d5ccb9219d59a86bd3c162c432b0f80b2a4b1
     aur-update-execution-preflight-test=167eca6cef76a54712dd3281a015d38e406ae9fde1a264919d69b115a743cfd3
     aur-update-execution-runner-test=8766d5d10a5444e6ecb04ff945f2ef39341e4a0d99352817a0ab93c3fabb6197
     aur-update-operation-result-test=794c70c37241de19fa40d3e5369fadebe282fb321fd0e3771b8b3d89e0a369d2
-    filtered-aur-update-operation-test=2fbb1691ee4f1411c698d7ddc7a5a064b65d05b46fd07fb1acc595c27c13662f
-    upgrade-all-operation-test=34550f5fca1126e092ad9fd5b608e66cf460c1a184d30601936425cb37a96028
-    cli-diagnostic-model-test=8436cc17fa2159ce428eeb7e40a23976d3a23085a0502a5f694b52abc968025f
-    runtime-cli-connection-test=6c6770476bcb982f4c2501e23438f0bbf25fee896567d13fc8fe7aa1b2913a7c
-    dependency-plan-model-test=45890225653aeaba08bbd7f81c40355170d492052e0f51d16e55a9c8baef64b8
-    build-plan-artifact-target-projection-test=072e262b12cb6c46153fdbd94a6f8f3dc5965d5ffc01d2609c190df551a83c05
-    unified-plan-observation-test=2d1fb18a35e4bb5eff4e2bdf3c776670af812d2ad11171816ec217eb2a32ec8d
-    unified-plan-projection-test=2811efa3b84956cc35848e6a55948883448fb7d8e75a41ee182e2dad21fd6209
-    unified-plan-renderer-test=797018e28fa1a69ce543a5b62896c25bd66b8d1d6abfd5945dc5d1e61cbd8d76
-    artifact-selection-model-test=be6d472580284f48c2f2d23305b01ff7c8b05d987f64980264730d0d0bebc0de
-    artifact-identity-selection-test=50ae2e868d4817c9e918b89c175d4988fd04d2b12df6719d53a327f20b2d3a0a
-    provider-installed-state-test=a4d24db95f6fa8c49250737bf4afc504c7c95ec6214bf4489f8fb73ab1f3b499
-    dependency-constraint-test=b683ce801ed16e0f689e47d3a508beb191ff9324aecbe53e39069079c6b47b4e
-    package-relation-test=d842561d80ed9f714c18165c8ec0f359e3aa11d7172a7533a4af12554a38ce7f
-    package-relation-observation-test=df27fb401ab05e4f0f2030a3f733a3e3ed6ac231464eebe9b0a5f397d2398ecc
-    package-relation-assessment-test=c77f16be9d6e44b429ebe3f719173a5b19a415fe214046528104311353dd4fd2
-    package-constraint-metadata-test=871ae162e8c542404c5a645bfb5bbf1bd3584ec322d52331e08797cbb88cefc8
-    aur-constraint-metadata-test=ece084007cc8dc82280683038c5155ffbd339fa56f9570fd586aa3b0d846805a
+    filtered-aur-update-operation-test=bd7f0ba6208cd64ea1a064415f31458c734af63e4b9df4dc501d406099e928f3
+    upgrade-all-operation-test=475e5cc5d82f209254c180e603b310d8686b32c33a7c86e944ddac6e9b2c9819
+    cli-diagnostic-model-test=8002a5929300ab26775ef525a5e3b893392b53d967963206061b68db35b4147c
+    runtime-cli-connection-test=910b5e17c6405017a7cde1fdec2ae8bb55fd9b8464e6a9c282624232c2675a82
+    dependency-plan-model-test=64e181b7736e3e0350357f473a0952dc714b95308cb0e88b911bcee9c8407b5d
+    build-plan-artifact-target-projection-test=18480ed733cc7610f4d30a27b8ec93bb99e56f367b222cdf659ff5a1162dfb87
+    unified-plan-observation-test=e1bdbd7948b52fedb13c61b84ab417b0a5ef0c65eb34a2b824c52e20a67a0c9d
+    unified-plan-projection-test=630333d4b0f235dcac1fd6c08e0f7143f275207293c952fbfe2d587ca6172612
+    unified-plan-renderer-test=ccf6c4df80d2fbf52880d29b75312e824a1e1d80881d3aac9723c6b0eaf06ea9
+    artifact-selection-model-test=45c1b02c4a8e78af9e33996645d8c181ef3b01e5234493f0d7ea9d8f582da083
+    artifact-identity-selection-test=b690f4b6ce2c2d551ebc70c05f7ca9727cae2392325915311c6ecfcf9103b604
+    provider-installed-state-test=76feaf45cc38bf82b38f1004f1b1bd336fcb6ed8b1f2cca76dd79f961289dd37
+    dependency-constraint-test=103c64ab83810db49d6bb5cfede0cc1f2abc74ca2be85b9eb53895423b952299
+    package-relation-test=df148d3526c97f555031b243ab3ba4ee3e3642b74c5ac82524bbe50bc27b8290
+    package-relation-observation-test=2798d8e0a09f8d4c58dd5e5e8c1b5166ff9bcf12baadf240d3add9fc133851c1
+    package-relation-assessment-test=739a356dfa737a5cef34b1a4c0329a5f2c8c4cf44e577c54bad29ab50ea132c0
+    package-constraint-metadata-test=fd99ec6d65ea4b4bd9e6f5dee7edb8adba3a43e2b0770b0496fd75a69f285536
+    aur-constraint-metadata-test=49d916351835a26edee28c20c409cfaa4b53bf81010f13e73254258cc7253e6f
 )

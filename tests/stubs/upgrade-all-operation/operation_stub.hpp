@@ -218,6 +218,7 @@ void enqueue_aur_success(ArtifactInstallExecutionOutcome outcome);
 void enqueue_aur_successes(
     std::vector<ArtifactInstallExecutionOutcome> child_outcomes,
     std::vector<ArtifactPackageIdentity> unselected_artifacts = {});
+void enqueue_aur_cancellation();
 void enqueue_aur_ordinary_failure(std::string diagnostic);
 void enqueue_aur_cleanup_failure(
     ArtifactInstallExecutionOutcome outcome,

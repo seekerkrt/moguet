@@ -128,11 +128,13 @@ bool same_update_entry(
     const AurUpdatePlanEntry& rhs) {
     return lhs.installed_name == rhs.installed_name &&
            lhs.installed_version == rhs.installed_version &&
+           lhs.coordinated_replacement_version == rhs.coordinated_replacement_version &&
            lhs.install_reason == rhs.install_reason &&
            lhs.classification == rhs.classification &&
            lhs.devel_classification == rhs.devel_classification &&
            lhs.devel_assessment_origin == rhs.devel_assessment_origin &&
            lhs.devel_assessment == rhs.devel_assessment &&
+           lhs.bootstrap == rhs.bootstrap &&
            same_remote_package(lhs.aur_package, rhs.aur_package);
 }
 
@@ -1533,7 +1535,7 @@ bool target_status_is_success(
 
 bool work_item_status_is_success(
     AurUpdateWorkItemExecutionStatus status) noexcept {
-    return status == AurUpdateWorkItemExecutionStatus::Updated ||
+    return status == AurUpdateWorkItemExecutionStatus::BootstrapSkipped || status == AurUpdateWorkItemExecutionStatus::Updated ||
            status == AurUpdateWorkItemExecutionStatus::NoChange;
 }
 
@@ -1547,6 +1549,7 @@ bool invocation_status_matches_operation(
                    AurUpdateInvocationExecutionStatus::Completed;
         case AurUpdateOperationStatus::BlockedBeforeExecution:
         case AurUpdateOperationStatus::StoppedOnProviderTransactionFailure:
+        case AurUpdateOperationStatus::StoppedOnWorkItemCancellation:
         case AurUpdateOperationStatus::StoppedOnWorkItemFailure:
         case AurUpdateOperationStatus::StoppedAfterPackageCleanupFailure:
         case AurUpdateOperationStatus::InconsistentResult:
@@ -1607,6 +1610,11 @@ FilteredAurUpdateTargetAdapter adapt_aur_update_plan_for_upgrade_all(
                                           AUR_SERVICE_NAME);
                 break;
             case AurUpdateEffectiveState::RequiresCheck:
+                if(has_aur_update_bootstrap_intent(update) && devel_requires_check_policy == DevelRequiresCheckPolicy::SkipIndependentTarget) {
+                    status = UpgradeAllAurTargetStatus::Candidate;
+                    status_detail = localization::translate_message("Devel tracking bootstrap candidate; update availability is unverified.");
+                    break;
+                }
                 if(devel_requires_check_policy ==
                    DevelRequiresCheckPolicy::SkipIndependentTarget) {
                     // POLICY(#508): Keep the complete query/update identity,
@@ -2011,11 +2019,17 @@ FilteredAurUpdateExecutionResult execute_prepared_filtered_aur_update_operation(
     const bool should_execute = prepared.is_prepared();
     prepared.valid_ = false;
     std::optional<AurUpdateSourceBuildExecutionResult> execution;
+    bool cancelled = false;
     if(should_execute) {
         // LANDMINE(#281): aggregate snapshotを保持し、one-shot invocationだけをconsumeする。
-        execution.emplace(
-            execute_prepared_aur_update_source_build_invocation(
-                std::move(*prepared.preparation->invocation), config));
+        try {
+            execution.emplace(
+                execute_prepared_aur_update_source_build_invocation(
+                    std::move(*prepared.preparation->invocation), config));
+        } catch(AurUpdateExecutionCancelled& stop) {
+            execution.emplace(std::move(stop).release_result());
+            cancelled = true;
+        }
     }
 
     correlate_prepared_work_items(
@@ -2034,7 +2048,7 @@ FilteredAurUpdateExecutionResult execute_prepared_filtered_aur_update_operation(
             reduced,
             prepared.issues);
 
-    return FilteredAurUpdateExecutionResult{
+    FilteredAurUpdateExecutionResult result{
         std::move(prepared.query_result),
         std::move(prepared.target_adapter),
         std::move(prepared.upgrade_all_plan),
@@ -2050,6 +2064,10 @@ FilteredAurUpdateExecutionResult execute_prepared_filtered_aur_update_operation(
         std::move(selected_results),
         std::move(prepared.issues),
         std::move(prepared.devel_requires_check_policy)};
+    // Only correlation/reduction ran after the stop. Keep the control signal
+    // across this intermediate owner until a terminal route finalizes it.
+    if(cancelled) throw FilteredAurUpdateCancelled(std::move(result));
+    return result;
 }
 
 bool FilteredAurUpdateExecutionResult::is_success() const noexcept {
@@ -2125,4 +2143,20 @@ bool FilteredAurUpdateExecutionResult::
                preparation.devel_requires_check_policy) &&
            reduced_operation_result.devel_requires_check_policy ==
                devel_requires_check_policy;
+}
+
+FilteredAurUpdateCancelled::FilteredAurUpdateCancelled(FilteredAurUpdateExecutionResult result) noexcept
+    : result_(std::move(result)) {
+}
+
+const FilteredAurUpdateExecutionResult& FilteredAurUpdateCancelled::result() const noexcept {
+    return result_;
+}
+
+FilteredAurUpdateExecutionResult FilteredAurUpdateCancelled::release_result() && noexcept {
+    return std::move(result_);
+}
+
+const char* FilteredAurUpdateCancelled::what() const noexcept {
+    return "AUR update cancelled; partial execution results retained.";
 }

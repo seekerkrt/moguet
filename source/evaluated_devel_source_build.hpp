@@ -21,6 +21,9 @@
 #include <functional>
 #endif
 
+struct PinnedWorkspaceFailure;
+struct PinnedWorkspaceCleanupResult;
+
 enum class EvaluatedDevelSourceBuildStage {
     ContextValidation,
     WorkingRecipe,
@@ -62,6 +65,10 @@ enum class EvaluatedDevelSourceBuildFailureReason {
     CleanupFailure,
     InternalFailure,
     ArtifactMetadataQueryFailure,
+    SourceReadyInvalid,
+    NativePreparationFailed,
+    PreparedClosureDrift,
+    PostBuildClosureDrift,
 };
 
 enum class EvaluatedDevelSourceBuildProcess {
@@ -95,11 +102,15 @@ struct EvaluatedDevelSourceBuildFailure {
     std::optional<SrcinfoSourceMetadataParseFailure> source_parse_failure;
     std::optional<LocalPackageMetadataParseFailure> package_parse_failure;
     std::optional<BoundedProcessOutcome> process_outcome;
+    // A child trapping cancellation may exit zero; retain both observations.
+    std::optional<int> cancellation_signal;
     std::optional<ActualBuiltGitRevisionProofFailure> revision_failure;
     std::optional<std::error_code> system_error;
     std::optional<std::string> diagnostic;
     std::optional<EvaluatedDevelSourceBuildCleanupConsequence>
         cleanup_consequence;
+    // Kept separately from makepkg/cancellation and context cleanup facts.
+    std::shared_ptr<const PinnedWorkspaceFailure> pinned_workspace_failure;
 
     bool operator==(const EvaluatedDevelSourceBuildFailure&) const = default;
 };
@@ -138,6 +149,54 @@ private:
     std::size_t source_count_ = 0;
     std::size_t tracked_local_source_count_ = 0;
 };
+
+// Issue #564 Slice 4A0: owns the initial evaluated selection together with
+// the exact working recipe, context, executable and effective environment.
+// It has not run preparation/build or acquired an upstream revision. Values
+// exposed here are observations; they cannot reconstruct this live owner.
+class EvaluatedDevelSourceSelection final {
+public:
+    EvaluatedDevelSourceSelection() = delete;
+    EvaluatedDevelSourceSelection(const EvaluatedDevelSourceSelection&) = delete;
+    EvaluatedDevelSourceSelection& operator=(const EvaluatedDevelSourceSelection&) = delete;
+    EvaluatedDevelSourceSelection(EvaluatedDevelSourceSelection&&) noexcept;
+    EvaluatedDevelSourceSelection& operator=(EvaluatedDevelSourceSelection&&) = delete;
+    ~EvaluatedDevelSourceSelection() noexcept;
+
+    [[nodiscard]] bool valid() const noexcept;
+    [[nodiscard]] const VcsSourceIdentity& git_source() const;
+    [[nodiscard]] const ParsedSrcinfoSourceEntry& source_declaration() const;
+    [[nodiscard]] std::size_t source_count() const;
+    [[nodiscard]] std::size_t tracked_local_source_count() const;
+    [[nodiscard]] const ReviewedRecipeSnapshotIdentity& snapshot_identity() const;
+    // Cleanup consumes the selection even if its private root must be retained.
+    [[nodiscard]] InvocationOwnedSourceBuildContextCleanupResult cleanup() noexcept;
+
+private:
+    friend class EvaluatedDevelSourceBuildAuthority;
+    friend class PinnedSubmoduleWorkspaceAuthority;
+    explicit EvaluatedDevelSourceSelection(
+        std::unique_ptr<EvaluatedDevelSourceBuildAuthority::SelectionState> state) noexcept;
+    [[nodiscard]] const EvaluatedDevelSourceSelectionStateData& require_state() const;
+    std::unique_ptr<EvaluatedDevelSourceBuildAuthority::SelectionState> state_;
+};
+
+// The same-context producer runs initial --printsrcinfo exactly once and
+// compares it with the retained reviewed snapshot before returning. No raw
+// source metadata or completed build proof can substitute for these inputs.
+[[nodiscard]] EvaluatedDevelSourceSelectionResult select_evaluated_devel_source(
+    InvocationOwnedSourceBuildContext context,
+    InvocationOwnedMakepkgEnvironment environment);
+
+// Resumes the owned working recipe/environment without another initial
+// evaluation. The caller cannot combine a selection with another context.
+[[nodiscard]] EvaluatedDevelSourceBuildResult resume_evaluated_devel_source(
+    EvaluatedDevelSourceSelection selection);
+
+// Consumes the accepted whole closure/selection lineage once. The same S4
+// body performs preparation, build and artifact proof without reevaluation.
+[[nodiscard]] EvaluatedDevelSourceBuildResult resume_evaluated_devel_source(
+    SourceReadyPinnedSubmoduleWorkspace workspace);
 
 // Retains the exact post-build archive descriptor and typed evidence. A path
 // is exposed for diagnostics and future command presentation only; it cannot
@@ -211,11 +270,15 @@ public:
         const;
     [[nodiscard]] const ActualBuiltGitRevision& actual_built_revision()
         const;
+    // Singular compatibility accessor rejects a multi-artifact owner.
     [[nodiscard]] const FreshDevelPackageArtifact& artifact() const;
+    [[nodiscard]] const std::vector<FreshDevelPackageArtifact>& artifacts() const;
+    [[nodiscard]] const std::vector<std::string>& declared_children() const;
 
     // Explicit cleanup is available to tests and abandoned future installs.
     // Refusal keeps the root; the context owns whether a safe retry is allowed.
     [[nodiscard]] InvocationOwnedSourceBuildContextCleanupResult cleanup() noexcept;
+    [[nodiscard]] const PinnedWorkspaceCleanupResult* pinned_workspace_cleanup() const noexcept;
 
 private:
     friend class EvaluatedDevelSourceBuildAuthority;
@@ -249,6 +312,7 @@ build_evaluated_devel_source(
 enum class EvaluatedDevelSourceBuildTestEvent {
     WorkingRecipeReady,
     BeforeInitialPrintSrcinfo,
+    AfterInitialSourceSelection,
     AfterSourcePreparation,
     BeforePackageBuild,
     AfterPackageBuild,
@@ -265,4 +329,9 @@ using EvaluatedDevelSourceBuildTestHook = std::function<void(
 
 void set_evaluated_devel_source_build_test_hook(
     EvaluatedDevelSourceBuildTestHook hook);
+
+using EvaluatedDevelSourceBuildProcessTestHook = std::function<BoundedCapturedProcessResult(
+    const ExplicitProcessInvocation&, const BoundedProcessPolicy&, EvaluatedDevelSourceBuildProcess)>;
+void set_evaluated_devel_source_build_process_test_hook(
+    EvaluatedDevelSourceBuildProcessTestHook hook);
 #endif

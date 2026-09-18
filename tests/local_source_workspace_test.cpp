@@ -328,6 +328,13 @@ public:
     ValidatedCacheRoot prepare_cache_root() const {
         return prepare_test_trusted_cache_root();
     }
+
+    void cleanup() {
+        fs::remove_all(tree_.path());
+        expect(
+            !fs::exists(tree_.path()),
+            "Fixture cleanup left a temporary tree");
+    }
 };
 
 class ScopedWorkspaceTestHook final {
@@ -584,6 +591,10 @@ void test_read_only_source_directory_remains_cleanup_capable() {
     expect(
         snapshot_tree(fixture.source_path()) == original,
         "Read-only snapshot handling changed the original tree");
+
+    // Restore fixture-owned permissions only after the read-only assertions.
+    set_mode(read_only_directory, 0755);
+    fixture.cleanup();
 }
 
 void test_unsafe_symlinks_and_special_file_are_rejected() {

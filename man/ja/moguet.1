@@ -1,4 +1,4 @@
-.TH MOGUET 1 "September 2026" "Moguet 2.7.1" "ユーザーコマンド"
+.TH MOGUET 1 "September 2026" "Moguet 2.8.0" "ユーザーコマンド"
 .\" parity:name
 .SH 名前
 .na
@@ -21,6 +21,12 @@ moguet \- 検証済みsource buildを備えたpacman-first AUR helper
 .
 .B moguet
 .B -Syu --repo [--needed]
+.
+.B moguet
+.B -Su [--needed]
+.
+.B moguet
+.B -Su --repo [--needed]
 .
 .B moguet
 .BR -h | --help
@@ -167,7 +173,38 @@ clone、build、pacman、sudoを開始します。
 後続作業をnot attemptedとして報告します。
 .
 .PP
-repository system-upgrade phaseが失敗した後に限り、Moguetはrepository / AURをまたぐ
+exact target-less Auto -Syuはrepository mutation前にもread-only version-lock
+preflightを行い、--dry-run -Syuでも同じ種類の根拠をplanとともに表示します。
+refreshしていない現在のlocal / sync databaseを使用するため、update中にcandidateが
+変わる可能性があります。selected transaction targetやpost-repository execution
+のauthorityではありません。Partial / Failedは表示可能なcandidateがなくても明示し、
+transaction可否、prompt、通常のdry-run planの終了codeは変更しません。
+coordinated execution、automatic remove / reinstall、execution authorityは作りません。
+.
+.PP
+完全かつ一意な根拠が揃えば、旧foreign consumerの一時削除、repository system upgrade、
+AUR replacementのrebuild/install、exact relationの確認というread-only coordinated
+transition candidateも表示します。単一consumerの削除後もinstalled runtime dependency
+（Providesを含む）が充足され、既知のinstall reasonを保持できることが必要です。
+refresh前の根拠によるexpected-state snapshotであり、execution authorityや将来の全状態の
+証明ではありません。実行にはexplicit confirmationとfreshなmutation-time revalidationが
+必要です。遷移はnon-atomicで、後続failureによりconsumerが未installのまま残り得ます。
+automatic rollbackはありません。actualのtarget-less Auto経路でReadOnlyReadyの場合だけ
+coordinated executionへ進みます。defaultなし[y/n]の明示y/yesが必要で、--noconfirmや
+非対話入力は承認になりません。拒否や入力failureはmutation前に停止します。
+承認後に全根拠をfreshに再取得し、確認済みsnapshotと一致しなければ再実行を求めます。
+差分の自動承認やlegacy経路へのfallbackは行いません。
+通常のdependency checkを有効にした旧foreign consumerの単一削除後、既存のfull repository
+system upgradeを実行します。実際のinstalled repository versionとfreshなAUR replacementが
+一致する場合だけ、対象replacementを既存の安全なAUR build/install経路で処理します。
+built versionと旧Explicit/Dependency install reasonを保持し、最後に両version、exact runtime
+requirement、install reasonをfreshに検証します。failure時は完了phaseと観測できたconsumer状態を
+保持してnon-zeroを返し、retryやrollbackは行いません。dry-runは確認もmutationも行いません。
+RepoOnly、target付きsync、upgrade-all、non-ready planは既存経路を維持します。
+.
+.PP
+upgrade-allおよびexact target-less Auto -Syuでは、repository system-upgrade phaseが
+失敗した後には、Moguetはrepository / AURをまたぐ
 possible version-lockのsupplemental diagnosticを追加する場合があります。
 candidate correlationを1件以上表示できる場合だけ追加し、それ以外は既存failure outputの
 ままです。supplemental textがないこと自体はcandidate absenceの証明ではありません。
@@ -340,7 +377,9 @@ source-awareなofficial repository / AUR candidateを表示して、interactive�
 をroute-owned final installationだけへ適用します。
 .
 .TP
-.B "-Syu [--needed] | -Syu --repo [--needed]"
+.B "-Syu [--needed] | -Syu --repo [--needed] | -Su [--needed] | -Su --repo [--needed]"
+-Su formはrefreshを追加せず現在のsync DBを使います。以下のrepository-first、fresh AUR、
+dry-run、source selection、failure、coordinated transition契約は-Syuと-Suで共有します。
 exact target-less Auto formは通常のAUR helper updateです。official repository system
 upgradeを先に実行し、成功後にだけfreshなinstalled-foreign inventoryとexact AUR metadataを
 取得して、normal installed-AUR updateをplan・実行します。
@@ -361,6 +400,23 @@ updateを停止しません。このstateは未検証のままで、UpToDateで�
 はstrictなwhole-operation RequiresCheck blocker behaviorを維持します。
 .
 .PP
+初回devel provenance観測が真のMissingである独立targetには、interactiveなexact target-less Auto
+更新でdefault-Noの明示tracking bootstrap確認を提示できます。先にexact AUR recipeをread-onlyで
+観測して試行適格性を確認し、unsupported、判定不能、checkout overlayは従来どおりskipします。
+初期trialはdeclared PackageBase child setとarchitecture-independentなone floating HTTPS Git sourceを扱います。
+追加source fileのtracked regular-file identityをtrialで確認できない場合は提示しません。
+.PP
+bootstrap確認は対象由来のcache/provider/dependency mutationより前に行います。Yes後にも、既存review
+recordの有無によらずfull source review、対応build、exact install、fresh installed binding、provenance
+publication成功を要求します。Noは対象をskipし、cancelまたは後段のfailureは後続を停止します。
+rollbackやinvalid/corrupt/future/unsafe stateのrepairは行いません。--noeditは利用できますが、
+--nodiff、review.diff=skip、--noconfirm、non-TTY入力はbootstrap承認になりません。
+.PP
+ordinary更新は対応するsplit PackageBaseを一度だけbuildし、選択したchildだけを一つのtransactionでinstallします。
+未選択のdeclared siblingを自動installせず、installed bindingも作りません。選択したchild別にschema-v1の
+provenance recordを保持します。一部binding/publicationが失敗してもinstall結果を消さず、rollbackなしでnon-zeroを返します。
+.
+.PP
 phaseはsequentialでatomicではありません。repository failure時はAUR phaseをnot attemptedの
 ままnon-zeroで終了します。repository phase完了後にAUR phaseがblock / failした場合は、
 repository completionとnon-zeroのpartial failureを表示し、rollbackしません。cleanup failureは
@@ -373,21 +429,23 @@ Autoでinitially対応するpacman semantic optionは
 だけです。exact ordered repository transactionにだけ保持し、later AUR transactionへ適用しません。
 その他のpacman semantic optionやunsupported argument formはrepository mutation前に拒否し、
 .B "moguet -Syu --repo"
+または
+.B "moguet -Su --repo"
 を案内します。RepoOnly formはsemantic selectorをpacmanへ渡さず、compatibleなpacman
 pass-through tailを維持してrepository system upgradeだけを行います。AUR query、source
 preference、cache、Git、makepkg、source runnerへ到達しません。
-.B -Syu --aur
+.B -Syu --aur / -Su --aur
 はunsupportedです。AUR-only updateにはsource-awareな
 .B upgrade-aur
 を使います。
 .
 .PP
-combined semanticsを持つのはexact canonical target-less tokenだけです。
+combined semanticsを持つのはexact target-less -Syu / -Su tokenだけです。
 .BR -Sy 、
-.BR -Su 、
+.BR -Syy 、
 .BR -Suy 、
 separated / long modifier spelling、target-bearing
-.BR "-Syu <pkg>" 、
+.BR "-Syu <pkg>" / "-Su <pkg>" 、
 unknown modifier formはexisting routingを維持し、installed-AUR sweepを開始しません。
 .
 .TP

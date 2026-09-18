@@ -40,3 +40,14 @@ AurUpdateQueryResult query_registered_aur_devel_update(const PackageBaseIdentity
 std::vector<RegisteredAurDevelObservation> observe_registered_aur_devel_updates(const SystemSourceUpgradeProjectionAuthority&) {
     return {};
 }
+
+void observe_aur_devel_bootstrap_candidates(AurUpdateQueryResult&, const AppConfig&) {
+    // No source/installed authority in this legacy-only query fixture.
+}
+AurDevelUpdateContextObservation observe_aur_devel_update_context() {
+    return {};
+}
+
+bool revalidate_devel_tracking_bootstrap(const DevelTrackingBootstrapTrial&) {
+    throw std::logic_error("Legacy query fixture has no bootstrap observation authority.");
+}

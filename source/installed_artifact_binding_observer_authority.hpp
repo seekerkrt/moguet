@@ -17,5 +17,5 @@ class InstalledArtifactBindingObserver final {
     friend class EvaluatedDevelSourceArtifactTransport;
 
     [[nodiscard]] static FreshInstalledArtifactBindingObservation observe(
-        const ExactArtifactTransactionReceipt& receipt, const EvaluatedDevelSourceBuildProof& built) noexcept;
+        const ExactArtifactTransactionReceipt& receipt, const EvaluatedDevelSourceBuildProof& built, std::size_t artifact_index) noexcept;
 };

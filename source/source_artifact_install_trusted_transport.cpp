@@ -1,6 +1,7 @@
 #include "source_artifact_install_trusted_transport.hpp"
 
 #include "evaluated_devel_source_build.hpp"
+#include "artifact_identity_selection.hpp"
 #include "devel_source_artifact_install_state.hpp"
 #include "evaluated_devel_source_artifact_transport.hpp"
 #include "exact_artifact_transaction_receipt.hpp"
@@ -1515,11 +1516,34 @@ EvaluatedDevelSourceArtifactTransport::transaction_token() const {
     return state_->transaction_token;
 }
 
+ArtifactPackageIdentitySet query_artifact_package_identities(const EvaluatedDevelSourceBuildProof& proof) {
+    std::vector<ArtifactPackageIdentity> identities;
+    for(const auto& artifact : proof.artifacts())
+        identities.push_back(artifact.evidence().identity);
+    return ArtifactPackageIdentitySet(std::move(identities));
+}
+
 EvaluatedDevelSourceArtifactTransport prepare_evaluated_devel_source_artifact_transport(
     EvaluatedDevelSourceBuildProof proof) {
+    if(!proof.valid() || proof.artifacts().size() != 1)
+        throw std::logic_error("singular evaluated transport requires one artifact");
+    const std::vector<RequiredPackageArtifactTarget> targets{{proof.package_base().package_base(), proof.artifact().package().package_name(), DesiredInstallReason::Explicit}};
+    return prepare_evaluated_devel_source_artifact_transport(std::move(proof), targets);
+}
+
+EvaluatedDevelSourceArtifactTransport prepare_evaluated_devel_source_artifact_transport(
+    EvaluatedDevelSourceBuildProof proof, const std::vector<RequiredPackageArtifactTarget>& targets) {
     if(!proof.valid()) throw std::logic_error("evaluated build proof is inactive");
-    return EvaluatedDevelSourceArtifactTransport(
-        std::make_unique<DevelSourceArtifactInstallState>(std::move(proof)));
+    const auto selection = correlate_package_base_artifact_identities(
+        proof.package_base().package_base(), targets, query_artifact_package_identities(proof));
+    if(!selection.is_success() || selection.success()->selected_artifacts.empty())
+        throw std::runtime_error("selected devel children do not match the proven artifact set");
+    auto state = std::make_unique<DevelSourceArtifactInstallState>(std::move(proof));
+    for(const auto& selected : selection.success()->selected_artifacts) {
+        state->selected_indices.push_back(selected.artifact_index);
+        state->bindings.push_back({selected.artifact_index, selected.identity.package_name, {}, {}});
+    }
+    return EvaluatedDevelSourceArtifactTransport(std::move(state));
 }
 
 SourceArtifactInstallTrustedExecutionResult EvaluatedDevelSourceArtifactTransport::execute(
@@ -1561,7 +1585,9 @@ std::optional<ExactArtifactReceiptIssue> EvaluatedDevelSourceArtifactTransport::
     return state_ ? state_->receipt_issue : std::nullopt;
 }
 const FreshInstalledArtifactBinding* EvaluatedDevelSourceArtifactTransport::fresh_binding() const noexcept {
-    return state_ && state_->fresh_binding ? &*state_->fresh_binding : nullptr;
+    return state_ && state_->bindings.size() == 1 && state_->bindings.front().binding
+               ? &*state_->bindings.front().binding
+               : nullptr;
 }
 std::optional<InstalledRecordObservationIssue> EvaluatedDevelSourceArtifactTransport::installed_binding_issue() const noexcept {
     return state_ ? state_->binding_issue : std::nullopt;
@@ -1588,59 +1614,72 @@ SourceArtifactInstallTrustedExecutionResult EvaluatedDevelSourceArtifactTranspor
     bool privileged_attempted = false;
     ExactArtifactTransportCapture exact_capture{*state_, {}, {}, {}, {}, ExactArtifactReceiptIssue::Missing};
     try {
-        const auto& artifact = state_->proof.artifact();
-        const auto& evidence = artifact.evidence();
-        const struct stat metadata = require_snapshot_source(
-            artifact.descriptor_, artifact.device_, artifact.inode_, artifact.owner_,
-            SOURCE_ARTIFACT_INSTALL_MAXIMUM_ARTIFACT_BYTES);
-        const auto require_original_entry = [&] {
-            struct stat named{};
-            // A named-entry check only rejects replacement. It never opens or
-            // adopts a new object, even when that object's bytes are identical.
-            if(metadata.st_nlink != 1 || static_cast<std::uintmax_t>(metadata.st_size) != artifact.size_ ||
-               lstat(artifact.path_.c_str(), &named) == -1 || !same_snapshot_metadata(metadata, named))
-                throw std::runtime_error("evaluated artifact retained object was replaced");
-        };
-        require_original_entry();
-        // This comparison MUST precede copying. Hashing whatever is readable
-        // now cannot replace the digest saved by the original build proof.
-        const std::string digest = xdg_generation_store_file_descriptor_sha256(
-            artifact.descriptor_, artifact.size_, SOURCE_ARTIFACT_INSTALL_MAXIMUM_ARTIFACT_BYTES);
-        if(digest != evidence.archive_digest.value())
-            throw std::runtime_error("evaluated artifact differs from the Slice 4 saved archive digest");
-
-        OwnedDescriptor snapshot = create_sealable_memfd();
-#ifdef MOGUET_ENABLE_SOURCE_ARTIFACT_INSTALL_TRUSTED_TRANSPORT_TEST_HOOKS
-        if(g_evaluated_transport_test_hooks.before_snapshot_copy)
-            g_evaluated_transport_test_hooks.before_snapshot_copy(artifact.descriptor_);
-#endif
-        append_descriptor_bytes(artifact.descriptor_, metadata, snapshot.get());
-        require_original_entry();
-        const auto& identity = evidence.identity;
-        const auto* package_base = identity.package_base.value();
-        const auto* architecture = identity.architecture.value();
-        if(identity.package_base.state() != ArtifactMetadataValueState::Known ||
-           identity.architecture.state() != ArtifactMetadataValueState::Known ||
-           !package_base || !architecture)
-            throw std::runtime_error("evaluated artifact identity is incomplete");
-        // Slice 4 accepts exactly one archive and no detached signature.
-        // PreserveExistingReason adds no cleanup-specific --asdeps authority;
-        // needed=false installs the proved build without introducing skip policy.
+        OwnedDescriptor aggregate = create_sealable_memfd();
         SourceArtifactInstallRootPrepareRequest request{
-            *state_->transaction_token, *package_base, SourceArtifactInstallTrustedDirective::PreserveExistingReason, false, options.no_confirm, {{0, identity.package_name, identity.full_version, *package_base, *architecture, static_cast<std::uint64_t>(artifact.size_), 0, digest, "-"}}};
-        if(exact) {
-            request.purpose = SourceArtifactInstallTrustedPurpose::ExactInstalledBinding;
-            request.artifacts.front().raw_mtree_sha256 = evidence.mtree_digest.value();
-            exact_capture.manifest = request;
+            *state_->transaction_token, state_->proof.package_base().package_base(), SourceArtifactInstallTrustedDirective::PreserveExistingReason, false, options.no_confirm, {}};
+        if(exact) request.purpose = SourceArtifactInstallTrustedPurpose::ExactInstalledBinding;
+        std::vector<std::string> requested_names;
+        std::uint64_t total_bytes = 0;
+        for(const auto index : state_->selected_indices) {
+            const auto& artifact = state_->proof.artifacts().at(index);
+            const auto& evidence = artifact.evidence();
+            const struct stat metadata = require_snapshot_source(
+                artifact.descriptor_, artifact.device_, artifact.inode_, artifact.owner_,
+                SOURCE_ARTIFACT_INSTALL_MAXIMUM_ARTIFACT_BYTES);
+            const auto require_original_entry = [&] {
+                struct stat named{};
+                // A named-entry check only rejects replacement. It never opens or
+                // adopts a new object, even when that object's bytes are identical.
+                if(metadata.st_nlink != 1 || static_cast<std::uintmax_t>(metadata.st_size) != artifact.size_ ||
+                   lstat(artifact.path_.c_str(), &named) == -1 || !same_snapshot_metadata(metadata, named))
+                    throw std::runtime_error("evaluated artifact retained object was replaced");
+            };
+            require_original_entry();
+            // This comparison MUST precede copying. Hashing whatever is readable
+            // now cannot replace the digest saved by the original build proof.
+            const std::string digest = xdg_generation_store_file_descriptor_sha256(
+                artifact.descriptor_, artifact.size_, SOURCE_ARTIFACT_INSTALL_MAXIMUM_ARTIFACT_BYTES);
+            if(digest != evidence.archive_digest.value())
+                throw std::runtime_error("evaluated artifact differs from the Slice 4 saved archive digest");
+
+            OwnedDescriptor snapshot = create_sealable_memfd();
+#ifdef MOGUET_ENABLE_SOURCE_ARTIFACT_INSTALL_TRUSTED_TRANSPORT_TEST_HOOKS
+            if(g_evaluated_transport_test_hooks.before_snapshot_copy)
+                g_evaluated_transport_test_hooks.before_snapshot_copy(artifact.descriptor_);
+#endif
+            append_descriptor_bytes(artifact.descriptor_, metadata, snapshot.get());
+            require_original_entry();
+            const auto& identity = evidence.identity;
+            const auto* package_base = identity.package_base.value();
+            const auto* architecture = identity.architecture.value();
+            if(identity.package_base.state() != ArtifactMetadataValueState::Known ||
+               identity.architecture.state() != ArtifactMetadataValueState::Known ||
+               !package_base || !architecture)
+                throw std::runtime_error("evaluated artifact identity is incomplete");
+            SourceArtifactInstallRootArtifactExpectation selected{
+                index, identity.package_name, identity.full_version, *package_base, *architecture,
+                static_cast<std::uint64_t>(artifact.size_), 0, digest, "-"};
+            if(exact) selected.raw_mtree_sha256 = evidence.mtree_digest.value();
+            auto child_request = request;
+            child_request.artifacts = {selected};
+            seal_snapshot(snapshot.get(), child_request);
+            // Close hash-to-copy mutation as well: the immutable bytes sent across
+            // privilege must carry the very same saved digest, not just a new hash.
+            if(xdg_generation_store_file_descriptor_sha256(
+                   snapshot.get(), artifact.size_, SOURCE_ARTIFACT_INSTALL_MAXIMUM_ARTIFACT_BYTES) != digest)
+                throw std::runtime_error("evaluated artifact snapshot differs from the Slice 4 saved archive digest");
+            total_bytes += artifact.size_;
+            if(total_bytes > SOURCE_ARTIFACT_INSTALL_MAXIMUM_TRANSACTION_BYTES)
+                throw std::runtime_error("selected devel artifacts exceed the transport size limit");
+            struct stat sealed{};
+            if(fstat(snapshot.get(), &sealed) != 0) throw std::runtime_error("sealed artifact is unavailable");
+            append_descriptor_bytes(snapshot.get(), sealed, aggregate.get());
+            request.artifacts.push_back(std::move(selected));
+            requested_names.push_back(identity.package_name);
         }
-        seal_snapshot(snapshot.get(), request);
-        // Close hash-to-copy mutation as well: the immutable bytes sent across
-        // privilege must carry the very same saved digest, not just a new hash.
-        if(xdg_generation_store_file_descriptor_sha256(
-               snapshot.get(), artifact.size_, SOURCE_ARTIFACT_INSTALL_MAXIMUM_ARTIFACT_BYTES) != digest)
-            throw std::runtime_error("evaluated artifact snapshot differs from the Slice 4 saved archive digest");
-        PreparedTransportInput input{
-            std::move(snapshot), std::move(request), {}, {identity.package_name}};
+        seal_snapshot(aggregate.get(), request);
+        if(exact) exact_capture.manifest = request;
+        PreparedTransportInput input{std::move(aggregate), std::move(request), {}, std::move(requested_names)};
         privileged_attempted = true;
         auto execution = SourceArtifactInstallTrustedTransport::execute_snapshot(
             std::move(input), *state_->transaction_token, nullptr, nullptr, std::nullopt, exact ? &exact_capture : nullptr);
@@ -1651,12 +1690,16 @@ SourceArtifactInstallTrustedExecutionResult EvaluatedDevelSourceArtifactTranspor
                                                                         std::move(exact_capture.records), std::move(*exact_capture.evidence),
                                                                         state_->proof.lineage_, state_->transaction_lineage));
                 state_->receipt_issue.reset();
-                auto observed = InstalledArtifactBindingObserver::observe(*state_->receipt, state_->proof);
-                if(auto* binding = std::get_if<FreshInstalledArtifactBinding>(&observed)) {
-                    state_->fresh_binding.emplace(std::move(*binding));
-                    state_->fresh_binding_count = 1;
-                } else
-                    state_->binding_issue = std::get<FreshInstalledArtifactBindingFailure>(observed).reason;
+                for(auto& child : state_->bindings) {
+                    auto observed = InstalledArtifactBindingObserver::observe(*state_->receipt, state_->proof, child.artifact_index);
+                    if(auto* binding = std::get_if<FreshInstalledArtifactBinding>(&observed)) {
+                        child.binding.emplace(std::move(*binding));
+                        ++state_->fresh_binding_count;
+                    } else {
+                        child.issue = std::get<FreshInstalledArtifactBindingFailure>(observed).reason;
+                        if(!state_->binding_issue) state_->binding_issue = child.issue;
+                    }
+                }
             }
         }
         return execution;

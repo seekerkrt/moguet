@@ -400,6 +400,12 @@ bind_reviewed_source_verified_review_transition(
     ReviewedSourceIntegrationLifecycle lifecycle =
         ReviewedSourceLifecycleInitialFullReview{};
     switch(requirement.kind()) {
+        case ReviewedSourceReviewRequirementKind::BootstrapFullReview:
+            if(!std::holds_alternative<ReviewedSourceMaterializedInitialFullReview>(materialized)) {
+                stop_transition(ReviewedSourceOperationStopReason::LifecycleMismatch);
+            }
+            lifecycle = ReviewedSourceLifecycleBootstrapFullReview{};
+            break;
         case ReviewedSourceReviewRequirementKind::InitialFullReview:
             if(!std::holds_alternative<
                    ReviewedSourceMaterializedInitialFullReview>(materialized)) {

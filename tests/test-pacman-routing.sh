@@ -201,8 +201,14 @@ run_ok "$tmp_dir/custom-upgrade.out" upgrade
 assert_only_two_commands \
     "pacman-conf --verbose RootDir DBPath" \
     "sudo pacman -Syu"
-run_ok "$tmp_dir/repository-system-upgrade.out" -Syu --repo
-assert_only_command "sudo pacman -Syu"
+for sync_operation in -Syu -Su; do
+    run_ok "$tmp_dir/repository-system-upgrade-$sync_operation.out" "$sync_operation" --repo
+    assert_only_command "sudo pacman $sync_operation"
+done
+for sync_operation in -Sy -Syy; do
+    run_ok "$tmp_dir/refresh-only-$sync_operation.out" "$sync_operation"
+    assert_only_command "sudo pacman $sync_operation"
+done
 run_fail "$tmp_dir/upgrade-aur-target.out" upgrade-aur unexpected-target
 assert_contains "Operation upgrade-aur does not accept target operands." "$tmp_dir/upgrade-aur-target.out"
 assert_log_empty

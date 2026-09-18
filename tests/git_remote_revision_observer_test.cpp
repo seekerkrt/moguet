@@ -1574,6 +1574,59 @@ void test_exact_branch_production_validation() {
         "Nonzero Git status was classified from stderr/stdout text");
 }
 
+void test_exact_branch_bounded_process_results() {
+    using Reason = ExactGitBranchValidationProcessFailureReason;
+    struct Case {
+        BoundedProcessOutcome outcome;
+        std::optional<Reason> failure_reason;
+        std::optional<int> detail;
+    };
+    const std::vector<Case> cases{
+        {BoundedProcessExited{0}, std::nullopt, std::nullopt},
+        {BoundedProcessExited{23}, std::nullopt, std::nullopt},
+        {BoundedProcessSignaled{SIGTERM}, Reason::Signaled, SIGTERM},
+        {BoundedProcessLaunchOrSetupFailure{BoundedProcessLaunchStage::Execve, ENOENT}, Reason::LaunchOrSetup, ENOENT},
+        {BoundedProcessIoOrWaitFailure{BoundedProcessIoStage::Poll, EIO}, Reason::IoOrWait, EIO},
+        {BoundedProcessTimedOut{}, Reason::TimedOut, std::nullopt},
+        {BoundedProcessCaptureLimitExceeded{4}, Reason::CaptureLimitExceeded, 4},
+    };
+    for(const auto& test_case : cases) {
+        for(const bool cancelled : {false, true}) {
+            unsigned calls = 0;
+            const BoundedCapturedProcessResult observed{
+                "main\n", test_case.outcome, cancelled ? std::optional<int>(SIGINT) : std::nullopt};
+            set_exact_git_branch_validation_process_test_hook([&](const auto& invocation, const auto&) {
+                require(invocation.executable == "/usr/bin/git" && invocation.arguments.back() == "main",
+                        "Bounded fixture bypassed branch producer");
+                ++calls;
+                return observed;
+            });
+            const auto result = validate_exact_git_branch("main");
+            set_exact_git_branch_validation_process_test_hook({});
+            require(calls == 1, "Branch validator did not execute bounded child boundary");
+            if(cancelled) {
+                const auto& failure = expect_branch_validation_result<ExactGitBranchValidationProcessFailure>(result, "cancelled branch");
+                require(failure.reason == Reason::Cancelled && failure.cancellation_signal == SIGINT &&
+                            failure.process_outcome == observed.outcome,
+                        "Parent cancellation was lost or replaced the child outcome");
+            } else if(test_case.failure_reason) {
+                const auto& failure = expect_branch_validation_result<ExactGitBranchValidationProcessFailure>(result, "branch process failure");
+                require(failure.reason == test_case.failure_reason && failure.detail == test_case.detail &&
+                            !failure.cancellation_signal,
+                        "Existing branch process failure classification changed");
+            } else if(std::get<BoundedProcessExited>(test_case.outcome).exit_code == 0) {
+                require(expect_branch_validation_result<ValidatedExactGitBranch>(result, "uncancelled branch").name() == "main",
+                        "No-cancel explicit branch success changed");
+            } else {
+                const auto& invalid = expect_branch_validation_result<InvalidExactGitBranch>(result, "nonzero branch");
+                require(invalid.reason == InvalidExactGitBranchReason::GitRejected && invalid.git_exit_code == 23,
+                        "Nonzero branch rejection changed");
+            }
+        }
+    }
+    std::cout << "Exact branch bounded outcomes / parent cancellation preservation PASS\n";
+}
+
 void print_observation_result(
     const GitRemoteRevisionObservationResult& result) {
     if(const auto* observed =
@@ -1678,6 +1731,7 @@ int main(int argc, char* argv[]) {
         test_observer_execution_composition(executable);
         test_observer_git_config_isolation();
         test_exact_branch_production_validation();
+        test_exact_branch_bounded_process_results();
     } catch(const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;

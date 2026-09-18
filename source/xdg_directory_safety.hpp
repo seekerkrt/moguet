@@ -197,6 +197,8 @@ PreparedDirectory prepare_directory(
     const xdg_paths::StatePaths& paths,
     const DirectoryCreationPrecondition& creation_precondition);
 PreparedDirectory prepare_directory(const xdg_paths::CachePaths& paths);
+// Observation only; missing managed directories are not created.
+std::optional<PreparedDirectory> open_existing_directory(const xdg_paths::CachePaths& paths);
 PreparedDirectory prepare_directory(
     const xdg_paths::CachePaths& paths,
     const DirectoryCreationPrecondition& creation_precondition);

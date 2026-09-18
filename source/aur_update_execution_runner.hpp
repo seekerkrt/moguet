@@ -1,6 +1,7 @@
 #pragma once
 
 #include "aur_update_execution_preparation.hpp"
+#include "interactive_confirmation.hpp"
 
 #include <cstddef>
 #include <optional>
@@ -17,6 +18,8 @@ enum class AurUpdateWorkItemExecutionStatus {
     UpdatedCleanupFailed,
     NoChangeCleanupFailed,
     NotAttempted,
+    Cancelled,
+    BootstrapSkipped,
 };
 
 enum class AurUpdateWorkItemFailureKind {
@@ -33,6 +36,7 @@ enum class AurUpdateInvocationExecutionStatus {
     StoppedOnProviderTransactionFailure,
     StoppedOnWorkItemFailure,
     StoppedAfterPackageCleanupFailure,
+    StoppedOnWorkItemCancellation,
 };
 
 enum class AurUpdateChildExecutionStatus {
@@ -41,6 +45,7 @@ enum class AurUpdateChildExecutionStatus {
     InstalledCleanupFailed,
     SkippedAsNeededCleanupFailed,
     NotAttempted,
+    BootstrapSkipped,
 };
 
 enum class AurUpdateSourceBuildFailureCategory {
@@ -105,9 +110,20 @@ using AurUpdateWorkItemFailureDetail = std::variant<
     PackageBaseArtifactIdentitySelectionFailure,
     MixedPackageBaseInstallReasonUnsupported,
     PackageMetadataFailure,
+    TrustedCacheFailure,
     AurUpdateSourceBuildFailureSnapshot,
     AurUpdatePackageTransactionFailureSnapshot,
     AurUpdateExecutionCorrelationFailure>;
+
+enum class AurUpdateBootstrapDecisionState { Accepted,
+                                             Declined,
+                                             ObservationChanged,
+                                             InteractionUnavailable };
+struct AurUpdateBootstrapDecision {
+    AurUpdateBootstrapDecisionState state;
+    std::optional<ConfirmationResult> confirmation;
+    bool operator==(const AurUpdateBootstrapDecision&) const = default;
+};
 
 // Preparationが確定したrequired child attributionを最初からowned保持し、
 // transaction成功時だけselected identity/outcomeを埋める。
@@ -157,7 +173,34 @@ struct AurUpdateWorkItemExecutionResult {
     AurUpdateWorkItemFailureDetail failure_detail;
     std::optional<std::string> diagnostic;
     std::optional<ReviewedDevelExecutionSnapshot> devel_execution = std::nullopt;
+    // Confirmation authority is independent of ordinary execution failure.
+    std::optional<ConfirmationCancelled> cancellation = std::nullopt;
+    std::optional<AurUpdateBootstrapDecision> bootstrap_decision = std::nullopt;
+    // Original query-plan indices, not names or compacted work-item indices.
+    std::vector<std::size_t> bootstrap_skipped_roots = {};
+    // Acquisition process cancellation is not a confirmation token. Also retains
+    // cleanup consequences accompanying review failure/cancellation or S3.
+    std::optional<RecipeAcquisitionFailure> recipe_acquisition_failure = std::nullopt;
 };
+
+// Shared structural rule for reducer and presentation. Only this pre-build
+// review stop may retain the original execution owner and prior review facts.
+inline bool has_consistent_closure_review_cancellation(const AurUpdateWorkItemExecutionResult& work_item) noexcept {
+    if(work_item.status != AurUpdateWorkItemExecutionStatus::Cancelled || !work_item.devel_execution || !work_item.devel_execution->owner ||
+       !work_item.cancellation || work_item.diagnostic || work_item.recipe_acquisition_failure) return false;
+    const auto& snapshot = *work_item.devel_execution;
+    const auto* review = snapshot.closure_review_failure ? &*snapshot.closure_review_failure : nullptr;
+    return review && review->reason == PinnedClosureReviewFailureReason::Cancelled && review->cancellation == work_item.cancellation->reason &&
+           !snapshot.complete && !snapshot.build_completed && !snapshot.projection_failed && !snapshot.required_review_decline &&
+           !snapshot.artifact && !snapshot.operation && !snapshot.publication && !snapshot.receipt && !snapshot.proof && !snapshot.pacman_exit_status && !snapshot.cleanup &&
+           !snapshot.recipe_acquisition_failure && work_item.production_outcome && snapshot.production_outcome &&
+           *work_item.production_outcome == *snapshot.production_outcome &&
+           work_item.production_outcome->build_outcome == ProductionSourceBuildCommandOutcome::NotAttempted &&
+           work_item.production_outcome->install_outcome == ProductionSourceInstallOutcome::NotAttempted;
+}
+
+enum class AurUpdateInvocationExecutionPhase { WorkItems,
+                                               BootstrapDecisions };
 
 struct AurUpdateSourceBuildExecutionResult {
     AurUpdateInvocationExecutionStatus status =
@@ -165,6 +208,8 @@ struct AurUpdateSourceBuildExecutionResult {
     std::vector<AurUpdateWorkItemExecutionResult> work_item_results;
     SelectedRepositoryProviderTransactionResult
         selected_repository_provider_transaction;
+
+    AurUpdateInvocationExecutionPhase phase = AurUpdateInvocationExecutionPhase::WorkItems;
 
     bool is_success() const noexcept;
     PackageStateChange package_state_change() const noexcept;
@@ -174,6 +219,18 @@ struct AurUpdateSourceBuildExecutionResult {
     std::optional<std::size_t> stopped_work_item_index() const noexcept;
 };
 
+// Owned partial facts travel with the stop signal; callers must not resume mutation.
+class AurUpdateExecutionCancelled final : public std::exception {
+public:
+    explicit AurUpdateExecutionCancelled(AurUpdateSourceBuildExecutionResult result) noexcept;
+    const AurUpdateSourceBuildExecutionResult& result() const noexcept;
+    AurUpdateSourceBuildExecutionResult release_result() && noexcept;
+    const char* what() const noexcept override;
+
+private:
+    AurUpdateSourceBuildExecutionResult result_;
+};
+
 // Correlated preparation snapshotをone-shot capabilityとしてconsumeし、逐次実行する。
 // preflight、BuildPlan、source preference、Pacman DBは再queryせず、最初のfailureで
 // 後続をNotAttemptedのまま返す。
@@ -181,3 +238,11 @@ AurUpdateSourceBuildExecutionResult
 execute_prepared_aur_update_source_build_invocation(
     PreparedAurUpdateSourceBuildInvocation invocation,
     const AppConfig& config);
+
+#ifdef MOGUET_ENABLE_AUR_UPDATE_EXECUTION_RUNNER_TEST_HOOKS
+#include <functional>
+// Production-connected bootstrap fixtures may replace unrelated legacy work.
+// The runner never applies this seam to a bootstrap work item.
+using AurUpdateNonBootstrapExecutionTestHook = std::function<std::optional<PackageBaseSourceBuildExecutionResult>(const ProductionSourceBuildWorkItem&)>;
+void set_aur_update_non_bootstrap_execution_test_hook(AurUpdateNonBootstrapExecutionTestHook hook);
+#endif

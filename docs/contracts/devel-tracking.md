@@ -10,8 +10,8 @@ Moguet v2.7.0で導入するauthoritative devel trackingの対応範囲と安全
 
 ```text
 #411 reviewed exact AUR recipe / typed pin
-  → same-context evaluated source
   → invocation-owned recipe / PKGDEST / BUILDDIR / SRCDEST
+  → same-context evaluated source selection (4A0)
   → actual pre/post-build Git revision (S4)
   → actual dynamic-version artifact identity / archive + MTREE digest (S4)
   → exact selected-artifact Install / Upgrade receipt (S5)
@@ -26,8 +26,13 @@ Moguet v2.7.0で導入するauthoritative devel trackingの対応範囲と安全
   → new S4 → S5 → S6 publication
 ```
 
-図のevaluated sourceとbuild contextは独立inputではない。S3でpinからcontextを作り、S4がその内部で
-sourceを評価する。[S4](evaluated-devel-source-build-proof.md)がactual build authority、
+図のevaluated sourceとbuild contextは独立inputではない。S3でpinからcontextを作り、prepare前の
+`EvaluatedDevelSourceSelection`がsame-context initial evaluationとreviewed projection一致を証明して
+実行状態を所有する（Issue #564 Slice 4A0）。S4は同じownerをresumeし、初回評価を繰り返さない。
+このselection自身はexact root X取得やsubmodule対応を意味しない。4Aの[object-level closure foundation](pinned-submodule-closure.md)と
+4B0の[別途明示closure review](pinned-submodule-closure-review.md)、4B1の[SourceReady workspace](pinned-submodule-workspace.md)を
+4B2がinitial Missing bootstrapのcommon S4へ接続する。
+[S4](evaluated-devel-source-build-proof.md)がactual build authority、
 [S5 receipt/binding](exact-installed-artifact-binding.md)と[final proof](installed-devel-source-build-proof.md)が
 実install authority、[S6](devel-build-provenance-publication.md)がhistorical publicationを所有する。
 [assessment](devel-package-assessment.md)のsnapshotはbuild authorizationやleaseではない。
@@ -58,11 +63,11 @@ installed versionがAUR/.SRCINFOと等しくても、全P/I/R gatesが成立しr
 ## Initial authoritative subset / compatibility
 
 AUR、valid #411 exact reviewed pin、observed editor overlayなし、architecture-independentなone floating
-HTTPS Git source、DefaultHead/exact Branch、one pkgname / selected child / produced artifact / actual installed childに
-限定する。追加sourceはreviewed tracked regular local fileだけ。full split provenance、他VCS/transport、
+HTTPS Git source、DefaultHead/exact Branchに限定する。ordinary #564 routeではsplit childrenを集合対応し、
+selected child別のv1 provenanceを保持する。追加sourceはreviewed tracked regular local fileだけ。他VCS/transport、
 arbitrary PKGBUILD shell proof、external history adoptionは含まない。
 
-単一artifact制約はpost-preparationの`--packagelist`とactual inventoryの両方へ適用する。
+post-preparationの`--packagelist`とactual inventoryの集合を照合し、required subsetだけをinstallする。
 makepkgのdebug設定による追加outputも対象外で、Moguetがdebug policyを暗黙に上書きすることはない。
 deterministic positive fixtureはreviewed recipeに`options=('!debug')`を明示し、Archのglobal defaultへ依存しない。
 
@@ -71,11 +76,11 @@ deterministic positive fixtureはreviewed recipeに`options=('!debug')`を明示
 | normal RPC Version newer | Version precedence。Git queryなしで既存candidateを維持 |
 | valid Git same | UpToDate、automatic buildなし |
 | valid Git different | GitRevision candidate。normal preflightとreviewed executionを通す |
-| RequiresCheck | automatic buildなし。ordinary -Syuのindependent targetはwarning/skip、required relationとstrict routeはblock |
+| RequiresCheck | automatic buildなし。ordinary -Syu / -Suのindependent targetはwarning/skip。初回Missingの試行適格性を確認できる場合だけ明示bootstrapを提示。required relationとstrict routeはblock |
 | Unknown | remote observation failureを保持、automatic buildなし／nonzero |
 | Unsupported / unsupported devel source | automatic authoritative buildなし。suffixだけでVCSを確定しない。local proof不足はRequiresCheck |
 | ordinary non-devel AUR | normal version policy。missing provenanceからGit baselineを生成しない |
-| overlay / split PackageBase / legacy source build | eligibleなauthoritative routeへ偽装しない。explicit supported legacy intentは既存route、publicationなし |
+| overlay / legacy source build | eligibleなauthoritative routeへ偽装しない。explicit supported legacy intentは既存route、publicationなし |
 | registered AUR OnlyIfUpdated | version-only shortcutより先に共通current assessment。RequiresCheckはdefault-Noの明示rebuild確認、source reviewは別途必要 |
 | registered repository / local source | 既存source/version policy、#476 provenanceへ昇格しない |
 | repo-only -Syu / standalone plan・deps | #476 Git query、build、publicationを追加しない |
@@ -95,7 +100,7 @@ Slice 8でschema変更もmigration commandも追加しない。
 ${XDG_STATE_HOME:-$HOME/.local/state}/moguet/devel-build-provenance/aur/<PackageBase>/
 ```
 
-#411 reviewed-source stateとはnamespace、schema、CAS、publication timingが異なる。
+Issue #411 reviewed-source stateとはnamespace、schema、CAS、publication timingが異なる。
 serialized dataはhistorical evidenceであり、parser resultからlive proofをmintできない。
 transaction token、FD、Post anchor、ALPM session、build-context lifetimeは永続化しない。
 
@@ -137,3 +142,44 @@ deterministic normal route/partial acceptance、actual Git/makepkg/archive、loo
 transactionを区別して記録する。S5-only laneはpublicationなし、S6 laneはraw document SHA-256・27 keys・
 exact predecessor chain・actual S4 OID / artifact / S5 bindingとのreadback一致を要求する。
 public provider/AUR/local live acceptanceやrelease approvalをdeterministic seamから推定しない。
+
+## Ordinary initial bootstrap (#553)
+
+exact target-less ordinary `-Syu` / `-Su` Autoだけが、initial ProvenanceMissingの独立targetへdefault-Noの
+bootstrap確認を提示できる。試行適格性はexact recipeとcurrent local observationsに結び付くread-only値であり、
+review/build/install/publication proofではない。one Git rootとboundedなrecipe直下のrenameなしlocal inputsを候補にできる。
+追加source fileのtracked/regular/exact bytesはfull review/S3/S4で証明する。old recipe cacheのclean/dirty/HEAD/originに依存せず、
+Yes後はfresh private workspaceへexact observed recipeを取得し、取得失敗時もold cacheへfallbackしない。
+
+Yes後にもfull source reviewを要求する。既存RをMissingへ偽装せず、exact observed predecessorをCASへ保持する。
+reviewed exact recipe→S4→S5→S6を完了した場合だけ初回baselineが成立し、次回P/I/Rとsame remote OIDはUpToDate、
+different OIDはGitRevision updateとなる。--noconfirm/non-TTY/--nodiff/config review Skipは承認ではない。
+
+既存valid provenanceのfast pathと通常Version updateは維持する。invalid/corrupt/future/unsafeやstale bindingは
+bootstrapでrepairしない。Rはbuild前に進み得るがPとは別であり、install failureはpartial effectを持ち得る。
+S6 OutcomeUnknownではrecordが存在する可能性を保ち、baseline successとは報告せず、後続を停止する。
+詳細なowner/interaction境界は[normal routes](devel-normal-routes.md)を正とする。
+
+### Initial Missingのpinned closure integration（#564 Slice 4B2）
+
+上記exact routeのtyped intentだけが、recipe full review/acceptance→exact S3→actual initial evaluation→
+4A parent-pinned recursive closure→別途explicit closure review→SourceReady→native makepkg→common S4→S5→S6を通る。
+root-onlyを含むこのbootstrap chainでは、recipe内容reviewとは別にexact upstream snapshotをbuild inputとして
+使う明示承認を要求する。Slice 6ではremote/selector/root/tree、complete inventory metadata、submodule pin、root tagのfull name/raw OID/annotated peeled OID mappingを
+提示し、上流全blobの全文reviewは要求しない。binary/large blobの存在だけでは拒否しない。承認はsource-codeの
+安全性保証ではなくsnapshot選択である。metadata/取得/workspaceの上限とidentity不整合の拒否は維持する。
+通常のvalid provenanceやnon-devel経路にはこの承認を追加しない。
+
+SourceReady whole ownerがsame selection/accepted root X/child pinsを保持する。prepared metadata/packagelist後と
+post-buildにHEAD、gitlinks、exact `.gitmodules`、native metadata identityを再証明し、通常source contentの
+合法的なprepare/build mutationを許可する。root workspace/private mirrorの全tag namespaceもaccepted mappingへ
+再照合する。tag mappingはinvocation-localに限定し、root X不変のtag-only更新検出やprovenance schema変更は追加しない。phase-point proofでありcontinuous attestationではない。
+
+root `ActualBuiltGitRevision == X`を既存producerで証明し、child pinsはinvocation-localな別evidenceとして保持する。
+root treeのgitlinksがchild/nested pinsをtransitively固定するため、schema v1 / 27 keysは変更しない。
+root X不変のchild remote-only advanceはUpToDate、root X→YはGitRevision updateという既存root trackingを維持する。
+
+Slice 5はordinary split PackageBase authorityを接続する。Slice 6の
+[代表topology fixture](../../tests/fixtures/devel-production-topologies.md)は実recipeのsource形状、binary/large asset、
+submodule・DKMS packagingをdeterministicに確認する。live Cargo取得や全upstream application build、
+汎用sandbox/network firewall/cache managerの保証には読み替えない。

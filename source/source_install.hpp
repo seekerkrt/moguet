@@ -317,6 +317,8 @@ struct SourceBuildRequestObservation {
     std::optional<PackageBaseIdentity> aur_review_identity;
     ReviewedSourceFatalStateObservationStatus reviewed_state =
         ReviewedSourceFatalStateObservationStatus::Inapplicable;
+    std::shared_ptr<const DevelTrackingBootstrapTrial> devel_tracking_bootstrap = nullptr;
+    bool ordinary_devel_package_base = false;
 };
 
 // Value-only work-item projection. It intentionally has neither cache_root nor
@@ -1018,7 +1020,8 @@ make_production_source_build_work_item_observation(
             work_item.request.aur_review_identity,
             requires_reviewed_state
                 ? ReviewedSourceFatalStateObservationStatus::Completed
-                : ReviewedSourceFatalStateObservationStatus::Inapplicable},
+                : ReviewedSourceFatalStateObservationStatus::Inapplicable,
+            work_item.request.devel_tracking_bootstrap, work_item.request.ordinary_devel_package_base},
         work_item.required_targets,
         work_item.selected_repository_providers,
         work_item.build_plan_dependency_edge_indices,

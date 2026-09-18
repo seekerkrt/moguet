@@ -372,13 +372,14 @@ bool matches_record_identity(
     return record_identity_from_status(status) == identity;
 }
 
+// POLICY: st_dev is a kernel-visible identity that can be renumbered across
+// invocations, so it is not persistent lineage authority. Live filesystem
+// identity, CAS, and concurrent replacement checks must still compare devices.
 bool matches_predecessor_binding(
     const GenerationLeaf& leaf,
     const struct stat& predecessor,
     std::string_view predecessor_digest) {
     return leaf.has_predecessor &&
-           leaf.predecessor_device ==
-               static_cast<std::uintmax_t>(predecessor.st_dev) &&
            leaf.predecessor_inode ==
                static_cast<std::uintmax_t>(predecessor.st_ino) &&
            leaf.predecessor_ctime_seconds ==
@@ -1560,6 +1561,8 @@ std::string xdg_generation_store_origin_leaf() {
     return std::string(ORIGIN_LEAF);
 }
 
+// Keep the device field for leaf-format compatibility; persistent predecessor
+// binding does not use it as authority.
 std::string xdg_generation_store_successor_leaf(
     std::uint64_t next_generation,
     const XdgGenerationRecordIdentity& predecessor,

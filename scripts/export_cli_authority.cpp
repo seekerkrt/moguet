@@ -504,6 +504,7 @@ int main() {
     constexpr std::array DELEGATED_EXAMPLE_SYNTAX = {
         cli_authority::PACMAN_SYNC_INSTALL_SYNTAX,
         cli_authority::PACMAN_SYSTEM_UPGRADE_SYNTAX,
+        cli_authority::PACMAN_SYSTEM_UPGRADE_NO_REFRESH_SYNTAX,
         cli_authority::PACMAN_SYNC_SEARCH_SYNTAX,
         cli_authority::PACMAN_SYNC_INFO_SYNTAX,
         cli_authority::PACMAN_FOREIGN_UPDATES_SYNTAX,

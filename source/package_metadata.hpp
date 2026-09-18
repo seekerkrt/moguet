@@ -212,6 +212,9 @@ using InstalledPackageRelationMetadataInventoryResult = std::variant<
 struct InstalledPackageRuntimeDependencyMetadata {
     std::string package_name;
     std::vector<std::string> dependency_specifications;
+    // Version read from the same libalpm package as its runtime requirements.
+    // Legacy observations cannot prove identity continuity for removal plans.
+    std::optional<std::string> installed_version = std::nullopt;
 };
 
 using InstalledPackageRuntimeDependencyMetadataInventory =

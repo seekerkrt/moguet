@@ -2786,6 +2786,19 @@ trusted_git_project_reviewed_recipe_snapshot(
         identity, std::move(exact_tree), std::move(entries));
 }
 
+std::optional<GitObjectFormat> trusted_git_recipe_acquisition_configuration_format(
+    const std::string& null_terminated_config,
+    const AurReviewedSourceReviewIdentity& expected) {
+    try {
+        const auto configuration = parse_local_configuration(
+            CapturedCommandResult{null_terminated_config, 0, false});
+        require_expected_remote(configuration, expected.canonical_git_remote());
+        return configuration.object_format;
+    } catch(const std::runtime_error&) {
+        return std::nullopt;
+    }
+}
+
 std::string trusted_git_remote_origin_url(
     const ValidatedCachePath& checkout) {
     return trim(inspect_managed_checkout_configuration(
@@ -3677,4 +3690,40 @@ std::string trusted_git_aur_export_remote_origin_url(
     return trim(inspect_aur_export_configuration(
                     anchored_checkout, display_command)
                     .remote_origin_url);
+}
+
+bool trusted_git_checkout_has_no_overlay(const ValidatedCachePath& checkout, const std::string& expected_remote_url) {
+    // This observation belongs only to the bootstrap trial. Keep established
+    // review callers unchanged while bounding both local config and status.
+    auto current = revalidate_trusted_cache_path(checkout, CachePathRequirement::ExistingDirectory);
+    require_safe_persistent_checkout_git_metadata(current);
+    auto retained = retain_trusted_cache_directory(current);
+    retained.require_unchanged_identity();
+    OwnedFileDescriptor cwd(open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC));
+    OwnedFileDescriptor input(open("/dev/null", O_RDONLY | O_CLOEXEC));
+    if(!cwd.valid() || !input.valid()) return false;
+    const auto capture = [&](std::vector<std::string> arguments, std::size_t limit) {
+        auto invocation = isolated_invocation(std::move(arguments), std::nullopt, true);
+        invocation.working_directory_fd = cwd.get();
+        invocation.standard_input_fd = input.get();
+        return capture_bounded_explicit_process_output_raw(invocation,
+                                                           BoundedProcessPolicy{std::chrono::seconds(2), std::chrono::milliseconds(100), limit, true});
+    };
+    const auto configuration = capture(bound_git_arguments(current.canonical_path(),
+                                                           {"config", "--local", "--no-includes", "--null", "--list"}),
+                                       MAX_LOCAL_CONFIG_OUTPUT + 1);
+    const auto* config_exit = std::get_if<BoundedProcessExited>(&configuration.outcome);
+    if(!config_exit || config_exit->exit_code != 0) return false;
+    require_expected_remote(parse_local_configuration({configuration.output, config_exit->exit_code, false}), expected_remote_url);
+    retained.require_unchanged_identity();
+    current = revalidate_trusted_cache_path(current, CachePathRequirement::ExistingDirectory);
+    require_safe_persistent_checkout_git_metadata(current);
+    const auto result = capture(bound_review_git_arguments(current.canonical_path(),
+                                                           {"status", "--porcelain=v1", "--untracked-files=all", "--ignore-submodules=none"}),
+                                4096);
+    retained.require_unchanged_identity();
+    current = revalidate_trusted_cache_path(current, CachePathRequirement::ExistingDirectory);
+    require_safe_persistent_checkout_git_metadata(current);
+    const auto* status_exit = std::get_if<BoundedProcessExited>(&result.outcome);
+    return status_exit && status_exit->exit_code == 0 && result.output.empty();
 }

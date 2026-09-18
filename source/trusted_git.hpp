@@ -16,6 +16,13 @@
 class ReviewedSourcePackageBaseLease;
 class InvocationOwnedSourceBuildContextAuthority;
 
+// Reuse the strict managed-repository config allowlist on bounded machine
+// output. This is validation only, never acquisition/review/build authority.
+[[nodiscard]] std::optional<GitObjectFormat>
+trusted_git_recipe_acquisition_configuration_format(
+    const std::string& null_terminated_config,
+    const AurReviewedSourceReviewIdentity& expected);
+
 // Moguet-owned persistent checkoutで許可するGit operationだけを公開する。
 // Filesystem mutation authorityはValidatedCachePath側に残し、Gitへ渡すpathは
 // explicit repository/worktree binding用のlogical viewとしてのみ使用する。
@@ -481,3 +488,7 @@ int trusted_git_clone_aur_export(
     const std::filesystem::path& anchored_destination);
 std::string trusted_git_aur_export_remote_origin_url(
     const std::filesystem::path& anchored_checkout);
+
+// Read-only trial gate. Reject tracked changes and untracked overlay content;
+// no checkout, index refresh, or removal is authorized by this observation.
+bool trusted_git_checkout_has_no_overlay(const ValidatedCachePath& checkout, const std::string& expected_remote_url);

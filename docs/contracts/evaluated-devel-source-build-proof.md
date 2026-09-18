@@ -18,14 +18,14 @@ S5/S6へ渡す。AUR assessmentは保存済みhistorical evidenceを7-Bで再検
 
 ## Input authorityとlineage
 
-唯一のproduction mintは、同じ`InvocationOwnedSourceBuildContext`が生成した
+production entryの`build_evaluated_devel_source()`は、同じ`InvocationOwnedSourceBuildContext`が生成した
 `InvocationOwnedMakepkgEnvironment`と、そのcontext自体をmoveで消費する。callerはrecipe cwd、
 `PKGDEST`、`BUILDDIR`、`SRCDEST`、makepkg path / FD、artifact path、Git OIDを個別に渡せない。
 
 Slice 3のimmutable `recipe/`はexact reviewed Git-tree snapshotとして保持する。makepkg 7.1.0はdynamic
 `pkgver()`の結果をwritable PKGBUILDへ反映して後続invocationへ渡すため、Slice 4は同じcontextのprivate
-`BUILDDIR`内へdescriptor-relativeにexact working recipeを複製する。working copyでは最初の
-`--nobuild`中だけPKGBUILDをowner-writableにし、他entryのidentity/contentを維持したまま直後にread-onlyへ
+`BUILDDIR`内へdescriptor-relativeにexact working recipeを複製する。working copyのPKGBUILDは
+initial evaluationから最初の`--nobuild`までowner-writableとし、他entryのidentity/contentを維持したまま直後にread-onlyへ
 sealする。build直前に同じfileだけを再びwritableにし、build後のdynamic bytesがpost-preparation proofとexactに
 一致する場合だけ再sealする。再評価された`pkgver()`がdriftした場合は古いpackagelist/versionを採用せず停止する。
 persistent AUR checkoutとimmutable reviewed snapshotはmakepkg cwdにならない。
@@ -42,7 +42,7 @@ source projectionがstructuralに一致する場合だけ`EvaluatedDevelSourcePr
 initial authoritative subsetは次に限定する。
 
 - AUR PackageBase、valid exact #411 binding、editor overlayなし
-- exactly one package child
+- exact recipeが宣言するcomplete child set（既存strict parserでchild名とarchitectureを照合）
 - exactly one floating Git source
 - HTTPS transport
 - default HEADまたはGitが`check-ref-format --branch`で受理するexact branch
@@ -52,13 +52,48 @@ initial authoritative subsetは次に限定する。
 source substitution、conditional mutation、追加/削除、architecture-qualified source、複数VCS、non-Git、
 tag / commit / query / signed selector、remote non-VCS source、generated/untracked local sourceはtyped failureである。
 
+## Prepare前のevaluated selection（Issue #564 Slice 4A0）
+
+`select_evaluated_devel_source(context, environment)`は同じcontextのworking recipeでinitial
+`makepkg --printsrcinfo`を一度実行し、上記のsource・package・architecture・local inputの照合を通す。
+reviewed `.SRCINFO`だけからsourceを推測する入口ではない。照合後にcontext、named working recipeと
+retained cwdのdevice/inode、working recipeの全entry/mode/size/digest、empty `PKGDEST`を再証明した場合だけ、
+move-onlyの`EvaluatedDevelSourceSelection`を返す。
+
+selectionはcontext、same-lineage environment、初回に確定した実効environment、working recipeとそのFD、
+reviewed metadata、evaluated source identity/selector/declarationを一体で所有する。公開accessorが返す値は
+観測値であり、それらのcopy、raw URL/OID/path、bool、decoded provenance、完成S4からlive selectionを再生成できない。
+default/copy constructionを禁止し、complete authorityのprivate producerだけが生成する。
+
+`resume_evaluated_devel_source(selection)`はこのownerだけをmoveで消費する。別context/environmentを
+追加で渡せず、retained stateを再証明してから既存の`--nobuild`以降へ進む。ambient environmentを再取得せず、
+同じworking recipe・makepkg identity・実効environmentを使う。既存`build_evaluated_devel_source()`も
+select→resumeを通り、initial evaluationの回数やprojection照合の実装を増やさない。
+
+selection成功時点ではMoguetはprepare/build/packagelist/archive proofを開始していない。
+exact upstream root X、Git object backing、recursive closureも取得していない。selectionはreview acceptance、
+R、S3生成、S4 completed proof、Pの代わりにならない。`--printsrcinfo`によるPKGBUILD top-level実行を
+network隔離やhostile-code sandboxと主張しない。branch syntax validationは既存どおりGitへ委ねる。
+
+selectionの明示cleanupは成功・失敗ともownerを消費する。破棄時も同じcleanup policyを使い、working stateや
+empty `PKGDEST`を再証明できなければrootを保持する。cleanup failureをdestructorが再試行しない。
+Slice 4Aの[trusted root freeze / exact acquisition / pinned closure foundation](pinned-submodule-closure.md)は
+このselectionをconsumeする専用ownerである。4B0の[別途明示closure review](pinned-submodule-closure-review.md)と
+4B1の[SourceReady workspace](pinned-submodule-workspace.md)を経て、4B2はinitial Missing bootstrapだけをcommon S4へ接続する。
+
+`resume_evaluated_devel_source(SourceReadyPinnedSubmoduleWorkspace)`はwhole ownerをconsumeし、private bridgeから
+同じselectionのexecution stateを一度だけ借用する。初回評価、closure取得、review、materialization、remote observationを
+繰り返さない。成功したS4 stateはSourceReady全体と、その内部の同じcontextへの参照を保持する。
+通常のselection overloadと共通のexecution bodyがmetadata、packagelist、build/check/package、root revision mint、artifact proofを所有する。
+publicなselection releaseや別contextを合成する入口、child pins用の新しいpublic proof typeは追加しない。
+
 ## Makepkg phase protocol
 
 Slice 1 characterizationとmakepkg owner contractに従い、同じworking recipe / roots / environmentで次を実行する。
 
 1. initial `--printsrcinfo`とraw/evaluated source一致
-2. empty private `PKGDEST` reproof
-3. `--nobuild --nodeps --noconfirm`
+2. context/working recipeとempty private `PKGDEST` reproof、selection生成（resume時にも再証明）
+3. `--nobuild --nodeps --noconfirm`（typed SourceReady inputだけ`--holdver`を追加）
 4. dynamic PKGBUILD seal、post-preparation `--printsrcinfo`と`--packagelist`
 5. private mirror + actual worktree Git proof
 6. `--noextract --nodeps --noconfirm`（`-c`なし）
@@ -69,9 +104,34 @@ Slice 1 characterizationとmakepkg owner contractに従い、同じworking recip
 pre-preparation `--packagelist`はfinal identityへ入れない。post-preparation package metadata / packagelistとactual
 archive metadataのchild、PackageBase、full version、architectureが一致することを要求する。
 
+## Package architecture authority（Issue #564 Slice 2A）
+
+packageのsupported architecture宣言集合と、今回の各artifactのarchitectureは別の値である。
+reviewed `.SRCINFO`、initial evaluation、prepared evaluationについて、base宣言集合とchild overrideを
+適用した宣言集合がそれぞれ一致することを要求する。集合の順序には意味を持たせず、dynamic `pkgver()`の
+更新を許すため`.SRCINFO`全体のbyte一致は要求しない。空、重複、不正token、`any`とnativeの混在は
+既存strict metadata parserとmakepkgのvalidationで拒否し、空のchild overrideもS4では拒否する。
+
+post-preparation `--packagelist`の各absolute pathは同じcontextのprivate `PKGDEST`直下でなければならない。
+prepared metadataの既知child名とfull version（nonzero epochを含む）からexact filename prefixを構成し、
+その後のarchitecture tokenとmakepkgの`PKGEXT`契約である`.pkg.tar…`を分離する。package名のhyphenや
+versionのdotを区切りとして推測せず、compression suffixを固定しない。
+
+- native singleton / multiple: selected output archがdeclared supported setに属することを要求する。
+- `arch=('any')`: selected output archもactual archive metadataも厳密に`any`でなければならない。
+- CPU名の独自whitelistは設けず、構文上validな未知のtokenとmetadataのunknown stateを区別する。
+
+packagelistは出力期待値でありfinal proofではない。fresh retained-FD archiveをlibalpmで読んだactual archが
+selected archと厳密一致した場合だけS4へ進む。`package()`中のCARCH変更等によりactual archが別の宣言要素へ
+変化した場合も拒否する。uname、宣言の先頭要素、旧installed archを今回の選択authorityにしない。
+
+Issue #564 Slice 5は同じarchitecture契約をchild名ごとに適用する。makepkgが実効architectureに対応しない
+childを生成しない場合、DとBの一致は要求しない。selected child欠落はT/B相関で拒否する。
+architecture-qualified sourceとundeclared debug outputのunsupported境界を維持する。
+
 ## Git proof
 
-private `SRCDEST`直下のexactly one bare mirrorと、private `BUILDDIR`配下をbounded / descriptor-relativeに走査して
+通常のselection inputでは、private `SRCDEST`直下のexactly one bare mirrorと、private `BUILDDIR`配下をbounded / descriptor-relativeに走査して
 得たexactly one `.git` directory worktreeを保持する。directory traversalはowner、mode、device、symlink / mount
 escape、entry/depth limitを検証する。
 
@@ -85,13 +145,37 @@ selected ref / HEADをpeelせず取得したOIDのraw typeが`commit`で、repos
 一致することを確認する。replacement無効化はmetadata存在のfail-closed検査を代替しない。refs inventoryはGit自身へ問い合わせ、
 filesystem上のloose ref directoryの不在だけからreplacement metadataの不在を推定しない。
 
-makepkgのshared cloneが作るalternateはexact private mirror `objects` 1件だけを許す。linked worktree、submodule、
-external alternateは拒否する。`prepare()`やbuildがtracked worktree bytesを変更することは許すが、dirty stateを
+通常のselection inputではmakepkgのshared cloneが作るalternateはexact private mirror `objects` 1件だけを許す。
+linked worktree、未承認submodule、external alternateは拒否する。`prepare()`やbuildがtracked worktree bytesを変更することは許すが、dirty stateを
 upstream commit OIDへflattenしない。
+
+### SourceReady closureのphase-point
+
+SourceReadyだけはretained rootとexpected child gitfile/modules topologyを使い、通常pathのdirectory-only /
+workspace cardinality / `.git/modules` / `.gitmodules`拒否を置換する。通常pathのgateを削除しない。
+rootのindependent object storeはalternateなし。root mirror/ref/HEADの共通producerと
+`prove_actual_built_git_revision()`を維持し、観測したroot OIDをaccepted Xへ明示的に相関する。
+
+SourceReady入力のmirrorは、PreparedReproof成功後にworkspace ownerが保持するnative mirrorを内部borrowして使う。
+SRCDEST直下のentry数で再選択せず、prepare生成の補助siblingはmirror authorityにしない。
+named/retained identityの再検証と詳細は[workspace contract](pinned-submodule-workspace.md)を正とし、
+通常selection入力のexactly-one locatorと共通Git proofは維持する。
+
+prepared metadataとpackagelistの完了後、build開始前にclosureを再証明する。build/check/package完了後にも
+S4 mint前に同じ証明を行う。root/child HEAD、parent indexの全gitlinks、accepted exact `.gitmodules`の
+index/working bytes、expected gitfile↔gitdir↔worktree、retained identities、extra/missing moduleを確認する。
+Issue #589では同じphase-pointでroot workspace/private mirrorの全tag namespaceをaccepted raw mappingへ
+照合し、object hash/connectivityも証明する。SourceReady mint前とnative mirror構築後にも同じtag proofを行う。
+詳細とtyped failureは[workspace contract](pinned-submodule-workspace.md)を正とする。
+prepareによるtracked normal file modification、patch、staged normal content、untracked/generated inputは許可し、
+clean statusやordinary file bytes一致を要求しない。
+
+これはcontinuous attestationではない。same-UID userによるphase間の意図的な書換え→復元はthreat model外。
+観測したdriftはfail-closedとし、sandbox、network firewall、process monitor、cache repair subsystemを追加しない。
 
 ## Artifact proofとownership
 
-private `PKGDEST`はbuild前にempty、build後にpost-preparation packagelistと同じleafのregular file 1件だけを
+private `PKGDEST`はbuild前にempty、build後にpost-preparation packagelistと同じleaf集合のregular filesだけを
 許す。symlink、hardlink、foreign owner、group/other writable file、別device、zero/oversized file、signatureを含む
 追加entryを拒否する。
 
@@ -106,7 +190,8 @@ ctimeをmetadata/hash/MTREE読取の後にも再証明する。libalpm metadata�
 - Slice 3 contextと#411 reviewed binding / recipe tree identity
 - evaluated source projection
 - `ActualBuiltGitRevision`
-- retained artifact descriptor、`PackageChildIdentity`、`BuiltPackageArtifactEvidence`
+- complete declared child set D、およびactual outputs Bの各retained descriptor、`PackageChildIdentity`、`BuiltPackageArtifactEvidence`
+- SourceReady inputではaccepted closure/child pins/backingを含むwhole owner（invocation内だけのseparate evidence）
 
 artifact pathはdiagnostic/presentation valueでありauthorityではない。proof破棄または明示cleanupまでcontextと
 artifactを保持する。S5-Aの`EvaluatedDevelSourceArtifactTransport`はproof全体をmoveでconsumeし、
@@ -119,10 +204,18 @@ Slice 4 producer自身はinstall/publicationを呼ばず、後続phaseのowner�
 
 ## Failureとcleanup
 
+SourceReady inputのlocal adapter / prepared / post-build failureは`NativePreparationFailed` /
+`PreparedClosureDrift` / `PostBuildClosureDrift`と元の`PinnedWorkspaceFailure`を保持する。
+makepkg failure、process outcome、parent cancellationは既存分類を維持する。失敗cleanupはworkspace ownership確認→
+4A objects→selection/contextの順で、一度だけ行う。primary failureとworkspace/object/context cleanupを分離し、
+成功proofの明示cleanupにも`pinned_workspace_cleanup()`で詳細を保持する。通常のpackage-build開始後のrefusalは維持する。
+
 phase、reason、existing parser/context/process/revision causeをtyped failureとして保持する。失敗時はcontextの
 descriptor-relative cleanupを明示実行し、cleanupも失敗した場合はprimary failureを置換せず
 `cleanup_consequence`へ別に保持する。retained archive queryで発生したruntime failureは狭いquery境界で
 `ArtifactMetadata / ArtifactMetadataQueryFailure`へ翻訳し、元diagnosticを保持する。
+bounded processの親cancellationは`cancellation_signal`へchild outcomeと別に保持する。
+子がsignalをtrapしてexit 0となってもselectionやbuild proofを生成しない。
 
 artifact inventory拒否、replacement、ambiguous / unsafe workspace、またはpackage build開始後のfailureでは、
 context全体を`UnprovenCleanupContent`として保持する。失敗後の再走査で未証明entryを削除対象へ採用しない。
@@ -142,3 +235,14 @@ Slice 4はpacman、sudo、installed local DB、installed binding、provenance st
 `observe_git_remote_revision()`を呼ばない。
 
 Refs #476
+
+## Split PackageBase集合対応（Issue #564 Slice 5）
+
+reviewed → initial → prepared metadataでchild追加・削除・rename・architecture driftを拒否する。
+preparedのname/version/architectureとpackagelistを一意に相関し、duplicate・undeclared・wrong version/architecture・empty outputを拒否する。
+build後はexpected leaf集合とPKGDEST全inventoryを比較し、各archiveをretained FDで検査する。
+known declared unselected siblingの生成は許可し、unexplained extraを拒否する。
+
+1 context / 1 initial evaluation / 1 prepare / 1 build / 1 root ActualBuiltGitRevisionを維持する。
+`artifacts()`はB全体、`declared_children()`はDを同じownerで保持する。singular accessor `artifact()`は
+Bが1件の場合だけ使用でき、先頭childを暗黙選択しない。S4はTを増やさず、後段が既存required targetsとBを相関する。

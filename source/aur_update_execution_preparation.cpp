@@ -1,4 +1,5 @@
 #include "aur_update_execution_preparation.hpp"
+#include "devel_tracking_bootstrap.hpp"
 
 #include "aur_update_required_devel_relation_projection.hpp"
 #include "app_config.hpp"
@@ -938,6 +939,8 @@ bool collect_work_item_drafts(
         UpdateWorkItemDraft draft;
         draft.build_plan_order_index = order_index;
         draft.work_item.request.checkout_name = entry.package_base;
+        draft.work_item.request.ordinary_devel_package_base =
+            preparation.devel_requires_check_policy == DevelRequiresCheckPolicy::SkipIndependentTarget;
         draft.work_item.request.git_url =
             AUR_BASE_URL + entry.package_base + ".git";
         draft.work_item.request.aur_review_identity =
@@ -1034,6 +1037,10 @@ bool collect_work_item_drafts(
                 entry.package_base,
                 package_target->package_name,
                 *desired_reason};
+            for(const auto& binding : bindings) {
+                if(binding.target->update.installed_name == package_target->package_name)
+                    required_target.expected_full_version = binding.target->update.coordinated_replacement_version;
+            }
             draft.work_item.required_targets.push_back(required_target);
             draft.required_target_attributions.push_back(
                 AurUpdateRequiredTargetAttribution{
@@ -1047,6 +1054,15 @@ bool collect_work_item_drafts(
                        binding.target->update.aur_package && binding.target->update.aur_package->package_base == entry.package_base &&
                        aur_update_basis(binding.target->update) == AurUpdateBasis::GitRevision)
                         draft.work_item.request.authoritative_devel_update = true;
+                    if(binding.target->update_plan_index == index && has_aur_update_bootstrap_intent(binding.target->update) &&
+                       binding.target->update.installed_name == package_target->package_name &&
+                       binding.target->update.aur_package->package_base == entry.package_base) {
+                        if(draft.work_item.request.devel_tracking_bootstrap &&
+                           draft.work_item.request.devel_tracking_bootstrap != binding.target->update.bootstrap) {
+                            unit_is_consistent = false;
+                        }
+                        draft.work_item.request.devel_tracking_bootstrap = binding.target->update.bootstrap;
+                    }
                 }
                 add_unique(draft.affected_update_plan_indices, index);
             }
@@ -1472,6 +1488,7 @@ bool has_exact_required_target_attributions(
                rhs[index].required_target.package_name ||
            lhs[index].required_target.desired_reason !=
                rhs[index].required_target.desired_reason ||
+           lhs[index].required_target.expected_full_version != rhs[index].required_target.expected_full_version ||
            lhs[index].affected_update_plan_indices !=
                rhs[index].affected_update_plan_indices ||
            lhs[index].affected_roots != rhs[index].affected_roots ||
@@ -1628,6 +1645,23 @@ bool has_exact_prepared_correlation(
         }
         const AurUpdateProjectedBuildUnit& projected_build_unit =
             preparation.projected_build_units[attribution.build_plan_order_index];
+        std::shared_ptr<const DevelTrackingBootstrapTrial> expected_bootstrap;
+        for(const auto& target : preparation.affected_update_targets) {
+            if(!target.update.aur_package ||
+               target.update.aur_package->package_base != work_item.request.checkout_name) continue;
+            if(target.update.bootstrap) {
+                if((expected_bootstrap && expected_bootstrap != target.update.bootstrap) ||
+                   !has_aur_update_bootstrap_intent(target.update) ||
+                   std::none_of(work_item.required_targets.begin(), work_item.required_targets.end(),
+                                [&](const auto& child) { return child.package_name == target.update.installed_name; })) return false;
+                expected_bootstrap = target.update.bootstrap;
+            }
+        }
+        // The private execution capability is published only after the exact
+        // root intent survives generic preparation. Dependencies receive none.
+        if(work_item.request.devel_tracking_bootstrap != expected_bootstrap ||
+           work_item.request.ordinary_devel_package_base !=
+               (preparation.devel_requires_check_policy == DevelRequiresCheckPolicy::SkipIndependentTarget)) return false;
         if(attribution.invocation_work_item_index != index ||
            attribution.package_name != work_item.request.package_name ||
            attribution.package_base != work_item.request.checkout_name ||
@@ -1665,7 +1699,8 @@ bool has_exact_prepared_correlation(
             if(work_item_target.package_base != projected_target.package_base ||
                work_item_target.package_name != projected_target.package_name ||
                work_item_target.desired_reason !=
-                   projected_target.desired_reason) {
+                   projected_target.desired_reason ||
+               work_item_target.expected_full_version != projected_target.expected_full_version) {
                 return false;
             }
         }

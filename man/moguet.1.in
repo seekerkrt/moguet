@@ -21,6 +21,12 @@ moguet \- pacman-first AUR helper with verified source builds
 .B -Syu --repo [--needed]
 .
 .B moguet
+.B -Su [--needed]
+.
+.B moguet
+.B -Su --repo [--needed]
+.
+.B moguet
 .BR -h | --help
 .
 .B moguet
@@ -175,7 +181,44 @@ does not roll back completed package transactions, and reports later work as
 not attempted.
 .
 .PP
-Only after the repository system-upgrade phase fails, Moguet may append a
+Exact target-less Auto -Syu also performs read-only version-lock preflight
+before repository mutation; --dry-run -Syu displays the same kind of evidence
+with its plan. It uses current local/sync databases without refreshing them.
+Candidates may change during the repository update and are not selected
+transaction targets or post-repository execution authority. Partial or failed
+preflight is reported even without a displayable candidate; it does not change
+transaction policy, prompt behavior, or the normal dry-run plan exit status.
+No coordinated execution, automatic remove/reinstall, or execution authority is
+created by this diagnostic.
+.
+.PP
+With complete, unambiguous evidence, preflight can display a read-only coordinated
+transition candidate: temporarily remove the foreign consumer, perform the
+repository system upgrade, rebuild/install the AUR replacement, and verify the
+exact relation. Removing that consumer must preserve installed runtime dependencies
+(including Provides), and its known install reason is retained.
+This evidence from databases not yet refreshed is an expected-state snapshot, not execution
+authority or a complete future system state. Execution requires explicit
+confirmation and fresh mutation-time revalidation. The transition is non-atomic:
+a later failure may leave the consumer absent. No automatic rollback is implied.
+Only ReadOnlyReady on the actual target-less Auto route enters coordinated execution.
+The required no-default [y/n] prompt accepts explicit y/yes; --noconfirm and
+noninteractive input are not approval. Decline or input failure stops before mutation.
+After approval a fresh full observation must match the confirmed snapshot;
+changes require a new invocation, with no automatic acceptance or fallback.
+Only the old foreign consumer is removed with ordinary dependency checks,
+then the existing full repository system upgrade runs. Actual installed repository
+version and fresh AUR replacement metadata must match before the existing safe
+AUR build/install path runs for that replacement. Built version and the old
+Explicit/Dependency install reason are preserved. Fresh post-state verification
+checks both versions, the exact runtime requirement, and install reason.
+Failures retain completed phases, report the observed consumer state, and return
+non-zero; no retry or rollback occurs. Dry-run never confirms or mutates.
+RepoOnly, targeted sync, upgrade-all and non-ready plans keep their existing routes.
+.
+.PP
+For upgrade-all and exact target-less Auto -Syu, after the repository
+system-upgrade phase fails, Moguet may append a
 supplemental possible repository/AUR cross-source version-lock diagnostic.
 It appears only when at least one candidate correlation can be presented;
 otherwise the existing failure output is unchanged. The absence of
@@ -371,8 +414,11 @@ On this route,
 applies only to each route-owned final installation.
 .
 .TP
-.B "-Syu [--needed] | -Syu --repo [--needed]"
-The exact target-less Auto form is the ordinary AUR-helper update. It performs
+.B "-Syu [--needed] | -Syu --repo [--needed] | -Su [--needed] | -Su --repo [--needed]"
+The exact target-less Auto form is the ordinary AUR-helper update.
+The -Su forms use current sync databases without adding a refresh; all
+repository-first, fresh AUR, dry-run, source-selection, failure, and coordinated
+transition contracts below apply equally to -Syu and -Su. The Auto form performs
 the official repository system upgrade first and, only after success, obtains
 a fresh installed-foreign inventory and exact AUR metadata, then plans and
 executes a normal installed-AUR update.
@@ -396,6 +442,30 @@ and
 routes retain their strict whole-operation RequiresCheck blocker behavior.
 .
 .PP
+For an independent target with an initially missing devel provenance record,
+interactive exact target-less Auto updates may offer an explicit tracking
+bootstrap with a default-No confirmation. A read-only observation of the exact
+AUR recipe must first establish trial eligibility; unsupported or unverifiable
+source shapes and checkout overlays remain skipped. The initial trial admits
+one declared PackageBase child set and one architecture-independent floating HTTPS Git source.
+Additional source files remain unoffered when their tracked regular-file
+identity cannot be verified by the trial observation.
+.PP
+Bootstrap decisions precede target-related cache, provider and dependency
+mutations. Acceptance still requires a full source review, even with an existing
+review record, and the supported build, exact install, fresh installed binding
+and successful provenance publication. No skips the target; cancel or a later
+failure stops subsequent work without rollback. Invalid, corrupt, future and
+unsafe state are not repaired. --noedit is allowed; --nodiff, review.diff=skip,
+--noconfirm and non-TTY input do not approve bootstrap.
+.PP
+Ordinary updates build a supported split PackageBase once and install only the
+selected children in one transaction. Declared siblings that were not selected
+are not installed or given installed bindings. Each selected child has its own
+schema-v1 provenance record; a partial binding or publication failure keeps the
+installation result and exits non-zero without rollback.
+.
+.PP
 The phases are sequential, not atomic. A repository failure leaves the AUR
 phase not attempted and exits non-zero. If the repository phase completes but
 the AUR phase is blocked or fails, Moguet reports repository completion and a
@@ -409,23 +479,25 @@ For Auto, the only initially supported pacman semantic option is
 it is kept only in the exact ordered repository transaction and is not applied
 to the later AUR transaction. Any other pacman semantic option or unsupported
 argument form is rejected before repository mutation, with guidance to use
-.BR "moguet -Syu --repo" .
+.BR "moguet -Syu --repo"
+or
+.BR "moguet -Su --repo" .
 The RepoOnly form removes the semantic selector before invoking pacman,
 preserves the compatible pacman pass-through tail, performs only the
 repository system upgrade, and does not query AUR, read source preferences, or
 invoke cache, Git, makepkg, or source-runner work.
-.B -Syu --aur
-is unsupported; use source-aware
+.B -Syu --aur / -Su --aur
+are unsupported; use source-aware
 .B upgrade-aur
 for an AUR-only update.
 .
 .PP
-Only the exact canonical target-less token has this combined meaning.
+Only the exact target-less -Syu and -Su tokens have this combined meaning.
 .BR -Sy ,
-.BR -Su ,
+.BR -Syy ,
 .BR -Suy ,
 separated or long modifier spellings, target-bearing
-.BR "-Syu <pkg>" ,
+.BR "-Syu <pkg>" / "-Su <pkg>" ,
 and unknown modifier forms retain their existing routing and do not start an
 installed-AUR sweep.
 .

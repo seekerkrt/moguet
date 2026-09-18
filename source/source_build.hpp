@@ -21,6 +21,28 @@ struct AppConfig;
 class RemoteAurCleanupCandidateCollector;
 class ReviewedSourceFatalStatePreflightSlot;
 
+// Preserve acquisition/cleanup details across the existing preparation exception
+// boundary. A cleanup failure may accompany an earlier review/confirmation stop;
+// that original exception remains the primary operation outcome.
+class BootstrapRecipeAcquisitionError final : public std::exception {
+public:
+    explicit BootstrapRecipeAcquisitionError(RecipeAcquisitionFailure failure,
+                                             std::exception_ptr primary = nullptr) noexcept;
+    const RecipeAcquisitionFailure& failure() const noexcept {
+        return failure_;
+    }
+    const std::exception_ptr& primary() const noexcept {
+        return primary_;
+    }
+    const char* what() const noexcept override {
+        return "Devel bootstrap recipe acquisition or cleanup failed; typed details retained.";
+    }
+
+private:
+    RecipeAcquisitionFailure failure_;
+    std::exception_ptr primary_;
+};
+
 // Routing/diagnostic adapter only. The immutable owner retains the original
 // move-only product; copies share its lifetime and cannot execute or publish.
 struct ReviewedDevelExecutionSnapshot {
@@ -36,6 +58,13 @@ struct ReviewedDevelExecutionSnapshot {
     std::optional<DevelSourceArtifactInstallCleanupState> cleanup;
     std::optional<ArtifactPackageIdentity> artifact;
     std::optional<ProductionSourceBuildStagedOutcome> production_outcome;
+    std::optional<RecipeAcquisitionFailure> recipe_acquisition_failure = std::nullopt;
+    // Diagnostic projection of the same immutable owner, not a new acceptance
+    // authority. Keeps pure runner/reducer profiles independent of S4 linkage.
+    std::optional<PinnedClosureReviewFailure> closure_review_failure = std::nullopt;
+    std::optional<ReviewedSourceOperationStop> required_review_decline = std::nullopt;
+    std::vector<ArtifactPackageIdentity> selected_artifacts = {};
+    std::vector<ArtifactPackageIdentity> unselected_artifacts = {};
 };
 using SourceBuildPackageBaseExecutionResult = std::variant<PackageBaseSourceBuildExecutionResult, ReviewedDevelExecutionSnapshot>;
 

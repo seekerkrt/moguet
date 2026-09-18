@@ -1,4 +1,5 @@
 #include "commands_sync.hpp"
+#include "terminal_safe_text.hpp"
 
 #include "app_config.hpp"
 #include "aur_rpc.hpp"
@@ -21,6 +22,7 @@
 #include "source_install.hpp"
 #include "source_preference.hpp"
 #include "system_aur_update_operation.hpp"
+#include "terminal_safe_text.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -128,7 +130,9 @@ bool search_aur(
                           << "\033[0m";
             }
             std::cout << std::endl;
-            if(!info.Description.empty()) std::cout << "    " << info.Description << std::endl;
+            if(!info.Description.empty()) {
+                std::cout << "    " << terminal_safe_text::escape_utf8(info.Description) << std::endl;
+            }
         }
     }
     return found;
@@ -197,7 +201,7 @@ void print_aur_info(const AurPackageInfo& pkg) {
                      "Description     : {}",
                      pkg.Description.empty()
                          ? localization::translate_message("None")
-                         : pkg.Description)
+                         : terminal_safe_text::escape_utf8(pkg.Description))
               << std::endl;
     std::cout << localization::format_translated_message(
                      "Depends On      : {}",
@@ -236,7 +240,7 @@ void print_aur_info(const AurPackageInfo& pkg) {
                      "Maintainer      : {}",
                      pkg.Maintainer.empty()
                          ? localization::translate_message("None")
-                         : pkg.Maintainer)
+                         : terminal_safe_text::escape_utf8(pkg.Maintainer))
               << std::endl;
     std::cout << localization::format_translated_message(
                      "Installed       : {}", installed_display(pkg))
@@ -1807,6 +1811,7 @@ void report_system_aur_partial_failure(
                 case SystemAurUpdateOperationPhase::None:
                 case SystemAurUpdateOperationPhase::Repository:
                 case SystemAurUpdateOperationPhase::AurExecution:
+                case SystemAurUpdateOperationPhase::CoordinatedTransition:
                 case SystemAurUpdateOperationPhase::Reduction:
                     Logger::error(localization::format_translated_message(
                         // TRANSLATORS: AUR is a runtime project identity.
@@ -1815,6 +1820,8 @@ void report_system_aur_partial_failure(
                     break;
             }
             break;
+        case SystemAurUpdateOperationStatus::StoppedOnAurCancellation:
+            break; // Target summary already carries cancellation; no failure diagnostic.
         case SystemAurUpdateOperationStatus::StoppedOnAurFailure:
             Logger::error(localization::format_translated_message(
                 // TRANSLATORS: AUR is a runtime project identity.
@@ -1828,6 +1835,7 @@ void report_system_aur_partial_failure(
                 "The repository system upgrade completed, but {} cleanup failed after a package transaction.",
                 "AUR"));
             break;
+        case SystemAurUpdateOperationStatus::StoppedOnCoordinatedTransition:
         case SystemAurUpdateOperationStatus::Completed:
         case SystemAurUpdateOperationStatus::StoppedOnRepositoryFailure:
             break;
@@ -1855,10 +1863,81 @@ void report_system_aur_partial_failure(
 
 } // namespace
 
+ExplicitConfirmationResult confirm_cross_source_transition(
+    const CrossSourceCoordinatedTransitionPlan& plan, const AppConfig& config) {
+    // This mandatory display is independent of the best-effort diagnostic
+    // reporter. Failed output/input cannot be converted into acceptance.
+    std::cout << format_cross_source_transition_plan(plan) << std::flush;
+    if(!std::cout.good()) return ConfirmationInputFailure{};
+    return request_explicit_confirmation(localization::translate_message(
+                                             "Explicitly approve this non-atomic removal, system upgrade and replacement?"),
+                                         config.no_confirm);
+}
+
+namespace {
+
+std::string cross_source_stopped_phase(CrossSourceExecutionPhase phase) {
+    switch(phase) {
+        case CrossSourceExecutionPhase::Confirmation: return localization::translate_message("confirmation");
+        case CrossSourceExecutionPhase::Revalidation: return localization::translate_message("mutation-time revalidation");
+        case CrossSourceExecutionPhase::RemoveInstalledForeign: return localization::translate_message("bounded foreign package removal");
+        case CrossSourceExecutionPhase::RepositorySystemUpgrade: return localization::translate_message("repository system upgrade");
+        case CrossSourceExecutionPhase::RepositoryPostState: return localization::translate_message("repository post-state verification");
+        case CrossSourceExecutionPhase::AurAuthority: return localization::format_translated_message("fresh {} replacement authority", "AUR");
+        case CrossSourceExecutionPhase::AurReplacement: return localization::format_translated_message("{} replacement build/install", "AUR");
+        case CrossSourceExecutionPhase::InstallReasonRestoration: return localization::translate_message("install reason restoration");
+        case CrossSourceExecutionPhase::PostStateVerification: return localization::translate_message("exact-version post-state verification");
+        case CrossSourceExecutionPhase::Complete: return localization::translate_message("complete");
+    }
+    return localization::translate_message("unknown phase");
+}
+
+void present_cross_source_transition(const CrossSourceTransitionExecutionResult& result) {
+    if(result.aur_result) present_filtered_aur_update_execution_result(*result.aur_result);
+    if(result.is_success()) {
+        std::cout << localization::translate_message("Coordinated cross-source transition completed; exact versions, runtime requirement and install reason verified.") << std::endl;
+        return;
+    }
+    if(result.confirmation_result && !std::holds_alternative<ConfirmationAccepted>(*result.confirmation_result))
+        Logger::warn(confirmation_stop_diagnostic(*result.confirmation_result));
+    Logger::error(localization::format_translated_message(
+        "Coordinated cross-source transition stopped during {}.", cross_source_stopped_phase(result.stopped_phase)));
+    if(result.metadata_failure) {
+        DiagnosticIdentity identity;
+        identity.source_kind = DiagnosticSourceKind::Pacman;
+        const auto diagnostic = project_package_metadata_diagnostic(
+            *result.metadata_failure, DiagnosticOperation::PacmanDelegation,
+            DiagnosticPhase::Query, std::move(identity));
+        report_runtime_diagnostic(diagnostic, result.metadata_failure->diagnostic);
+    }
+    if(!result.diagnostic.empty() &&
+       (!result.metadata_failure || result.diagnostic != result.metadata_failure->diagnostic))
+        Logger::error(terminal_safe_text::escape_utf8(result.diagnostic));
+    if(result.removal == CrossSourceExecutionPhaseStatus::Completed)
+        Logger::warn(localization::translate_message("The old foreign package was removed. It may remain absent; no automatic rollback or reinstall was attempted."));
+    if(result.repository == CrossSourceExecutionPhaseStatus::Completed)
+        std::cout << localization::translate_message("The repository system upgrade completed.") << std::endl;
+    if(result.observed_consumer) {
+        const auto& name = result.confirmed_plan.installed_foreign->name;
+        if(const auto* installed = std::get_if<InstalledPackageMetadata>(&*result.observed_consumer))
+            std::cout << localization::format_translated_message("Observed replacement state: {} {} installed.", installed->name, installed->version) << std::endl;
+        else if(std::holds_alternative<PackageNotFound>(*result.observed_consumer))
+            std::cout << localization::format_translated_message("Observed replacement state: {} absent.", name) << std::endl;
+        else
+            Logger::warn(localization::format_translated_message("Current replacement state is unavailable: {}.", name));
+    }
+}
+
+} // namespace
+
 void present_system_aur_update_operation_result(
     SystemAurUpdateOperationResult result) {
     const SystemAurUpdateOperationResult authority =
         reduce_system_aur_update_result(std::move(result));
+    if(authority.coordinated_transition) {
+        present_cross_source_transition(*authority.coordinated_transition);
+        return;
+    }
 
     // Validate the nested presenter before emitting the repository success
     // fact. A malformed child must fail closed without leaking a success line.
@@ -1907,6 +1986,18 @@ void present_system_aur_update_operation_result(
                 "The repository system upgrade failed."));
             report_system_aur_retained_diagnostic(authority);
             report_system_aur_not_attempted(authority);
+            if(authority.cross_source_version_lock_correlation.has_value()) {
+                try {
+                    const auto presentation =
+                        format_cross_source_version_lock_cli_presentation(
+                            *authority.cross_source_version_lock_correlation);
+                    if(presentation.has_value()) {
+                        std::cout << *presentation << std::flush;
+                    }
+                } catch(...) {
+                    // Supplemental output cannot override the primary failure.
+                }
+            }
             return;
         case SystemAurUpdateRepositoryPhaseStatus::Completed:
             std::cout << localization::translate_message(
@@ -1940,7 +2031,15 @@ int cmd_system_aur_update(
     const AppConfig& config) {
     SystemAurUpdateOperationResult result =
         execute_prepared_system_aur_update_operation(
-            std::move(prepared), config);
+            std::move(prepared), config,
+            [](const CrossSourceVersionLockCorrelationResult& correlation) noexcept {
+                try {
+                    const auto text = format_cross_source_version_lock_cli_presentation(correlation);
+                    if(text.has_value()) std::cout << *text << std::flush;
+                } catch(...) {
+                    // Supplemental presentation cannot replace pacman's outcome.
+                }
+            });
     const bool is_success = result.is_success();
     present_system_aur_update_operation_result(std::move(result));
     return is_success ? 0 : 1;
@@ -2019,9 +2118,19 @@ int present_system_aur_test_result(
 
 } // namespace
 
+CrossSourceVersionLockCorrelationResult system_aur_version_lock_correlation_for_test(
+    const std::string& scenario);
+
 int run_system_aur_update_presentation_test(
     const std::string& test_case) {
-    if(test_case == "repository-exception") {
+    if(test_case.starts_with("preflight-version-lock-")) {
+        auto correlation = system_aur_version_lock_correlation_for_test(test_case.substr(10));
+        correlation.basis = CrossSourceVersionLockObservationBasis::BeforeRepositoryMutation;
+        const auto text = format_cross_source_version_lock_cli_presentation(correlation);
+        if(text.has_value()) std::cout << *text;
+        return 0;
+    }
+    if(test_case == "repository-exception" || test_case.starts_with("version-lock-")) {
         SystemAurUpdateOperationResult result;
         result.repository.status =
             SystemAurUpdateRepositoryPhaseStatus::Failed;
@@ -2042,6 +2151,10 @@ int run_system_aur_update_presentation_test(
         result.aur.status = SystemAurUpdateAurPhaseStatus::NotAttempted;
         result.aur.not_attempted_reason =
             SystemAurUpdateNotAttemptedReason::RepositoryFailure;
+        if(test_case.starts_with("version-lock-")) {
+            result.cross_source_version_lock_correlation =
+                system_aur_version_lock_correlation_for_test(test_case);
+        }
         return present_system_aur_test_result(std::move(result));
     }
 

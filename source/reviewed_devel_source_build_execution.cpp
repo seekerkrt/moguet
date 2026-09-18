@@ -1,6 +1,8 @@
 #include "reviewed_devel_source_build_execution.hpp"
 
 #include "package_identifier.hpp"
+#include "artifact_identity_selection.hpp"
+#include <set>
 
 #include <new>
 #include <stdexcept>
@@ -8,6 +10,8 @@
 #include <utility>
 
 struct ReviewedDevelSourceBuildExecutionState {
+    std::optional<InvocationOwnedRecipeAcquisition> acquisition;
+    std::optional<RecipeAcquisitionFailure> acquisition_failure;
     std::optional<PinnedReviewedSourceBuild> pin;
     ReviewedDevelSourceBuildIntent intent;
     ProductionSourceBuildProvenance provenance;
@@ -19,8 +23,10 @@ struct ReviewedDevelSourceBuildExecutionState {
     std::optional<InvocationOwnedSourceBuildContextFailure> context_failure;
     std::optional<EvaluatedDevelSourceBuildProof> built;
     std::optional<EvaluatedDevelSourceBuildFailure> build_failure;
+    std::optional<PinnedClosureFailure> closure_failure;
+    std::optional<PinnedClosureReviewFailure> closure_review_failure;
     std::optional<InstalledDatabaseWorldResult> world;
-    std::optional<InstalledPackageQueryResult> policy_query;
+    std::vector<std::pair<std::string, InstalledPackageQueryResult>> policy_queries;
     std::optional<InstallReasonDirective> directive;
     std::optional<EvaluatedDevelSourceArtifactTransport> transport;
     std::optional<DevelBuildProvenancePublicationResult> publication;
@@ -53,6 +59,19 @@ void enter(ReviewedDevelSourceBuildExecutionState& state, Stage stage) {
 #ifdef MOGUET_ENABLE_REVIEWED_DEVEL_SOURCE_BUILD_EXECUTION_TEST_HOOKS
     if(g_execution_hooks.before_stage) g_execution_hooks.before_stage(stage, state.built && state.built->valid() ? &*state.built : nullptr);
 #endif
+}
+
+void cleanup_recipe(ReviewedDevelSourceBuildExecutionState& state) {
+    if(!state.acquisition) return;
+    const auto& root = state.acquisition->workspace_path();
+    const auto failure = state.acquisition->cleanup();
+    if(failure) {
+        state.acquisition_failure.emplace(RecipeAcquisitionFailure{
+            RecipeAcquisitionStage::Cleanup, failure->reason, failure->error_number,
+            std::nullopt, failure, root});
+        if(!state.issue) state.issue = Issue::RecipeCleanupFailure;
+    }
+    state.acquisition.reset();
 }
 
 std::filesystem::path comparable_database_path(std::filesystem::path path) {
@@ -107,8 +126,20 @@ const InvocationOwnedSourceBuildContextFailure* ReviewedDevelSourceBuildExecutio
     const auto& value = require_state().context_failure;
     return value ? &*value : nullptr;
 }
+const RecipeAcquisitionFailure* ReviewedDevelSourceBuildExecutionResult::recipe_acquisition_failure() const {
+    const auto& value = require_state().acquisition_failure;
+    return value ? &*value : nullptr;
+}
 const EvaluatedDevelSourceBuildFailure* ReviewedDevelSourceBuildExecutionResult::build_failure() const {
     const auto& value = require_state().build_failure;
+    return value ? &*value : nullptr;
+}
+const PinnedClosureFailure* ReviewedDevelSourceBuildExecutionResult::closure_failure() const {
+    const auto& value = require_state().closure_failure;
+    return value ? &*value : nullptr;
+}
+const PinnedClosureReviewFailure* ReviewedDevelSourceBuildExecutionResult::closure_review_failure() const {
+    const auto& value = require_state().closure_review_failure;
     return value ? &*value : nullptr;
 }
 const InstalledDatabaseWorldResult* ReviewedDevelSourceBuildExecutionResult::database_world() const {
@@ -116,8 +147,8 @@ const InstalledDatabaseWorldResult* ReviewedDevelSourceBuildExecutionResult::dat
     return value ? &*value : nullptr;
 }
 const InstalledPackageQueryResult* ReviewedDevelSourceBuildExecutionResult::install_policy_observation() const {
-    const auto& value = require_state().policy_query;
-    return value ? &*value : nullptr;
+    const auto& values = require_state().policy_queries;
+    return values.size() == 1 ? &values.front().second : nullptr;
 }
 std::optional<InstallReasonDirective> ReviewedDevelSourceBuildExecutionResult::install_reason_directive() const {
     return require_state().directive;
@@ -130,8 +161,14 @@ const DevelBuildProvenancePublicationResult* ReviewedDevelSourceBuildExecutionRe
 ReviewedProductionSourceExecution ReviewedDevelSourceBuildExecutionAuthority::prepare(
     ReviewedProductionExecutionChoice choice, ValidatedCachePath checkout, PinnedReviewedSourceBuild reviewed,
     ProductionReviewedSourceOutcome outcome, std::optional<ReviewedSourceAbnormalStateReason> abnormal,
-    const ReviewedDevelSourceBuildIntent& intent) {
+    const ReviewedDevelSourceBuildIntent& intent, InvocationOwnedRecipeAcquisition* acquisition) {
     if(!reviewed.valid()) return ReviewedDevelSourceBuildRejected{Issue::InvalidPin};
+    if(static_cast<bool>(intent.request.devel_tracking_bootstrap) != (acquisition != nullptr))
+        return ReviewedDevelSourceBuildRejected{Issue::IdentityMismatch};
+    if(acquisition && (!intent.request.devel_tracking_bootstrap || choice != ReviewedProductionExecutionChoice::AuthoritativeDevel ||
+                       acquisition->checkout().device() != checkout.device() || acquisition->checkout().inode() != checkout.inode() ||
+                       acquisition->identity() != reviewed.identity()))
+        return ReviewedDevelSourceBuildRejected{Issue::IdentityMismatch};
     if(choice == ReviewedProductionExecutionChoice::Legacy)
         return make_reviewed_production_artifact_source_tree(std::move(checkout), std::move(reviewed), outcome, abnormal);
     if(choice != ReviewedProductionExecutionChoice::AuthoritativeDevel) return ReviewedDevelSourceBuildRejected{Issue::UnsupportedChoice};
@@ -143,19 +180,27 @@ ReviewedProductionSourceExecution ReviewedDevelSourceBuildExecutionAuthority::pr
     if(intent.request.needed) return ReviewedDevelSourceBuildRejected{Issue::NeededRequested};
     if(intent.rm_deps) return ReviewedDevelSourceBuildRejected{Issue::DependencyCleanupRequested};
     if(intent.request.only_if_updated) return ReviewedDevelSourceBuildRejected{Issue::UpdateSelectionRequired};
-    if(intent.required_targets.size() != 1) return ReviewedDevelSourceBuildRejected{Issue::UnsupportedCardinality};
-    const auto& target = intent.required_targets.front();
+    if(intent.required_targets.empty()) return ReviewedDevelSourceBuildRejected{Issue::UnsupportedCardinality};
     const auto& base = reviewed.identity().package_base();
     if(!intent.request.aur_review_identity || *intent.request.aur_review_identity != base ||
-       intent.request.checkout_name != base.package_base() || target.package_base != base.package_base() ||
-       !is_valid_package_name(target.package_name) || (!intent.request.package_name.empty() && intent.request.package_name != target.package_name) ||
+       intent.request.checkout_name != base.package_base() ||
        !base.source().location().value() || intent.request.git_url != *base.source().location().value())
         return ReviewedDevelSourceBuildRejected{Issue::IdentityMismatch};
-    if(target.desired_reason != DesiredInstallReason::Explicit && target.desired_reason != DesiredInstallReason::Dependency)
-        return ReviewedDevelSourceBuildRejected{Issue::InvalidInstallReason};
+    std::set<std::string> selected_names;
+    for(const auto& target : intent.required_targets) {
+        if(target.package_base != base.package_base() || !is_valid_package_name(target.package_name) ||
+           !selected_names.insert(target.package_name).second ||
+           (intent.required_targets.size() == 1 && !intent.request.package_name.empty() && intent.request.package_name != target.package_name))
+            return ReviewedDevelSourceBuildRejected{Issue::IdentityMismatch};
+        if(target.desired_reason != DesiredInstallReason::Explicit && target.desired_reason != DesiredInstallReason::Dependency)
+            return ReviewedDevelSourceBuildRejected{Issue::InvalidInstallReason};
+    }
     // Allocate/copy the outer result storage and intent before S3/S4/S5 begin.
-    return PreparedReviewedDevelSourceBuildExecution(std::make_unique<ReviewedDevelSourceBuildExecutionState>(
-        std::move(reviewed), intent, outcome, abnormal));
+    auto state = std::make_unique<ReviewedDevelSourceBuildExecutionState>(std::move(reviewed), intent, outcome, abnormal);
+    // Only the successful prepared arm takes ownership. On rejection/exception
+    // the caller still owns acquisition and observes its explicit cleanup.
+    if(acquisition) state->acquisition.emplace(std::move(*acquisition));
+    return PreparedReviewedDevelSourceBuildExecution(std::move(state));
 }
 
 std::optional<ReviewedDevelSourceBuildExecutionResult> ReviewedDevelSourceBuildExecutionAuthority::execute(
@@ -170,10 +215,18 @@ std::optional<ReviewedDevelSourceBuildExecutionResult> ReviewedDevelSourceBuildE
         if(auto* failure = std::get_if<InvocationOwnedSourceBuildContextFailure>(&context)) {
             state.context_failure.emplace(std::move(*failure));
             state.issue = Issue::ContextFailure;
+            cleanup_recipe(state);
             return result;
         }
         state.context.emplace(std::move(std::get<InvocationOwnedSourceBuildContext>(context)));
         state.owned_root = state.context->owned_root();
+        // S3 has completed final reproof and owns its independent snapshot.
+        // Cleanup failure stops before S4 without rolling back published R.
+        if(state.acquisition) {
+            enter(state, Stage::RecipeCleanup);
+            cleanup_recipe(state);
+            if(state.issue) return result;
+        }
         enter(state, Stage::Environment);
         auto environment = state.context->make_makepkg_environment(state.intent.request.custom_environment, state.intent.request.empty_value_policy);
         if(auto* failure = std::get_if<InvocationOwnedSourceBuildContextFailure>(&environment)) {
@@ -182,7 +235,37 @@ std::optional<ReviewedDevelSourceBuildExecutionResult> ReviewedDevelSourceBuildE
             return result;
         }
         enter(state, Stage::Build);
-        auto built = build_evaluated_devel_source(std::move(*state.context), std::move(std::get<InvocationOwnedMakepkgEnvironment>(environment)));
+        auto built = [&]() -> EvaluatedDevelSourceBuildResult {
+            if(!state.intent.request.devel_tracking_bootstrap &&
+               !state.intent.request.ordinary_devel_package_base)
+                return build_evaluated_devel_source(std::move(*state.context), std::move(std::get<InvocationOwnedMakepkgEnvironment>(environment)));
+            // Bootstrap and ordinary authoritative updates share the exact
+            // closure owner. Ordinary intent is not a Missing-baseline trial:
+            // retain existing provenance and independently acquire/review the
+            // build input instead of adopting a planning OID or an old cache.
+            auto selected = select_evaluated_devel_source(std::move(*state.context), std::move(std::get<InvocationOwnedMakepkgEnvironment>(environment)));
+            if(auto* failure = std::get_if<EvaluatedDevelSourceBuildFailure>(&selected)) return std::move(*failure);
+            auto closure = acquire_pinned_submodule_closure(std::get<EvaluatedDevelSourceSelection>(std::move(selected)));
+            EvaluatedDevelSourceBuildFailure stopped;
+            stopped.stage = EvaluatedDevelSourceBuildStage::SourceWorkspace;
+            stopped.reason = EvaluatedDevelSourceBuildFailureReason::SourceReadyInvalid;
+            if(auto* failure = std::get_if<PinnedClosureFailure>(&closure)) {
+                state.closure_failure.emplace(std::move(*failure));
+                return stopped;
+            }
+            auto accepted = review_pinned_submodule_closure(std::get<InvocationOwnedPinnedSubmoduleClosure>(std::move(closure)),
+                                                            ReviewPolicy::Prompt, state.intent.execution_options.no_confirm);
+            if(auto* failure = std::get_if<PinnedClosureReviewFailure>(&accepted)) {
+                state.closure_review_failure.emplace(std::move(*failure));
+                return stopped;
+            }
+            auto ready = materialize_pinned_submodule_workspace(std::get<AcceptedPinnedSubmoduleClosure>(std::move(accepted)));
+            if(auto* failure = std::get_if<PinnedWorkspaceFailure>(&ready)) {
+                stopped.pinned_workspace_failure = std::make_shared<PinnedWorkspaceFailure>(std::move(*failure));
+                return stopped;
+            }
+            return resume_evaluated_devel_source(std::get<SourceReadyPinnedSubmoduleWorkspace>(std::move(ready)));
+        }();
         if(auto* failure = std::get_if<EvaluatedDevelSourceBuildFailure>(&built)) {
             state.build_failure.emplace(std::move(*failure));
             state.issue = Issue::BuildFailure;
@@ -191,10 +274,15 @@ std::optional<ReviewedDevelSourceBuildExecutionResult> ReviewedDevelSourceBuildE
         state.built.emplace(std::move(std::get<EvaluatedDevelSourceBuildProof>(built)));
         state.build_completed = true;
         enter(state, Stage::ArtifactCorrelation);
-        const auto& target = state.intent.required_targets.front();
-        const auto& artifact = state.built->artifact();
-        if(state.built->package_base() != *state.intent.request.aur_review_identity || artifact.package().package_base() != state.built->package_base() ||
-           artifact.package().package_name() != target.package_name) {
+        if(state.built->declared_children().size() > 1 && !state.intent.request.devel_tracking_bootstrap &&
+           !state.intent.request.ordinary_devel_package_base) {
+            state.issue = Issue::UnsupportedCardinality;
+            return result;
+        }
+        const auto selection = correlate_package_base_artifact_identities(
+            state.built->package_base().package_base(), state.intent.required_targets, query_artifact_package_identities(*state.built));
+        if(state.built->package_base() != *state.intent.request.aur_review_identity || !selection.is_success() ||
+           selection.success()->selected_artifacts.empty()) {
             state.issue = Issue::ArtifactMismatch;
             return result;
         }
@@ -211,24 +299,29 @@ std::optional<ReviewedDevelSourceBuildExecutionResult> ReviewedDevelSourceBuildE
             return result;
         }
         {
-            // Match the ordinary artifact install reducer, with a fresh session
-            // after build. S5's fixed Default/needed=false semantics are not widened.
             auto session = PackageMetadataSession::open({world->root_directory, world->database_path});
-            state.policy_query.emplace(session.query_installed_package(target.package_name));
+            for(const auto& selected : selection.success()->selected_artifacts)
+                state.policy_queries.emplace_back(selected.identity.package_name, session.query_installed_package(selected.identity.package_name));
         }
-        if(std::holds_alternative<PackageMetadataFailure>(*state.policy_query)) {
-            state.issue = Issue::InstallPolicyFailure;
-            return result;
-        }
-        const auto policy = map_installed_artifact_policy_state(artifact.evidence().identity, *state.policy_query);
-        state.directive = resolve_install_reason_directive(target.desired_reason, policy.version_state, policy.existing_reason, false);
-        if(*state.directive != InstallReasonDirective::Default) {
-            state.issue = Issue::InstallReasonUnsupported;
-            return result;
+        for(const auto& selected : selection.success()->selected_artifacts) {
+            const auto query = std::find_if(state.policy_queries.begin(), state.policy_queries.end(),
+                                            [&](const auto& value) { return value.first == selected.identity.package_name; });
+            if(query == state.policy_queries.end() || std::holds_alternative<PackageMetadataFailure>(query->second)) {
+                state.issue = Issue::InstallPolicyFailure;
+                return result;
+            }
+            const auto policy = map_installed_artifact_policy_state(selected.identity, query->second);
+            state.directive = resolve_install_reason_directive(selected.desired_reason, policy.version_state, policy.existing_reason, false);
+            // Existing Default/needed=false preserves each installed reason in
+            // the shared transaction. No promotion or dependency install is inferred.
+            if(*state.directive != InstallReasonDirective::Default) {
+                state.issue = Issue::InstallReasonUnsupported;
+                return result;
+            }
         }
 
         enter(state, Stage::Transport);
-        state.transport.emplace(prepare_evaluated_devel_source_artifact_transport(std::move(*state.built)));
+        state.transport.emplace(prepare_evaluated_devel_source_artifact_transport(std::move(*state.built), state.intent.required_targets));
         try {
 #ifdef MOGUET_ENABLE_REVIEWED_DEVEL_SOURCE_BUILD_EXECUTION_TEST_HOOKS
             if(g_execution_hooks.exact_transaction_token)
@@ -263,7 +356,7 @@ std::optional<ReviewedDevelSourceBuildExecutionResult> ReviewedDevelSourceBuildE
     } catch(const PackageMetadataError& error) {
         state.issue = Issue::InstallPolicyFailure;
         try {
-            state.policy_query.emplace(error.failure());
+            state.policy_queries.emplace_back(std::string{}, error.failure());
         } catch(...) {
             state.issue = Issue::ResourceFailure;
         }
@@ -274,14 +367,20 @@ std::optional<ReviewedDevelSourceBuildExecutionResult> ReviewedDevelSourceBuildE
     } catch(...) {
         state.issue = Issue::InternalFailure;
     }
+    try {
+        cleanup_recipe(state);
+    } catch(...) {
+        // Resource failure must not turn a failed execution into success.
+        state.issue = Issue::ResourceFailure;
+    }
     return result;
 }
 
 ReviewedProductionSourceExecution prepare_reviewed_production_source_execution(
     ReviewedProductionExecutionChoice choice, ValidatedCachePath checkout, PinnedReviewedSourceBuild reviewed,
     ProductionReviewedSourceOutcome outcome, std::optional<ReviewedSourceAbnormalStateReason> abnormal,
-    const ReviewedDevelSourceBuildIntent& intent) {
-    return ReviewedDevelSourceBuildExecutionAuthority::prepare(choice, std::move(checkout), std::move(reviewed), outcome, abnormal, intent);
+    const ReviewedDevelSourceBuildIntent& intent, InvocationOwnedRecipeAcquisition* acquisition) {
+    return ReviewedDevelSourceBuildExecutionAuthority::prepare(choice, std::move(checkout), std::move(reviewed), outcome, abnormal, intent, acquisition);
 }
 std::optional<ReviewedDevelSourceBuildExecutionResult> execute_reviewed_devel_source_build(
     PreparedReviewedDevelSourceBuildExecution prepared) noexcept {

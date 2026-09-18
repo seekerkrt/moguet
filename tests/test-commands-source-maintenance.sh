@@ -258,26 +258,11 @@ run_fail() {
     fi
 }
 
-run_clean_low_nofile_fail() {
-    soft_limit=$1
-    : > "$command_log"
-    : > "$request_log"
-    if (
-        ulimit -n "$soft_limit"
-        "$test_binary" --noconfirm clean </dev/null > "$output_file" 2>&1
-    ); then
-        exit_code=0
-    else
-        exit_code=$?
-    fi
-    if ! validation_assert_status clean-low-nofile-business-failure 1 \
-        "$exit_code" "$output_file" "$output_file" \
-        "$test_binary" --noconfirm clean; then
-        sed -n '1,260p' "$output_file" >&2
-        cat "$command_log" >&2
-        exit 1
-    fi
-}
+# The subshell changes only its soft limit; parent and hard limits are intact.
+run_clean_low_nofile_ok() (
+    ulimit -Sn "$1"
+    run_clean_tty_ok y
+)
 
 run_upgrade_ok() {
     refresh_repository_metadata_fixture
@@ -1986,21 +1971,20 @@ if [ ! -L "$cache_root/unsafe" ]; then
     exit 1
 fi
 
-setup_case clean-fd-exhaustion-before-pacman
+setup_case clean-many-targets-with-bounded-fds
 mkdir -p "$cache_root"
 fd_entry=0
-while [ "$fd_entry" -lt 64 ]; do
+while [ "$fd_entry" -lt 512 ]; do
     mkdir "$cache_root/entry-$fd_entry"
     fd_entry=$((fd_entry + 1))
 done
-run_clean_low_nofile_fail 24
-assert_contains "Too many open files" "$output_file"
-assert_not_contains "Cleaning package caches..." "$output_file"
-assert_total_command_count 0
+run_clean_low_nofile_ok 128
+assert_command "sudo pacman -Sc"
+assert_contains "Moguet cache cleaned." "$output_file"
 fd_cache_entry_count=$(count_command_output_lines fd-cache-entries \
-    find "$cache_root" -mindepth 1 -maxdepth 1 -type d)
-if [ "$fd_cache_entry_count" -ne 64 ]; then
-    echo "low-RLIMIT cleanup preflight mutated cache entries" >&2
+    find "$cache_root" -mindepth 1 -maxdepth 1)
+if [ "$fd_cache_entry_count" -ne 0 ]; then
+    echo "bounded low-RLIMIT cleanup left cache entries" >&2
     exit 1
 fi
 

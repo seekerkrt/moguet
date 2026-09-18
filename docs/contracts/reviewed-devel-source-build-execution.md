@@ -29,17 +29,17 @@ Git UpdateAvailableをpackage version constraint成立の根拠にしない。
 ## Initial subset / intent policy
 
 authoritative preparationはvalid typed pinと同じcheckout identity、AUR source/base、required childを照合する。
-editor overlay、multiple required children、needed、rm-deps、未解決OnlyIfUpdated intentは開始前に拒否する。
+editor overlay、empty/duplicate required children、needed、rm-deps、未解決OnlyIfUpdated intentは開始前に拒否する。
 Legacyを明示選択した場合は既存factory/compatibility semanticsを維持し、S6 publicationを開始しない。
 
-one-pkgname/one-produced-artifact/one-floating-Git-source、HTTPS、DefaultHead/exact Branch、
+exact declared/output child setsとone-floating-Git-source、HTTPS、DefaultHead/exact Branch、
 architecture-independent/no-overlayは既存S3/S4契約に委ねる。bridgeはPKGBUILDやcurrent source definitionを
 別に再評価せず、S4の既存evaluation/build protocolをそのまま使う。
 S4がunsupported shapeを返した後にlegacy buildへretryする経路はない。
 
-S4 artifact取得後はrequired childとsealed artifact identityを照合する。
+S4 artifact set取得後は既存N-artifact selectorでrequired Tとsealed Bを照合する。
 trusted fixed DB worldとnormal intentのDB pathsが一致する場合だけ、fresh PackageMetadataSessionで
-installed reason/versionを観測し、既存`map_installed_artifact_policy_state`と
+selected child名ごとにinstalled reason/versionを観測し、既存`map_installed_artifact_policy_state`と
 `resolve_install_reason_directive`を適用する。
 
 S5の`needed=false / PreserveExistingReason`を変更せず、reducerがDefaultを返す場合だけS5へ進む。
@@ -81,6 +81,37 @@ authoritative context creation以降は、失敗してもlegacy/shared mirror/�
 S4 failureはoriginal typed failureを保持してS5へ進まない。
 S5実行後は同じtransportを一度finalizeする。diagnostic returnの例外があっても再executeせず、
 S5が保持する固定operation factsをfinalize/publisherへ渡す。
+
+## Initial Missing bootstrapのclosure接続（Issue #564 4B2）
+
+既存typed `devel_tracking_bootstrap` intentを持つ初期Missing executionは、S3とrecipe acquisition cleanup後に
+initial selection→4A exact closure→4B0 explicit closure review→4B1 SourceReady→common S4を通す。
+explicit migration acceptanceとrecipe full review/acceptanceをこのbridgeで短絡しない。
+SourceReady consumerは同一selectionを保持し、prepared/post-build closure reproofとroot X相関だけを
+workspace-specific branchとして加える。root tag mappingの取得・明示承認・projection・phase-point reproofも
+同じowner chainで保持する（[Issue #589 contract](pinned-submodule-closure.md#root-tag-authority-issue-589)）。別build pipelineやS4 proofを作らない。
+
+4A acquisition/review failureは`closure_failure()` / `closure_review_failure()`に元のprocess/cancel/cleanupを保持する。
+SourceReady以降は既存build failureへnarrow closure detailを追加する。失敗からlegacyや別revisionへfallbackしない。
+closure reviewのq/EOFは元の理由を`ConfirmationCancelled`へ戻し、既存runnerのformal cancellation処理へ渡す。
+Noは既存recipe bootstrap reviewと同じ`Acceptance / ReviewOperationStopped / NonExplicitAcceptance`へ投影する。
+required review未完了のためaggregateはnonzeroとなるが、actual build/internal failureとはtyped detailと診断で区別する。
+これらのstopではbuild/installはNotAttemptedとし、live owner、先行R publication、cleanup consequenceを保持する。
+runner/reducerのpure link境界を保つため、snapshotはownerのreview failureと既存required-review stop valueだけを追加で保持する。
+S4取得後のartifact correlation、transport、install policy、S5/S6は上記のcommon executionをそのまま使う。
+SourceReady whole ownerもS6→S5→S4 resultの寿命まで保持する。
+
+初期Missingのmigration activationはexact target-less ordinary `-Syu` / `-Su` Autoだけに保つ。
+通常Auto更新で既存selectorがAuthoritativeDevelを選んだexecutionも、既存
+`ordinary_devel_package_base` intentにより同じselection / closure review / SourceReady / common S4へ接続する。
+このintentは経路選択であり、Missing trial、upstream acceptance、built proofを生成しない。
+既存baselineやreviewed recipe lineageを削除・再初期化せず、normal recipe review後に取得したexact upstream
+snapshotを別途明示承認する。planning OIDやcacheを承認済みsourceとして採用しない。
+No / q / EOFでは既存closure stopを返し、build / install / publicationへ進まない。
+recipe revisionが同じなら既存Rを維持し、成功時だけS4/S5を根拠にS6が既存Pの後継generationを保存する。
+同一revisionのUpToDateは従来どおり実行前に除外され、新しい承認promptを出さない。
+non-devel、upgrade-aur/all、dry-run、explicit target、registered sourceには、このordinary activationを広げない。
+provenance v1 / 27 keysは不変。ordinary split groupのselected child / install reason契約も維持する。
 
 ## Lossless result / lifetime
 

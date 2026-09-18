@@ -116,6 +116,8 @@ DiagnosticOperation diagnostic_operation(
             return DiagnosticOperation::RootPackageSelection;
         case SpecialOperationId::SystemRepositoryUpdate:
         case SpecialOperationId::SystemAurUpdate:
+        case SpecialOperationId::SystemRepositoryUpdateNoRefresh:
+        case SpecialOperationId::SystemAurUpdateNoRefresh:
             return DiagnosticOperation::PacmanDelegation;
         case SpecialOperationId::DelegatedPacmanGrammar:
             return DiagnosticOperation::PacmanDelegation;
@@ -341,10 +343,14 @@ ResolvedCliRuntimeContract resolve_cli_runtime_contract(
         if(std::holds_alternative<RepoOnlySystemUpdateRouteCandidate>(
                sync_route)) {
             special = &cli_authority::special_operation_spec(
-                SpecialOperationId::SystemRepositoryUpdate);
+                parsed.operation == cli_authority::PACMAN_SYSTEM_UPGRADE_NO_REFRESH_SYNTAX
+                    ? SpecialOperationId::SystemRepositoryUpdateNoRefresh
+                    : SpecialOperationId::SystemRepositoryUpdate);
         } else if(!std::holds_alternative<OtherSyncRoute>(sync_route)) {
             special = &cli_authority::special_operation_spec(
-                SpecialOperationId::SystemAurUpdate);
+                parsed.operation == cli_authority::PACMAN_SYSTEM_UPGRADE_NO_REFRESH_SYNTAX
+                    ? SpecialOperationId::SystemAurUpdateNoRefresh
+                    : SpecialOperationId::SystemAurUpdate);
         }
     }
     if(special != nullptr) {
@@ -496,12 +502,12 @@ std::string cli_invocation_issue_message(
         case CliInvocationIssueKind::UnsupportedAutoSystemUpdateOption:
             return localization::format_translated_message(
                 "A {} option is not supported for the combined {} route. Use {} for a repository-only system upgrade with full {} pass-through.",
-                "pacman", "-Syu", "moguet -Syu --repo", "pacman");
+                "pacman", issue.operation, "moguet " + issue.operation + " --repo", "pacman");
         case CliInvocationIssueKind::
             UnsupportedAutoSystemUpdateArgumentForm:
             return localization::format_translated_message(
                 "A {} argument form is not supported for the combined {} route. Use {} for a repository-only system upgrade with full {} pass-through.",
-                "pacman", "-Syu", "moguet -Syu --repo", "pacman");
+                "pacman", issue.operation, "moguet " + issue.operation + " --repo", "pacman");
         case CliInvocationIssueKind::ExtraOperand:
             if(issue.target_policy == TargetPolicy::None) {
                 return localization::format_translated_message(

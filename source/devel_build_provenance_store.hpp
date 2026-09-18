@@ -173,3 +173,11 @@ publish_devel_build_provenance(
     const DevelBuildProvenance& provenance,
     const std::optional<DevelBuildProvenanceStoreObservedRecord>&
         expected_observed);
+
+// Child-qualified tip lookup. An absent child slot may use only the legacy
+// record whose own artifact/binding identify this child. Abnormal legacy state
+// remains an error, never bootstrap eligibility.
+[[nodiscard]] DevelBuildProvenanceStoreReadResult read_devel_build_provenance(const PackageChildIdentity& child);
+[[nodiscard]] DevelBuildProvenanceStorePublishResult publish_child_devel_build_provenance(
+    const DevelBuildProvenance& provenance,
+    const std::optional<DevelBuildProvenanceStoreObservedRecord>& expected_observed);

@@ -1,6 +1,9 @@
 #include "devel_package_assessment.hpp"
 #ifdef MOGUET_TEST_AUR_DEVEL_ROUTING
 #include "aur_devel_update.hpp"
+#include "app_config.hpp"
+#include "devel_tracking_bootstrap.hpp"
+#include <curl/curl.h>
 #include "aur_rpc.hpp"
 #include "system_source_upgrade.hpp"
 struct UnifiedPlanProjectionTestAccess {
@@ -11,6 +14,12 @@ struct UnifiedPlanProjectionTestAccess {
         return SystemSourceUpgradeProjectionAuthority(snapshot, nullptr, issues, std::move(refs));
     }
 };
+CurlGlobal::CurlGlobal() {
+    if(curl_global_init(CURL_GLOBAL_DEFAULT) != CURLE_OK) throw std::runtime_error("curl init failed");
+}
+CurlGlobal::~CurlGlobal() {
+    curl_global_cleanup();
+}
 namespace route_rpc {
 std::string version = "1-1";
 std::string name = "assessment-git";
@@ -293,7 +302,7 @@ void local_matrix() {
                                   "i-absent", "i-generation", "i-mtree", "i-database", "i-version", "i-arch", "i-base", "i-child", "i-load",
                                   "r-missing", "r-recipe", "r-generation", "r-digest", "r-source", "r-base", "r-invalid", "r-corrupt", "r-future", "r-unsafe", "r-authority", "r-read", "history"}) {
         Fixture fixture;
-        const bool p = mode.starts_with("p-");
+        const bool p = mode.starts_with("p-") || mode == "i-child";
         const bool installed = mode.starts_with("i-") || mode == "history";
         Check expected = Check::BuildSourceProofUnavailable;
         if(mode == "p-missing" || mode == "r-missing") {
@@ -363,6 +372,7 @@ void local_matrix() {
             replace(fixture.record / "desc", "%NAME%\nassessment-git", "%NAME%\nother-git");
             fs::rename(fixture.record, fixture.db / "local/other-git-1-1");
             fixture.target.installed_children = {PackageChildIdentity::make(fixture.base, "other-git")};
+            expected = Check::ProvenanceMissing; // A valid legacy record belongs only to its original child.
         }
         if(mode == "i-load") {
             fixture.record_hooks.fail_database_load = true;
@@ -403,7 +413,9 @@ void local_matrix() {
         if(mode == "r-authority" || mode == "r-read") require(arm<ReviewedSourceStateStoreFailure>(*result.before.reviewed).kind ==
                                                                   (mode == "r-read" ? XdgGenerationStoreFailureKind::ReadFailed : XdgGenerationStoreFailureKind::AuthorityUnavailable),
                                                               "R outer issue lost");
-        if(mode == "i-child") require(arm<InstalledArtifactBindingMismatch>(*result.before.installed_comparison).reason == InstalledArtifactBindingMismatchReason::PackageIdentityMismatch, "installed child mismatch lost");
+        if(mode == "i-child") require(std::holds_alternative<DevelBuildProvenanceStoreMissing>(*result.before.provenance) &&
+                                          !result.before.installed && !result.before.installed_comparison,
+                                      "legacy sibling record was used as this child's baseline");
         if(mode == "history") require(arm<DevelBuildProvenanceStoreLoaded>(*result.before.provenance).observed.generation == 2, "adopted old matching history");
         if(mode == "r-generation") require(arm<ReviewedSourceStateRecordBindingMismatch>(*result.before.reviewed_comparison).reason == ReviewedSourceStateRecordBindingMismatchReason::ReviewedStateGenerationMismatch, "generation drift mislabeled");
         if(mode == "r-digest") require(arm<ReviewedSourceStateRecordBindingMismatch>(*result.before.reviewed_comparison).reason == ReviewedSourceStateRecordBindingMismatchReason::ReviewedStateDocumentDigestMismatch, "digest drift mislabeled");
@@ -502,6 +514,265 @@ void read_only_snapshot() {
     std::cout << "S7B read-only inventory/bytes and snapshot-copy PASS\n";
 }
 #ifdef MOGUET_TEST_AUR_DEVEL_ROUTING
+void recipe_head_observation_matrix() {
+    using Reason = DevelTrackingBootstrapUnavailableReason;
+    using Unavailable = DevelTrackingBootstrapUnavailable;
+    Fixture f;
+    // The collector requires a real TTY. Retain/restore stdin without issuing
+    // confirmations or entering build/install; this matrix stops at the trial.
+    struct Input {
+        int saved = fcntl(STDIN_FILENO, F_DUPFD_CLOEXEC, 3);
+        int master = posix_openpt(O_RDWR | O_NOCTTY | O_CLOEXEC);
+        int slave = -1;
+        ~Input() {
+            if(saved >= 0) {
+                static_cast<void>(dup2(saved, STDIN_FILENO));
+                static_cast<void>(close(saved));
+            }
+            if(slave >= 0) static_cast<void>(close(slave));
+            if(master >= 0) static_cast<void>(close(master));
+            set_devel_tracking_bootstrap_test_hooks({});
+            set_aur_devel_update_database_paths_for_test(std::nullopt);
+        }
+    } input;
+    require(input.saved >= 0 && input.master >= 0 && grantpt(input.master) == 0 && unlockpt(input.master) == 0,
+            "recipe observation PTY setup failed");
+    const auto* name = ptsname(input.master);
+    require(name, "recipe observation PTY name unavailable");
+    input.slave = open(name, O_RDWR | O_NOCTTY | O_CLOEXEC);
+    require(input.slave >= 0 && dup2(input.slave, STDIN_FILENO) >= 0 && isatty(STDIN_FILENO) == 1,
+            "recipe observation stdin is not a TTY");
+    set_aur_devel_update_database_paths_for_test(PacmanDatabasePaths{"/", f.db});
+    fs::rename(f.p_file().parent_path(), f.root / "prior-p");
+    const auto reviewed_before = read(f.r_file());
+    const std::string srcinfo = "pkgbase = assessment\n\tpkgver = 1\n\tpkgrel = 1\n\tarch = any\n\tsource = git+https://example.invalid/upstream.git\npkgname = assessment-git\n";
+    std::optional<std::string> metadata = srcinfo;
+    // Actual failure shape: two identical complete records, within 256 bytes.
+    std::string oid = "4522d1b9490417995b3d95741457eccccbc150c1";
+    const auto record = [&] { return oid + "\tHEAD\n"; };
+    const auto check = [&](const char* label, const BoundedCapturedProcessResult& process,
+                           std::optional<Reason> expected, bool reaches_metadata) {
+        unsigned head_calls = 0;
+        unsigned metadata_calls = 0;
+        DevelTrackingBootstrapTestHooks hooks;
+        hooks.checkout = [](const auto&) -> bool { throw std::logic_error("trial read old cache"); };
+        hooks.recipe_head = [&](const ExplicitProcessInvocation& invocation, const BoundedProcessPolicy& policy) {
+            ++head_calls;
+            require(invocation.executable == "/usr/bin/git" && invocation.working_directory_fd && invocation.standard_input_fd,
+                    "recipe HEAD lost fixed executable or descriptor boundary");
+            const std::vector<std::string> suffix{"ls-remote", "--exit-code", "--", "https://aur.archlinux.org/assessment.git", "HEAD"};
+            require(invocation.arguments.size() >= suffix.size() &&
+                        std::vector<std::string>(invocation.arguments.end() - suffix.size(), invocation.arguments.end()) == suffix,
+                    "recipe HEAD query changed");
+            require(policy.hard_timeout == std::chrono::seconds(30) && policy.termination_grace == std::chrono::seconds(1) &&
+                        policy.stdout_capture_limit == 256 && policy.suppress_standard_error,
+                    "recipe HEAD resource bounds changed");
+            return process;
+        };
+        hooks.recipe_metadata = [&](const std::string& url) {
+            ++metadata_calls;
+            require(url == "https://aur.archlinux.org/cgit/aur.git/plain/.SRCINFO?h=assessment&id=" + oid,
+                    "metadata was not pinned to the unique observed recipe HEAD");
+            return metadata;
+        };
+        set_devel_tracking_bootstrap_test_hooks(std::move(hooks));
+        const auto observed = observe_devel_tracking_bootstrap(f.child);
+        if(expected)
+            require(arm<Unavailable>(observed).reason == *expected, "recipe observation lost typed failure");
+        else {
+            const auto& trial = arm<std::shared_ptr<const DevelTrackingBootstrapTrial>>(observed);
+            require(trial && trial->recipe_revision() == SourceRevisionIdentity::git_commit(oid) && trial->source_metadata() == *metadata,
+                    "recipe observation lost exact identity/metadata");
+        }
+
+        route_rpc::version = "1-1";
+        auto query = query_aur_updates_for_foreign_inventory({InstalledPackageMetadata{f.child.package_name(), "1-1", InstalledPackageReason::Explicit}});
+        AppConfig config;
+        config.user_config.review.diff = ReviewPolicy::Prompt;
+        observe_aur_devel_bootstrap_candidates(query, config);
+        require(query.plan.entries.size() == 1 && query.devel_observations.size() == 1, "recipe collector lost attribution");
+        const auto& entry = query.plan.entries.front();
+        const auto& detail = query.devel_observations.front().bootstrap_unavailable;
+        require(entry.devel_assessment == DevelUpdateAssessment::requires_check(Check::ProvenanceMissing) && !aur_update_basis(entry),
+                "recipe trial promoted missing provenance to update authority");
+        if(expected)
+            require(!entry.bootstrap && detail && detail->reason == *expected, "collector flattened unavailable recipe/source reason");
+        else
+            require(has_aur_update_bootstrap_intent(entry) && !detail && entry.bootstrap->recipe_revision() == SourceRevisionIdentity::git_commit(oid),
+                    "identical HEAD records disappeared before candidate projection");
+        require(head_calls == 2 && metadata_calls == (reaches_metadata ? 2U : 0U) && f.remote_calls == 0,
+                "recipe observation retried or entered HTTP/upstream at the wrong boundary");
+        require(!fs::exists(f.p_file().parent_path()) && read(f.r_file()) == reviewed_before,
+                "recipe trial created provenance or changed review state");
+        std::cout << "S564 recipe observation " << label << " / typed collector PASS\n";
+    };
+    check("single", {record(), BoundedProcessExited{0}}, std::nullopt, true);
+    check("identical duplicate", {record() + record(), BoundedProcessExited{0}}, std::nullopt, true);
+    check("five identical records", {record() + record() + record() + record() + record(), BoundedProcessExited{0}}, std::nullopt, true);
+    check("conflicting HEAD", {record() + std::string(40, 'b') + "\tHEAD\n", BoundedProcessExited{0}}, Reason::RecipeHeadConflicting, false);
+    for(const auto& bytes : std::vector<std::string>{
+            "", "\n", "bad\tHEAD\n", std::string(39, 'a') + "\tHEAD\n", std::string(40, 'A') + "\tHEAD\n",
+            oid + " HEAD\n", oid + "\tHEAD", record() + oid + "\tHE", record() + "garbage", record() + "\n",
+            oid + "\tHEAD\textra\n", oid + "\tHEAD\r\n", record() + oid + "\trefs/heads/main\n",
+            "ref: refs/heads/main\tHEAD\n" + record(), record() + std::string(1, '\0')}) {
+        check("malformed/partial/unexpected", {bytes, BoundedProcessExited{0}}, Reason::RecipeHeadMalformed, false);
+    }
+    check("nonzero", {record(), BoundedProcessExited{128}}, Reason::RecipeHeadProcessFailed, false);
+    check("signal", {record(), BoundedProcessSignaled{15}}, Reason::RecipeHeadProcessFailed, false);
+    check("launch failure", {record(), BoundedProcessLaunchOrSetupFailure{BoundedProcessLaunchStage::Execve, ENOENT}}, Reason::RecipeHeadProcessFailed, false);
+    check("I/O failure", {record(), BoundedProcessIoOrWaitFailure{BoundedProcessIoStage::Wait, ECHILD}}, Reason::RecipeHeadProcessFailed, false);
+    check("timeout after valid prefix", {record(), BoundedProcessTimedOut{}}, Reason::RecipeHeadTimedOut, false);
+    check("overflow after valid prefix", {record(), BoundedProcessCaptureLimitExceeded{256}}, Reason::RecipeHeadOutputLimitExceeded, false);
+    check("oversized successful output", {record() + record() + record() + record() + record() + record(), BoundedProcessExited{0}}, Reason::RecipeHeadOutputLimitExceeded, false);
+    oid = std::string(64, 'c');
+    check("SHA256 identical duplicate", {record() + record(), BoundedProcessExited{0}}, std::nullopt, true);
+    check("mixed object format", {record() + std::string(40, 'c') + "\tHEAD\n", BoundedProcessExited{0}}, Reason::RecipeHeadConflicting, false);
+    metadata.reset();
+    check("HTTP unavailable", {record(), BoundedProcessExited{0}}, Reason::RecipeMetadataUnavailable, true);
+    metadata = std::string(256 * 1024 + 1, 'x');
+    check("metadata overflow", {record(), BoundedProcessExited{0}}, Reason::RecipeMetadataUnavailable, true);
+    metadata = "not source metadata";
+    check("metadata malformed", {record(), BoundedProcessExited{0}}, Reason::RecipeMetadataMalformed, true);
+    metadata = srcinfo + "pkgname = unsupported-sibling\n";
+    check("declared unselected sibling", {record() + record(), BoundedProcessExited{0}}, std::nullopt, true);
+
+    const std::string git = "git+https://example.invalid/upstream.git";
+    const auto source_case = [&](const std::string& label, const std::vector<std::string>& entries,
+                                 std::optional<Reason> expected, bool qualified = false) {
+        metadata = "pkgbase = assessment\n\tpkgver = 1\n\tpkgrel = 1\n\tarch = any\n";
+        for(const auto& entry : entries)
+            *metadata += (qualified ? "\tsource_x86_64 = " : "\tsource = ") + entry + "\n";
+        *metadata += "pkgname = assessment-git\n";
+        check(label.c_str(), {record() + record(), BoundedProcessExited{0}}, expected, true);
+    };
+    source_case("one Git", {git}, std::nullopt);
+    source_case("Git + patch", {git, "fix.patch"}, std::nullopt);
+    source_case("Git + patch + config", {git, "fix.patch", "config.toml"}, std::nullopt);
+    source_case("local before Git", {"config.toml", git, "fix.patch"}, std::nullopt);
+    source_case("branch + locals", {git + "#branch=main", "fix.patch", "config.toml"}, std::nullopt);
+    source_case("Git alias + extensionless local", {"checkout::" + git, "settings"}, std::nullopt);
+    std::vector<std::string> bounded{git};
+    for(unsigned index = 0; index < 63; ++index)
+        bounded.push_back("input-" + std::to_string(index));
+    source_case("64 total", bounded, std::nullopt);
+    bounded.push_back("one-too-many");
+    source_case("65 total", bounded, Reason::UnsupportedSourceCount);
+    source_case("zero sources", {}, Reason::UnsupportedSourceCount);
+    source_case("local only", {"fix.patch"}, Reason::UnsupportedSource);
+    source_case("second Git", {git, "fix.patch", "git+https://example.invalid/other.git"}, Reason::MultipleTrackingSources);
+    for(const auto& unsupported : {"http://example.invalid/fix.patch", "https://example.invalid/config.toml",
+                                   "https://example.invalid/archive.tar.gz", "hg+https://example.invalid/repo",
+                                   "svn+https://example.invalid/repo", "fossil+https://example.invalid/repo",
+                                   "cvs+https://example.invalid/repo"})
+        source_case("remote/VCS supplemental", {git, unsupported}, Reason::UnsupportedSource);
+    for(const auto& local : {"patches/fix.patch", "configs/default.toml", "fix.patch::patches/upstream.patch",
+                             "fix.patch::upstream.patch", "../fix.patch", "./fix.patch", "/fix.patch", ".", "..",
+                             "a..b", "PKGBUILD", ".SRCINFO", ".git", ".gitmodules", ".moguet-evaluated-recipe",
+                             "$generated", "*.patch", "fix\\patch", "fix patch"})
+        source_case("unsupported local declaration: " + std::string(local), {git, local}, Reason::UnsupportedLocalSource);
+    source_case("overlong basename", {git, std::string(256, 'a')}, Reason::UnsupportedLocalSource);
+    source_case("duplicate local", {git, "fix.patch", "fix.patch"}, Reason::SourceDestinationCollision);
+    source_case("Git destination collision", {git, "upstream"}, Reason::SourceDestinationCollision);
+    source_case("Git destination collision before Git", {"upstream", git}, Reason::SourceDestinationCollision);
+    source_case("Git alias collision", {"fix.patch::" + git, "fix.patch"}, Reason::SourceDestinationCollision);
+    source_case("Git filename suffix collision", {git + ".extra/", "upstream"}, Reason::SourceDestinationCollision);
+    source_case("qualified source", {git, "fix.patch"}, Reason::UnsupportedSource, true);
+    for(const auto& malformed : {"", "::fix.patch", "fix.patch::", "git+https://example.invalid/upstream.git#branch="})
+        source_case("malformed source entry: " + std::string(malformed), {git, malformed}, Reason::RecipeMetadataMalformed);
+}
+
+void bootstrap_trial_observation_matrix() {
+    using Unavailable = DevelTrackingBootstrapUnavailable;
+    for(const std::string mode : {"eligible", "unsupported", "split-source", "stale-child", "both-children", "multiple-source", "architecture", "malformed", "overlay", "corrupt", "future", "unsafe", "review-corrupt", "binding-change", "recipe-change"}) {
+        Fixture f;
+        struct Reset {
+            ~Reset() {
+                set_devel_tracking_bootstrap_test_hooks({});
+                set_aur_devel_update_database_paths_for_test(std::nullopt);
+            }
+        } reset;
+        set_aur_devel_update_database_paths_for_test(PacmanDatabasePaths{"/", f.db});
+        if(mode == "corrupt")
+            write(f.p_file(), "not toml = [");
+        else if(mode == "future")
+            replace(f.p_file(), "schema_version = 1", "schema_version = 2");
+        else if(mode == "unsafe")
+            write(f.p_file().parent_path() / "unrecognized", "unsafe");
+        else
+            fs::rename(f.p_file().parent_path(), f.root / "prior-p");
+        if(mode == "review-corrupt") write(f.r_file(), "not toml = [");
+        std::string metadata = "pkgbase = assessment\n\tpkgver = 1\n\tpkgrel = 1\n\tarch = any\n\tsource = git+https://example.invalid/upstream.git\npkgname = assessment-git\n";
+        if(mode == "unsupported") metadata.replace(metadata.find("git+https"), 9, "hg+https");
+        if(mode == "split-source" || mode == "both-children") metadata += "pkgname = sibling\n";
+        if(mode == "stale-child" || mode == "both-children") {
+            const auto sibling = f.db / "local/sibling-1-1";
+            fs::create_directory(sibling);
+            write(sibling / "desc", "%NAME%\nsibling\n\n%BASE%\nassessment\n\n%VERSION%\n1-1\n\n%ARCH%\nany\n\n%REASON%\n1\n\n");
+            write(sibling / "files", "%FILES%\nusr/share/sibling\n\n");
+            write(sibling / "mtree", "sibling");
+        }
+        if(mode == "multiple-source") metadata.insert(metadata.find("pkgname"), "\tsource = git+https://example.invalid/other.git\n");
+        if(mode == "architecture") metadata.replace(metadata.find("source ="), 8, "source_x86_64 =");
+        if(mode == "malformed") metadata = "not source metadata";
+        unsigned recipe_calls = 0, checkout_calls = 0;
+        std::string recipe = f.recipe;
+        set_devel_tracking_bootstrap_test_hooks({[&](const auto&) -> std::optional<DevelTrackingBootstrapRecipeObservation> {
+                                                     ++recipe_calls;
+                                                     return DevelTrackingBootstrapRecipeObservation{SourceRevisionIdentity::git_commit(recipe), metadata};
+                                                 },
+                                                 [&](const auto&) { ++checkout_calls; return mode != "overlay"; }});
+        const auto before_review = read(f.r_file());
+        const auto result = mode == "both-children"
+                                ? observe_devel_tracking_bootstrap(std::vector<PackageChildIdentity>{f.child, PackageChildIdentity::make(f.base, "sibling")})
+                                : observe_devel_tracking_bootstrap(f.child);
+        const auto* trial = std::get_if<std::shared_ptr<const DevelTrackingBootstrapTrial>>(&result);
+        const bool positive = mode == "eligible" || mode == "both-children" || mode == "split-source" || mode == "overlay" || mode == "binding-change" || mode == "recipe-change";
+        require(static_cast<bool>(trial) == positive, "bootstrap trial eligibility mismatch");
+        if(trial) {
+            require(revalidate_devel_tracking_bootstrap(**trial), "unchanged trial was rejected");
+            if(mode == "split-source") require((*trial)->declared_children().size() == 2 &&
+                                                   (*trial)->installed_group().size() == 1 && (*trial)->selected_children().size() == 1,
+                                               "uninstalled sibling gained trial selection");
+            if(mode == "both-children") require((*trial)->declared_children().size() == 2 &&
+                                                    (*trial)->installed_group().size() == 2 && (*trial)->selected_children().size() == 2,
+                                                "multi-installed group was rejected/flattened");
+            if(mode == "binding-change") ++f.generation;
+            if(mode == "recipe-change") recipe = std::string(40, 'c');
+            if(mode == "binding-change" || mode == "recipe-change") require(!revalidate_devel_tracking_bootstrap(**trial), "stale trial remained usable");
+            require(!fs::exists(f.p_file().parent_path()), "trial created provenance");
+        } else {
+            const auto unavailable = arm<Unavailable>(result);
+            if(mode == "stale-child") require(unavailable.reason == DevelTrackingBootstrapUnavailableReason::UndeclaredInstalledChild,
+                                              "stale installed child was silently discarded");
+            if(mode == "corrupt" || mode == "future" || mode == "unsafe" || mode == "review-corrupt")
+                require(recipe_calls == 0, "invalid existing state reached trial network");
+        }
+        require(checkout_calls == 0, "trial/revalidation used old cache authority");
+        require(read(f.r_file()) == before_review, "trial changed reviewed state");
+        std::cout << "S553 trial " << mode << " read-only PASS\n";
+    }
+    Fixture f;
+    fs::rename(f.p_file().parent_path(), f.root / "prior-p");
+    auto evidence = f.assess();
+    auto entry = classify_aur_update(AurUpdatePlanInput{f.child.package_name(), "1-1", InstalledPackageReason::Explicit,
+                                                        AurUpdateRemotePackage{f.child.package_name(), "assessment", "1-1", AurVersionRelation::SameAsInstalled}});
+    entry.devel_assessment_origin = AurDevelAssessmentOrigin::CurrentObservation;
+    for(const auto reason : {Check::SuffixCandidateOnly, Check::NoAuthoritativeBuildProvenance, Check::InstalledArtifactDrift,
+                             Check::AurRecipeAdvanced, Check::SourceMetadataMissing, Check::SourceMetadataMalformed, Check::SourceIdentityChanged,
+                             Check::TransportRequiresCheck, Check::SelectorRequiresCheck, Check::MultipleFloatingSources,
+                             Check::ArchitectureSpecificSourceUnresolved, Check::ProvenanceMissing, Check::ProvenanceInvalid,
+                             Check::ProvenanceCorrupted, Check::ProvenanceFutureSchema, Check::BuildSourceProofUnavailable}) {
+        evidence.assessment = DevelUpdateAssessment::requires_check(reason);
+        entry.devel_assessment = evidence.assessment;
+        require(is_initial_devel_bootstrap_observation(entry, evidence) == (reason == Check::ProvenanceMissing), "reason whitelist widened");
+    }
+    evidence.assessment = DevelUpdateAssessment::requires_check(Check::ProvenanceMissing);
+    entry.devel_assessment = evidence.assessment;
+    evidence.stage = Stage::PostProvenance;
+    require(!is_initial_devel_bootstrap_observation(entry, evidence), "post-observation disappearance became initial missing");
+    std::cout << "S553 initial stage / complete reason taxonomy PASS\n";
+}
+
 void normal_route_matrix() {
     for(const std::string mode : {"same", "different", "sha256", "format", "timeout", "missing", "recipe", "generation", "split", "unknown-base", "ordinary-same", "ordinary-newer", "newer-same", "newer-timeout", "older-different", "registered-different", "registered-same", "db-context"}) {
         Fixture f(mode == "sha256" ? 64 : 40);
@@ -542,7 +813,7 @@ void normal_route_matrix() {
         const auto actual = project_aur_update_effective_state(entry);
         const bool version = route_rpc::version == "2-1";
         const bool git = mode == "different" || mode == "sha256" || mode == "older-different" || mode == "registered-different";
-        const bool local = mode == "missing" || mode == "recipe" || mode == "generation" || mode == "split" || mode == "unknown-base" || mode == "db-context";
+        const bool local = mode == "missing" || mode == "recipe" || mode == "generation" || mode == "unknown-base" || mode == "db-context";
         const auto expected = version || git ? AurUpdateEffectiveState::UpdateAvailable : mode == "timeout"       ? AurUpdateEffectiveState::Unknown
                                                                                       : local || mode == "format" ? AurUpdateEffectiveState::RequiresCheck
                                                                                                                   : AurUpdateEffectiveState::UpToDate;
@@ -616,7 +887,7 @@ void registered_observation_parity() {
                     "registered actual/dry-run state or basis differs");
             const bool blocked = expected == AurUpdateEffectiveState::RequiresCheck || expected == AurUpdateEffectiveState::Unknown;
             require(observed.front().issues.empty() != blocked, "registered blocker mapping differs");
-            require(f.remote_calls == (mode == "missing" || mode == "split" ? 0U : 1U) && route_rpc::calls == 1, "registered observation query/retry count");
+            require(f.remote_calls == (mode == "missing" ? 0U : 1U) && route_rpc::calls == 1, "registered observation query/retry count");
             if(mode == "unknown") require(observed.front().issues.front().reason == AurUpdateExecutionReason::DevelObservationUnknown, "remote failure became local RequiresCheck");
         }
         std::cout << "S7D registered observation parity " << mode << " / read-only / no execution PASS\n";
@@ -631,6 +902,8 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv) {
     try {
 #ifdef MOGUET_TEST_AUR_DEVEL_ROUTING
         if(argc == 2 && std::string(argv[1]) == "--normal-route") {
+            recipe_head_observation_matrix();
+            bootstrap_trial_observation_matrix();
             normal_route_matrix();
             registered_observation_parity();
             return 0;

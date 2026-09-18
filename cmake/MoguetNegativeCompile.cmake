@@ -105,6 +105,68 @@ _moguet_append_arguments(
 _moguet_append_arguments(_moguet_common_arguments _moguet_project_options)
 _moguet_append_arguments(_moguet_common_arguments _moguet_cppflags)
 
+if(MOGUET_PINNED_S4_ONLY OR (NOT MOGUET_PINNED_WORKSPACE_ONLY AND NOT MOGUET_PINNED_CLOSURE_REVIEW_ONLY))
+    include("${CMAKE_CURRENT_LIST_DIR}/MoguetPinnedS4NegativeCompile.cmake")
+endif()
+if(MOGUET_PINNED_S4_ONLY)
+    return()
+endif()
+
+# 4B1 has a standalone mode so focused implementation checks do not rerun
+# the existing closure/review/recipe authority suites.
+if(NOT MOGUET_PINNED_CLOSURE_REVIEW_ONLY)
+    include("${CMAKE_CURRENT_LIST_DIR}/MoguetPinnedWorkspaceNegativeCompile.cmake")
+endif()
+if(MOGUET_PINNED_WORKSPACE_ONLY)
+    return()
+endif()
+
+# 4B0 shares the compiler/profile inputs, with a narrow standalone mode.
+include("${CMAKE_CURRENT_LIST_DIR}/MoguetPinnedClosureReviewNegativeCompile.cmake")
+if(MOGUET_PINNED_CLOSURE_REVIEW_ONLY)
+    return()
+endif()
+
+# 4A narrow construction boundary, shared by canonical and optional focused run.
+get_filename_component(_moguet_closure_probe_dir "${MOGUET_NEGATIVE_COMPILE_PROJECT_OPTIONS_FILE}" DIRECTORY)
+set(_moguet_closure_probe "${_moguet_closure_probe_dir}/pinned-closure.cpp")
+set(_moguet_closure_include "#include \"pinned_submodule_closure.hpp\"\n#include <type_traits>\n")
+foreach(_moguet_closure_case IN ITEMS baseline private_constructor opaque_backing raw_identity completed_proof decoded_provenance)
+    set(_moguet_closure_expected "is private within this context|private member|private constructor")
+    if(_moguet_closure_case STREQUAL "baseline")
+        set(_moguet_closure_body "static_assert(!std::is_default_constructible_v<InvocationOwnedPinnedSubmoduleClosure>);\nstatic_assert(!std::is_copy_constructible_v<InvocationOwnedPinnedSubmoduleClosure>);\nstatic_assert(std::is_move_constructible_v<InvocationOwnedPinnedSubmoduleClosure>);\nstatic_assert(std::is_invocable_v<decltype(acquire_pinned_submodule_closure), EvaluatedDevelSourceSelection>);\n")
+    elseif(_moguet_closure_case STREQUAL "private_constructor")
+        set(_moguet_closure_body "void forge() { InvocationOwnedPinnedSubmoduleClosure value(nullptr); }\n")
+    elseif(_moguet_closure_case STREQUAL "opaque_backing")
+        set(_moguet_closure_body "struct PinnedSubmoduleClosureData { static InvocationOwnedPinnedSubmoduleClosure forge() { return InvocationOwnedPinnedSubmoduleClosure(nullptr); } };\n")
+    else()
+        if(_moguet_closure_case STREQUAL "raw_identity")
+            set(_moguet_closure_input "VcsSourceIdentity")
+        elseif(_moguet_closure_case STREQUAL "completed_proof")
+            set(_moguet_closure_input "EvaluatedDevelSourceBuildProof")
+        else()
+            set(_moguet_closure_input "DevelBuildProvenance")
+        endif()
+        set(_moguet_closure_body "void forge(${_moguet_closure_input} input) { auto value = acquire_pinned_submodule_closure(std::move(input)); }\n")
+        set(_moguet_closure_expected "could not convert|no viable conversion|no matching function")
+    endif()
+    file(WRITE "${_moguet_closure_probe}" "${_moguet_closure_include}${_moguet_closure_body}")
+    execute_process(COMMAND ${_moguet_compile_command} ${_moguet_common_arguments} -fsyntax-only "${_moguet_closure_probe}"
+        RESULT_VARIABLE _moguet_closure_status OUTPUT_VARIABLE _moguet_closure_stdout ERROR_VARIABLE _moguet_closure_stderr)
+    if(_moguet_closure_case STREQUAL "baseline")
+        if(NOT "${_moguet_closure_status}" STREQUAL "0")
+            message(FATAL_ERROR "4A baseline failed: ${_moguet_closure_stderr}")
+        endif()
+    elseif("${_moguet_closure_status}" STREQUAL "0" OR NOT "${_moguet_closure_stderr}" MATCHES "${_moguet_closure_expected}")
+        message(FATAL_ERROR "4A ${_moguet_closure_case} failed expected rejection: ${_moguet_closure_status}: ${_moguet_closure_stderr}")
+    endif()
+    file(WRITE "${_moguet_closure_probe_dir}/pinned-closure-${_moguet_closure_case}.diagnostic.txt" "${_moguet_closure_stdout}${_moguet_closure_stderr}")
+endforeach()
+message(STATUS "4A closure authority baseline + 5 negative diagnostics PASS")
+if(MOGUET_PINNED_CLOSURE_ONLY)
+    return()
+endif()
+
 execute_process(
     COMMAND
         ${_moguet_compile_command}
@@ -145,6 +207,9 @@ set(
     REVIEWED_RECIPE_SNAPSHOT_IDENTITY
     INVOCATION_MAKEPKG_ENVIRONMENT
     EVALUATED_DEVEL_SOURCE_PROJECTION
+    EVALUATED_DEVEL_SOURCE_SELECTION
+    EVALUATED_SELECTION_STATE_REDEFINITION
+    EVALUATED_SELECTION_DATA
     FRESH_DEVEL_PACKAGE_ARTIFACT
     EVALUATED_DEVEL_SOURCE_BUILD_PROOF
 )
@@ -171,9 +236,13 @@ foreach(_moguet_authority_case IN LISTS _moguet_authority_cases)
             "compiled successfully"
         )
     endif()
+    set(_moguet_authority_expected_diagnostic "is private within this context")
+    if(_moguet_authority_case STREQUAL "EVALUATED_SELECTION_STATE_REDEFINITION")
+        set(_moguet_authority_expected_diagnostic "redefinition")
+    endif()
     if(
         NOT _moguet_authority_diagnostic
-            MATCHES "is private within this context"
+            MATCHES "${_moguet_authority_expected_diagnostic}"
     )
         message(
             FATAL_ERROR

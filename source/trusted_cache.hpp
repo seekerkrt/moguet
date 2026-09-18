@@ -329,10 +329,10 @@ ValidatedCachePath create_trusted_cache_directory(
 
 void remove_trusted_cache_path(const ValidatedCachePath& path);
 
-// clean開始前にtrusted rootと全target/treeのretained descriptorを所有する
+// clean開始前にtrusted rootと全target/treeのmetadata・opaque generationを所有する
 // move-only capability。consumerはpacman clean/promptを跨いで保持し、削除時に
-// by-valueでconsumeする。descriptorはidentity evidenceでありmutation authority
-// には使わない。
+// by-valueでconsumeする。node FDとPackageBase leaseは各検証・削除scopeだけで保持し、
+// mutation authorityは常にroot-relative named lineageから再構築する。
 class PreparedCacheCleanup final {
     struct State;
     std::unique_ptr<State> state_;

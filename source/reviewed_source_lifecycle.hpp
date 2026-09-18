@@ -17,6 +17,10 @@ class ReviewedSourceReviewRequirement;
 class ReviewedSourceAlreadyReviewedContinue;
 class ReviewedSourceOperationStop;
 
+// A bootstrap requests a full inventory without erasing the observed CAS input.
+enum class ReviewedSourceReviewPurpose { NormalUpdate,
+                                         DevelTrackingBootstrap };
+
 using ReviewedSourceLifecyclePlanResult = std::variant<
     ReviewedSourceReviewRequirement,
     ReviewedSourceAlreadyReviewedContinue,
@@ -104,7 +108,8 @@ private:
     friend ReviewedSourceLifecyclePlanResult
     plan_reviewed_source_lifecycle_from_preflight(
         AurReviewedSourceReviewIdentity identity,
-        ReviewedSourceFatalStatePreflight preflight);
+        ReviewedSourceFatalStatePreflight preflight,
+        ReviewedSourceReviewPurpose purpose);
 
     explicit ReviewedSourceExpectedStateObservation(
         ReviewedSourceStateStoreRead store_read) noexcept;
@@ -114,6 +119,7 @@ private:
 
 enum class ReviewedSourceReviewRequirementKind {
     InitialFullReview,
+    BootstrapFullReview,
     UpdateReview,
     AbnormalStateRebindFullReview,
 };
@@ -127,6 +133,10 @@ enum class ReviewedSourceAbnormalStateReason {
 struct ReviewedSourceLifecycleInitialFullReview {
     bool operator==(
         const ReviewedSourceLifecycleInitialFullReview&) const = default;
+};
+
+struct ReviewedSourceLifecycleBootstrapFullReview {
+    bool operator==(const ReviewedSourceLifecycleBootstrapFullReview&) const = default;
 };
 
 struct ReviewedSourceLifecycleAlreadyReviewed {
@@ -188,6 +198,7 @@ struct ReviewedSourceFatalStateFailure {
 
 using ReviewedSourceIntegrationLifecycle = std::variant<
     ReviewedSourceLifecycleInitialFullReview,
+    ReviewedSourceLifecycleBootstrapFullReview,
     ReviewedSourceLifecycleAlreadyReviewed,
     ReviewedSourceLifecycleUpdateReview,
     ReviewedSourceLifecycleRebaselineFullReview,
@@ -276,7 +287,8 @@ private:
     friend ReviewedSourceLifecyclePlanResult
     plan_reviewed_source_lifecycle_from_preflight(
         AurReviewedSourceReviewIdentity identity,
-        ReviewedSourceFatalStatePreflight preflight);
+        ReviewedSourceFatalStatePreflight preflight,
+        ReviewedSourceReviewPurpose purpose);
 
     ReviewedSourceFatalStatePreflight(
         PackageBaseIdentity package_base,
@@ -301,7 +313,8 @@ preflight_reviewed_source_fatal_state(
 [[nodiscard]] ReviewedSourceLifecyclePlanResult
 plan_reviewed_source_lifecycle_from_preflight(
     AurReviewedSourceReviewIdentity identity,
-    ReviewedSourceFatalStatePreflight preflight);
+    ReviewedSourceFatalStatePreflight preflight,
+    ReviewedSourceReviewPurpose purpose = ReviewedSourceReviewPurpose::NormalUpdate);
 
 class ReviewedSourceReviewRequirement final {
 public:
@@ -332,7 +345,8 @@ private:
     friend ReviewedSourceLifecyclePlanResult
     plan_reviewed_source_lifecycle_from_preflight(
         AurReviewedSourceReviewIdentity identity,
-        ReviewedSourceFatalStatePreflight preflight);
+        ReviewedSourceFatalStatePreflight preflight,
+        ReviewedSourceReviewPurpose purpose);
 
     ReviewedSourceReviewRequirement(
         AurReviewedSourceReviewIdentity identity,
@@ -378,7 +392,8 @@ private:
     friend ReviewedSourceLifecyclePlanResult
     plan_reviewed_source_lifecycle_from_preflight(
         AurReviewedSourceReviewIdentity identity,
-        ReviewedSourceFatalStatePreflight preflight);
+        ReviewedSourceFatalStatePreflight preflight,
+        ReviewedSourceReviewPurpose purpose);
 
     ReviewedSourceAlreadyReviewedContinue(
         AurReviewedSourceReviewIdentity identity,

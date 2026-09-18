@@ -56,6 +56,7 @@ foreach(_moguet_direct_focus IN ITEMS
     current-installed-artifact-binding
     devel-package-assessment
     aur-devel-route
+    devel-tracking-bootstrap
     normal-reviewed-devel-execution
     reviewed-devel-source-build-execution
     devel-git-revision-comparison
@@ -65,7 +66,12 @@ foreach(_moguet_direct_focus IN ITEMS
     source-package-identity-projection
     source-package-compatibility
     invocation-owned-cleanup-model
+    invocation-owned-recipe-acquisition
     invocation-owned-source-build-context
+    pinned-submodule-closure
+    pinned-submodule-closure-review
+    pinned-submodule-workspace
+    pinned-submodule-s4-integration
     evaluated-devel-source-build
     evaluated-devel-source-artifact-transport
     exact-installed-binding
@@ -284,3 +290,9 @@ unset(_moguet_preflight_case)
 unset(_moguet_preflight_integration_tests)
 unset(_moguet_repository_query_case)
 unset(_moguet_repository_query_tests)
+
+moguet_add_focused_ctest_alias(
+    test-split-devel-artifact-authority
+    TESTS cpp.split_devel_artifact_authority
+    TARGETS evaluated-devel-source-build-test
+)

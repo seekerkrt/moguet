@@ -408,6 +408,11 @@ AurUpdateWorkItemExecutionResult work_item_result(
     child.roles = {PackageRole::Root};
 
     switch(status) {
+        case AurUpdateWorkItemExecutionStatus::BootstrapSkipped:
+            child.status = AurUpdateChildExecutionStatus::BootstrapSkipped;
+            result.failure_kind = AurUpdateWorkItemFailureKind::None;
+            result.bootstrap_skipped_roots = affected_update_plan_indices;
+            break;
         case AurUpdateWorkItemExecutionStatus::Updated:
             child.selected_artifact = ArtifactPackageIdentity{
                 resolved_package_base, "2.0-1"};
@@ -419,6 +424,10 @@ AurUpdateWorkItemExecutionResult work_item_result(
                 resolved_package_base, "2.0-1"};
             child.status = AurUpdateChildExecutionStatus::SkippedAsNeeded;
             result.failure_kind = AurUpdateWorkItemFailureKind::None;
+            break;
+        case AurUpdateWorkItemExecutionStatus::Cancelled:
+            result.failure_kind = AurUpdateWorkItemFailureKind::None;
+            result.cancellation = ConfirmationCancelled{ConfirmationCancellationReason::ExplicitToken};
             break;
         case AurUpdateWorkItemExecutionStatus::Failed:
             child.status = AurUpdateChildExecutionStatus::NotAttempted;
@@ -523,8 +532,10 @@ void append_unique(std::vector<Value>& values, const Value& value) {
 AurUpdateWorkItemFailureKind failure_kind_for_status(
     AurUpdateWorkItemExecutionStatus status) {
     switch(status) {
+        case AurUpdateWorkItemExecutionStatus::BootstrapSkipped:
         case AurUpdateWorkItemExecutionStatus::Updated:
         case AurUpdateWorkItemExecutionStatus::NoChange:
+        case AurUpdateWorkItemExecutionStatus::Cancelled:
             return AurUpdateWorkItemFailureKind::None;
         case AurUpdateWorkItemExecutionStatus::Failed:
             return AurUpdateWorkItemFailureKind::BuildOrInstallFailed;
@@ -1734,6 +1745,70 @@ void test_target_attributed_preparation_failure() {
         "Normal target-attributed preparation failure was inconsistent");
 }
 
+void test_reviewed_preparation_failure_retains_target_and_operation_payload() {
+    const AurUpdateExecutionPreflight preflight = preflight_with({
+        executable_target(0, "affected-a"),
+        executable_target(1, "affected-b"),
+        up_to_date_target(2, "untouched"),
+    });
+    AurUpdateSourceBuildPreparation preparation =
+        preparation_for_execution(preflight);
+    const ReviewedSourceFatalStateFailure fatal{
+        ReviewedSourceFatalStateReason::UnsafeHistory,
+        std::nullopt,
+        ReviewedSourceStateStoreUnsafeHistory{
+            ReviewedSourceStateStoreHistoryIssue::ForkDetected,
+            "/fixture/reviewed-state",
+            {"1.toml", "2-a.toml", "2-b.toml"},
+            1,
+            2},
+        std::nullopt};
+    AurUpdatePreparationIssue issue = preparation_issue(
+        AurUpdatePreparationReason::GenericPreparationInconsistent,
+        {0, 1}, "presentation text is not the failure authority");
+    issue.reviewed_source_failure = ReviewedSourceProductionFailure{
+        ReviewedSourceProductionFailureStage::FatalStatePreflight,
+        ReviewedSourceProductionFailureReason::UnsafeHistory,
+        fatal};
+    preparation.issues.push_back(std::move(issue));
+
+    const AurUpdateOperationResult result =
+        reduce_aur_update_operation_result(preflight, preparation, std::nullopt);
+    expect(result.status == AurUpdateOperationStatus::BlockedBeforeExecution &&
+               result.reduction_issues.empty() && !result.is_success() &&
+               !result.execution_status && result.execution_work_items.empty(),
+           "Reviewed preparation failure fabricated execution or inconsistency");
+    expect_target_statuses(result,
+                           {AurUpdateOperationTargetStatus::Failed,
+                            AurUpdateOperationTargetStatus::Failed,
+                            AurUpdateOperationTargetStatus::Skipped},
+                           "reviewed preparation failure");
+    const auto expect_payload = [&fatal](const AurUpdatePreparationIssue& retained) {
+        expect(retained.reason == AurUpdatePreparationReason::GenericPreparationInconsistent &&
+                   retained.affected_update_plan_indices == std::vector<std::size_t>{0, 1} &&
+                   retained.reviewed_source_failure.has_value(),
+               "Reviewed preparation issue lost its classification or attribution");
+        const auto& failure = *retained.reviewed_source_failure;
+        const auto* detail = std::get_if<ReviewedSourceFatalStateFailure>(&failure.detail);
+        expect(failure.stage == ReviewedSourceProductionFailureStage::FatalStatePreflight &&
+                   failure.reason == ReviewedSourceProductionFailureReason::UnsafeHistory &&
+                   detail != nullptr && *detail == fatal,
+               "Reviewed preparation issue lost its exact typed payload");
+    };
+    expect(result.preparation_issues.size() == 1,
+           "Reviewed preparation failure lost the operation issue");
+    expect_payload(result.preparation_issues.front());
+    for(std::size_t index = 0; index < 2; ++index) {
+        const auto& target = result.targets[index];
+        expect(!target.execution_failure_kind && !target.execution_failure_detail &&
+                   target.execution_contributions.empty() && target.preparation_issues.size() == 1,
+               "Reviewed preparation failure fabricated execution or lost target issue");
+        expect_payload(target.preparation_issues.front());
+    }
+    expect(result.targets[2].preparation_issues.empty(),
+           "Reviewed preparation issue was reattributed to an unaffected target");
+}
+
 void test_split_and_multiple_lifecycle_reduce_from_child_results() {
     AurUpdateExecutionPreflight preflight = preflight_with({
         executable_target(0, "singular-child"),
@@ -2673,6 +2748,34 @@ void test_exact_mixed_cleanup_partial_success_projects_per_child() {
         "Mixed cleanup child outcomes were flattened");
 }
 
+void test_exact_split_cancellation_retains_prepared_children() {
+    const RootTargetIdentity first{0, "split-a"};
+    const RootTargetIdentity second{1, "split-b"};
+    const RootTargetIdentity later{2, "later"};
+    auto input = exact_reducer_input(
+        {executable_target(0, "split-a"), executable_target(1, "split-b"), executable_target(2, "later")},
+        {ExactWorkItemExecutionSpec{"split-base",
+                                    {exact_child("split-a", {0}, {first}, {PackageRole::Root}, AurUpdateChildExecutionStatus::NotAttempted),
+                                     exact_child("split-b", {1}, {second}, {PackageRole::Root}, AurUpdateChildExecutionStatus::NotAttempted)},
+                                    AurUpdateWorkItemExecutionStatus::Cancelled,
+                                    {}},
+         ExactWorkItemExecutionSpec{"later-base",
+                                    {exact_child("later", {2}, {later}, {PackageRole::Root}, AurUpdateChildExecutionStatus::NotAttempted)},
+                                    AurUpdateWorkItemExecutionStatus::NotAttempted,
+                                    {}}},
+        AurUpdateInvocationExecutionStatus::StoppedOnWorkItemCancellation);
+    input.execution.work_item_results[0].cancellation = ConfirmationCancelled{ConfirmationCancellationReason::EndOfInput};
+    const auto result = reduce_aur_update_operation_result(input.preflight, input.preparation, input.execution);
+    expect_target_statuses(result, {AurUpdateOperationTargetStatus::Cancelled, AurUpdateOperationTargetStatus::Cancelled, AurUpdateOperationTargetStatus::NotAttempted}, "split cancellation");
+    expect(result.reduction_issues.empty(), "Split cancellation lost prepared correlation");
+    for(std::size_t i = 0; i < 2; ++i) {
+        expect(result.targets[i].execution_work_item_index == 0 && result.targets[i].execution_contributions.size() == 1 &&
+                   result.targets[i].execution_contributions.front().required_child_index == i &&
+                   result.targets[i].cancellation == ConfirmationCancelled{ConfirmationCancellationReason::EndOfInput},
+               "Split cancellation lost child index or reason");
+    }
+}
+
 void test_exact_current_failure_and_later_not_attempted() {
     const RootTargetIdentity failed_root{0, "failed-child"};
     const RootTargetIdentity later_root{1, "later-child"};
@@ -3100,6 +3203,51 @@ void test_exact_ordinary_singular_regression() {
                     .execution_contributions.front()
                     .package_name == "ordinary-singular",
         "Ordinary singular execution changed under child projection");
+}
+
+void test_cancellation_terminal_coherence() {
+    using S = AurUpdateWorkItemExecutionStatus;
+    for(const std::vector<S>& states : std::vector<std::vector<S>>{
+            {S::Updated, S::Cancelled, S::NotAttempted}, {S::NoChange, S::Cancelled}, {S::Cancelled, S::NotAttempted}, {S::Updated, S::Updated, S::Cancelled}}) {
+        std::vector<AurUpdateExecutionTarget> targets;
+        std::vector<AurUpdateWorkItemExecutionResult> items;
+        for(std::size_t i = 0; i < states.size(); ++i) {
+            targets.push_back(executable_target(i, "cancel-target-" + std::to_string(i)));
+            items.push_back(work_item_result(i, states[i], {i}));
+        }
+        auto preflight = preflight_with(std::move(targets));
+        auto preparation = preparation_for_execution(preflight);
+        auto execution = execution_result(AurUpdateInvocationExecutionStatus::StoppedOnWorkItemCancellation, std::move(items));
+        auto reduced = reduce_aur_update_operation_result(preflight, preparation, execution);
+        expect(reduced.status == AurUpdateOperationStatus::StoppedOnWorkItemCancellation && reduced.reduction_issues.empty() && !reduced.is_success(), "Valid cancellation became inconsistent/success");
+        for(std::size_t i = 0; i < states.size(); ++i) {
+            if(states[i] == S::Cancelled) expect(reduced.targets[i].status == AurUpdateOperationTargetStatus::Cancelled && reduced.targets[i].cancellation == execution.work_item_results[i].cancellation && !reduced.targets[i].execution_failure_kind,
+                                                 "Target lost cancellation authority");
+        }
+        auto false_success = reduced;
+        false_success.status = AurUpdateOperationStatus::Completed;
+        for(auto& target : false_success.targets)
+            target.status = AurUpdateOperationTargetStatus::Updated;
+        expect(!false_success.is_success(), "Retained cancellation was hidden by success statuses");
+        auto malformed = execution;
+        malformed.status = AurUpdateInvocationExecutionStatus::Completed;
+        expect(reduce_aur_update_operation_result(preflight, preparation, malformed).status == AurUpdateOperationStatus::InconsistentResult, "Cancelled invocation reported completed");
+        malformed = execution;
+        for(auto& item : malformed.work_item_results)
+            if(item.status == S::Cancelled) item.cancellation.reset();
+        expect(reduce_aur_update_operation_result(preflight, preparation, malformed).status == AurUpdateOperationStatus::InconsistentResult, "Cancellation missing reason accepted");
+        malformed = execution;
+        malformed.work_item_results.front().work_item_index = 99;
+        expect(reduce_aur_update_operation_result(preflight, preparation, malformed).status == AurUpdateOperationStatus::InconsistentResult, "Wrong terminal/index correlation accepted");
+    }
+    const auto preflight = preflight_with({executable_target(0, "first"), executable_target(1, "last")});
+    const auto preparation = preparation_for_execution(preflight);
+    for(const auto second : {S::Updated, S::Failed, S::Cancelled}) {
+        const auto execution = execution_result(AurUpdateInvocationExecutionStatus::StoppedOnWorkItemCancellation,
+                                                {work_item_result(0, S::Cancelled, {0}), work_item_result(1, second, {1})});
+        expect(reduce_aur_update_operation_result(preflight, preparation, execution).status == AurUpdateOperationStatus::InconsistentResult,
+               "Post-cancel execution or multiple terminal outcomes accepted");
+    }
 }
 
 void test_ordinary_failure_and_not_attempted_suffix() {
@@ -3954,10 +4102,28 @@ void run_case(const std::string& name, Callable callable) {
     std::cout << "  ok: " << name << '\n';
 }
 
+void test_bootstrap_skip_cannot_discard_an_ordinary_required_dependency() {
+    const RootTargetIdentity root{0, "ordinary-root"};
+    auto input = exact_reducer_input({executable_target(0, "ordinary-root")}, {ExactWorkItemExecutionSpec{"ordinary-dependency", {exact_child("ordinary-dependency", {0}, {root}, {PackageRole::RuntimeDependency}, AurUpdateChildExecutionStatus::Installed, DesiredInstallReason::Dependency)}, AurUpdateWorkItemExecutionStatus::Updated, {}}, ExactWorkItemExecutionSpec{"ordinary-root", {exact_child("ordinary-root", {0}, {root}, {PackageRole::Root}, AurUpdateChildExecutionStatus::Installed)}, AurUpdateWorkItemExecutionStatus::Updated, {}}}, AurUpdateInvocationExecutionStatus::Completed);
+    const auto control = ::reduce_aur_update_operation_result(input.preflight, input.preparation, DevelRequiresCheckPolicy::BlockOperation, input.execution);
+    expect(control.is_success(), "ordinary dependency control was not coherent");
+    auto& dependency = input.execution.work_item_results.front();
+    dependency.status = AurUpdateWorkItemExecutionStatus::BootstrapSkipped;
+    dependency.bootstrap_skipped_roots = {0};
+    dependency.child_results.front().status = AurUpdateChildExecutionStatus::BootstrapSkipped;
+    dependency.child_results.front().selected_artifact.reset();
+    const auto forged = ::reduce_aur_update_operation_result(input.preflight, input.preparation, DevelRequiresCheckPolicy::BlockOperation, input.execution);
+    expect(!forged.is_success() && forged.status == AurUpdateOperationStatus::InconsistentResult,
+           "bootstrap skip bypassed an ordinary required dependency without a decision");
+}
+
 } // namespace
 
 int main() {
     try {
+        test_bootstrap_skip_cannot_discard_an_ordinary_required_dependency();
+        test_exact_split_cancellation_retains_prepared_children();
+        test_cancellation_terminal_coherence();
         run_case("all skipped is NoUpdates", test_all_skipped_is_no_updates);
         run_case(
             "independent RequiresCheck result semantics",
@@ -4007,6 +4173,9 @@ int main() {
         run_case(
             "target-attributed preparation failure",
             test_target_attributed_preparation_failure);
+        run_case(
+            "reviewed preparation failure retains target and operation payload",
+            test_reviewed_preparation_failure_retains_target_and_operation_payload);
         run_case(
             "split and multiple lifecycle reduce from child results",
             test_split_and_multiple_lifecycle_reduce_from_child_results);
