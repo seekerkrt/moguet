@@ -107,6 +107,8 @@ then
 fi
 
 source_artifact=$4
+expected_artifact_filename="${package_name}-${expected_version}-${expected_architecture}.pkg.tar.zst"
+if [ "$negative_case" = true ]; then
 case "$source_artifact" in
     /home/moguet-validation/.cache/moguet/.artifact-workspace~-*/*)
         ;;
@@ -152,6 +154,12 @@ source_mode=$(/usr/bin/stat -c '%a' -- "$source_artifact")
 [ "$(/usr/bin/stat -c '%h' -- "$source_artifact")" -eq 1 ] ||
     reject 'source artifact has an unexpected hard-link count'
 
+else
+    /usr/bin/python3 -I "$stage_helper" check-trusted "$source_artifact" ||
+        reject 'positive artifact is not canonical trusted root staging'
+    canonical_artifact=$source_artifact
+fi
+
 evidence_directory=$evidence_root/$case_identity
 if ! /usr/bin/mkdir -m 0750 -- "$evidence_directory"; then
     reject 'case transaction already exists; refusing a second root transaction'
@@ -190,9 +198,16 @@ stage_evidence=$evidence_directory/stage-hashes.txt
 : > "$stage_evidence"
 /usr/bin/chown root:"$validation_user" "$stage_evidence"
 /usr/bin/chmod 0640 "$stage_evidence"
-if ! /usr/bin/python3 -I "$stage_helper" stage \
-    "$source_artifact" "$staged_artifact" \
-    "$validation_uid" "$validation_gid" >> "$stage_evidence"
+stage_input() {
+    if [ "$negative_case" = true ]; then
+        /usr/bin/python3 -I "$stage_helper" stage \
+            "$source_artifact" "$staged_artifact" "$validation_uid" "$validation_gid"
+    else
+        /usr/bin/python3 -I "$stage_helper" stage-trusted \
+            "$source_artifact" "$staged_artifact" "$evidence_directory"
+    fi
+}
+if ! stage_input >> "$stage_evidence"
 then
     reject 'root staging copy or TOCTOU validation failed'
 fi
@@ -221,10 +236,14 @@ if [ "$negative_case" = true ]; then
     reject 'negative test case must never invoke real pacman'
 fi
 
+/usr/bin/python3 -I "$stage_helper" verify-trusted \
+    "$source_artifact" "$staged_artifact" "$evidence_directory/trusted-source.json" ||
+    reject 'trusted input changed before real pacman'
+
 pacman_identity_format=$(printf '%%n\t%%v')
 pacman_identity=$(/usr/bin/env -i PATH=/usr/bin LC_ALL=C \
     "$real_pacman" -U --print --print-format "$pacman_identity_format" -- \
-    "$staged_artifact") || reject 'real pacman package identity query failed'
+    "$source_artifact") || reject 'real pacman package identity query failed'
 expected_pacman_identity=$(printf '%s\t%s' \
     "$package_name" "$expected_version")
 [ "$pacman_identity" = "$expected_pacman_identity" ] ||
@@ -244,7 +263,7 @@ write_evidence_line "$evidence_directory/validation-complete.txt" \
     'transaction=exactly-once' \
     'install_reason=Explicit'
 write_evidence_line "$evidence_directory/real-pacman-exec.txt" \
-    "argv=-U --noconfirm -- $staged_artifact"
+    "argv=-U --noconfirm -- $source_artifact"
 
 # Every retained diagnostic is immutable to the validation user and readable
 # only through the evidence group. The directory is one-shot, so this cannot
@@ -256,4 +275,4 @@ for retained_evidence in "$evidence_directory"/*; do
     fi
 done
 
-exec_real_pacman -U --noconfirm -- "$staged_artifact"
+exec_real_pacman -U --noconfirm -- "$source_artifact"

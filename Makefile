@@ -673,7 +673,7 @@ test-container-live-aur:
 			--file containers/arch-live-validation/Dockerfile.aur \
 			.; \
 		printf '%s\n' ':: Running Arch live AUR-validation container'; \
-		$(DOCKER) run --rm "$(ARCH_LIVE_AUR_VALIDATION_IMAGE)"
+		$(DOCKER) run --rm --cap-add=SYS_PTRACE "$(ARCH_LIVE_AUR_VALIDATION_IMAGE)"
 
 test-container-live-local:
 	@set -eu; \
@@ -683,7 +683,7 @@ test-container-live-local:
 			--file containers/arch-live-validation/Dockerfile.local \
 			.; \
 		printf '%s\n' ':: Running Arch live local-PKGBUILD validation container'; \
-		$(DOCKER) run --rm "$(ARCH_LIVE_LOCAL_VALIDATION_IMAGE)"
+		$(DOCKER) run --rm --cap-add=SYS_PTRACE "$(ARCH_LIVE_LOCAL_VALIDATION_IMAGE)"
 
 test-container-receipt:
 	@set -eu; \

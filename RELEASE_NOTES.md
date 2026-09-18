@@ -1,3 +1,170 @@
+# Moguet v2.8.0
+
+This tracked file is the source of truth for release bodies. The English and
+Japanese sections for each release describe the same scope.
+
+## English
+
+Moguet v2.8.0 is a MINOR feature and correctness release. It completes major
+parts of everyday system/AUR updates and supported devel package migration,
+with stronger exact-source builds and fixes found during real package use.
+
+### System and AUR updates
+
+- Exact target-less `moguet -Su` now joins `moguet -Syu` in the combined system
+  and normal installed-AUR update workflow. `-Su` does not refresh sync databases;
+  use `-Su --repo` for repository-only behavior. Normally the repository upgrade
+  completes first, then Moguet observes installed packages and AUR metadata afresh.
+  AUR failure after repository completion remains a non-zero partial outcome.
+- Read-only preflight and dry-run now show possible repo/AUR exact-version locks.
+  Failure diagnostics can also retain this evidence without presenting it as a
+  confirmed cause or losing the original repository error.
+- For a single unambiguous, supported lock, the ordinary Auto route can offer an
+  explicitly confirmed transition: remove only the affected foreign consumer,
+  perform the full repository system upgrade, rebuild/install its AUR replacement,
+  and verify the exact installed relation. Fresh matching evidence and normal
+  dependency checks are required; the original install reason is preserved.
+  `--noconfirm` is not approval. This is non-atomic: a later failure can leave the
+  consumer absent, and completed phases are reported without automatic rollback.
+
+### Devel tracking and migration
+
+- Interactive target-less `-Syu` / `-Su` can offer a default-No tracking bootstrap
+  for an independent installed devel package with genuinely missing provenance.
+  Explicit migration acceptance, full recipe review, a supported build, exact
+  installation and successful provenance publication establish the baseline.
+  Existing cache contents, package versions and other helpers' history are not
+  adopted as proof; corrupt, unsafe or mismatched records are not repaired this way.
+- After a valid baseline, unchanged supported upstream revisions remain
+  `UpToDate`; a changed root revision is reported as `UpdateAvailable(GitRevision)`.
+  Ordinary split PackageBases are built once, with only selected children
+  installed and tracked. Unrequested siblings are not installed automatically.
+- Production-path fixtures cover representative `tree-sitter-cli-git`,
+  `wezterm-git` and `xpadneo-dkms-git` source/packaging topologies. Repairs to the
+  authoritative path also enabled successful real WezTerm dogfooding. This does
+  not extend support to arbitrary VCS transports or package layouts.
+
+### Exact Git sources and native builds
+
+- Missing-baseline bootstrap now uses the evaluated source selection, an exact
+  root revision and recursively parent-pinned submodules. Separate explicit
+  review selects that upstream snapshot as build input, then a deterministic
+  source-ready workspace enters the common authoritative build/install path
+  through native `makepkg`. Recipe-local inputs retain full content review;
+  upstream snapshot acceptance is not a source-code safety certification.
+- The supported subset handles one floating HTTPS Git root, declared package
+  children, multiple declared architectures, bounded recipe-local patch/config
+  inputs, and supported recursive submodule layouts. Architecture-qualified
+  sources, other VCS transports and arbitrary PKGBUILD behavior remain outside
+  this contract. Binary or large upstream assets alone no longer prevent review.
+- Exact root Git tag mappings are retained and checked for tag-dependent
+  `pkgver()` builds. Valid Git commit-graph indexes and auxiliary `SRCDEST` caches
+  can coexist with the retained native mirror. Tag-only changes with an unchanged
+  root revision do not add a new update-detection mode.
+- Legitimate generated build output no longer consumes the immutable 1 GiB
+  source-authority byte budget during prepared/post-build checks and subsequent
+  cleanup. Structural traversal limits and Git, submodule, tag, ownership and
+  containment checks remain enforced.
+
+### Persistent state, resources and diagnostics
+
+- Reviewed-source and devel provenance history no longer treats kernel device
+  number renumbering as a persistent lineage change. Live identity and concurrent
+  replacement checks remain intact.
+- Trusted cache cleanup no longer holds file descriptors proportional to the
+  total entry count. It retains bounded traversal and fail-closed deletion checks.
+  Filesystems/runtimes unable to prove the required object generation can now
+  refuse cleanup, even where a smaller cache previously worked.
+- Package-level AUR preparation failures preserve the available reviewed-source
+  reason. Cancellation retains completed results and unattempted work instead
+  of losing the partial outcome, including during closure review.
+- AUR search/info descriptions and info maintainer text neutralize terminal
+  controls while preserving ordinary Unicode. Version comparison also rejects
+  failed or malformed `vercmp` results conservatively; this is robustness
+  hardening, not a newly demonstrated package-version ordering bug.
+
+### Documentation and validation
+
+- Repository Markdown hygiene now has explicit, narrow exceptions for historical
+  release headings and stable anchors. Public documentation describes the new
+  update, migration and compatibility boundaries in English and Japanese.
+- Host CTest scheduling uses bounded parallelism while retaining required
+  serialization, test isolation and the distinct host/container/live validation
+  stages.
+
+## 日本語
+
+Moguet v2.8.0は機能追加とcorrectness改善を含むMINOR releaseです。日常的なsystem/AUR更新と、
+対応するdevel package移行の主要部分を完成させ、exact source buildの強化と実packageの利用で
+見つかった問題の修正をまとめています。
+
+### SystemとAURの更新
+
+- targetを指定しないexactな`moguet -Su`も、`moguet -Syu`と同じsystem + normal installed-AUR
+  更新へ接続しました。`-Su`はsync DBをrefreshしません。repositoryだけを更新する場合は
+  `-Su --repo`を使います。通常はrepository upgradeを先に完了し、その後にinstalled packageと
+  AUR metadataを新しく観測します。repository完了後のAUR failureはnon-zeroのpartial outcomeです。
+- read-only preflightとdry-runで、repo/AUR間のexact-version lockの可能性を表示します。
+  failure後の診断も、この根拠を確定した原因と扱わず、元のrepository errorを保って提示できます。
+- 単一で曖昧さのない対応範囲内のlockでは、通常のAuto routeが明示確認付きの移行を提示できます。
+  対象foreign consumerだけを削除し、repository全体のsystem upgrade、AUR replacementの
+  rebuild/install、installed exact relationの検証へ進みます。確認時と一致するfreshな根拠と
+  通常のdependency checkを要求し、元のinstall reasonを保持します。`--noconfirm`は承認では
+  ありません。移行はnon-atomicで、後段failureによりconsumerが未導入のまま残る場合があります。
+  完了済みphaseを報告し、自動rollbackは行いません。
+
+### Devel追跡と移行
+
+- 対話的なtarget-less `-Syu` / `-Su`で、provenanceが実際に欠けている独立したinstalled devel
+  packageにdefault-Noのtracking bootstrapを提示できます。明示的な移行承認、recipe全体の
+  review、対応build、exact install、provenance publicationの成功によってbaselineを作ります。
+  cache内容、package version、他helperの履歴を証明として採用せず、破損・unsafe・不整合な
+  recordの修復にも使いません。
+- 有効なbaselineができた後は、対応upstream revisionが同じなら`UpToDate`を保ち、root revisionの
+  変化を`UpdateAvailable(GitRevision)`として表示します。通常のsplit PackageBaseは1回だけbuildし、
+  選択したchildだけをinstall・追跡します。未選択のsiblingを自動導入しません。
+- production経路のfixtureは、代表的な`tree-sitter-cli-git`、`wezterm-git`、`xpadneo-dkms-git`の
+  source/packaging構成をカバーします。authoritative経路の修正により、実WezTermのdogfoodも
+  成功しました。任意のVCS transportやpackage構成への対応を意味するものではありません。
+
+### Exact Git sourceとnative build
+
+- baselineがない状態からのbootstrapでは、評価済みsource selection、exact root revision、
+  各parentが固定したrecursive submoduleを使います。別途明示的なreviewでupstream snapshotを
+  build inputとして選び、決定的に構築したsource-ready workspaceをnative `makepkg`経由で
+  共通のauthoritative build/install経路へ渡します。recipe-local inputは引き続き内容全体をreviewし、
+  upstream snapshotの承認をsource codeの安全性保証とは扱いません。
+- 対応範囲は、単一のfloating HTTPS Git root、宣言済みpackage children、複数の宣言architecture、
+  上限付きのrecipe-local patch/config input、対応するrecursive submodule構成です。
+  architecture-qualified source、他のVCS transport、任意のPKGBUILD動作はこの契約の対象外です。
+  upstreamにbinaryや大きなassetがあることだけではreviewを拒否しません。
+- tag依存の`pkgver()`に必要なexact root Git tag mappingを保持・検証します。正規のGit
+  commit-graph indexや補助的な`SRCDEST` cacheも、保持したnative mirrorと共存できます。
+  root revisionが同じtag-only変更を検出する新しい更新modeは追加しません。
+- prepared/post-build検証と後続cleanupでは、正当なbuild生成物をimmutable source authority用の
+  1 GiB byte budgetへ算入しません。構造走査の上限とGit、submodule、tag、所有権、containmentの
+  検証は維持します。
+
+### 永続状態、resource、diagnostic
+
+- reviewed-sourceとdevel provenanceの履歴で、kernelのdevice番号付け替えを永続lineageの変化と
+  扱わなくなりました。live identityと並行置換の検証は維持しています。
+- trusted cache cleanupでentry総数に比例するfile descriptorを保持しません。上限付き走査と
+  fail-closedな削除検証を維持します。必要なobject generationを証明できないfilesystem/runtimeでは、
+  従来は小さなcacheで成功した場合でもcleanupを拒否し得ます。
+- package単位のAUR準備失敗で、利用可能なreviewed-sourceのreasonを保持します。closure reviewを
+  含むcancel時にも完了済み結果と未実行部分を残し、partial outcomeを失いません。
+- AUR search/infoのdescriptionとinfoのmaintainer textは、通常のUnicodeを保ちながらterminal
+  controlを無害化します。version比較も失敗・不正形式の`vercmp`結果を保守的に拒否します。
+  これはrobustness強化であり、新たに実証されたpackage version順序のbug修正とは扱いません。
+
+### 文書とvalidation
+
+- repositoryのMarkdownを整理し、historical release見出しやstable anchorに狭い明示例外を
+  設けました。public docsも新しい更新・移行・互換性境界を英日で説明しています。
+- host CTestを上限付きで並列実行し、必要な直列化、test隔離、host/container/live validationの
+  各段階を維持します。
+
 # Moguet v2.7.1
 
 This tracked file is the source of truth for release bodies. The English and

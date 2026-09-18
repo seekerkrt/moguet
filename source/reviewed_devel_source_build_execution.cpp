@@ -236,11 +236,13 @@ std::optional<ReviewedDevelSourceBuildExecutionResult> ReviewedDevelSourceBuildE
         }
         enter(state, Stage::Build);
         auto built = [&]() -> EvaluatedDevelSourceBuildResult {
-            if(!state.intent.request.devel_tracking_bootstrap)
+            if(!state.intent.request.devel_tracking_bootstrap &&
+               !state.intent.request.ordinary_devel_package_base)
                 return build_evaluated_devel_source(std::move(*state.context), std::move(std::get<InvocationOwnedMakepkgEnvironment>(environment)));
-            // Only the existing initial-Missing typed bootstrap intent reaches
-            // this chain. Neither a package spelling nor raw source metadata
-            // can enable the SourceReady branch of common S4.
+            // Bootstrap and ordinary authoritative updates share the exact
+            // closure owner. Ordinary intent is not a Missing-baseline trial:
+            // retain existing provenance and independently acquire/review the
+            // build input instead of adopting a planning OID or an old cache.
             auto selected = select_evaluated_devel_source(std::move(*state.context), std::move(std::get<InvocationOwnedMakepkgEnvironment>(environment)));
             if(auto* failure = std::get_if<EvaluatedDevelSourceBuildFailure>(&selected)) return std::move(*failure);
             auto closure = acquire_pinned_submodule_closure(std::get<EvaluatedDevelSourceSelection>(std::move(selected)));

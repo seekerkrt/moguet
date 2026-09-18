@@ -84,7 +84,7 @@ S5が保持する固定operation factsをfinalize/publisherへ渡す。
 
 ## Initial Missing bootstrapのclosure接続（Issue #564 4B2）
 
-既存typed `devel_tracking_bootstrap` intentを持つexecutionだけ、S3とrecipe acquisition cleanup後に
+既存typed `devel_tracking_bootstrap` intentを持つ初期Missing executionは、S3とrecipe acquisition cleanup後に
 initial selection→4A exact closure→4B0 explicit closure review→4B1 SourceReady→common S4を通す。
 explicit migration acceptanceとrecipe full review/acceptanceをこのbridgeで短絡しない。
 SourceReady consumerは同一selectionを保持し、prepared/post-build closure reproofとroot X相関だけを
@@ -101,9 +101,17 @@ runner/reducerのpure link境界を保つため、snapshotはownerのreview fail
 S4取得後のartifact correlation、transport、install policy、S5/S6は上記のcommon executionをそのまま使う。
 SourceReady whole ownerもS6→S5→S4 resultの寿命まで保持する。
 
-対象はexact target-less ordinary `-Syu` / `-Su` Autoのinitial Missingだけ。normal valid-provenance、non-devel、
-upgrade-aur/all、dry-run、explicit targetにはactivationを追加しない。
-provenance v1 / 27 keysは不変。Slice 5はordinary split groupを既存chainへ接続する。Slice 6代表topologyのcoverage closureは残る。
+初期Missingのmigration activationはexact target-less ordinary `-Syu` / `-Su` Autoだけに保つ。
+通常Auto更新で既存selectorがAuthoritativeDevelを選んだexecutionも、既存
+`ordinary_devel_package_base` intentにより同じselection / closure review / SourceReady / common S4へ接続する。
+このintentは経路選択であり、Missing trial、upstream acceptance、built proofを生成しない。
+既存baselineやreviewed recipe lineageを削除・再初期化せず、normal recipe review後に取得したexact upstream
+snapshotを別途明示承認する。planning OIDやcacheを承認済みsourceとして採用しない。
+No / q / EOFでは既存closure stopを返し、build / install / publicationへ進まない。
+recipe revisionが同じなら既存Rを維持し、成功時だけS4/S5を根拠にS6が既存Pの後継generationを保存する。
+同一revisionのUpToDateは従来どおり実行前に除外され、新しい承認promptを出さない。
+non-devel、upgrade-aur/all、dry-run、explicit target、registered sourceには、このordinary activationを広げない。
+provenance v1 / 27 keysは不変。ordinary split groupのselected child / install reason契約も維持する。
 
 ## Lossless result / lifetime
 

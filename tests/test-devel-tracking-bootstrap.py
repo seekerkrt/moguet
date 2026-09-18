@@ -148,7 +148,9 @@ def main():
         "split-partial", "split-partial-update", "split-both", "split-both-mixed-version", "split-partial-reordered", "split-both-reordered", "split-both-selected-missing", "split-both-nonzero", "split-both-binding-failure", "split-both-publication-failure")}
     split_cases["multi-split-review-cancel"] = b"y\nq\n"
     split_cases["split-both-mixed-decline"] = b"n\n"
-    topology_cases = {name: b"y\ny\ny\n" for name in (
+    # Bootstrap approval/recipe/closure, then ordinary closure No and Yes.
+    split_cases["split-partial-update"] += b"y\n"
+    topology_cases = {name: b"y\ny\ny\nn\ny\n" for name in (
         "topology-tree-sitter", "topology-wezterm", "topology-xpadneo")}
     cases |= split_cases | topology_cases
     if len(sys.argv) > 2:
@@ -174,18 +176,21 @@ def main():
                        NO_PROXY="127.0.0.1",
                        MOGUET_TEST_AUR_RPC_BASE_URL=f"http://127.0.0.1:{server.server_port}/rpc/")
             command = [sys.argv[1], "--devel-bootstrap", case]
+            # Representative cases now include an additional refused source
+            # review and a complete subsequent update, not only reassessment.
+            case_timeout = 180 if case in topology_cases else 90
             if case != "non-tty":
                 command = [sys.executable, str(ROOT / "tests/run-with-pty.py"),
-                           "--timeout", "90", "--", *command]
+                           "--timeout", str(case_timeout), "--", *command]
             completed = subprocess.run(command, input=answer, stdout=subprocess.PIPE,
                                        stderr=subprocess.STDOUT, env=env, cwd=ROOT,
-                                       timeout=100, check=False)
+                                       timeout=case_timeout + 10, check=False)
             output = completed.stdout.decode("utf-8", errors="replace").replace("\r", "")
             if completed.returncode or f"S553 production {case} PASS" not in output:
                 print(output)
                 raise SystemExit(f"bootstrap fixture {case} failed: exit {completed.returncode}")
             if case in topology_cases:
-                if output.count("Use this exact upstream source snapshot as build input?") != 1:
+                if output.count("Use this exact upstream source snapshot as build input?") != 3:
                     raise SystemExit(f"representative snapshot acceptance was skipped/repeated: {case}")
                 second = output.split("S564 second ordinary begin\n", 1)[1].split("S564 second ordinary end\n", 1)[0]
                 if any(word in second for word in ("Warning:", "tracking baseline is missing", "Accept this", "Use this exact", "[y/N]")):
@@ -194,6 +199,19 @@ def main():
                     raise SystemExit(f"steady-state normal success presentation missing: {case}")
                 if f"S564 topology {case} migration=Complete" not in output:
                     raise SystemExit(f"representative authority-chain oracle missing: {case}")
+                for disposition in ("decline", "accept"):
+                    begin = f"S564 ordinary changed {disposition} begin\n"
+                    end = f"S564 ordinary changed {disposition} end\n"
+                    if output.count(begin) != 1 or output.count(end) != 1:
+                        raise SystemExit(f"ordinary lifecycle evidence missing: {case}/{disposition}")
+                    ordinary = output.split(begin, 1)[1].split(end, 1)[0]
+                    if ordinary.count("Use this exact upstream source snapshot as build input?") != 1:
+                        raise SystemExit(f"ordinary source acceptance skipped/repeated: {case}/{disposition}")
+                    if any(text in ordinary for text in (
+                            "tracking baseline is missing", "Accept this full source review for devel tracking bootstrap?")):
+                        raise SystemExit(f"ordinary update repeated Missing migration: {case}/{disposition}")
+                if f"S564 ordinary {case} decline-preserved=1 update=Complete generation=2 same=UpToDate" not in output:
+                    raise SystemExit(f"ordinary update/provenance oracle missing: {case}")
             if case in interaction_cases:
                 if f"S564 FG1 {case.removeprefix('multi-')} PASS" not in output or output.count("Use this exact upstream source snapshot as build input?") != 1:
                     raise SystemExit(f"closure interaction oracle missing: {case}")
@@ -216,7 +234,7 @@ def main():
             if "malicious-old" in output:
                 raise SystemExit(f"old cache bytes reached full review: {case}")
             for line in output.splitlines():
-                if line.startswith(("S593 ", "S553 lifecycle ", "S564 4B2 ", "S564 FG1 ", "S564 topology ")):
+                if line.startswith(("S593 ", "S553 lifecycle ", "S564 4B2 ", "S564 FG1 ", "S564 topology ", "S564 ordinary ")):
                     print(line)
             print(f"S553 production {case} PASS")
         server.shutdown()

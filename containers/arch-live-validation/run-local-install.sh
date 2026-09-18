@@ -34,7 +34,7 @@ fail() {
         find "$gateway_evidence_root/$gateway_case" -maxdepth 1 -type f \
             -printf '  %f\n' | LC_ALL=C sort >&2
         for evidence_file in \
-            stage-hashes.txt staged-artifact-path.txt accepted.argv \
+            trusted-source.json stage-hashes.txt staged-artifact-path.txt accepted.argv \
             PKGINFO PKGINFO.raw archive-members.txt archive-members.raw \
             expected-members.txt expected-members.raw marker.raw \
             marker.txt expected-marker.txt
@@ -469,7 +469,7 @@ assert_contains "Installing selected repository providers: '$selected_provider_i
     "$actual_output.normalized"
 assert_contains "Running: 'sudo' 'pacman' '-S' '--asdeps' '--needed' '--' '$selected_provider_identity'" \
     "$actual_output.normalized"
-assert_contains "Running: 'sudo' 'pacman' '-U' '--'" \
+assert_contains "Running: '/usr/bin/sudo' '--' '/usr/local/libexec/moguet/moguet-source-artifact-install-helper' 'install-legacy'" \
     "$actual_output.normalized"
 assert_contains "Local PackageBase result: $PACKAGE_BASE" \
     "$actual_output.normalized"
@@ -510,7 +510,7 @@ assert_metadata "$gateway_evidence_root/$gateway_case" \
 assert_metadata "$gateway_staging_root/$gateway_case" \
     'root:moguet-validation:750:directory' 'accepted root staging directory'
 for evidence_file in \
-    stage-hashes.txt staged-artifact-path.txt accepted.argv \
+    trusted-source.json stage-hashes.txt staged-artifact-path.txt accepted.argv \
     PKGINFO PKGINFO.raw archive-members.txt archive-members.raw \
     expected-members.txt expected-members.raw marker.raw marker.txt \
     expected-marker.txt
@@ -522,7 +522,8 @@ do
         "accepted root evidence $evidence_file"
 done
 python3 - "$gateway_evidence_root/$gateway_case/accepted.argv" \
-    "$fixture_artifact" <<'PY'
+    "$gateway_evidence_root/$gateway_case/trusted-source.json" \
+    "$gateway_evidence_root/$gateway_case/staged-artifact-path.txt" <<'PY'
 from pathlib import Path
 import sys
 
@@ -532,8 +533,19 @@ if argv[-1:] != [b""]:
 actual = [item.decode("utf-8", "strict") for item in argv[:-1]]
 if actual[:4] != ["sudo", "pacman", "-U", "--"] or len(actual) != 5:
     raise SystemExit(f"unexpected accepted local gateway argv: {actual!r}")
-if not actual[-1].endswith("/" + sys.argv[2]):
+import re
+import json
+import hashlib
+import stat
+if not re.fullmatch(r"/run/moguet/source-artifact-installs/active/[0-9a-f]{64}/artifacts/artifact-0\.pkg\.tar\.zst", actual[-1]):
     raise SystemExit("accepted local gateway artifact identity drift")
+record = json.loads(Path(sys.argv[2]).read_text())
+identity = record["identity"]
+if record["path"] != actual[-1] or identity[3:6] != [0, 0, 1] or identity[2] != stat.S_IFREG | 0o600:
+    raise SystemExit("accepted local trusted source metadata drift")
+snapshot = Path(Path(sys.argv[3]).read_text().strip())
+if hashlib.sha256(snapshot.read_bytes()).hexdigest() != record["sha256"]:
+    raise SystemExit("accepted local trusted snapshot hash drift")
 PY
 
 printf '%s\n' 'arch-live-local: all checks passed'

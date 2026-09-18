@@ -460,15 +460,33 @@ ccache / mold parityは必要なreleaseでの追加validationであり、上記d
     git status --short
 
     git add -- \
+        Makefile \
         VERSION \
         README.md \
         README.ja.md \
         RELEASE_NOTES.md \
+        containers/arch-live-validation/Dockerfile.aur \
+        containers/arch-live-validation/Dockerfile.local \
+        containers/arch-live-validation/aur-pacman-gateway.sh \
+        containers/arch-live-validation/local-pacman-gateway.sh \
+        containers/arch-live-validation/aur-stage-artifact.py \
+        containers/arch-live-validation/local-stage-artifact.py \
+        containers/arch-live-validation/run-aur-install.sh \
+        containers/arch-live-validation/run-local-install.sh \
         docs/DEVELOPMENT.md \
+        docs/contracts/evaluated-devel-source-build-proof.md \
+        docs/contracts/devel-normal-routes.md \
+        docs/contracts/reviewed-devel-source-build-execution.md \
+        source/reviewed_devel_source_build_execution.cpp \
+        tests/evaluated_devel_source_build_test.cpp \
+        tests/test-devel-tracking-bootstrap.py \
+        tests/fixtures/devel-production-topologies.md \
+        tests/test-install-layout.sh \
         man/moguet.1 \
         man/ja/moguet.1 \
         po/moguet.pot \
-        po/ja.po
+        po/ja.po \
+        tests/test-live-contract.sh
 
     git diff --cached --name-only | LC_ALL=C sort
     git status --short
@@ -477,25 +495,47 @@ ccache / mold parityは必要なreleaseでの追加validationであり、上記d
 
     gh pr create --base main --head release/vX.Y.Z
 
-上記の`git add`は、v2.7.1 release preparationでstage対象とする9 pathsを1件ずつ明示した
+上記の`git add`は、v2.8.0 release preparationでstage対象とする27 pathsを1件ずつ明示した
 current release用のexact path setです。`git add .`や代表pathだけのpartial listへ置き換えません。
 commit前にcached path一覧をactual diffと再照合し、release scopeのunstaged / untracked pathや
 unrelatedなstaged pathがないことを確認します。
 
 root `VERSION`、README EN/JA、`RELEASE_NOTES.md`、generated man EN/JA、gettext metadataを同期します。
-`docs/DEVELOPMENT.md`自身は今回のexact path setとその理由を保持します。v2.7.1はv2.7.0の
-maintenance PATCHであり、`docs/COMPATIBILITY.md`や`docs/contracts/devel-tracking.md`に
-development-candidateからreleased contractへの新しい状態遷移はありません。
+`docs/DEVELOPMENT.md`自身は今回のexact path setとその理由を保持します。v2.8.0は機能追加と
+correctness改善を含むMINOR releaseであり、v2.7.1のmaintenance PATCHとは異なります。
+`docs/COMPATIBILITY.md`と`docs/contracts/**`は実装時に更新済みで、v2.8.0の記述は安定した
+contractまたは機能の導入versionを表します。追加のdevelopment-candidateからreleasedへの
+状態遷移はなく、release-state変更のための編集は不要です。
+`docs/contracts/evaluated-devel-source-build-proof.md`は新しいrelease metadata authorityではなく、
+Issue #562完了後に再混入したrepo-wide markdownlint regression（F-01）のrelease-blocking最小修正として、
+余分な空行1行の削除だけを含めます。
+追加のlive AUR/local Dockerfile 2件、`run-local-install.sh`、`tests/test-live-contract.sh`は
+release metadata authorityではなく、release validationで発見されたtrusted-helper transport driftの
+release-blocking finding fixです。canonical installed helperと限定sudo authority、local runnerの
+production invocation assertionを同期し、static contractで再発を検出します。
+さらにlive AUR/localのcross-UID sealed procfd capability不足とtrusted-helper root stagingへの
+live gateway driftをrelease-blocking fixとして修正します。Makefileの両live runだけにSYS_PTRACEを追加し、
+両gateway / staging helper / runnerを同期します。negative casesとpackage inventory / reason検証を維持します。
+さらに通常Autoのauthoritative devel更新を既存のexact closure / SourceReady経路へ接続します。
+上記production source 1件、C++ / Python lifecycle test、対応するnormal route / execution contractと
+代表topology文書を含め、bootstrap後のGitRevision更新もbuild / install / S6まで検証します。
+Missing trialの偽装や保存済みbaselineの削除は行いません。closure declineによる既存P/R保持も検証します。
+この追加修正のvalidationは新candidateに帰属し、WIP以前のgate結果を転用しません。
+さらに`tests/test-install-layout.sh`のnested Makeはtest-owned `BUILD_DIR` / `TARGET`へ隔離し、
+custom `PREFIX` / `LIBEXECDIR`検証がrepositoryのcanonical `build/cmake-production`や
+repo-root `moguet`を再configure / rewriteしないことをtest自身で確認します。
 
 `scripts/check_public_documentation.py`はroot `VERSION`からcurrent release sectionを動的に求め、
 `tests/test-public-documentation-checker.py`のversion文字列はその動作を検証する独立fixtureです。
 そのため今回のrelease versionを複製する変更は行いません。過去releaseの導入versionも書き換えません。
 
 `PKGBUILD`はroot `VERSION`を動的に読み、published tagへprojectするためcontent changeはありません。
-man templateは`@VERSION@`と既存の`September 2026`を維持するため変更しません。
-`po/POTFILES.in`はsource extraction inventory変更なし、completionはversion independentです。
-Make / CMake、production source、container Dockerfile / runner、fixture package metadata、その他testsには
-release metadata preparationによる変更contractがないため、current listへ含めません。
+man templateの`man/moguet.1.in` / `man/ja/moguet.1.in`は`@VERSION@`でversion independentに保ち、
+既存の`September 2026`も維持するため、version bumpだけでは変更しません。
+`po/POTFILES.in`はsource extraction inventoryが変わる場合だけ更新し、release numberingでは変更しません。
+今回はinventory変更なし、completionもversion independentです。
+CMake、fixture package metadata、上記以外のproduction source / container files / testsには
+今回のrelease preparationまたはfinding fixによる変更contractがないため、current listへ含めません。
 v2.1.0固有の履歴は下記の`v2.1.0 post-release closure`として別に扱います。将来のreleaseでは、このlistを
 流用せず、そのreleaseで監査済みのexact path setへ置き換えます。
 

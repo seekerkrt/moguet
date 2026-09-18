@@ -603,6 +603,31 @@ assert_contains "$provider_runner" 'unexpected provider $candidate_package'
 assert_not_contains "$provider_runner" 'fallback_package='
 assert_not_contains "$provider_runner" 'fallback_dependency='
 
+# Both live install lanes exercise the installed production transport. stat
+# does not dereference symlinks; its type check also rejects symlink payloads.
+for install_dockerfile in "$aur_dockerfile" "$local_dockerfile"; do
+    assert_contains "$install_dockerfile" 'RUN cmake --install build/cmake-production'
+    assert_contains "$install_dockerfile" "test \"\$(stat -c '%U:%G:%a:%F'"
+    assert_contains "$install_dockerfile" \
+        '/usr/local/libexec/moguet/moguet-source-artifact-install-helper)" ='
+    assert_contains "$install_dockerfile" "'root:root:755:regular file'"
+    assert_contains "$install_dockerfile" \
+        'moguet-validation ALL=(root) NOPASSWD: /usr/local/libexec/moguet/moguet-source-artifact-install-helper *'
+    assert_contains "$install_dockerfile" \
+        'moguet-validation ALL=(root) NOPASSWD: /usr/bin/pacman *'
+    if grep -E 'NOPASSWD:.*(ALL|pacman\.real)' "$install_dockerfile" >/dev/null; then
+        fail 'live install sudo authority must not bypass the canonical gateway'
+    fi
+    awk '
+        /^USER / { user = $2 }
+        /^RUN cmake --install build\/cmake-production/ {
+            if (user != "root:root") exit 1
+            installed = 1
+        }
+        END { if (!installed) exit 1 }
+    ' "$install_dockerfile" || fail 'live helper must be installed in the root phase'
+done
+
 # Slice 3 is a standalone AUR image with a separate root gateway and runner.
 assert_contains "$aur_dockerfile" 'FROM archlinux:latest'
 assert_contains "$aur_dockerfile" 'pacman -Syu --needed --noconfirm'
@@ -713,7 +738,7 @@ assert_contains "$aur_gateway" "'transaction=exactly-once'"
 assert_contains "$aur_gateway" \
     'write_evidence_line "$evidence_directory/real-pacman-exec.txt"'
 assert_contains "$aur_gateway" \
-    'exec_real_pacman -U --noconfirm -- "$staged_artifact"'
+    'exec_real_pacman -U --noconfirm -- "$source_artifact"'
 metadata_check_line=$(grep -n -F '"$metadata_helper" "$staged_artifact"' \
     "$aur_gateway" | cut -d: -f1)
 pkginfo_validation_line=$(grep -n -F \
@@ -797,6 +822,7 @@ assert_contains "$aur_runner" 'git ls-remote "$aur_git_url" HEAD'
 assert_contains "$aur_runner" 'git clone --depth 1 --single-branch --no-checkout'
 assert_contains "$aur_runner" "'makepkg' '--packagelist'"
 assert_contains "$aur_runner" "'makepkg' '-sc' '--noconfirm'"
+assert_contains "$aur_runner" "Running: '/usr/bin/sudo' '--' '/usr/local/libexec/moguet/moguet-source-artifact-install-helper' 'install-legacy'"
 assert_contains "$aur_runner" 'PackageBase result: $package_base'
 assert_contains "$aur_runner" \
     'produced artifact: $AUR_CASE_DEBUG_PACKAGE_NAME $expected_version (not selected; not installed)'
@@ -865,6 +891,8 @@ printf '%s\n' "$live_target" | grep -F -- '$(DOCKER) run --rm' >/dev/null ||
     fail 'live target must destroy its container with --rm'
 for forbidden_runtime_option in \
     '--privileged' \
+    '--pid' \
+    '--security-opt' \
     '--network=none' \
     '--mount' \
     '--volume' \
@@ -896,6 +924,8 @@ printf '%s\n' "$aur_live_target" | grep -F -- \
     fail 'live AUR target must destroy its container with --rm'
 for forbidden_runtime_option in \
     '--privileged' \
+    '--pid' \
+    '--security-opt' \
     '--network=none' \
     '--mount' \
     '--volume' \
@@ -927,6 +957,8 @@ printf '%s\n' "$local_live_target" | grep -F -- \
     fail 'live local target must destroy its container with --rm'
 for forbidden_runtime_option in \
     '--privileged' \
+    '--pid' \
+    '--security-opt' \
     '--network=none' \
     '--mount' \
     '--volume' \
@@ -945,6 +977,25 @@ local_live_target_reference_count=$(validation_grep_count -F -c \
 if [ "$local_live_target_reference_count" -ne 3 ]; then
     fail 'live local target must appear only in .PHONY, its definition, and the aggregate gate'
 fi
+# Only these two runtime commands need cross-UID sealed procfd access.
+for trusted_live_target in "$aur_live_target" "$local_live_target"; do
+    printf '%s\n' "$trusted_live_target" | grep -F -- '$(DOCKER) run --rm --cap-add=SYS_PTRACE' >/dev/null ||
+        fail 'trusted live run lacks its exact SYS_PTRACE boundary'
+done
+if printf '%s\n' "$live_target" | grep -F -- '--cap-add' >/dev/null; then
+    fail 'provider lane must not gain a capability'
+fi
+[ "$(validation_grep_count -F -c -- '--cap-add' "$makefile")" -eq 2 ] ||
+    fail 'capability must be limited to the two live install runs'
+for trusted_gateway in "$aur_gateway" "$local_gateway"; do
+    assert_contains "$trusted_gateway" 'check-trusted "$source_artifact"'
+    assert_contains "$trusted_gateway" 'verify-trusted'
+    assert_contains "$trusted_gateway" 'trusted-source.json'
+done
+assert_contains "$aur_gateway" 'if [ "$negative_case" = true ]; then'
+assert_contains "$aur_gateway" '/usr/bin/python3 -I "$stage_helper" stage-trusted'
+assert_contains "$aur_gateway" '/usr/bin/python3 -I "$stage_helper" stage '
+
 aggregate_live_target=$(make_target_body test-container-live)
 printf '%s\n' "$aggregate_live_target" | grep -Fx \
     'test-container-live:' >/dev/null ||
@@ -1059,6 +1110,9 @@ assert_contains "$local_dockerfile" 'local-stage-artifact.py'
 assert_contains "$local_dockerfile" 'local-archive-validator.sh'
 assert_contains "$local_dockerfile" 'scripts/validation-status.sh'
 assert_contains "$local_dockerfile" 'moguet-validation ALL=(root) NOPASSWD: /usr/bin/pacman *'
+assert_contains "$local_dockerfile" \
+    'Defaults:moguet-validation env_keep += "MOGUET_LIVE_LOCAL_CASE"'
+assert_contains "$local_dockerfile" 'visudo -cf /etc/sudoers.d/moguet-live-local'
 assert_contains "$local_dockerfile" 'CMD ["sh", "containers/arch-live-validation/run-local-install.sh"]'
 assert_not_contains "$local_dockerfile" 'aur-pacman-gateway.sh'
 assert_not_contains "$local_dockerfile" 'pacman-sentinel.sh'
@@ -1067,10 +1121,10 @@ assert_contains "$local_gateway" 'PATH=/usr/bin'
 assert_contains "$local_gateway" 'unset PYTHONPATH'
 assert_contains "$local_gateway" 'case ",$EXPECTED_PROVIDER_PACKAGES," in'
 assert_contains "$local_gateway" 'exec_real_pacman --noconfirm "$@"'
-assert_contains "$local_gateway" 'exec_real_pacman --noconfirm -U --asexplicit -- "$staged_artifact"'
+assert_contains "$local_gateway" 'exec_real_pacman --noconfirm -U --asexplicit -- "$source_artifact"'
 assert_contains "$local_gateway" 'root argv must be one selected provider transaction or local artifact install'
-assert_contains "$local_gateway" 'artifact path is outside the invocation-owned cache prefix'
-assert_contains "$local_gateway" 'live-local-case/actual/cache/moguet/.artifact-workspace~-*/*'
+assert_contains "$local_gateway" 'positive artifact is not canonical trusted root staging'
+assert_contains "$local_gateway" 'check-trusted "$source_artifact"'
 assert_contains "$local_gateway" 'local-stage-artifact.py'
 assert_contains "$local_gateway" 'local-archive-validator.sh'
 assert_contains "$local_gateway" 'validation-status.sh'
@@ -1105,8 +1159,8 @@ awk '
     fail 'archive validation must finish before accepted or real-pacman evidence'
 assert_contains "$local_stage_helper" 'os.O_NOFOLLOW'
 assert_contains "$local_stage_helper" 'os.O_EXCL'
-assert_contains "$local_stage_helper" 'live-local-case/actual/cache/moguet'
-assert_contains "$local_stage_helper" 'source artifact is not owned by the validation user'
+assert_contains "$local_stage_helper" '/run/moguet/source-artifact-installs/active/[0-9a-f]{64}'
+assert_contains "$local_stage_helper" 'trusted source has unsafe type, owner, mode, or links'
 assert_contains "$local_stage_helper" 'source and staged artifact content hashes differ'
 assert_contains "$local_stage_helper" 'source_before='
 assert_contains "$local_stage_helper" 'source_after='
@@ -1125,7 +1179,7 @@ assert_contains "$local_runner" 'selected provider did not retain dependency ins
 assert_contains "$local_runner" 'unselected local debug artifact was installed'
 assert_contains "$local_runner" 'baseline package version or reason changed'
 assert_contains "$local_runner" 'gateway rejection self-test changed package inventory'
-assert_contains "$local_runner" "Running: 'sudo' 'pacman' '-U' '--'"
+assert_contains "$local_runner" "Running: '/usr/bin/sudo' '--' '/usr/local/libexec/moguet/moguet-source-artifact-install-helper' 'install-legacy'"
 assert_contains "$local_runner" \
     'required child: $fixture_name $fixture_version (explicit): installed'
 
@@ -1364,5 +1418,94 @@ assert_contains "$readme_file" 'make test-container-live`は単一のfail-fast r
 assert_contains "$readme_file" 'release-check`は`test-live-contract`'
 assert_contains "$readme_file" 'image / layer cacheはhost localに残り得る'
 assert_contains "$readme_file" 'host systemへpackage mutationは行わない'
+
+# Exercise the installed source validators without creating anything in /run.
+# Only the test maps the initial directory FD to a private temporary tree.
+python3 - "$aur_stage_helper" "$local_stage_helper" "$tmp_dir" <<'PY'
+import os
+from pathlib import Path
+import runpy
+import stat
+import sys
+from types import SimpleNamespace
+from unittest.mock import patch
+
+for number, script in enumerate(sys.argv[1:3]):
+    module = runpy.run_path(script)
+    cls = module['TrustedStageInput']
+    raw = '/run/moguet/source-artifact-installs/active/' + 'a' * 64 + '/artifacts/artifact-0.pkg.tar.zst'
+    invalid = [raw.replace('a' * 64, 'a' * 63), raw.replace('a' * 64, 'A' * 64),
+               raw.replace('artifact-0', 'artifact-1'), raw + '/', raw + '.sig',
+               raw.replace('/active/', '/active//'), raw.replace('/active/', '/active/./'),
+               raw.replace('/active/', '/active/../active/'),
+               '/home/moguet-validation/.cache/moguet/.artifact-workspace~-abcdef/fixture.pkg.tar.zst']
+    for path in invalid:
+        with patch.object(os, 'open', side_effect=AssertionError('invalid path reached filesystem')):
+            try:
+                cls(path)
+            except RuntimeError:
+                pass
+            else:
+                raise SystemExit('unsafe trusted path accepted: ' + path)
+    root = Path(sys.argv[3]) / ('trusted-' + str(number))
+    leaf = root / raw.lstrip('/')
+    leaf.parent.mkdir(parents=True)
+    for directory in [leaf.parent, *leaf.parent.parents]:
+        if directory == root.parent:
+            break
+        directory.chmod(0o700)
+    leaf.write_bytes(b'valid probe bytes')
+    leaf.chmod(0o600)
+    real_open, real_stat, real_fstat = os.open, os.stat, os.fstat
+    def metadata(value):
+        fields = {name: getattr(value, name) for name in ('st_dev', 'st_ino', 'st_mode', 'st_nlink', 'st_size', 'st_mtime_ns', 'st_ctime_ns')}
+        return SimpleNamespace(**fields, st_uid=0, st_gid=0)
+    def mapped_open(path, *args, **kwargs):
+        return real_open(root if path == '/' else path, *args, **kwargs)
+    with patch.object(os, 'open', mapped_open), patch.object(os, 'fstat', lambda fd: metadata(real_fstat(fd))), patch.object(os, 'stat', lambda *a, **k: metadata(real_stat(*a, **k))):
+        source = cls(raw)
+        try:
+            assert module['hash_descriptor'](source.descriptor)
+            source.reprove()
+            with leaf.open('ab') as output:
+                output.write(b'drift')
+            try:
+                source.reprove()
+            except RuntimeError:
+                pass
+            else:
+                raise SystemExit('trusted input mutation was not rejected')
+        finally:
+            source.close()
+        for mode in (0o644, 0o660, 0o4600):
+            leaf.chmod(mode)
+            try:
+                cls(raw)
+            except RuntimeError:
+                pass
+            else:
+                raise SystemExit('unsafe trusted mode accepted')
+        leaf.chmod(0o600)
+        value = metadata(real_stat(leaf))
+        for key, wrong in [('st_uid', 1000), ('st_gid', 1000), ('st_nlink', 2), ('st_mode', stat.S_IFLNK | 0o600)]:
+            changed = SimpleNamespace(**vars(value))
+            setattr(changed, key, wrong)
+            try:
+                module['require_trusted_status'](changed)
+            except RuntimeError:
+                pass
+            else:
+                raise SystemExit('unsafe trusted metadata accepted: ' + key)
+        saved_leaf = leaf.parent.parent / 'saved-artifact'
+        leaf.rename(saved_leaf)
+        leaf.symlink_to(saved_leaf)
+        try:
+            cls(raw)
+        except (RuntimeError, OSError):
+            pass
+        else:
+            raise SystemExit('trusted symlink accepted')
+print('  trusted root stage path/metadata/mutation counterexamples: rejected')
+PY
 
 printf '%s\n' 'live contract tests: all checks passed'

@@ -6,6 +6,8 @@ repo_root=$(CDPATH='' cd "$(dirname "$0")/.." && pwd)
 . "$repo_root/scripts/validation-status.sh"
 stage_root=$(mktemp -d)
 stage_dir=$stage_root/root
+fixture_build_dir=$stage_root/build
+fixture_binary=$stage_root/moguet
 test_home=$stage_dir/home/test-user
 current_package_fixture=$repo_root/tests/fixtures/current-package
 current_package_contract=$current_package_fixture/contract.env
@@ -45,14 +47,16 @@ run_make() {
     XDG_STATE_HOME=$xdg_state_home \
     XDG_CACHE_HOME=$xdg_cache_home \
         make -C "$repo_root" --no-print-directory \
+            BUILD_DIR="$fixture_build_dir" \
+            TARGET="$fixture_binary" \
             PREFIX=/usr DESTDIR="$stage_dir" "$@"
 }
 
 binary_file=$stage_dir/usr/bin/$COMMAND_NAME
 receipt_helper_file=$stage_dir/usr/libexec/moguet/moguet-alpm-receipt-helper
-receipt_helper_build=$repo_root/build/cmake-production/moguet-alpm-receipt-helper
+receipt_helper_build=$fixture_build_dir/cmake-production/moguet-alpm-receipt-helper
 source_artifact_helper_file=$stage_dir/usr/libexec/moguet/moguet-source-artifact-install-helper
-source_artifact_helper_build=$repo_root/build/cmake-production/moguet-source-artifact-install-helper
+source_artifact_helper_build=$fixture_build_dir/cmake-production/moguet-source-artifact-install-helper
 legacy_binary_file=$stage_dir/usr/bin/jpacker
 bash_completion_file=$stage_dir/usr/share/bash-completion/completions/$COMMAND_NAME
 zsh_completion_file=$stage_dir/usr/share/zsh/site-functions/_$COMMAND_NAME
@@ -60,7 +64,7 @@ fish_completion_file=$stage_dir/usr/share/fish/vendor_completions.d/$COMMAND_NAM
 english_man_file=$stage_dir/usr/share/man/man1/$COMMAND_NAME.1
 japanese_man_file=$stage_dir/usr/share/man/ja/man1/$COMMAND_NAME.1
 catalog_file=$stage_dir/usr/share/locale/ja/LC_MESSAGES/$GETTEXT_DOMAIN.mo
-built_catalog_file=$repo_root/build/cmake-production/locale/ja/LC_MESSAGES/$GETTEXT_DOMAIN.mo
+built_catalog_file=$fixture_build_dir/cmake-production/locale/ja/LC_MESSAGES/$GETTEXT_DOMAIN.mo
 license_dir=$stage_dir/usr/share/licenses/$PACKAGE_NAME
 doc_dir=$stage_dir/usr/share/doc/$PACKAGE_NAME
 migration_dir=$doc_dir/docs/migration
@@ -118,6 +122,23 @@ assert_absent() {
         fail "$path is present; expected it to be absent."
     fi
 }
+
+repository_binary=$repo_root/$COMMAND_NAME
+repository_cache=$repo_root/build/cmake-production/CMakeCache.txt
+repository_binary_before=
+repository_cache_before=
+
+if [ -e "$repository_binary" ] || [ -L "$repository_binary" ]; then
+    [ -f "$repository_binary" ] && [ ! -L "$repository_binary" ] ||
+        fail "repository binary must be a regular non-symlink when present"
+    repository_binary_before=$(sha256sum -- "$repository_binary")
+fi
+
+if [ -e "$repository_cache" ] || [ -L "$repository_cache" ]; then
+    [ -f "$repository_cache" ] && [ ! -L "$repository_cache" ] ||
+        fail "canonical production CMake cache must be a regular non-symlink when present"
+    repository_cache_before=$(sha256sum -- "$repository_cache")
+fi
 
 assert_directory() {
     directory=$1
@@ -221,7 +242,7 @@ PY
 }
 
 assert_package_artifacts_installed() {
-    assert_installed_file "$repo_root/$COMMAND_NAME" "$binary_file" 755
+    assert_installed_file "$fixture_binary" "$binary_file" 755
     assert_installed_file "$receipt_helper_build" "$receipt_helper_file" 755
     assert_installed_file "$source_artifact_helper_build" \
         "$source_artifact_helper_file" 755
@@ -446,6 +467,8 @@ run_custom_make() {
     XDG_STATE_HOME=$xdg_state_home \
     XDG_CACHE_HOME=$xdg_cache_home \
         make -C "$repo_root" --no-print-directory \
+            BUILD_DIR="$fixture_build_dir" \
+            TARGET="$fixture_binary" \
             PREFIX="$custom_prefix" \
             DESTDIR="$custom_stage_dir" \
             BINDIR="$custom_bindir" \
@@ -476,7 +499,7 @@ custom_migration_dir=$custom_doc_dir/docs/migration
 custom_config_sample=$custom_doc_dir/examples/config.toml
 
 run_custom_make install
-assert_installed_file "$repo_root/$COMMAND_NAME" "$custom_binary" 755
+assert_installed_file "$fixture_binary" "$custom_binary" 755
 assert_installed_file "$receipt_helper_build" "$custom_receipt_helper" 755
 assert_installed_file "$source_artifact_helper_build" \
     "$custom_source_artifact_helper" 755
@@ -574,7 +597,7 @@ assert_no_symlinks "$custom_stage_dir"
 # anchors deletion below a nofollow-opened root.  Keep adversarial fixtures
 # separate from the canonical install tree so a failed case cannot corrupt the
 # normal-layout authority used above.
-uninstall_helper=$repo_root/build/cmake-production/moguet-uninstall-helper
+uninstall_helper=$fixture_build_dir/cmake-production/moguet-uninstall-helper
 [ -x "$uninstall_helper" ] ||
     fail "CMake uninstall helper is missing or not executable: $uninstall_helper"
 uninstall_safety_root=$stage_root/uninstall-safety
@@ -731,5 +754,19 @@ DESTDIR='' "$uninstall_helper" \
     --manifest "$root_mode_manifest" \
     --allowed-root "$root_mode_allowed"
 assert_absent "$root_mode_file"
+
+if [ -n "$repository_binary_before" ]; then
+    [ "$(sha256sum -- "$repository_binary")" = "$repository_binary_before" ] ||
+        fail "install-layout fixture rewrote the repository binary"
+else
+    assert_absent "$repository_binary"
+fi
+
+if [ -n "$repository_cache_before" ]; then
+    [ "$(sha256sum -- "$repository_cache")" = "$repository_cache_before" ] ||
+        fail "install-layout fixture rewrote the canonical production CMake cache"
+else
+    assert_absent "$repository_cache"
+fi
 
 printf 'install-layout-test: all checks passed\n'

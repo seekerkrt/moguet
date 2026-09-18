@@ -113,6 +113,19 @@ ordinary update uses the production presenter with warning/prompt/mutation zero
 and normal success, and advancing the root gives UpdateAvailable(GitRevision).
 Publication bytes and phase counters are unchanged on the second invocation.
 
+After advancing the root, each representative fixture also executes the ordinary
+update through the same production coordinator. It first declines the new exact
+upstream snapshot: P/R bytes remain unchanged, and native preparation, package
+build, privileged install and S6 do not run. A separate explicitly accepted
+invocation then completes source selection, exact closure, native preparation,
+S4/S5 and S6 with generation 1 -> 2. It must not create another Missing trial or
+bootstrap decision. The recipe pin remains unchanged; the built root is the new
+upstream revision. WezTerm retains its auxiliary SRCDEST cache, root tag and
+recursive child-input oracle in this update, not merely in bootstrap. A further
+same-revision invocation must be UpToDate with no new source/review/build/install
+or publication effects. Topology cases have a 180-second PTY bound for this
+extended lifecycle; other cases retain their 90-second bound.
+
 ## Existing review cases under the new contract
 
 - Binary: becomes a positive exact-identity acceptance case.

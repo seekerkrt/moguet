@@ -87,14 +87,8 @@ if [ "$#" -ne 3 ] || [ "$1" != -U ] || [ "$2" != -- ]; then
 fi
 
 source_artifact=$3
-case "$source_artifact" in
-    /home/moguet-validation/live-local-case/actual/cache/moguet/.artifact-workspace~-*/*) ;;
-    *) reject 'artifact path is outside the invocation-owned cache prefix' ;;
-esac
-[ "$(/usr/bin/basename -- "$source_artifact")" = "$fixture_artifact" ] ||
-    reject 'artifact filename identity drift'
-[ -f "$source_artifact" ] && [ ! -L "$source_artifact" ] ||
-    reject 'artifact path is not a regular non-symlink'
+/usr/bin/python3 -I "$stage_helper" check-trusted "$source_artifact" ||
+    reject 'positive artifact is not canonical trusted root staging'
 
 evidence_directory=$evidence_root/$case_identity
 staging_directory=$staging_root/$case_identity
@@ -145,8 +139,11 @@ do
     /usr/bin/chown root:"$validation_user" "$validated_evidence"
     /usr/bin/chmod 0640 "$validated_evidence"
 done
+/usr/bin/python3 -I "$stage_helper" verify-trusted \
+    "$source_artifact" "$staged_artifact" "$evidence_directory/trusted-source.json" ||
+    reject 'trusted input changed before real pacman'
 printf '%s\0' sudo pacman "$@" > "$evidence_directory/accepted.argv"
 /usr/bin/chown root:"$validation_user" "$evidence_directory/accepted.argv"
 /usr/bin/chmod 0640 "$evidence_directory/accepted.argv"
 
-exec_real_pacman --noconfirm -U --asexplicit -- "$staged_artifact"
+exec_real_pacman --noconfirm -U --asexplicit -- "$source_artifact"
