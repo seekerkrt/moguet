@@ -10,7 +10,7 @@
 
 この文書は、現在のMoguetへ適用する普遍的な上位設計原則とlicense / third-party complianceの上位原則の詳細な正本である。CLI挙動、provider選択、solverの利用、fallback、自動化、安全境界について新しい判断を行うときは、このポリシーを基準にする。
 
-Issue別に増えるproduction contractの全文はこの文書へ追加せず、[docs/contracts/](contracts/README.md)の各安定contractを参照する。現在のcommand routingと利用者向けcompatibility summaryは[docs/COMPATIBILITY.md](COMPATIBILITY.md)を参照する。`DECISIONS.md`は上位原則の正本であり、個別contractの実装詳細を独立した正本として重複保持しない。
+Issue別に増えるproduction contractの全文はこの文書へ追加せず、[docs/contracts/](contracts/README.md)の各安定contractを参照する。現在のcommand routingと利用者向けcompatibility summaryは[docs/compatibility.md](compatibility.md)を参照する。`decisions.md`は上位原則の正本であり、個別contractの実装詳細を独立した正本として重複保持しない。
 
 現在のproject名はMoguetである。Moguet v2.0.0はjpacker v1.16.0の実行基盤を継承するが、current identityはMoguetとし、旧名称はversion、migration、storage等の明示されたlegacy contextだけで使用する。
 
@@ -128,7 +128,7 @@ version boundary、配布policy、component別の詳細は[docs/LICENSING.md](LI
 
 This document is the detailed canonical source for the high-level design policy applied to the current Moguet project. Decisions 1 through 7 are universal design principles, and decision 8 is the high-level license and third-party compliance principle. New decisions about CLI behavior, provider selection, solver use, fallback, automation, and safety boundaries must be evaluated against this policy.
 
-Issue-specific production contracts are not duplicated here. Use the [contract index](contracts/README.md) for their Japanese normative source and [docs/COMPATIBILITY.md](COMPATIBILITY.md) for current routing and user-visible compatibility summaries. This document is the source of truth for the high-level principles.
+Issue-specific production contracts are not duplicated here. Use the [contract index](contracts/README.md) for their Japanese normative source and [docs/compatibility.md](compatibility.md) for current routing and user-visible compatibility summaries. This document is the source of truth for the high-level principles.
 
 The current project name is Moguet. Moguet v2.0.0 inherits the jpacker v1.16.0 execution base, but Moguet is the current identity; the former name is used only in explicit legacy contexts such as versions, migration, and storage.
 
@@ -260,7 +260,7 @@ Issue #355で、public profile / patch workflowより前に利用する[source-a
 
 ### 上位原則とcontractの読み分け
 
-decision 1〜7は全contractへ適用する普遍原則であり、decision 8はlicense / third-party complianceの上位原則である。個別contractはこれらの原則を特定のbehaviorやsafety boundaryへ適用したもので、実装module、type、capability plumbingを恒久固定するものではない。利用者向けのroute差分、pass-through、対応 / 非対応一覧は`COMPATIBILITY.md`を参照する。
+decision 1〜7は全contractへ適用する普遍原則であり、decision 8はlicense / third-party complianceの上位原則である。個別contractはこれらの原則を特定のbehaviorやsafety boundaryへ適用したもので、実装module、type、capability plumbingを恒久固定するものではない。利用者向けのroute差分、pass-through、対応 / 非対応一覧は`compatibility.md`を参照する。
 
 ## Legacy decision anchors and move notices
 

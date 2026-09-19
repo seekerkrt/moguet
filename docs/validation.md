@@ -8,7 +8,7 @@ policy authorityである。
 
 C++ build / install graphは`CMakeLists.txt`と`cmake/`、C++ test registration / executionはCTest、
 repository validation targetの実際のprerequisiteとrecipeは`Makefile`と`scripts/`、branch / PR /
-release操作は[`DEVELOPMENT.md`](DEVELOPMENT.md)を正とする。この文書は、それらの実行段階と証拠の
+release操作は[`development.md`](development.md)を正とする。この文書は、それらの実行段階と証拠の
 十分性を所有する。記載と実装がdriftした場合は、対象を十分に見なして続行せず、両者を揃える。
 
 目的はcoverageの削減ではない。変更が壊し得るcontractを先に特定し、そのcontractを
@@ -206,7 +206,7 @@ default host buildの例は次のとおり。`CCACHE`や`LDFLAGS`等の意図的
 
 `test-host-release`内でGがPASSした後、metadataを変更していなければGを別に再実行しない。
 metadataだけを後から変更した場合は`release-check-exclusive`だけを再実行できる。
-Release公開時の`RELEASE_NOTES.md`からのpayload抽出と目視確認は`DEVELOPMENT.md`のrelease flowを維持する。
+Release公開時の`RELEASE_NOTES.md`からのpayload抽出と目視確認は`development.md`のrelease flowを維持する。
 
 ## Contract-based risk classification
 

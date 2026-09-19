@@ -8,7 +8,7 @@
 - Related Issues: [#217](https://github.com/seekerkrt/moguet/issues/217)、[#268](https://github.com/seekerkrt/moguet/issues/268)、[#272](https://github.com/seekerkrt/moguet/issues/272)、[#86](https://github.com/seekerkrt/moguet/issues/86)、[#96](https://github.com/seekerkrt/moguet/issues/96)、[#97](https://github.com/seekerkrt/moguet/issues/97)、[#151](https://github.com/seekerkrt/moguet/issues/151)、[#152](https://github.com/seekerkrt/moguet/issues/152)
 - Related PRs: #368（slice 1）、#369（slice 2）、#370（slice 3）、#371（slice 4）、#374（slice 5）
 - Update history: Issue #373で旧decision 15の本文から安定contractへ分離。Issue #271 Slice 5 / PR #374でproduction CLIへの接続が完了。
-- Related upper decisions: [decision 1](../DECISIONS.md#decision-1)、[decision 2](../DECISIONS.md#decision-2)、[decision 4](../DECISIONS.md#decision-4)、[decision 5](../DECISIONS.md#decision-5)、[decision 6](../DECISIONS.md#decision-6)、[decision 7](../DECISIONS.md#decision-7)
+- Related upper decisions: [decision 1](../decisions.md#decision-1)、[decision 2](../decisions.md#decision-2)、[decision 4](../decisions.md#decision-4)、[decision 5](../decisions.md#decision-5)、[decision 6](../decisions.md#decision-6)、[decision 7](../decisions.md#decision-7)
 
 ## Contract本文（日本語normative source of truth）
 
@@ -90,4 +90,4 @@ Issue #271 Slice 2〜5でLocalSourceRoot、read-only and evaluated metadata、de
 
 ## Compatibility
 
-正式CLI入口、local root identity、`.SRCINFO` state、PKGBUILD evaluation gate、AUR fallback禁止、source snapshot、artifact、install reason、user-owned tree非変更の要約は、[`COMPATIBILITY.md`のlocal PKGBUILD section](../COMPATIBILITY.md#compat-local-pkgbuild)を参照する。
+正式CLI入口、local root identity、`.SRCINFO` state、PKGBUILD evaluation gate、AUR fallback禁止、source snapshot、artifact、install reason、user-owned tree非変更の要約は、[`compatibility.md`のlocal PKGBUILD section](../compatibility.md#compat-local-pkgbuild)を参照する。

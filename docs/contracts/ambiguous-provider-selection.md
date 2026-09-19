@@ -9,7 +9,7 @@
 - Related Issues: #388、#351
 - Related PRs: #341（#272 provider selection）、#277（typed provider origin）
 - Update history: Issue #373で旧decision 13の本文から安定contractへ分離。Issue #388 Slice 1でinstalled stateのauthority/presentation契約を追加。Issue #351 Slice 5でconstraint preflight、partial-source、installed exact fallbackのproduction semanticsへ同期。
-- Related upper decisions: [decision 1](../DECISIONS.md#decision-1)、[decision 2](../DECISIONS.md#decision-2)、[decision 4](../DECISIONS.md#decision-4)、[decision 5](../DECISIONS.md#decision-5)、[decision 6](../DECISIONS.md#decision-6)、[decision 7](../DECISIONS.md#decision-7)
+- Related upper decisions: [decision 1](../decisions.md#decision-1)、[decision 2](../decisions.md#decision-2)、[decision 4](../decisions.md#decision-4)、[decision 5](../decisions.md#decision-5)、[decision 6](../decisions.md#decision-6)、[decision 7](../decisions.md#decision-7)
 
 ## Contract本文（日本語normative source of truth）
 
@@ -221,4 +221,4 @@ selected repository providerの`pacman -S --asdeps --needed`成功だけでは�
 
 ## Compatibility
 
-provider順序、TTY / non-TTY、`--noconfirm`、cancel / EOF、selection-before-mutation、selected repository / AUR routeの要約は、[`COMPATIBILITY.md`のdependency provider section](../COMPATIBILITY.md#compat-ambiguous-provider)を参照する。
+provider順序、TTY / non-TTY、`--noconfirm`、cancel / EOF、selection-before-mutation、selected repository / AUR routeの要約は、[`compatibility.md`のdependency provider section](../compatibility.md#compat-ambiguous-provider)を参照する。

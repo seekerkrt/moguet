@@ -29,7 +29,7 @@
     },
     {
       // 文書間linkと旧decision参照のstable anchor用にa要素だけ許可する。
-      "filter": ["docs/COMPATIBILITY.md", "docs/DECISIONS.md"],
+      "filter": ["docs/compatibility.md", "docs/decisions.md"],
       "config": { "MD033": { "allowed_elements": ["a"] } },
       "combine": "merge"
     }

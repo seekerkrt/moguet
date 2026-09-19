@@ -234,9 +234,9 @@ detailed plan.
   completed repository transaction is not rolled back.
 
 The detailed compatibility and routing contract is in
-[docs/COMPATIBILITY.md](https://github.com/seekerkrt/moguet/blob/develop/docs/COMPATIBILITY.md),
+[docs/compatibility.md](https://github.com/seekerkrt/moguet/blob/develop/docs/compatibility.md),
 and adopted design decisions are recorded in
-[docs/DECISIONS.md](https://github.com/seekerkrt/moguet/blob/develop/docs/DECISIONS.md).
+[docs/decisions.md](https://github.com/seekerkrt/moguet/blob/develop/docs/decisions.md).
 
 <!-- parity:installation -->
 ## Installation
@@ -952,9 +952,9 @@ Discussions or Issues; follow
 
 The active integration branch is `develop`; stable releases are on `main`.
 See
-[docs/DEVELOPMENT.md](https://github.com/seekerkrt/moguet/blob/develop/docs/DEVELOPMENT.md),
+[docs/development.md](https://github.com/seekerkrt/moguet/blob/develop/docs/development.md),
 and
-[docs/VERSIONING.md](https://github.com/seekerkrt/moguet/blob/develop/docs/VERSIONING.md).
+[docs/versioning.md](https://github.com/seekerkrt/moguet/blob/develop/docs/versioning.md).
 Moguet v2.x will add AUR-helper
 capabilities incrementally; advanced runtime-aware completion and the later
 build-profile system are separate work.

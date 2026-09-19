@@ -11,7 +11,7 @@ contractである。規範上の正本は日本語本文である。
 - Follow-up to: [#151](https://github.com/seekerkrt/moguet/issues/151)
 - Related Issues: [#59](https://github.com/seekerkrt/moguet/issues/59)、[#355](https://github.com/seekerkrt/moguet/issues/355)、[#359](https://github.com/seekerkrt/moguet/issues/359)、[#363](https://github.com/seekerkrt/moguet/issues/363)
 - Related contracts: [source-aware package identity](source-package-identity.md)、[interactive confirmation](interactive-confirmation.md)、[XDG cache safety](xdg-cache-safety.md)
-- Related upper decisions: [decision 1](../DECISIONS.md#decision-1)、[decision 2](../DECISIONS.md#decision-2)、[decision 4](../DECISIONS.md#decision-4)、[decision 5](../DECISIONS.md#decision-5)、[decision 6](../DECISIONS.md#decision-6)、[decision 7](../DECISIONS.md#decision-7)
+- Related upper decisions: [decision 1](../decisions.md#decision-1)、[decision 2](../decisions.md#decision-2)、[decision 4](../decisions.md#decision-4)、[decision 5](../decisions.md#decision-5)、[decision 6](../decisions.md#decision-6)、[decision 7](../decisions.md#decision-7)
 
 ## Contract本文（日本語normative source of truth）
 
@@ -229,5 +229,5 @@ fallbackでも、generic compatibility evaluatorのsuccess tokenでもない。�
 ## Compatibility
 
 利用者向けのworkflow、option、migration、route差分は、
-[`COMPATIBILITY.md`のreviewed AUR source section](../COMPATIBILITY.md#compat-reviewed-source-state)を
+[`compatibility.md`のreviewed AUR source section](../compatibility.md#compat-reviewed-source-state)を
 参照する。

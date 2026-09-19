@@ -8,7 +8,7 @@
 - Related Issues: [#171](https://github.com/seekerkrt/moguet/issues/171)、[#217](https://github.com/seekerkrt/moguet/issues/217)、[#268](https://github.com/seekerkrt/moguet/issues/268)、[#271](https://github.com/seekerkrt/moguet/issues/271)、[#272](https://github.com/seekerkrt/moguet/issues/272)、[#86](https://github.com/seekerkrt/moguet/issues/86)、[#152](https://github.com/seekerkrt/moguet/issues/152)、[#168](https://github.com/seekerkrt/moguet/issues/168)
 - Related PRs: #346、#348、#365〜#367（#217 model、route、production surface）
 - Update history: Issue #373で旧decision 14の本文から安定contractへ分離。
-- Related upper decisions: [decision 1](../DECISIONS.md#decision-1)、[decision 2](../DECISIONS.md#decision-2)、[decision 4](../DECISIONS.md#decision-4)、[decision 5](../DECISIONS.md#decision-5)、[decision 6](../DECISIONS.md#decision-6)、[decision 7](../DECISIONS.md#decision-7)
+- Related upper decisions: [decision 1](../decisions.md#decision-1)、[decision 2](../decisions.md#decision-2)、[decision 4](../decisions.md#decision-4)、[decision 5](../decisions.md#decision-5)、[decision 6](../decisions.md#decision-6)、[decision 7](../decisions.md#decision-7)
 
 ## Contract本文（日本語normative source of truth）
 
@@ -47,4 +47,4 @@ mixed selectionではrepository rootsとAUR rootsをcandidate orderを保った�
 
 ## Compatibility
 
-`-Ss`との差、`-S --select`入口、source identity、selection grammar、TTY / `--noconfirm`、route matrixは、[`COMPATIBILITY.md`のroot package selection section](../COMPATIBILITY.md#compat-root-package-selection)を参照する。
+`-Ss`との差、`-S --select`入口、source identity、selection grammar、TTY / `--noconfirm`、route matrixは、[`compatibility.md`のroot package selection section](../compatibility.md#compat-root-package-selection)を参照する。

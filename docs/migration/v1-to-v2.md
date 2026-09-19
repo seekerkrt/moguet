@@ -419,4 +419,4 @@ state or `/etc/jpacker` data.
 
 For the current source contracts, see [README.md](../../README.md),
 [README.ja.md](../../README.ja.md), and
-[COMPATIBILITY.md](https://github.com/seekerkrt/moguet/blob/develop/docs/COMPATIBILITY.md).
+[compatibility.md](https://github.com/seekerkrt/moguet/blob/develop/docs/compatibility.md).

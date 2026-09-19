@@ -4,9 +4,9 @@ Moguetは、`main` / `develop` / `feature/*` / `fix/*` / `docs/*` / `release/*`�
 
 branch / tag同期のownerはGitHub Actionsのmirror workflowとする。同じrefをGitHubとGitLabへ二重に手動pushせず、GitHubをauthority、GitLabをmirror destinationとして扱う。
 
-バージョン番号の付け方は [VERSIONING.md](VERSIONING.md) を参照する。developmentからrelease
+バージョン番号の付け方は [versioning.md](versioning.md) を参照する。developmentからrelease
 candidateまでのvalidation selection、approval evidence、evidence reuse / invalidation、review closureは
-[VALIDATION.md](VALIDATION.md)をpolicy authorityとする。
+[validation.md](validation.md)をpolicy authorityとする。
 
 ## Branches
 
@@ -67,14 +67,14 @@ Issue ごとの作業ブランチ。
     git pull --ff-only origin develop
     git switch -c feature/issue-XX-topic
 
-実装中は`VALIDATION.md`のrisk classificationに従い、incremental buildとaffected / focused
+実装中は`validation.md`のrisk classificationに従い、incremental buildとaffected / focused
 targetを使う。例:
 
     env -u MAKEFLAGS -u MFLAGS make -j8 --output-sync=target test-<affected-area>
 
 Slice completionでは変更contractのfocused supersetと必要なhost / deterministic regressionを確認する。
 PR / merge approvalのcanonical host gateは次の1回である。同じcandidateの有効なevidenceがある場合は、
-`VALIDATION.md`のinvalidation ruleに従って不要な再実行を避ける。
+`validation.md`のinvalidation ruleに従って不要な再実行を避ける。
 
     env -u MAKEFLAGS -u MFLAGS make -j8 --output-sync=target test-host-release
     git diff --check
@@ -254,7 +254,7 @@ helper pathだけを使用する。
 `test`はfull host A–Dを所有し、`release-check-exclusive`はversion、license、packaging、tracked
 Markdownのrelease固有4 checkerだけを所有する。`test-host-release`は同じtop-level runで`test`を
 完了してから`release-check-exclusive`を1回実行するため、A–DとGを重複なく構成できる。
-実行段階とevidenceの扱いは[VALIDATION.md](VALIDATION.md)を正とする。
+実行段階とevidenceの扱いは[validation.md](validation.md)を正とする。
 
 既存`release-check`のstandalone互換性は維持し、従来のA–D subset prerequisiteを完了してから同じ
 `release-check-exclusive`へ委譲する。`release-check`単独をfull A–Dへ拡張したものではない。
@@ -389,7 +389,7 @@ contiguous historyを確認する。runnerはcopied source hashesとraw document
 S5-only targetはpublication-noneを引き続き要求する。#475 comparisonは7-B coordinator内だけに接続し、
 7-Dがnormal routeから7-B/7-Cへ接続する。Slice 8の最終契約とmigration判断は
 [devel tracking contract](contracts/devel-tracking.md)、final acceptanceの選択とevidenceは
-[VALIDATION](VALIDATION.md)を参照する。S4/S5/S6のowner contractは変更しない。
+[VALIDATION](validation.md)を参照する。S4/S5/S6のowner contractは変更しない。
 詳細は[`exact-installed-artifact-binding.md`](contracts/exact-installed-artifact-binding.md)を正とする。
 
 S5-Cのsingle-child coreのfinal construction/lineageは`test-installed-devel-source-build-proof`、lossless aggregateとcleanup consequenceは
@@ -455,7 +455,7 @@ static `test-live-contract`として確認するが、networkやcontainer runtim
     git diff --check
 
 ccache / mold parityは必要なreleaseでの追加validationであり、上記default gateの代替にしない。
-それぞれのexact compile / link scopeとclean / incremental条件を`VALIDATION.md`に従って記録する。
+それぞれのexact compile / link scopeとclean / incremental条件を`validation.md`に従って記録する。
 
     git status --short
 

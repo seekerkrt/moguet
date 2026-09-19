@@ -389,5 +389,5 @@ SSHを使うcloneでは、代わりに`git@github.com:seekerkrt/moguet.git`と
 
 現在のsource contractは[README.md](../../README.md)、
 [README.ja.md](../../README.ja.md)、
-[COMPATIBILITY.md](https://github.com/seekerkrt/moguet/blob/develop/docs/COMPATIBILITY.md)を
+[compatibility.md](https://github.com/seekerkrt/moguet/blob/develop/docs/compatibility.md)を
 参照してください。
