@@ -5,7 +5,7 @@
 この文書は、Moguet repositoryで作業するときの入口・SSOT地図・固有の作業境界を定める。
 言語非依存の共通契約はCodexのグローバル`AGENTS.md`、C/C++共通規約は`cpp-conventions` Skillを基準とし、ここでは再掲しない。
 
-Moguet固有の指示、`docs/CODING_CONVENTIONS.md`、実際のbuild設定が共通規約と矛盾する場合は、より具体的なrepository側の契約を優先する。
+Moguet固有の指示、`docs/coding-conventions.md`、実際のbuild設定が共通規約と矛盾する場合は、より具体的なrepository側の契約を優先する。
 
 ## Repository概要と優先事項
 
@@ -22,13 +22,13 @@ Moguetは、pacman、makepkg、AUR、gitの既存契約を尊重しながらArch
 
 - `README.md`: 現行CLIと利用者向け契約
 - `docs/DECISIONS.md`: transaction、ownership、主要な設計判断
-- `docs/PROJECT_STANCE.md`: projectの立場と非目標
+- `docs/project-stance.md`: projectの立場と非目標
 - `docs/COMPATIBILITY.md`: 互換性境界
 - `docs/DEVELOPMENT.md`: branch、PR、mirror、release運用
 - `docs/VALIDATION.md`: 段階別validation、approval evidence、再利用 / 無効化、review closure
 - `docs/VERSIONING.md`: version policy
 - `docs/LICENSING.md`: dependencyと配布物のlicense契約
-- `docs/CODING_CONVENTIONS.md`: Moguet固有のC++追加・上書き規約
+- `docs/coding-conventions.md`: Moguet固有のC++追加・上書き規約
 
 設計判断の詳細をこの文書やコーディング規約へ複製しない。変更対象に対応する正式文書を正とする。
 
@@ -44,7 +44,7 @@ Moguetは、pacman、makepkg、AUR、gitの既存契約を尊重しながらArch
 
 ## Skill routing
 
-- C/C++の生成・編集・レビューでは`cpp-conventions`を使い、続けて`docs/CODING_CONVENTIONS.md`を必ず読む。
+- C/C++の生成・編集・レビューでは`cpp-conventions`を使い、続けて`docs/coding-conventions.md`を必ず読む。
 - read-onlyの責務監査、unused判定、docs整合確認では`audit`を使う。
 - 非自明な変更後のbuild / test / CLI確認では`verify`を使う。
 - commit前の差分整理では`commit-prep`、GitHub操作では`github`を使う。
@@ -61,7 +61,7 @@ Moguetは、pacman、makepkg、AUR、gitの既存契約を尊重しながらArch
 - `make test-container-live`: actual provider / AUR / local F
 - `git diff --check`: docs-onlyを含む差分の基本確認
 
-C++の生成・編集後は、`docs/CODING_CONVENTIONS.md`のchanged-file workflowを正とし、通常のvalidation前に
+C++の生成・編集後は、`docs/coding-conventions.md`のchanged-file workflowを正とし、通常のvalidation前に
 `scripts/format-changed-cpp.sh --write`、続けて`--check`を実行する。対象検出の失敗をrepository-wide
 formatへfallbackせず、untrackedまたは今回と無関係なC++を暗黙に整形しない。
 

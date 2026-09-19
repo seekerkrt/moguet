@@ -321,7 +321,7 @@ ACTIVE_LEGACY_ALLOWANCES: dict[str, tuple[LegacyAllowance, ...]] = {
             legacy_repository_redirect,
         )
     ),
-    "docs/CODING_CONVENTIONS.md": allowances(
+    "docs/coding-conventions.md": allowances(
         "legacy-storage-path",
         legacy_etc_path,
     ),
