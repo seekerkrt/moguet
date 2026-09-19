@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.8.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-17 09:57+0900\n"
+"POT-Creation-Date: 2026-09-19 17:50+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -2193,6 +2193,10 @@ msgid "Unknown operation: {}"
 msgstr ""
 
 #, c++-format
+msgid "Option {} is not supported for operation {}."
+msgstr ""
+
+#, c++-format
 msgid "A {} option is not supported for the combined {} route. Use {} for a repository-only system upgrade with full {} pass-through."
 msgstr ""
 
@@ -2885,7 +2889,39 @@ msgstr ""
 msgid "Package relation assessments:"
 msgstr ""
 
+#, c++-format
+msgid "Package         : {}"
+msgstr ""
+
+#, c++-format
+msgid "Package Base    : {}"
+msgstr ""
+
+#, c++-format
+msgid "Dependencies    : {}"
+msgstr ""
+
+msgid "Installed dependencies:"
+msgstr ""
+
+#, c++-format
+msgid "Official {} dependencies:"
+msgstr ""
+
+#, c++-format
+msgid "{} dependencies:"
+msgstr ""
+
+msgid "Provided dependencies:"
+msgstr ""
+
+msgid "Selected provided dependencies:"
+msgstr ""
+
 msgid "Ambiguous provided dependencies:"
+msgstr ""
+
+msgid "Unknown dependencies:"
 msgstr ""
 
 msgid "Split package install targets:"
@@ -2910,16 +2946,10 @@ msgid_plural "     target packages: {}"
 msgstr[0] ""
 msgstr[1] ""
 
-msgid "Provided dependencies:"
-msgstr ""
-
 msgid " (selected)"
 msgstr ""
 
 msgid "Fetch targets:"
-msgstr ""
-
-msgid "Selected provided dependencies:"
 msgstr ""
 
 #. TRANSLATORS: The first placeholder is the
@@ -2935,32 +2965,6 @@ msgstr ""
 
 #, c++-format
 msgid "{} package not found: {}"
-msgstr ""
-
-#, c++-format
-msgid "Package         : {}"
-msgstr ""
-
-#, c++-format
-msgid "Package Base    : {}"
-msgstr ""
-
-#, c++-format
-msgid "Dependencies    : {}"
-msgstr ""
-
-msgid "Installed dependencies:"
-msgstr ""
-
-#, c++-format
-msgid "Official {} dependencies:"
-msgstr ""
-
-#, c++-format
-msgid "{} dependencies:"
-msgstr ""
-
-msgid "Unknown dependencies:"
 msgstr ""
 
 #, c++-format
@@ -3528,6 +3532,9 @@ msgstr ""
 msgid "{} work item has no invocation root ownership: {}"
 msgstr ""
 
+msgid "Package candidates:"
+msgstr ""
+
 msgid "Invalid package selection token."
 msgstr ""
 
@@ -3546,9 +3553,6 @@ msgstr ""
 
 #, c++-format
 msgid "Package {} was selected from more than one source; select exactly one source."
-msgstr ""
-
-msgid "Package candidates:"
 msgstr ""
 
 #, c++-format
@@ -5085,10 +5089,6 @@ msgstr ""
 msgid "Upgrade-all preflight has no projection authority."
 msgstr ""
 
-#, c++-format
-msgid "Option {} is not supported for operation {}."
-msgstr ""
-
 msgid "Dry-run route classification returned an unknown operation."
 msgstr ""
 
@@ -5603,6 +5603,14 @@ msgid "Check {} and foreign-package updates"
 msgstr ""
 
 msgid "OPTIONS"
+msgstr ""
+
+msgid "Show detailed diagnostic and provenance information"
+msgstr ""
+
+#. TRANSLATORS: The placeholders are literal supported CLI forms.
+#, c++-format
+msgid "For {}, {}, and {}; changes presentation only, not execution"
 msgstr ""
 
 msgid "Show this help message and exit"

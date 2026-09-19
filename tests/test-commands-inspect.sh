@@ -204,6 +204,46 @@ run_tty_ok_with_eof() {
     fi
 }
 
+# Keep stdin on a real PTY while redirecting both presentation streams.
+# Selection availability is owned by stdin, independent of output destination.
+run_redirected_tty_ok() {
+    answer=$1
+    shift
+    : > "$command_log"
+    if ! printf '%s\n' "$answer" |
+        python3 "$repo_root/tests/run-with-pty.py" -- sh -c \
+            'out=$1; err=$2; shift 2; exec "$@" >"$out" 2>"$err"' \
+            sh "$stdout_file" "$stderr_file" "$test_binary" "$@"; then
+        fail_case "expected redirected interactive command to succeed: $*"
+    fi
+}
+
+# Execution evidence survives later Normal compactization. Existing Slice 3
+# byte parity stays separate; here compare only command trace and ANSI controls.
+assert_details_execution_parity() {
+    runner=$1
+    answer=$2
+    shift 2
+    cp "$command_log" "$case_dir/normal.commands"
+    cp "$stdout_file" "$case_dir/normal.stdout"
+    cp "$stderr_file" "$case_dir/normal.stderr"
+    "$runner" "$answer" --details "$@"
+    cmp -s "$case_dir/normal.commands" "$command_log" ||
+        fail_case "Normal/Detailed execution trace differs: $*"
+    python3 - "$case_dir" <<'PYANSI'
+from pathlib import Path
+import re
+import sys
+root = Path(sys.argv[1])
+ansi = re.compile(rb"\x1b\[[0-?]*[ -/]*[@-~]")
+for stream in ("stdout", "stderr"):
+    normal = ansi.findall((root / ("normal." + stream)).read_bytes())
+    detailed = ansi.findall((root / stream).read_bytes())
+    if normal != detailed:
+        raise SystemExit("Normal/Detailed ANSI controls differ: " + stream)
+PYANSI
+}
+
 assert_contains() {
     pattern=$1
     file=$2
@@ -453,6 +493,7 @@ echo "  ok: deps provider numbering preserves candidate order"
 setup_case deps-provider-interactive-selection
 export MOGUET_TEST_INSPECTION_SCENARIO=deps-provider-interactive-selection
 run_tty_ok 2 deps --recursive provider-root
+assert_details_execution_parity run_tty_ok 2 deps --recursive provider-root
 assert_contains_count 1 \
     ":: provider dependency=moguet-inspect-203-virtual-provider" \
     "$stdout_file"
@@ -468,12 +509,27 @@ assert_contains \
     "$stdout_file"
 echo "  ok: deps shares one interactive provider choice with recursive display"
 
+# Issue #439: redirected stdout/stderr do not turn a TTY stdin into non-TTY.
+for operation in plan deps; do
+    setup_case "$operation-provider-redirected-output"
+    export MOGUET_TEST_INSPECTION_SCENARIO=$operation-provider-interactive-selection
+    run_redirected_tty_ok 2 "$operation" provider-root
+    assert_details_execution_parity run_redirected_tty_ok 2 "$operation" provider-root
+    assert_contains "moguet-inspect-203-virtual-provider -> aur/provider-a" "$stdout_file"
+    assert_contains "2) source=AUR package=provider-a PackageBase=provider-a" "$stdout_file"
+    assert_no_git_mutation
+    assert_not_contains "makepkg " "$command_log"
+    assert_not_contains "sudo " "$command_log"
+done
+echo "  ok: details preserves provider selection with redirected output"
+
 # Issue #388: installed state is a read-only suffix on the existing numbered
 # candidate lines. It neither changes candidate order nor selects a provider.
 setup_case deps-provider-installed-state-presentation
 export MOGUET_TEST_INSPECTION_SCENARIO=deps-provider-interactive-selection
 printf '%s\n' 'provider-z 1.0-1' > "$provider_installed_state"
 run_tty_ok 2 deps --recursive provider-root
+assert_details_execution_parity run_tty_ok 2 deps --recursive provider-root
 assert_contains \
     "1) source=AUR package=provider-z PackageBase=provider-z provided=moguet-inspect-203-virtual-provider provided-specification=moguet-inspect-203-virtual-provider version=2.0-1 [installed]" \
     "$stdout_file"
@@ -491,6 +547,7 @@ export MOGUET_TEST_INSPECTION_SCENARIO=deps-provider-interactive-selection
 printf '%s\n' 'provider-a 2.0-1' > "$provider_installed_state"
 export MOGUET_TEST_PACKAGE_METADATA_QUERY_FAILURE_PACKAGE=provider-z
 run_tty_ok 1 deps --recursive provider-root
+assert_details_execution_parity run_tty_ok 1 deps --recursive provider-root
 assert_contains "1) source=AUR package=provider-z PackageBase=provider-z provided=moguet-inspect-203-virtual-provider provided-specification=moguet-inspect-203-virtual-provider version=2.0-1 [installed state unknown]" "$stdout_file"
 assert_contains "Warning: installed state is unavailable for provider candidate provider-z:" "$stdout_file"
 assert_contains \
@@ -504,6 +561,7 @@ echo "  ok: unknown provider state remains selectable with a separate warning"
 setup_case deps-provider-interactive-cancel
 export MOGUET_TEST_INSPECTION_SCENARIO=deps-provider-interactive-cancel
 run_tty_ok q deps --recursive provider-root
+assert_details_execution_parity run_tty_ok q deps --recursive provider-root
 assert_contains_count 1 \
     ":: provider dependency=moguet-inspect-203-virtual-provider" \
     "$stdout_file"
@@ -535,6 +593,7 @@ echo "  ok: deps retains provider EOF cancellation across recursive resolution"
 setup_case deps-provider-non-tty-pipe
 export MOGUET_TEST_INSPECTION_SCENARIO=deps-provider-non-tty-pipe
 run_ok_with_pipe 2 deps provider-root
+assert_details_execution_parity run_ok_with_pipe 2 deps provider-root
 assert_not_contains ":: provider dependency=" "$stdout_file"
 assert_not_contains "Selected provided dependencies:" "$stdout_file"
 assert_exact_line "      1. aur/provider-z" "$stdout_file"
@@ -546,6 +605,7 @@ echo "  ok: deps ignores piped provider input and remains ambiguous"
 setup_case deps-provider-partial-source-failure
 export MOGUET_TEST_INSPECTION_SCENARIO=deps-provider-partial-failure
 run_tty_ok 1 deps partial-provider-root
+assert_details_execution_parity run_tty_ok 1 deps partial-provider-root
 assert_not_contains ":: provider dependency=" "$stdout_file"
 assert_contains "Incomplete provider candidate observations:" "$stdout_file"
 assert_contains \
@@ -589,6 +649,7 @@ echo "  ok: plan validates the whole invocation before metadata resolution"
 setup_case plan-provider-interactive-selection
 export MOGUET_TEST_INSPECTION_SCENARIO=plan-provider-interactive-selection
 run_tty_ok 2 plan provider-root provider-root
+assert_details_execution_parity run_tty_ok 2 plan provider-root provider-root
 assert_contains_count 1 \
     ":: provider dependency=moguet-inspect-203-virtual-provider" \
     "$stdout_file"
@@ -603,6 +664,7 @@ echo "  ok: plan reuses one interactive provider choice across targets"
 setup_case plan-provider-interactive-cancel
 export MOGUET_TEST_INSPECTION_SCENARIO=plan-provider-interactive-cancel
 run_tty_ok q plan provider-root provider-root
+assert_details_execution_parity run_tty_ok q plan provider-root provider-root
 assert_contains_count 1 \
     ":: provider dependency=moguet-inspect-203-virtual-provider" \
     "$stdout_file"
@@ -652,6 +714,7 @@ setup_case plan-provider-constraint-non-tty
 export MOGUET_TEST_INSPECTION_SCENARIO=plan-provider-constraint-non-tty
 expect_constrained_provider_version_match
 run_ok_with_pipe 2 plan provider-constraint-root
+assert_details_execution_parity run_ok_with_pipe 2 plan provider-constraint-root
 assert_not_contains ":: provider dependency=" "$stdout_file"
 assert_contains \
     "  moguet-inspect-350-virtual-provider>=1" "$stdout_file"
@@ -666,6 +729,7 @@ setup_case plan-provider-constraint-noconfirm
 export MOGUET_TEST_INSPECTION_SCENARIO=plan-provider-constraint-noconfirm
 expect_constrained_provider_version_match
 run_tty_ok 2 --noconfirm plan provider-constraint-root
+assert_details_execution_parity run_tty_ok 2 --noconfirm plan provider-constraint-root
 assert_not_contains ":: provider dependency=" "$stdout_file"
 assert_contains \
     "  moguet-inspect-350-virtual-provider>=1" "$stdout_file"
@@ -680,6 +744,7 @@ echo "  ok: constrained provider --noconfirm ambiguity does not invent cancellat
 setup_case plan-provider-noconfirm-tty
 export MOGUET_TEST_INSPECTION_SCENARIO=plan-provider-noconfirm-tty
 run_tty_ok 2 --noconfirm plan provider-root
+assert_details_execution_parity run_tty_ok 2 --noconfirm plan provider-root
 assert_not_contains ":: provider dependency=" "$stdout_file"
 assert_not_contains " (selected)" "$stdout_file"
 assert_contains "Ambiguous provided dependencies:" "$stdout_file"
@@ -690,6 +755,7 @@ echo "  ok: --noconfirm keeps an ambiguous provider fail-closed on a TTY"
 setup_case plan-provider-partial-source-failure
 export MOGUET_TEST_INSPECTION_SCENARIO=plan-provider-partial-failure
 run_tty_ok 1 plan partial-provider-root
+assert_details_execution_parity run_tty_ok 1 plan partial-provider-root
 assert_not_contains ":: provider dependency=" "$stdout_file"
 assert_contains "Incomplete provider candidate observations:" "$stdout_file"
 assert_contains "observed candidates: aur/partial-provider-a" "$stdout_file"
@@ -708,6 +774,7 @@ export MOGUET_TEST_ALPM_VERCMP_EXPECTED_LHS=2
 export MOGUET_TEST_ALPM_VERCMP_EXPECTED_RHS=2
 export MOGUET_TEST_ALPM_VERCMP_RESULT=0
 run_tty_fail 1 plan public-conflict-single-root
+assert_details_execution_parity run_tty_fail 1 plan public-conflict-single-root
 assert_contains "is Conflicting" "$stdout_file"
 assert_not_contains ":: provider dependency=" "$stdout_file"
 assert_no_git_mutation

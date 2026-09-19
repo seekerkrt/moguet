@@ -2,8 +2,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.8.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-17 09:57+0900\n"
-"PO-Revision-Date: 2026-09-09 16:53+0900\n"
+"POT-Creation-Date: 2026-09-19 17:50+0900\n"
+"PO-Revision-Date: 2026-09-19 17:53+0900\n"
 "Last-Translator: Moguet contributors\n"
 "Language-Team: Japanese\n"
 "Language: ja\n"
@@ -2186,6 +2186,10 @@ msgid "Unknown operation: {}"
 msgstr "不明な操作です: {}"
 
 #, c++-format
+msgid "Option {} is not supported for operation {}."
+msgstr "option {} はoperation {} ではサポートされていません。"
+
+#, c++-format
 msgid "A {} option is not supported for the combined {} route. Use {} for a repository-only system upgrade with full {} pass-through."
 msgstr "{}オプションは複合{}経路では対応していません。{}を使用すると、{}引数を完全に引き継ぐリポジトリ専用システム更新になります。"
 
@@ -2878,57 +2882,6 @@ msgstr "    置換: {}"
 msgid "Package relation assessments:"
 msgstr "パッケージ関係の判定:"
 
-msgid "Ambiguous provided dependencies:"
-msgstr "プロバイダーを一意に決定できない依存関係:"
-
-msgid "Split package install targets:"
-msgstr "分割パッケージのインストール対象:"
-
-#, c++-format
-msgid "  - {} (base: {})"
-msgstr "  - {}（ベース: {}）"
-
-msgid "Unresolved dependencies:"
-msgstr "未解決の依存関係:"
-
-msgid "Cyclic dependencies:"
-msgstr "循環している依存関係:"
-
-msgid "Build plan:"
-msgstr "ビルド計画:"
-
-#, c++-format
-msgid "     target package: {}"
-msgid_plural "     target packages: {}"
-msgstr[0] "     対象パッケージ: {}"
-
-msgid "Provided dependencies:"
-msgstr "提供された依存関係:"
-
-msgid " (selected)"
-msgstr " （選択済み）"
-
-msgid "Fetch targets:"
-msgstr "取得対象:"
-
-msgid "Selected provided dependencies:"
-msgstr "選択済みの提供依存関係:"
-
-#. TRANSLATORS: The first placeholder is the
-#. literal command name "upgrade-all"; the
-#. second is a runtime option token.
-#, c++-format
-msgid "Unsupported {} option: {}"
-msgstr "{}で未対応のオプションです: {}"
-
-#, c++-format
-msgid "Failed to inspect dependencies for {}: {}"
-msgstr "{}の依存関係を調査できませんでした: {}"
-
-#, c++-format
-msgid "{} package not found: {}"
-msgstr "{}にパッケージが見つかりません: {}"
-
 #, c++-format
 msgid "Package         : {}"
 msgstr "パッケージ      : {}"
@@ -2952,8 +2905,59 @@ msgstr "公式{}依存関係:"
 msgid "{} dependencies:"
 msgstr "{}依存関係:"
 
+msgid "Provided dependencies:"
+msgstr "提供された依存関係:"
+
+msgid "Selected provided dependencies:"
+msgstr "選択済みの提供依存関係:"
+
+msgid "Ambiguous provided dependencies:"
+msgstr "プロバイダーを一意に決定できない依存関係:"
+
 msgid "Unknown dependencies:"
 msgstr "不明な依存関係:"
+
+msgid "Split package install targets:"
+msgstr "分割パッケージのインストール対象:"
+
+#, c++-format
+msgid "  - {} (base: {})"
+msgstr "  - {}（ベース: {}）"
+
+msgid "Unresolved dependencies:"
+msgstr "未解決の依存関係:"
+
+msgid "Cyclic dependencies:"
+msgstr "循環している依存関係:"
+
+msgid "Build plan:"
+msgstr "ビルド計画:"
+
+#, c++-format
+msgid "     target package: {}"
+msgid_plural "     target packages: {}"
+msgstr[0] "     対象パッケージ: {}"
+
+msgid " (selected)"
+msgstr " （選択済み）"
+
+msgid "Fetch targets:"
+msgstr "取得対象:"
+
+#. TRANSLATORS: The first placeholder is the
+#. literal command name "upgrade-all"; the
+#. second is a runtime option token.
+#, c++-format
+msgid "Unsupported {} option: {}"
+msgstr "{}で未対応のオプションです: {}"
+
+#, c++-format
+msgid "Failed to inspect dependencies for {}: {}"
+msgstr "{}の依存関係を調査できませんでした: {}"
+
+#, c++-format
+msgid "{} package not found: {}"
+msgstr "{}にパッケージが見つかりません: {}"
 
 #, c++-format
 msgid "Failed to plan build order for {}: {}"
@@ -3520,6 +3524,9 @@ msgstr "無効な{}パッケージ対象です: {}"
 msgid "{} work item has no invocation root ownership: {}"
 msgstr "{}の作業項目に呼び出しルートの所有関係がありません: {}"
 
+msgid "Package candidates:"
+msgstr "パッケージ候補:"
+
 msgid "Invalid package selection token."
 msgstr "パッケージ選択トークンが無効です。"
 
@@ -3539,9 +3546,6 @@ msgstr "パッケージ選択の取り消しトークンは選択指定と同時
 #, c++-format
 msgid "Package {} was selected from more than one source; select exactly one source."
 msgstr "パッケージ {} が複数のソースから選択されています。ソースをちょうど1つ選択してください。"
-
-msgid "Package candidates:"
-msgstr "パッケージ候補:"
 
 #, c++-format
 msgid "Select package numbers, ascending ranges, or displayed {}; press {} or enter {} to cancel:"
@@ -5077,10 +5081,6 @@ msgstr "システム/ソース更新の事前検査に投影authorityがあり�
 msgid "Upgrade-all preflight has no projection authority."
 msgstr "upgrade-allの事前検査に投影authorityがありません。"
 
-#, c++-format
-msgid "Option {} is not supported for operation {}."
-msgstr "option {} はoperation {} ではサポートされていません。"
-
 msgid "Dry-run route classification returned an unknown operation."
 msgstr "dry-runの経路分類が不明なoperationを返しました。"
 
@@ -5596,6 +5596,14 @@ msgstr "{}および外部パッケージの更新を確認"
 
 msgid "OPTIONS"
 msgstr "オプション"
+
+msgid "Show detailed diagnostic and provenance information"
+msgstr "詳細な診断情報と由来情報を表示"
+
+#. TRANSLATORS: The placeholders are literal supported CLI forms.
+#, c++-format
+msgid "For {}, {}, and {}; changes presentation only, not execution"
+msgstr "{}、{}、{}で使用可能。表示だけを変更し、実行動作は変えません"
 
 msgid "Show this help message and exit"
 msgstr "このヘルプを表示して終了"

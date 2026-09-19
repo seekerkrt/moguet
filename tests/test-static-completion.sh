@@ -45,7 +45,7 @@ root_candidates=(
     -G -Gp -S -Syu -Su -Ss -Si -Qua
     -h --help -V --version
     --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode=
-    --rebuild --cleanbuild --rmdeps --select --aur --repo
+    --rebuild --cleanbuild --rmdeps --select --aur --repo --details
 )
 
 registration=$(complete -p moguet)
@@ -98,7 +98,7 @@ run_completion moguet --b
 assert_reply "attached-value option token" --build-mode=
 
 run_completion moguet --d
-assert_reply "dry-run option prefix" --diff --dry-run
+assert_reply "diagnostic and dry-run option prefix" --diff --dry-run --details
 
 # enum / package候補のdynamic completionは#253へ残す。
 run_completion moguet --build-mode=n
@@ -145,13 +145,24 @@ run_completion moguet list-src ""
 assert_reply "list-srcはoptionを持たない"
 
 run_completion moguet deps first ""
-assert_reply "deps multi-target formを閉じない" --noconfirm --recursive
+assert_reply "deps multi-target formを閉じない" --noconfirm --details --recursive
 
 run_completion moguet deps first second ""
-assert_reply "deps second target後もmulti-target formを閉じない" --noconfirm --recursive
+assert_reply "deps second target後もmulti-target formを閉じない" --noconfirm --details --recursive
 
 run_completion moguet plan first second ""
-assert_reply "plan multi-target formを閉じない" --noconfirm
+assert_reply "plan multi-target formを閉じない" --noconfirm --details
+
+for operation in plan deps; do
+    run_completion moguet "$operation" --details --det
+    assert_reply "$operationのdetailsはrepeat-idempotent" --details
+done
+run_completion moguet -S --select --det
+assert_reply "selected -Sはdetailsを提示する" --details
+run_completion moguet -S --det
+assert_reply "plain -Sはdetailsを提示しない"
+run_completion moguet fetch --det
+assert_reply "fetchはdetailsを提示しない"
 
 run_completion moguet fetch first second ""
 assert_reply "fetch multi-target formを閉じない" --noconfirm --dry-run
@@ -184,13 +195,13 @@ run_completion moguet -S --select ""
 assert_reply \
     "source-aware select固有option scope" \
     --select --needed --edit --noedit --diff --nodiff --noconfirm --dry-run \
-    --build-mode= --rebuild --cleanbuild --aur --repo
+    --build-mode= --rebuild --cleanbuild --aur --repo --details
 
 run_completion moguet -S --select query ""
 assert_reply \
     "source-aware select exactly-one queryを維持" \
     --select --needed --edit --noedit --diff --nodiff --noconfirm --dry-run \
-    --build-mode= --rebuild --cleanbuild --aur --repo
+    --build-mode= --rebuild --cleanbuild --aur --repo --details
 
 run_completion moguet -S --select query extra ""
 assert_reply "source-aware select extra query後は候補を提示しない"
@@ -263,6 +274,7 @@ _moguet_find_operation || fail 'deps operation not found'
 [[ $REPLY == deps ]] || fail 'deps operation identity differs'
 _moguet_collect_candidates "$REPLY"
 has_candidate --recursive || fail 'deps lost --recursive'
+has_candidate --details || fail 'deps lost --details'
 has_candidate --local && fail 'deps leaked --local'
 
 words=(moguet deps first second '')
@@ -325,7 +337,10 @@ words=(moguet -S --select '')
 CURRENT=4
 _moguet_collect_candidates -S
 has_candidate --needed || fail 'selected -S lost --needed'
+has_candidate --details || fail 'selected -S lost --details'
 has_candidate --recursive && fail 'selected -S leaked --recursive'
+_moguet_description --details
+[[ $REPLY == *'diagnostic and provenance'* ]] || fail 'details description missing'
 
 words=(moguet -S --select query '')
 CURRENT=5
@@ -406,6 +421,7 @@ __moguet_candidate_available 4; and fail 'unknown bare operation exposed options
 set mock_words moguet deps
 test (__moguet_operation) = deps; or fail 'deps operation identity differs'
 __moguet_candidate_available 17; or fail 'deps lost --recursive'
+__moguet_candidate_available 20; or fail 'deps lost --details'
 __moguet_candidate_available 15; and fail 'deps leaked --local'
 
 set mock_words moguet deps first second
@@ -443,6 +459,7 @@ __moguet_candidate_available 4; and fail 'targetless operation remained open'
 
 set mock_words moguet -S --select
 __moguet_candidate_available 18; or fail 'selected -S lost --needed'
+__moguet_candidate_available 20; or fail 'selected -S lost --details'
 __moguet_candidate_available 17; and fail 'selected -S leaked --recursive'
 set mock_words moguet -S --select query
 __moguet_candidate_available 18; or fail 'selected -S legal query was closed'
@@ -475,6 +492,7 @@ __moguet_candidate_available 4; or fail 'source-maintenance multi-target form wa
 
 set mock_words moguet -Q
 test (__moguet_operation) = __delegated__; or fail 'delegated operation was closed'
+__moguet_candidate_available 20; and fail 'delegated grammar leaked --details'
 __moguet_candidate_available 4; or fail 'delegated grammar lost --noconfirm'
 FISH
     case_count=$((case_count + 1))

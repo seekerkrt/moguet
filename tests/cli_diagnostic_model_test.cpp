@@ -404,7 +404,7 @@ void test_rich_cli_option_and_ownership_contract() {
             details.lexical_placement ==
                 OptionLexicalPlacement::ParserGlobalNormalPosition &&
             details.default_occurrence == OptionOccurrence::RepeatIdempotent &&
-            details.completion_visibility == OptionCompletionVisibility::Hidden &&
+            details.completion_visibility == OptionCompletionVisibility::SuggestedAndDescribed &&
             details.semantic_scopes == option_scope(OptionSemanticScope::PresentationDetail),
         "--details must be a Moguet-owned global presentation option");
     for(const OperationOptionRelationSet* relations : {

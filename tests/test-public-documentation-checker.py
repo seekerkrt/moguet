@@ -283,7 +283,17 @@ def main() -> int:
     exact_man_public_surface(
         REPOSITORY_ROOT / "man/moguet.1.in", expected, schema
     )
+    if "--details" not in expected.options:
+        fail("public authority lost --details")
     mutations = (
+        (
+            "obsolete presentation option",
+            replace_once(source, '.B "--details"', '.B "--verbose"'),
+        ),
+        (
+            "missing details option definition",
+            replace_once(source, '.B "--details"', '.B ""'),
+        ),
         (
             "duplicate trailing option",
             replace_once(

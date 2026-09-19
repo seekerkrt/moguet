@@ -1743,23 +1743,61 @@ assert_event_absent 'aur info-many system-query-fatal'
 assert_not_contains 'devel tracking baseline is missing' "$output_file"
 
 # P0-8/P0-9: Issue #217 production root search/selection route and phase barrier.
-setup_case select-nontty-gate-before-query
-run_status 1 -S --select select-scope
-assert_contains \
-    "Error: Unavailable: Interactive package selection requires a TTY on standard input." \
-    "$output_file"
-assert_event_prefix_absent '^root search '
-assert_command_log_empty
-assert_state_log_absent
+# Detail mode must not grant interaction on non-TTY input or with --noconfirm.
+for detail_option in '' --details; do
+    setup_case select-nontty-gate-before-query
+    run_status 1 $detail_option -S --select select-scope
+    assert_contains \
+        "Error: Unavailable: Interactive package selection requires a TTY on standard input." \
+        "$output_file"
+    assert_event_prefix_absent '^root search '
+    assert_command_log_empty
+    assert_state_log_absent
 
-setup_case select-noconfirm-gate-before-query
-run_status 1 --noconfirm -S --select select-scope
-assert_contains \
-    "Error: Unavailable: Interactive package selection is not available with --noconfirm." \
-    "$output_file"
-assert_event_prefix_absent '^root search '
-assert_command_log_empty
-assert_state_log_absent
+    setup_case select-noconfirm-gate-before-query
+    run_status 1 $detail_option --noconfirm -S --select select-scope
+    assert_contains \
+        "Error: Unavailable: Interactive package selection is not available with --noconfirm." \
+        "$output_file"
+    assert_event_prefix_absent '^root search '
+    assert_command_log_empty
+    assert_state_log_absent
+done
+
+# A TTY stdin still permits explicit selection with redirected output. Compare
+# execution evidence, leaving normal presentation free to become compact later.
+setup_case select-details-redirected-output
+for detail_option in '' --details; do
+    : > "$command_log"
+    actual_status=0
+    (cd "$case_dir/work" && printf '1-2\n' |
+        python3 "$pty_runner" -- sh -c \
+            'out=$1; shift; exec "$@" >"$out" 2>&1' \
+            sh "$output_file" "$test_binary" $detail_option \
+            -S --select --repo --needed select-repository) || actual_status=$?
+    [ "$actual_status" -eq 0 ] || { echo "redirected selection failed: $actual_status" >&2; exit 1; }
+    assert_event_at 1 "root search repository select-repository"
+    assert_event_at 2 "sudo pacman -S --needed -- core/repo-one extra/repo-two"
+    assert_event_pattern_count 1 '^sudo pacman -S '
+    assert_event_prefix_absent '^(pacman|pacman-conf|git|makepkg|aur) '
+    if [ -z "$detail_option" ]; then
+        cp "$command_log" "$case_dir/normal.commands"
+        cp "$output_file" "$case_dir/normal.output"
+    else
+        cmp -s "$case_dir/normal.commands" "$command_log" || {
+            echo 'redirected Normal/Detailed selection trace differs' >&2
+            exit 1
+        }
+        python3 - "$case_dir/normal.output" "$output_file" <<'PYANSI'
+from pathlib import Path
+import re
+import sys
+ansi = re.compile(rb"\x1b\[[0-?]*[ -/]*[@-~]")
+if ansi.findall(Path(sys.argv[1]).read_bytes()) != ansi.findall(Path(sys.argv[2]).read_bytes()):
+    raise SystemExit("redirected Normal/Detailed ANSI controls differ")
+PYANSI
+    fi
+done
 
 setup_case select-no-candidates-without-prompt
 run_status_pty 1 '' -S --select select-empty

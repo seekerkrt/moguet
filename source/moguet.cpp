@@ -949,6 +949,14 @@ void print_help() {
     std::cout << std::endl;
     print_help_section(localization::translate_message("OPTIONS"));
     print_help_entry(
+        cli_option_syntax(OptionId::Details),
+        localization::translate_message(
+            "Show detailed diagnostic and provenance information"));
+    print_help_continuation(localization::format_translated_message(
+        // TRANSLATORS: The placeholders are literal supported CLI forms.
+        "For {}, {}, and {}; changes presentation only, not execution",
+        "plan", "deps", "-S --select"));
+    print_help_entry(
         cli_option_syntax(OptionId::Help),
         localization::translate_message(
             "Show this help message and exit"));

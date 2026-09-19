@@ -275,7 +275,7 @@ enum class OptionId {
     Recursive,
     Needed,
     EndOfOptions,
-    // Preserve existing exported option IDs while Slice 2 keeps Details hidden.
+    // Preserve existing exported option IDs when adding new globals.
     Details,
     Count,
 };
@@ -764,8 +764,7 @@ inline constexpr std::array<OptionContract,
          option_scope(OptionSemanticScope::PresentationDetail),
          GrammarOwnership::MoguetOwned,
          OptionPublicDefinitionRole::Definition,
-         // Slice 4 owns public descriptions and generated completion exposure.
-         OptionCompletionVisibility::Hidden,
+         OptionCompletionVisibility::SuggestedAndDescribed,
          "cli.presentation.detail"},
     }};
 
