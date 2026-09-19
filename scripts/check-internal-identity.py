@@ -212,7 +212,7 @@ FINAL_REPOSITORY_TOKENS: dict[str, tuple[str, ...]] = {
     "THIRD_PARTY_NOTICES.md": (
         "https://github.com/seekerkrt/moguet/blob/develop/",
     ),
-    "docs/DEVELOPMENT.md": (
+    "docs/development.md": (
         "https://github.com/seekerkrt/moguet",
         "https://gitlab.com/seekerkrt/moguet",
     ),
@@ -325,7 +325,7 @@ ACTIVE_LEGACY_ALLOWANCES: dict[str, tuple[LegacyAllowance, ...]] = {
         "legacy-storage-path",
         legacy_etc_path,
     ),
-    "docs/DECISIONS.md": (
+    "docs/decisions.md": (
         allowances(
             "historical-project-version",
             historical_project_version,
@@ -344,11 +344,11 @@ ACTIVE_LEGACY_ALLOWANCES: dict[str, tuple[LegacyAllowance, ...]] = {
             rf"neither creates nor reads `/etc/{legacy}` or `/etc/moguet` at runtime",
         )
     ),
-    "docs/COMPATIBILITY.md": allowances(
+    "docs/compatibility.md": allowances(
         "legacy-storage-negative-contract",
         rf"`/etc/{legacy}`と`/etc/moguet`をruntime",
     ),
-    "docs/VERSIONING.md": (
+    "docs/versioning.md": (
         allowances(
             "historical-project-version",
             historical_project_version,
@@ -729,7 +729,7 @@ def check_classifier_contract() -> None:
         fail("internal package storage-fixture classifier self-test failed")
 
     negative_storage_contract_categories = legacy_categories_for_line(
-        "docs/DECISIONS.md",
+        "docs/decisions.md",
         f"Moguet neither creates nor reads `/etc/{LEGACY_NAME}` or "
         "`/etc/moguet` at runtime",
     )
@@ -739,7 +739,7 @@ def check_classifier_contract() -> None:
         fail("internal negative storage-contract classifier self-test failed")
 
     active_storage_claim_categories = legacy_categories_for_line(
-        "docs/DECISIONS.md",
+        "docs/decisions.md",
         f"Moguet reads `/etc/{LEGACY_NAME}` as its active store",
     )
     if active_storage_claim_categories != [None]:

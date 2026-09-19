@@ -8,7 +8,7 @@
 - Related Issues: [#75](https://github.com/seekerkrt/moguet/issues/75)、[#302](https://github.com/seekerkrt/moguet/issues/302)、[#304](https://github.com/seekerkrt/moguet/issues/304)
 - Related PRs: #315〜#318（#305 path、directory safety、state / cache cutover）、#312〜#314（identity boundary）
 - Update history: Issue #373で旧decision 11の本文から安定contractへ分離。
-- Related upper decisions: [decision 1](../DECISIONS.md#decision-1)、[decision 2](../DECISIONS.md#decision-2)、[decision 4](../DECISIONS.md#decision-4)、[decision 5](../DECISIONS.md#decision-5)、[decision 6](../DECISIONS.md#decision-6)、[decision 7](../DECISIONS.md#decision-7)
+- Related upper decisions: [decision 1](../decisions.md#decision-1)、[decision 2](../decisions.md#decision-2)、[decision 4](../decisions.md#decision-4)、[decision 5](../decisions.md#decision-5)、[decision 6](../decisions.md#decision-6)、[decision 7](../decisions.md#decision-7)
 
 ## Contract本文（日本語normative source of truth）
 
@@ -57,4 +57,4 @@ mutation開始後のlease failure等は、先行対象の削除を復元せずin
 
 ## Compatibility
 
-XDG cache、legacy path非変更、filesystem identity、symlink / root escape、preflight summaryは、[`COMPATIBILITY.md`のcache / source-build compatibility section](../COMPATIBILITY.md#compat-xdg-cache-safety)を参照する。
+XDG cache、legacy path非変更、filesystem identity、symlink / root escape、preflight summaryは、[`compatibility.md`のcache / source-build compatibility section](../compatibility.md#compat-xdg-cache-safety)を参照する。

@@ -195,9 +195,9 @@ fail-closedで停止します。v2.xは、Moguetのsource-aware入口、安全�
   `upgrade-all`、non-ready planは既存経路を維持します。
 
 詳細なcompatibility / routing契約は
-[docs/COMPATIBILITY.md](https://github.com/seekerkrt/moguet/blob/develop/docs/COMPATIBILITY.md)、
+[docs/compatibility.md](https://github.com/seekerkrt/moguet/blob/develop/docs/compatibility.md)、
 採用済み設計判断は
-[docs/DECISIONS.md](https://github.com/seekerkrt/moguet/blob/develop/docs/DECISIONS.md)を
+[docs/decisions.md](https://github.com/seekerkrt/moguet/blob/develop/docs/decisions.md)を
 参照してください。
 
 <!-- parity:installation -->
@@ -822,8 +822,8 @@ canonical development repositoryは
 [非公開で報告してください](https://github.com/seekerkrt/moguet/security/advisories/new)。
 
 active integration branchは`develop`、stable releaseは`main`です。
-[docs/DEVELOPMENT.md](https://github.com/seekerkrt/moguet/blob/develop/docs/DEVELOPMENT.md)、
-[docs/VERSIONING.md](https://github.com/seekerkrt/moguet/blob/develop/docs/VERSIONING.md)を
+[docs/development.md](https://github.com/seekerkrt/moguet/blob/develop/docs/development.md)、
+[docs/versioning.md](https://github.com/seekerkrt/moguet/blob/develop/docs/versioning.md)を
 参照してください。Moguet v2.xではAUR helper
 機能を段階的に追加し、高度なruntime-aware completionと将来のbuild profile systemは
 別作業として扱います。

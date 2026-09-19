@@ -8,7 +8,7 @@
 - Related Issues: [#98](https://github.com/seekerkrt/moguet/issues/98)、[#218](https://github.com/seekerkrt/moguet/issues/218)、[#242](https://github.com/seekerkrt/moguet/issues/242)、[#266](https://github.com/seekerkrt/moguet/issues/266)、[#267](https://github.com/seekerkrt/moguet/issues/267)、[#406](https://github.com/seekerkrt/moguet/issues/406)
 - Related PRs: #291〜#296（#268 production slice）、#241、#257〜#261（#242 artifact lifecycle）、#412〜#414（#406 repository projection / integration）
 - Update history: Issue #373で旧decision 9の本文から安定contractへ分離。Issue #406でofficial repositoryのstandalone / registered upper projectionへ適用範囲を拡張。
-- Related upper decisions: [decision 1](../DECISIONS.md#decision-1)、[decision 2](../DECISIONS.md#decision-2)、[decision 4](../DECISIONS.md#decision-4)、[decision 5](../DECISIONS.md#decision-5)、[decision 6](../DECISIONS.md#decision-6)、[decision 7](../DECISIONS.md#decision-7)
+- Related upper decisions: [decision 1](../decisions.md#decision-1)、[decision 2](../decisions.md#decision-2)、[decision 4](../decisions.md#decision-4)、[decision 5](../decisions.md#decision-5)、[decision 6](../decisions.md#decision-6)、[decision 7](../decisions.md#decision-7)
 
 ## Contract本文（日本語normative source of truth）
 
@@ -81,4 +81,4 @@ workspace cleanupはtransaction success後に限る。cleanup failureはtransact
 
 ## Compatibility
 
-利用者向けのsplit package、PackageBase、selected / unselected artifact、`--noconfirm`の要約とroute差分は、[`COMPATIBILITY.md`のPackageBase / child section](../COMPATIBILITY.md#compat-packagebase-child-selection)を参照する。
+利用者向けのsplit package、PackageBase、selected / unselected artifact、`--noconfirm`の要約とroute差分は、[`compatibility.md`のPackageBase / child section](../compatibility.md#compat-packagebase-child-selection)を参照する。

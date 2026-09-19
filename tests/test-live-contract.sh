@@ -36,8 +36,8 @@ local_archive_validator=$live_root/local-archive-validator.sh
 validation_status_library=$repo_root/scripts/validation-status.sh
 dockerignore_file=$repo_root/.dockerignore
 makefile=$repo_root/Makefile
-development_policy=$repo_root/docs/DEVELOPMENT.md
-validation_policy=$repo_root/docs/VALIDATION.md
+development_policy=$repo_root/docs/development.md
+validation_policy=$repo_root/docs/validation.md
 offline_dockerfile=$repo_root/containers/arch-validation/Dockerfile
 offline_runner=$repo_root/containers/arch-validation/run-tests.sh
 receipt_root=$repo_root/containers/arch-receipt-validation
@@ -1226,7 +1226,7 @@ done
 # preserve the same named boundaries enforced above. These assertions do not
 # duplicate the matrix; they prevent documentation from silently promoting a
 # focused or compatibility target to approval authority.
-assert_contains "$development_policy" '[VALIDATION.md](VALIDATION.md)'
+assert_contains "$development_policy" '[validation.md](validation.md)'
 assert_contains "$validation_policy" 'PR / mergeのcanonical host gateは`test-host-release`である。'
 assert_contains "$validation_policy" '`release-check`はstandalone互換targetとして維持するが、full host A–Dのapproval evidenceではない。'
 assert_contains "$validation_policy" '`test-container`はhost A–D / Gを代替せず、`test-live-contract`はactual Fを代替しない。'

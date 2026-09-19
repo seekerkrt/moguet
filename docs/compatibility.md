@@ -714,7 +714,7 @@ RepoOnly `-Syu --repo`ではcompatible pacman pass-throughの一部としてrepo
 
 ## Out of scope
 
-この方針はpacman完全互換、provider choiceの永続化、arbitrary multiple-outputの全自動install、debug package default install、conflicts / replacesの自動解決、dependency solver強化、pacman database write、package verificationの独自再実装を宣言しない。詳細なproduction safety contractは[`docs/contracts/`](contracts/README.md)と[`DECISIONS.md`](DECISIONS.md)へ分離している。
+この方針はpacman完全互換、provider choiceの永続化、arbitrary multiple-outputの全自動install、debug package default install、conflicts / replacesの自動解決、dependency solver強化、pacman database write、package verificationの独自再実装を宣言しない。詳細なproduction safety contractは[`docs/contracts/`](contracts/README.md)と[`decisions.md`](decisions.md)へ分離している。
 
 ## Authoritative devel update routes (#476 Slice 7-D)
 

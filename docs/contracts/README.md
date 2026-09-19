@@ -4,7 +4,7 @@
 
 このdirectoryは、Issue別に確定したproduction contractを、存続するbehavior / safety boundaryごとに管理する。Issue番号は来歴を示すmetadataであり、filenameと現在のauthorityは契約の意味を表す安定した名前にする。
 
-contractの規範上の正本は各文書の日本語本文である。英語利用者向けにこのindexが示す説明はinformativeであり、英語全文の別正本は作成しない。上位原則は日本語・英語併記の[`docs/DECISIONS.md`](../DECISIONS.md)を参照する。利用者向けのroute差分、pass-through policy、対応 / 非対応一覧は[`docs/COMPATIBILITY.md`](../COMPATIBILITY.md)を参照する。
+contractの規範上の正本は各文書の日本語本文である。英語利用者向けにこのindexが示す説明はinformativeであり、英語全文の別正本は作成しない。上位原則は日本語・英語併記の[`docs/decisions.md`](../decisions.md)を参照する。利用者向けのroute差分、pass-through policy、対応 / 非対応一覧は[`docs/compatibility.md`](../compatibility.md)を参照する。
 
 ## Contract index
 
@@ -37,17 +37,17 @@ contractの規範上の正本は各文書の日本語本文である。英語利
 
 - contract本文は日本語がnormative source of truthである。
 - 英語の短い説明や表はinformativeであり、日本語本文の意味を変更しない。
-- Moguet全体に適用する上位原則は[`DECISIONS.md`](../DECISIONS.md)の日英併記を参照する。
-- route別の実際のcompatibility summaryとmatrixは[`COMPATIBILITY.md`](../COMPATIBILITY.md)を参照する。
+- Moguet全体に適用する上位原則は[`decisions.md`](../decisions.md)の日英併記を参照する。
+- route別の実際のcompatibility summaryとmatrixは[`compatibility.md`](../compatibility.md)を参照する。
 
 ## Authority flow
 
 ```text
-DECISIONS.md (上位原則)
+decisions.md (上位原則)
         ↓ 適用
 docs/contracts/*.md (日本語normative production contract)
         ↓ 利用者向け要約・route差分
-COMPATIBILITY.md (summary / matrix / pass-through)
+compatibility.md (summary / matrix / pass-through)
 ```
 
 Contractは、実装moduleやtypeの恒久的な固定ではない。implementationを変更する場合も、本文に記載されたfail-closed boundary、ownership、authority、transaction owner、partial completionの意味を弱めてはならない。
