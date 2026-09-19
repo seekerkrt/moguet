@@ -157,6 +157,22 @@ run_status_pty() {
     fi
 }
 
+# These deterministic root fixtures have no timing/path fields in their output.
+assert_details_selection_parity() {
+    parity_status=$1
+    parity_input=$2
+    shift 2
+    cp "$output_file" "$case_dir/normal.output"
+    cp "$command_log" "$case_dir/normal.commands"
+    run_status_pty "$parity_status" "$parity_input" --details "$@"
+    if ! cmp -s "$case_dir/normal.output" "$output_file" ||
+       ! cmp -s "$case_dir/normal.commands" "$command_log"; then
+        echo "Normal/Detailed root selection output or selected route differs: $*" >&2
+        cat "$output_file" "$command_log" >&2
+        exit 1
+    fi
+}
+
 assert_contains() {
     expected=$1
     file=$2
@@ -1775,6 +1791,7 @@ assert_state_log_absent
 
 setup_case select-presentation-invalid-retry-cancel
 run_status_pty 1 '0\nq\n' -S --select select-presentation
+assert_details_selection_parity 1 '0\nq\n' -S --select select-presentation
 assert_event_at 1 "root search all select-presentation"
 assert_event_count 1 "root search all select-presentation"
 assert_contains "Package candidates:" "$output_file"
@@ -1790,8 +1807,18 @@ assert_contains "Cancelled: Package selection was cancelled." "$output_file"
 assert_event_prefix_absent '^(sudo|pacman|pacman-conf|git|makepkg|aur) '
 assert_state_log_absent
 
+for cancel_input in '\n' '\004'; do
+    setup_case select-details-no-default
+    run_status_pty 1 "$cancel_input" -S --select select-presentation
+    assert_details_selection_parity 1 "$cancel_input" -S --select select-presentation
+    assert_contains "Cancelled: Package selection was cancelled." "$output_file"
+    assert_event_prefix_absent '^(sudo|pacman|pacman-conf|git|makepkg|aur) '
+    assert_state_log_absent
+done
+
 setup_case select-ambiguous-alternative-retry-cancel
 run_status_pty 1 '1-2\nq\n' -S --select select-alternative-conflict
+assert_details_selection_parity 1 '1-2\nq\n' -S --select select-alternative-conflict
 assert_event_at 1 "root search all select-alternative-conflict"
 assert_contains \
     "Ambiguous: Package shared-alternative was selected from more than one source; select exactly one source. [package=shared-alternative]" \
@@ -1820,6 +1847,7 @@ assert_state_log_absent
 
 setup_case select-repository-range-needed-one-transaction
 run_status_pty 0 '1-2\n' -S --select --repo --needed select-repository
+assert_details_selection_parity 0 '1-2\n' -S --select --repo --needed select-repository
 repository_range_transaction='sudo pacman -S --needed -- core/repo-one extra/repo-two'
 assert_event_at 1 "root search repository select-repository"
 assert_event_at 2 "$repository_range_transaction"
@@ -1829,6 +1857,7 @@ assert_event_prefix_absent '^(pacman|pacman-conf|git|makepkg|aur) '
 
 setup_case select-repository-group-one-transaction
 run_status_pty 0 '@repo-group\n' -S --select --repo select-repository
+assert_details_selection_parity 0 '@repo-group\n' -S --select --repo select-repository
 repository_group_transaction='sudo pacman -S -- core/repo-one extra/repo-two'
 assert_event_at 1 "root search repository select-repository"
 assert_event_at 2 "$repository_group_transaction"

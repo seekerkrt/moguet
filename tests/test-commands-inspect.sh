@@ -130,6 +130,23 @@ run_fail() {
     fi
 }
 
+# Stable read-only fixtures: compare the complete presentation and query trace.
+# Keep this Slice 3 parity check separate from the rich marker assertions below.
+assert_details_parity() {
+    result=$1
+    shift
+    cp "$stdout_file" "$case_dir/normal.stdout"
+    cp "$stderr_file" "$case_dir/normal.stderr"
+    cp "$command_log" "$case_dir/normal.commands"
+    "run_$result" --details "$@"
+    cmp -s "$case_dir/normal.stdout" "$stdout_file" ||
+        fail_case "Normal/Detailed stdout differs: $*"
+    cmp -s "$case_dir/normal.stderr" "$stderr_file" ||
+        fail_case "Normal/Detailed stderr differs: $*"
+    cmp -s "$case_dir/normal.commands" "$command_log" ||
+        fail_case "Normal/Detailed query or mutation trace differs: $*"
+}
+
 run_ok_with_pipe() {
     input=$1
     shift
@@ -404,6 +421,7 @@ done
 setup_case deps-partial-failure
 export MOGUET_TEST_INSPECTION_SCENARIO=deps-partial-failure
 run_fail deps deps-first deps-fail deps-third
+assert_details_parity fail deps deps-first deps-fail deps-third
 assert_contains "Failed to inspect dependencies for deps-fail: fixture query failure" "$stderr_file"
 assert_before "Package         : deps-first" "Package         : deps-third" "$stdout_file"
 assert_not_contains "Package         : deps-fail" "$stdout_file"
@@ -424,6 +442,7 @@ echo "  ok: deps validates the whole invocation before metadata resolution"
 setup_case deps-provider-order
 export MOGUET_TEST_INSPECTION_SCENARIO=deps-provider-order
 run_ok deps deps-provider-root
+assert_details_parity ok deps deps-provider-root
 assert_exact_line "      1. aur/provider-z" "$stdout_file"
 assert_exact_line "      2. aur/provider-a" "$stdout_file"
 assert_before "      1. aur/provider-z" "      2. aur/provider-a" "$stdout_file"
@@ -544,6 +563,7 @@ echo "  ok: deps retains partial provider observations without prompting"
 setup_case plan-partial-failure
 export MOGUET_TEST_INSPECTION_SCENARIO=plan-partial-failure
 run_ok plan plan-first plan-fail plan-third
+assert_details_parity ok plan plan-first plan-fail plan-third
 assert_contains "AUR package metadata for plan-fail is unavailable: fixture plan failure" "$stdout_file"
 assert_before "  1. plan-first" "  2. plan-third" "$stdout_file"
 assert_exact_line_count 1 "Build plan:" "$stdout_file"
@@ -558,6 +578,7 @@ echo "  ok: plan retains ordinary failure as one incomplete invocation"
 setup_case plan-validation-position
 export MOGUET_TEST_INSPECTION_SCENARIO=plan-validation-position
 run_fail plan plan-first invalid/name plan-third
+assert_details_parity fail plan plan-first invalid/name plan-third
 assert_contains "Invalid package name: invalid/name" "$stderr_file"
 assert_not_contains "Failed to plan build order" "$stderr_file"
 if [ -s "$command_log" ]; then
@@ -695,6 +716,7 @@ echo "  ok: same-root conflict fails before provider interaction"
 setup_case plan-metadata-risk-readiness
 export MOGUET_TEST_INSPECTION_SCENARIO=plan-metadata-risk-readiness
 run_ok plan plan-metadata-risk-root
+assert_details_parity ok plan plan-metadata-risk-root
 assert_exact_line "  completeness: Complete" "$stdout_file"
 assert_exact_line "  Fetch readiness: Ready" "$stdout_file"
 assert_exact_line "  Build readiness: Ready" "$stdout_file"
@@ -711,6 +733,7 @@ echo "  ok: plan releases a complete typed no-match relation guard"
 setup_case plan-split-only-readiness
 export MOGUET_TEST_INSPECTION_SCENARIO=plan-split-only-readiness
 run_ok plan plan-split-child
+assert_details_parity ok plan plan-split-child
 assert_exact_line "  completeness: Complete" "$stdout_file"
 assert_exact_line "  Fetch readiness: Ready" "$stdout_file"
 assert_exact_line "  Build readiness: Ready" "$stdout_file"
@@ -723,6 +746,7 @@ echo "  ok: plan preserves split PackageBase install readiness"
 setup_case plan-density-attention
 export MOGUET_TEST_INSPECTION_SCENARIO=plan-density-attention
 run_ok plan plan-density-root
+assert_details_parity ok plan plan-density-root
 assert_exact_line \
     "  items: 34 total, 34 normal, 0 attention-required" "$stdout_file"
 assert_exact_line "  normal unconstrained dependencies: 33" "$stdout_file"
@@ -826,6 +850,7 @@ export MOGUET_TEST_INSPECTION_SCENARIO=plan-repository-size-identities
 MOGUET_TEST_PACMAN_REPO_PACKAGES='same-package different-package same-semantic repository-aur-package'
 export MOGUET_TEST_PACMAN_REPO_PACKAGES
 run_ok deps --recursive plan-identity-root
+assert_details_parity ok deps --recursive plan-identity-root
 assert_exact_line "  - identity-repository-aur-virtual [provided] by aur/repository-aur-package" "$stdout_file"
 assert_exact_line "  - identity-aur-virtual [provided] by aur/identity-aur-provider" "$stdout_file"
 echo "  ok: recursive dependency display preserves typed provider labels"
@@ -1020,6 +1045,7 @@ export MOGUET_TEST_ALPM_VERCMP_EXPECTED_LHS=2.0-1
 export MOGUET_TEST_ALPM_VERCMP_EXPECTED_RHS=3
 export MOGUET_TEST_ALPM_VERCMP_RESULT=-1
 run_ok deps constraint-unsatisfied-root
+assert_details_parity ok deps constraint-unsatisfied-root
 assert_contains "constraint-leaf>=3: result=Unsatisfied" "$stdout_file"
 assert_contains "Dependency constraint-leaf>=3 is Unsatisfied" "$stdout_file"
 
@@ -1029,24 +1055,28 @@ export MOGUET_TEST_ALPM_VERCMP_EXPECTED_LHS=2.0-1
 export MOGUET_TEST_ALPM_VERCMP_EXPECTED_RHS=2.0-1
 export MOGUET_TEST_ALPM_VERCMP_RESULT=0
 run_ok deps constraint-satisfied-root
+assert_details_parity ok deps constraint-satisfied-root
 assert_contains "constraint-leaf>=2.0-1: result=Satisfied" "$stdout_file"
 assert_not_contains "Warning: Dependency constraint-leaf>=2.0-1" "$stdout_file"
 
 setup_case deps-constraint-unconstrained
 export MOGUET_TEST_INSPECTION_SCENARIO=deps-constraint-unconstrained
 run_ok deps constraint-unconstrained-root
+assert_details_parity ok deps constraint-unconstrained-root
 assert_contains "constraint-leaf: result=Unconstrained" "$stdout_file"
 assert_not_contains "Warning: Dependency constraint-leaf" "$stdout_file"
 
 setup_case deps-constraint-unknown
 export MOGUET_TEST_INSPECTION_SCENARIO=deps-constraint-unknown
 run_ok deps constraint-unknown-root
+assert_details_parity ok deps constraint-unknown-root
 assert_contains "constraint-virtual>=3: result=Unknown" "$stdout_file"
 assert_contains "Dependency constraint-virtual>=3 is Unknown" "$stdout_file"
 
 setup_case deps-constraint-invalid
 export MOGUET_TEST_INSPECTION_SCENARIO=deps-constraint-invalid
 run_fail deps constraint-invalid-root
+assert_details_parity fail deps constraint-invalid-root
 assert_contains "AUR package metadata constraint projection failed: constraint-invalid-root" "$stderr_file"
 
 # Issue #351 F5: an installed exact source is distinct from repository origin,
@@ -1055,6 +1085,7 @@ setup_case deps-installed-source-classification
 export MOGUET_TEST_INSPECTION_SCENARIO=deps-installed-source-classification
 export MOGUET_TEST_PACMAN_INSTALLED_PACKAGES='foreign-installed'
 run_ok deps installed-display-root
+assert_details_parity ok deps installed-display-root
 assert_contains "Installed dependencies:" "$stdout_file"
 assert_exact_line_count 1 "  foreign-installed" "$stdout_file"
 assert_before "Installed dependencies:" "  foreign-installed" "$stdout_file"
@@ -1065,6 +1096,7 @@ echo "  ok: deps presents foreign installed exact packages as Installed"
 setup_case deps-installed-query-failure
 export MOGUET_TEST_INSPECTION_SCENARIO=deps-installed-query-failure
 run_ok deps installed-query-failure-root
+assert_details_parity ok deps installed-query-failure-root
 assert_contains \
     "installed-query-failure>=1: result=Unknown, reason=metadata query failed" \
     "$stdout_file"
@@ -1081,6 +1113,7 @@ export MOGUET_TEST_ALPM_VERCMP_EXPECTED_LHS=2.0-1
 export MOGUET_TEST_ALPM_VERCMP_EXPECTED_RHS=3
 export MOGUET_TEST_ALPM_VERCMP_RESULT=-1
 run_ok plan constraint-unsatisfied-root
+assert_details_parity ok plan constraint-unsatisfied-root
 assert_exact_line "  completeness: Incomplete" "$stdout_file"
 assert_contains "reason: constraint readiness" "$stdout_file"
 assert_contains "constraint-leaf>=3: result=Unsatisfied" "$stdout_file"

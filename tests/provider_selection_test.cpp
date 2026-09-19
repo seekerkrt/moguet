@@ -135,6 +135,63 @@ ProviderCandidatePresenter make_installed_state_presenter(
     return make_provider_installed_state_candidate_presenter(lookup);
 }
 
+void test_presentation_modes_preserve_rich_candidates_and_selection() {
+    const auto candidate_set = installed_state_candidates();
+    for(const bool unknown_state : {false, true}) {
+        for(const std::string& answer : {std::string("0\n2\n"), std::string("q\n"), std::string("\n"), std::string()}) {
+            std::string normal_output;
+            for(const PresentationDetail detail : {PresentationDetail::Normal, PresentationDetail::Detailed}) {
+                reset_metadata_stubs();
+                if(unknown_state) {
+                    stub::enqueue_captured_command_result(
+                        DATABASE_PATH_COMMAND, CapturedCommandResult{"", 127});
+                } else {
+                    enqueue_valid_database_paths();
+                    stub::enqueue_local_package_query_present(
+                        "repository-provider", "repository-provider", "1.2.3-1", ALPM_PKG_REASON_EXPLICIT);
+                    stub::enqueue_local_package_query_absent("aur-provider");
+                }
+                std::istringstream input(answer);
+                std::ostringstream output;
+                ProviderSelectionSession session(input, output, true);
+                auto presenter = make_provider_installed_state_candidate_presenter_factory()(detail);
+                const auto selected = session.select_provider("virtual-dependency", candidate_set, presenter);
+                if(answer == "0\n2\n") {
+                    expect(selected.has_value() && selected.value() == candidate_set[1],
+                           "detail mode changed selected provider identity or metadata");
+                } else {
+                    expect(!selected.has_value() && session.was_cancelled("virtual-dependency"),
+                           "detail mode changed cancellation semantics");
+                }
+                expect(output.str().find(
+                           "1) source=repository package=repository-provider repository=extra "
+                           "provided=virtual-dependency provided-specification=virtual-dependency=1.2 "
+                           "version=1.2.3-1") != std::string::npos,
+                       "detail mode lost repository provider metadata");
+                expect(output.str().find(
+                           "2) source=AUR package=aur-provider PackageBase=aur-provider-base "
+                           "provided=virtual-dependency provided-specification=virtual-dependency>=2.4 "
+                           "version=2.4.0-1") != std::string::npos,
+                       "detail mode lost AUR provider metadata");
+                expect(output.str().find("1) source=repository") < output.str().find("2) source=AUR"),
+                       "detail mode reordered provider candidates");
+                expect(output.str().find(unknown_state ? "[installed state unknown]" : "[installed]") != std::string::npos,
+                       "detail mode lost installed state annotation");
+                if(unknown_state) {
+                    expect(occurrence_count(output.str(), "Warning: installed state is unavailable for provider candidates:") == 1,
+                           "detail mode lost or repeated installed state diagnostic");
+                } else {
+                    stub::require_local_package_query_expectations_consumed();
+                }
+                if(detail == PresentationDetail::Normal)
+                    normal_output = output.str();
+                else
+                    expect(output.str() == normal_output, "Normal/Detailed provider presentation differs");
+            }
+        }
+    }
+}
+
 void test_noninteractive_session_does_not_read_or_write() {
     std::istringstream input("2\n");
     std::ostringstream output;
@@ -646,6 +703,7 @@ void test_no_confirm_production_session_is_noninteractive() {
 
 int main() {
     try {
+        test_presentation_modes_preserve_rich_candidates_and_selection();
         test_noninteractive_session_does_not_read_or_write();
         test_candidate_metadata_and_exact_number_selection();
         test_installed_state_presentation_preserves_order_and_explicit_selection();

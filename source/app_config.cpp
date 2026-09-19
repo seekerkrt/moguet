@@ -39,8 +39,8 @@ ProviderSelectionCallback provider_selection_callback(const AppConfig& config) {
     std::shared_ptr<ProviderSelectionSession> session = config.provider_selection;
     ProviderCandidatePresenter presenter =
         config.provider_candidate_presenter_factory
-            ? config.provider_candidate_presenter_factory()
-            : make_default_provider_candidate_presenter();
+            ? config.provider_candidate_presenter_factory(config.presentation_detail)
+            : make_default_provider_candidate_presenter(config.presentation_detail);
     return [session = std::move(session), presenter = std::move(presenter)](
                const std::string& dependency,
                const std::vector<ProvidedDependency>& candidates) {
