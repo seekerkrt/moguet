@@ -1,5 +1,6 @@
 #pragma once
 
+#include "presentation_detail.hpp"
 #include "user_config.hpp"
 
 #include <cstddef>
@@ -31,7 +32,7 @@ struct ParsedCliToken {
     CliTokenRole role;
 };
 
-// user config対象は最終値を保持し、invocation-only optionだけをbooleanで保持する。
+// user config対象は最終値を保持し、invocation-only policyは永続化せず保持する。
 struct CliOverrides {
     std::optional<ReviewPolicy> review_pkgbuild;
     std::optional<ReviewPolicy> review_diff;
@@ -39,6 +40,7 @@ struct CliOverrides {
     bool no_confirm = false;
     bool dry_run = false;
     bool rm_deps = false;
+    PresentationDetail presentation_detail = PresentationDetail::Normal;
 };
 
 // CLI tokenの構文上の役割と、routing用view / pacman委譲用viewを同じparse結果に束ねる。

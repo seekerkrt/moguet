@@ -21,14 +21,16 @@ std::string resolve_editor_from_environment() {
 } // namespace
 
 AppConfig make_app_config(
-    UserConfig final_user_config, bool no_confirm, bool rm_deps) {
+    UserConfig final_user_config, bool no_confirm, bool rm_deps,
+    PresentationDetail presentation_detail) {
     return AppConfig{
         std::move(final_user_config),
         no_confirm,
         rm_deps,
         resolve_editor_from_environment(),
         make_provider_selection_session(no_confirm),
-        {}};
+        {},
+        presentation_detail};
 }
 
 ProviderSelectionCallback provider_selection_callback(const AppConfig& config) {

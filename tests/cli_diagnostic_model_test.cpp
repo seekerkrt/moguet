@@ -387,9 +387,39 @@ void test_rich_cli_option_and_ownership_contract() {
         const OptionContract& rich = option_contract(option_id(legacy.id));
         expect(
             static_cast<std::size_t>(legacy.id) == index &&
-                static_cast<std::size_t>(rich.id) == index &&
+                (legacy.id == GlobalOptionId::Details ||
+                 static_cast<std::size_t>(rich.id) == index) &&
                 rich.canonical_token == legacy.token,
             "Existing global option ID/token order drifted");
+    }
+
+    const GlobalOptionSpec* global = find_moguet_global_option("--details");
+    const OptionContract& details = option_contract(OptionId::Details);
+    expect(
+        global != nullptr && global->id == GlobalOptionId::Details &&
+            option_id(global->id) == OptionId::Details &&
+            !global->accepts_attached_value &&
+            details.canonical_token == "--details" &&
+            details.owner == GrammarOwnership::MoguetOwned &&
+            details.lexical_placement ==
+                OptionLexicalPlacement::ParserGlobalNormalPosition &&
+            details.default_occurrence == OptionOccurrence::RepeatIdempotent &&
+            details.completion_visibility == OptionCompletionVisibility::Hidden &&
+            details.semantic_scopes == option_scope(OptionSemanticScope::PresentationDetail),
+        "--details must be a Moguet-owned global presentation option");
+    for(const OperationOptionRelationSet* relations : {
+            &operation_form(operation_metadata(OperationId::Plan), 0).option_relations,
+            &operation_form(operation_metadata(OperationId::Deps), 0).option_relations,
+            &special_operation_spec(SpecialOperationId::SyncSelect).option_relations}) {
+        const OptionRelationContract* relation = relations->find(OptionId::Details);
+        expect(
+            relation != nullptr &&
+                relation->requirement == OptionRelationRequirement::Optional &&
+                relation->occurrence == OptionOccurrence::RepeatIdempotent &&
+                relation->semantic_effects == option_effect(OptionSemanticEffect::MoguetControl) &&
+                relation->forwarding_targets == option_forwarding_target(OptionForwardingTarget::None) &&
+                relation->forwarding_occurrence == OptionForwardingOccurrence::None,
+            "--details relation must be optional, idempotent and never forwarded");
     }
 
     const OptionContract& recursive = option_contract(OptionId::Recursive);

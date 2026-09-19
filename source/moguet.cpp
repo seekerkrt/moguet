@@ -238,7 +238,8 @@ int run_moguet(int argc, char* argv[]) {
     g_config = make_app_config(
         std::move(final_user_config),
         parsed.cli_overrides.no_confirm,
-        parsed.cli_overrides.rm_deps);
+        parsed.cli_overrides.rm_deps,
+        parsed.cli_overrides.presentation_detail);
     g_config.provider_candidate_presenter_factory =
         make_provider_installed_state_candidate_presenter_factory();
 

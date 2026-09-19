@@ -419,6 +419,32 @@ CliInvocationValidation validate_cli_invocation_contract(
             DiagnosticClass::Unsupported,
             DiagnosticOperation::CliParsing);
     }
+    // Presentation state can have other authorities; only an actual Moguet
+    // option occurrence is subject to this CLI scope check, before delegation.
+    for(const ParsedCliToken& token : parsed.tokens) {
+        if(token.role != CliTokenRole::MoguetGlobalOption ||
+           token.value != cli_authority::option_contract(
+                              cli_authority::OptionId::Details)
+                              .canonical_token) {
+            continue;
+        }
+        const auto& relations = contract.form != nullptr
+                                    ? contract.form->option_relations
+                                    : contract.special_operation->option_relations;
+        if(!relations.contains(cli_authority::OptionId::Details)) {
+            return invalid_invocation(
+                contract,
+                CliInvocationIssue{
+                    CliInvocationIssueKind::UnsupportedPresentationDetail,
+                    parsed.operation, std::nullopt,
+                    TargetPolicy::None, OperandKind::None},
+                DiagnosticClass::Unsupported,
+                contract.operation != nullptr
+                    ? diagnostic_operation(contract.operation->id)
+                    : diagnostic_operation(contract.special_operation->id));
+        }
+        break;
+    }
     if(parsed.root_package_selection_requested &&
        parsed.operation != "-S") {
         const bool local_build_route =
@@ -499,6 +525,13 @@ std::string cli_invocation_issue_message(
             return localization::format_translated_message(
                 "Option {} is supported only with plain {}.",
                 "--select", "-S");
+        case CliInvocationIssueKind::UnsupportedPresentationDetail:
+            return localization::format_translated_message(
+                "Option {} is not supported for operation {}.",
+                cli_authority::option_contract(
+                    cli_authority::OptionId::Details)
+                    .canonical_token,
+                issue.operation);
         case CliInvocationIssueKind::UnsupportedAutoSystemUpdateOption:
             return localization::format_translated_message(
                 "A {} option is not supported for the combined {} route. Use {} for a repository-only system upgrade with full {} pass-through.",

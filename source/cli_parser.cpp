@@ -160,6 +160,9 @@ bool apply_moguet_global_option(const std::string& arg, ParsedCliArguments& pars
         case cli_authority::GlobalOptionId::RmDeps:
             parsed.cli_overrides.rm_deps = true;
             break;
+        case cli_authority::GlobalOptionId::Details:
+            parsed.cli_overrides.presentation_detail = PresentationDetail::Detailed;
+            break;
         case cli_authority::GlobalOptionId::Select:
             parsed.root_package_selection_requested = true;
             break;

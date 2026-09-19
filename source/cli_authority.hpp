@@ -75,6 +75,7 @@ enum class GlobalOptionId {
     Select,
     Aur,
     Repo,
+    Details,
     Count,
 };
 
@@ -99,6 +100,7 @@ inline constexpr std::array<GlobalOptionSpec, static_cast<std::size_t>(GlobalOpt
         {GlobalOptionId::Select, "--select", false},
         {GlobalOptionId::Aur, "--aur", false},
         {GlobalOptionId::Repo, "--repo", false},
+        {GlobalOptionId::Details, "--details", false},
     }};
 
 constexpr const GlobalOptionSpec& global_option_spec(
@@ -273,11 +275,13 @@ enum class OptionId {
     Recursive,
     Needed,
     EndOfOptions,
+    // Preserve existing exported option IDs while Slice 2 keeps Details hidden.
+    Details,
     Count,
 };
 
 static_assert(
-    static_cast<std::size_t>(GlobalOptionId::Count) ==
+    static_cast<std::size_t>(GlobalOptionId::Details) ==
     static_cast<std::size_t>(OptionId::Help));
 static_assert(
     static_cast<std::size_t>(GlobalOptionId::Edit) ==
@@ -308,6 +312,8 @@ static_assert(
         static_cast<std::size_t>(OptionId::Repo));
 
 constexpr OptionId option_id(GlobalOptionId id) noexcept {
+    // New globals need not renumber the existing completion projection.
+    if(id == GlobalOptionId::Details) return OptionId::Details;
     return static_cast<OptionId>(id);
 }
 
@@ -448,6 +454,7 @@ enum class OptionSemanticScope : std::uint32_t {
     ParserBoundary = 1U << 11,
     DependencyCleanup = 1U << 12,
     PackageExport = 1U << 13,
+    PresentationDetail = 1U << 14,
 };
 
 using OptionSemanticScopeMask = std::uint32_t;
@@ -747,6 +754,19 @@ inline constexpr std::array<OptionContract,
          OptionPublicDefinitionRole::SchemaOnly,
          OptionCompletionVisibility::Hidden,
          "cli.lexical.end-of-options"},
+        {OptionId::Details,
+         global_option_spec(GlobalOptionId::Details).token,
+         no_token_aliases(),
+         no_option_value(),
+         OptionOccurrence::RepeatIdempotent,
+         no_option_conflicts(),
+         OptionLexicalPlacement::ParserGlobalNormalPosition,
+         option_scope(OptionSemanticScope::PresentationDetail),
+         GrammarOwnership::MoguetOwned,
+         OptionPublicDefinitionRole::Definition,
+         // Slice 4 owns public descriptions and generated completion exposure.
+         OptionCompletionVisibility::Hidden,
+         "cli.presentation.detail"},
     }};
 
 constexpr const OptionContract& option_contract(OptionId id) noexcept {
@@ -989,7 +1009,7 @@ constexpr OptionRelationContract public_syntax_option_relation(
 }
 
 struct OperationOptionRelationSet {
-    std::array<OptionRelationContract, 13> values{};
+    std::array<OptionRelationContract, 14> values{};
     std::size_t count = 0;
 
     constexpr bool contains(OptionId id) const noexcept {
@@ -1015,7 +1035,7 @@ constexpr OperationOptionRelationSet no_operation_option_relations() noexcept {
 template <typename... Ids>
 constexpr OperationOptionRelationSet operation_option_relations(
     Ids... ids) noexcept {
-    static_assert(sizeof...(Ids) <= 13);
+    static_assert(sizeof...(Ids) <= 14);
     OperationOptionRelationSet relations;
     ((relations.values[relations.count++] = relation_contract(ids)), ...);
     return relations;
@@ -1102,6 +1122,7 @@ inline constexpr std::array<OperationFormSpec, 14> MOGUET_OPERATION_FORMS = {{
      TargetPolicy::OneOrMore,
      operation_option_relations(
          consumed_option_relation(OptionId::NoConfirm),
+         OptionId::Details,
          public_syntax_option_relation(
              OptionId::Recursive,
              OptionPublicSyntax::Optional))},
@@ -1111,7 +1132,8 @@ inline constexpr std::array<OperationFormSpec, 14> MOGUET_OPERATION_FORMS = {{
                       OperandOrderingRule::PreserveInputOrder),
      TargetPolicy::OneOrMore,
      operation_option_relations(
-         consumed_option_relation(OptionId::NoConfirm))},
+         consumed_option_relation(OptionId::NoConfirm),
+         OptionId::Details)},
     {OperationId::Fetch,
      "cli.fetch.sources",
      one_operand_term(OperandKind::Package, 1, UNBOUNDED_OPERAND_COUNT,
@@ -1362,7 +1384,7 @@ inline constexpr std::array<SpecialOperationSpec,
              OptionId::DryRun,
              OptionId::BuildMode, OptionId::Rebuild,
              OptionId::CleanBuild, OptionId::Aur,
-             OptionId::Repo),
+             OptionId::Repo, OptionId::Details),
          "exit.root-selection", "cli.pacman.sync-select"},
         {SpecialOperationId::SystemRepositoryUpdate,
          PACMAN_SYSTEM_UPGRADE_SYNTAX, no_token_aliases(),

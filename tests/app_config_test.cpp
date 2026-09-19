@@ -51,6 +51,8 @@ void expect(bool condition, const std::string& message) {
 int run_test_driver(int argc, char* argv[]) {
     if(argc == 2 && std::string(argv[1]) == "defaults") {
         AppConfig config;
+        expect(config.presentation_detail == PresentationDetail::Normal,
+               "default AppConfig detail is not Normal");
         expect(
             !provider_selection_callback(config),
             "default AppConfig unexpectedly exposed a provider callback");
@@ -71,6 +73,23 @@ int run_test_driver(int argc, char* argv[]) {
         expect(
             !config.provider_selection->is_interactive(),
             "--noconfirm AppConfig has an interactive provider session");
+        expect(config.presentation_detail == PresentationDetail::Normal,
+               "default snapshot detail is not Normal");
+        const AppConfig details_config = make_app_config(
+            config.user_config, config.no_confirm, config.rm_deps, PresentationDetail::Detailed);
+        expect(details_config.presentation_detail == PresentationDetail::Detailed,
+               "AppConfig snapshot lost Detailed detail");
+        expect(details_config.user_config.schema_version == config.user_config.schema_version &&
+                   details_config.user_config.review.pkgbuild == config.user_config.review.pkgbuild &&
+                   details_config.user_config.review.diff == config.user_config.review.diff &&
+                   details_config.user_config.build.mode == config.user_config.build.mode &&
+                   details_config.no_confirm == config.no_confirm &&
+                   details_config.rm_deps == config.rm_deps &&
+                   details_config.editor == config.editor &&
+                   details_config.provider_selection->is_interactive() == config.provider_selection->is_interactive(),
+               "Presentation detail changed AppConfig execution settings");
+        expect(AppConfig(details_config).presentation_detail == PresentationDetail::Detailed,
+               "AppConfig copy lost invocation presentation detail");
         AppConfig copied_config = config;
         expect(
             copied_config.provider_selection == config.provider_selection,

@@ -81,6 +81,7 @@ KNOWN_OPTION_SEMANTIC_SCOPES = frozenset(
         "parser-boundary",
         "dependency-cleanup",
         "package-export",
+        "presentation-detail",
     }
 )
 KNOWN_GRAMMAR_OWNERSHIPS = frozenset(
@@ -557,7 +558,10 @@ def unique_completion_tokens(options: tuple[Option, ...]) -> tuple[str, ...]:
 
 
 def completion_ids_for_form(schema: CliSchema, form: Form) -> tuple[int, ...]:
-    identities = form.option_ids
+    # Hide route-owned suggestions; retain the existing delegated tail grammar.
+    identities = tuple(
+        option.identity for option in options_for_ids(schema, form.option_ids)
+    )
     if form.delegated_tail_policy != "none":
         identities = identities + schema.delegated_option_ids
     return tuple(dict.fromkeys(identities))
