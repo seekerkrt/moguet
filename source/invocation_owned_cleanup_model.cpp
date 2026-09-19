@@ -541,11 +541,9 @@ std::vector<CleanupClassificationReason> unknown_reasons(
                     CurrentPackageArchitectureUnknown);
         }
     }
-    if(candidate.causal_ownership == CleanupCausalOwnership::Unknown) {
-        add_reason(
-            reasons,
-            CleanupClassificationReason::CausalOwnershipUnknown);
-    }
+    // POLICY(#486): missing strict causal proof alone does not block cleanup.
+    // Affirmative NotInvocationOwned remains a protection reason; all other
+    // evidence requirements below remain independent of causal ownership.
     if(candidate.current_package.verification ==
        CleanupEvidenceVerification::Unverified) {
         add_reason(

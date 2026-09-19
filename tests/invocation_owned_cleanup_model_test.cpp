@@ -179,7 +179,7 @@ InvocationOwnedCleanupCandidate eligible_candidate(
                 InstalledPackageBaseIdentity::known("cleanup-tools"),
                 InstalledPackageArchitectureIdentity::known("x86_64")},
             CleanupEvidenceVerification::Verified},
-        CleanupCausalOwnership::InvocationOwned,
+        CleanupCausalOwnership::Unknown,
         CleanupSharedRequirementState::NoLongerRequired,
         CleanupPolicyProtection::NotProtected,
         CleanupCorrelationCoverage::Complete,
@@ -190,8 +190,10 @@ void test_make_or_check_only_is_eligible() {
     for(const PackageRole role : {
             PackageRole::BuildDependency,
             PackageRole::CheckDependency}) {
+        InvocationOwnedCleanupCandidate candidate = eligible_candidate(role);
+        candidate.causal_ownership = CleanupCausalOwnership::InvocationOwned;
         const CleanupClassificationResult result =
-            classify_invocation_owned_cleanup(eligible_candidate(role));
+            classify_invocation_owned_cleanup(candidate);
         expect(result.classification() == CleanupClassification::Eligible,
                "Verified Make/Check-only evidence was not Eligible.");
         expect_reasons(
@@ -439,6 +441,16 @@ void test_current_package_base_and_architecture_identity() {
                         CurrentPackageArchitectureUnknown),
             "Incomplete current architecture became Eligible.");
     }
+
+    InvocationOwnedCleanupCandidate expected_architecture_unknown = eligible_candidate();
+    expected_architecture_unknown.package = SourceAwarePackageIdentity::make(
+        expected_architecture_unknown.package.package(),
+        SourceRevisionIdentity::unknown(),
+        PackageVersionIdentity::composite("1.0-1"),
+        PackageArchitectureIdentity::unknown());
+    expect_classification(
+        expected_architecture_unknown, CleanupClassification::Unknown,
+        "Unknown expected architecture became Eligible.");
 }
 
 void test_correlation_coverage_authority() {
@@ -485,18 +497,7 @@ void test_correlation_coverage_authority() {
            "Invalid correlation coverage enum was not Invalid.");
 }
 
-void test_unknown_and_not_owned_causal_states() {
-    InvocationOwnedCleanupCandidate unknown = eligible_candidate();
-    unknown.causal_ownership = CleanupCausalOwnership::Unknown;
-    const CleanupClassificationResult unknown_result =
-        classify_invocation_owned_cleanup(unknown);
-    expect(unknown_result.classification() == CleanupClassification::Unknown &&
-               has_reason(
-                   unknown_result,
-                   CleanupClassificationReason::
-                       CausalOwnershipUnknown),
-           "Unknown causal ownership did not remain Unknown.");
-
+void test_not_owned_and_invalid_causal_states() {
     InvocationOwnedCleanupCandidate not_owned = eligible_candidate();
     not_owned.causal_ownership =
         CleanupCausalOwnership::NotInvocationOwned;
@@ -509,6 +510,16 @@ void test_unknown_and_not_owned_causal_states() {
                    CleanupClassificationReason::
                        KnownNotInvocationOwned),
            "Known-not-invocation-owned package was not Protected.");
+
+    InvocationOwnedCleanupCandidate invalid = eligible_candidate();
+    invalid.causal_ownership = static_cast<CleanupCausalOwnership>(-1);
+    const CleanupClassificationResult invalid_result =
+        classify_invocation_owned_cleanup(invalid);
+    expect(invalid_result.classification() == CleanupClassification::Invalid,
+           "Invalid causal enum became eligible after causal proof was relaxed.");
+    expect_reasons(
+        invalid_result, {CleanupClassificationReason::InvalidTypedState},
+        "Invalid causal enum lost its structural reason.");
 }
 
 void test_pre_existing_is_always_protected() {
@@ -520,6 +531,7 @@ void test_pre_existing_is_always_protected() {
         "Pre-existing package with unknown ownership was not Protected.");
 
     InvocationOwnedCleanupCandidate eligible_looking = eligible_candidate();
+    eligible_looking.causal_ownership = CleanupCausalOwnership::InvocationOwned;
     eligible_looking.baseline = CleanupBaselineObservation::PreExisting;
     const CleanupClassificationResult result =
         classify_invocation_owned_cleanup(eligible_looking);
@@ -619,33 +631,57 @@ void test_unknown_baseline_reason_state_and_verification() {
         state_unknown, CleanupClassification::Unknown,
         "Unknown current installed state did not remain Unknown.");
 
+    InvocationOwnedCleanupCandidate metadata_unavailable = eligible_candidate();
+    metadata_unavailable.current_package.metadata.reset();
+    expect_classification(
+        metadata_unavailable, CleanupClassification::Unknown,
+        "Present state without current metadata became Eligible.");
+
     InvocationOwnedCleanupCandidate unverified = eligible_candidate();
     unverified.current_package.verification =
         CleanupEvidenceVerification::Unverified;
+    expect_classification(
+        unverified, CleanupClassification::Unknown,
+        "Unverified current identity became Eligible.");
+
+    unverified = eligible_candidate();
     unverified.correlations[0].verification =
         CleanupEvidenceVerification::Unverified;
     expect_classification(
         unverified, CleanupClassification::Unknown,
-        "Unverified identity/correlation became Eligible.");
+        "Unverified correlation became Eligible.");
+
+    InvocationOwnedCleanupCandidate missing_correlations = eligible_candidate();
+    missing_correlations.correlations.clear();
+    expect_classification(
+        missing_correlations, CleanupClassification::Unknown,
+        "Empty correlations became Eligible.");
+
+    InvocationOwnedCleanupCandidate missing_edge = eligible_candidate();
+    missing_edge.correlations[0].dependency_edge.reset();
+    expect_classification(
+        missing_edge, CleanupClassification::Unknown,
+        "Build role without an exact dependency edge became Eligible.");
 }
 
-// LANDMINE(#404): absent -> present Dependency is observation evidence only.
-void test_newly_observed_dependency_is_not_ownership_proof() {
-    InvocationOwnedCleanupCandidate candidate = eligible_candidate();
-    candidate.baseline = CleanupBaselineObservation::NewlyObserved;
-    candidate.current_package.state = CleanupInstalledState::Present;
-    candidate.current_package.metadata->reason =
-        InstalledPackageReason::Dependency;
-    candidate.causal_ownership = CleanupCausalOwnership::Unknown;
-
-    const CleanupClassificationResult result =
-        classify_invocation_owned_cleanup(candidate);
-    expect(result.classification() == CleanupClassification::Unknown &&
-               has_reason(
-                   result,
-                   CleanupClassificationReason::
-                       CausalOwnershipUnknown),
-           "NewlyObserved Dependency evidence became InvocationOwned/Eligible.");
+// POLICY(#486): complete ordinary safety evidence permits eligibility without
+// turning the independent observation into a causal ownership assertion.
+void test_newly_observed_dependency_with_complete_safety_evidence_is_eligible_without_strict_causal_proof() {
+    for(const PackageRole role : {
+            PackageRole::BuildDependency, PackageRole::CheckDependency}) {
+        const InvocationOwnedCleanupCandidate candidate = eligible_candidate(role);
+        expect(candidate.causal_ownership == CleanupCausalOwnership::Unknown,
+               "Receipt-independent positive fixture claimed causal ownership.");
+        const CleanupClassificationResult result =
+            classify_invocation_owned_cleanup(candidate);
+        expect(result.classification() == CleanupClassification::Eligible,
+               "Complete newly-observed Dependency safety evidence required strict causal proof.");
+        expect_reasons(
+            result, {CleanupClassificationReason::EligibleEvidenceComplete},
+            "Receipt-independent eligibility retained an unknown causal reason.");
+        expect(candidate.causal_ownership == CleanupCausalOwnership::Unknown,
+               "Eligibility changed the factual causal ownership evidence.");
+    }
 }
 
 void test_selected_provider_does_not_classify_by_itself() {
@@ -781,9 +817,11 @@ void test_absent_and_policy_states_fail_safe() {
         eligible_candidate();
     policy_not_protected_only.causal_ownership =
         CleanupCausalOwnership::Unknown;
+    policy_not_protected_only.shared_requirement =
+        CleanupSharedRequirementState::Unknown;
     expect_classification(
         policy_not_protected_only, CleanupClassification::Unknown,
-        "NotProtected policy alone bypassed missing causal authority.");
+        "NotProtected policy alone bypassed unknown shared lifetime.");
 }
 
 void test_structural_contradiction_is_invalid() {
@@ -798,6 +836,34 @@ void test_structural_contradiction_is_invalid() {
                    CleanupClassificationReason::
                        CorrelationPackageIdentityMismatch),
            "Contradictory correlation identity was not Invalid.");
+
+    InvocationOwnedCleanupCandidate wrong_name = eligible_candidate();
+    wrong_name.current_package.metadata->name = "other-tool";
+    expect_classification(
+        wrong_name, CleanupClassification::Invalid,
+        "Current package name mismatch was not Invalid.");
+
+    InvocationOwnedCleanupCandidate malformed_root = eligible_candidate();
+    malformed_root.correlations[0].requested_root.requested_name = "../root";
+    const CleanupClassificationResult root_result =
+        classify_invocation_owned_cleanup(malformed_root);
+    expect(root_result.classification() == CleanupClassification::Invalid &&
+               has_reason(root_result,
+                          CleanupClassificationReason::MalformedRequestedRootIdentity),
+           "Malformed requested root was not Invalid.");
+
+    InvocationOwnedCleanupCandidate wrong_provider = eligible_candidate();
+    wrong_provider.correlations[0] = dependency_correlation(
+        wrong_provider.package.package(), PackageRole::BuildDependency, 0,
+        "application-root", "application-base", 0, selected_aur_provider());
+    wrong_provider.correlations[0].dependency_edge->provider->provider.package_name =
+        "other-tool";
+    const CleanupClassificationResult provider_result =
+        classify_invocation_owned_cleanup(wrong_provider);
+    expect(provider_result.classification() == CleanupClassification::Invalid &&
+               has_reason(provider_result,
+                          CleanupClassificationReason::ProviderIdentityMismatch),
+           "Contradictory provider package identity was not Invalid.");
 }
 
 void test_precedence_and_reason_ordering() {
@@ -857,7 +923,6 @@ void test_precedence_and_reason_ordering() {
         {CleanupClassificationReason::BaselineObservationUnknown,
          CleanupClassificationReason::CurrentInstalledStateUnknown,
          CleanupClassificationReason::InstallReasonUnknown,
-         CleanupClassificationReason::CausalOwnershipUnknown,
          CleanupClassificationReason::CurrentPackageEvidenceUnverified,
          CleanupClassificationReason::DependencyRoleUnknown,
          CleanupClassificationReason::DependencyCorrelationUnverified,
@@ -911,13 +976,13 @@ int main(int argc, char* argv[]) {
         test_current_package_version_identity();
         test_current_package_base_and_architecture_identity();
         test_correlation_coverage_authority();
-        test_unknown_and_not_owned_causal_states();
+        test_not_owned_and_invalid_causal_states();
         test_pre_existing_is_always_protected();
         test_explicit_root_and_runtime_are_protected();
         test_mixed_runtime_roles_are_protected();
         test_shared_requirement_states();
         test_unknown_baseline_reason_state_and_verification();
-        test_newly_observed_dependency_is_not_ownership_proof();
+        test_newly_observed_dependency_with_complete_safety_evidence_is_eligible_without_strict_causal_proof();
         test_selected_provider_does_not_classify_by_itself();
         test_dependency_requirement_identity_contradictions_are_invalid();
         test_multiple_package_base_lifetime_is_preserved();

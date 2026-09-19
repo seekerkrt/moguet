@@ -321,6 +321,9 @@ enum class CleanupInstalledState {
 
 // Causal ownership is deliberately independent from baseline observation.
 // In particular, NewlyObserved cannot be passed as InvocationOwned.
+// Unknown is missing causal proof, not affirmative evidence of another owner.
+// Cleanup eligibility does not require positive proof, but NotInvocationOwned
+// remains protective evidence.
 enum class CleanupCausalOwnership {
     InvocationOwned,
     NotInvocationOwned,
@@ -417,6 +420,8 @@ struct CleanupPackageCorrelation {
     CleanupEvidenceVerification verification;
 };
 
+// The historical name is retained with the existing projection interfaces.
+// Eligible describes complete cleanup safety evidence, not proven causality.
 struct InvocationOwnedCleanupCandidate {
     SourceAwarePackageIdentity package;
     CleanupBaselineObservation baseline;
@@ -464,6 +469,7 @@ enum class CleanupClassificationReason {
     CurrentPackageVersionUnavailable,
     CurrentPackageBaseUnknown,
     CurrentPackageArchitectureUnknown,
+    // Historical reason; retained in canonical order, no longer emitted.
     CausalOwnershipUnknown,
     CurrentPackageEvidenceUnverified,
     CorrelationCoverageIncomplete,

@@ -1005,7 +1005,7 @@ void test_authoritative_install_receipt_projects_only_causal_dimension() {
                 CleanupPolicyProtection::Unknown &&
             classified.classification() ==
                 CleanupClassification::Unknown &&
-            has_reason(
+            !has_reason(
                 classified,
                 CleanupClassificationReason::
                     CausalOwnershipUnknown) &&
@@ -1650,9 +1650,9 @@ void test_version_mismatch_and_unknown_policy_fail_closed() {
         "unknown policy authority permitted Eligible");
 }
 
-// LANDMINE(#404): every observational/planning success below is still not a
-// package-level causal transaction proof.
-void test_newly_observed_dependency_with_success_is_never_eligible() {
+// POLICY(#486): the legacy adapter still lacks policy authority. Relaxing
+// strict causal proof must not hide that independent safety requirement.
+void test_newly_observed_dependency_with_unknown_policy_is_not_eligible() {
     BuildPlan plan = basic_plan();
     CleanupInvocationSession session = CleanupInvocationSession::begin(
         prepared_remote_aur_build(plan));
@@ -1689,13 +1689,17 @@ void test_newly_observed_dependency_with_success_is_never_eligible() {
     expect(
         projection.candidate.causal_ownership ==
                 CleanupCausalOwnership::Unknown &&
-            classified.classification() !=
-                CleanupClassification::Eligible &&
-            has_reason(
+            projection.candidate.policy_protection ==
+                CleanupPolicyProtection::Unknown &&
+            classified.classification() ==
+                CleanupClassification::Unknown &&
+            !has_reason(
                 classified,
                 CleanupClassificationReason::
-                    CausalOwnershipUnknown),
-        "pre absent + post Dependency + verified plan + success became Eligible");
+                    CausalOwnershipUnknown) &&
+            has_reason(classified,
+                       CleanupClassificationReason::PolicyProtectionUnknown),
+        "pre absent + post Dependency + verified plan + success bypassed unknown policy");
 }
 
 void test_source_artifact_exact_build_plan_correlation_matrix() {
@@ -3380,7 +3384,7 @@ void run_invocation_owned_cleanup_adapter_tests() {
     test_local_remote_dependency_subset_is_not_complete_authority();
     test_metadata_and_source_failures_remain_typed_unknown_evidence();
     test_version_mismatch_and_unknown_policy_fail_closed();
-    test_newly_observed_dependency_with_success_is_never_eligible();
+    test_newly_observed_dependency_with_unknown_policy_is_not_eligible();
     test_source_artifact_exact_build_plan_correlation_matrix();
     test_selected_repository_provider_closed_correlation_matrix();
     test_remote_aur_invocation_route_and_evidence_completeness();
