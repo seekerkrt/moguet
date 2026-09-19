@@ -137,10 +137,14 @@ enum class CollectorScenario {
     EligibleInvalid,
     DuplicateCorrelation,
     MixedMissingSource,
+    NoDependencyEdges,
+    UnattributedBuildTarget,
+    OriginProjectionFailure,
 };
 
 enum class RepositoryCandidateKind {
     None,
+    Installed,
     DirectBuild,
     DirectCheck,
     UniqueProvider,
@@ -150,6 +154,32 @@ enum class RepositoryCandidateKind {
 RepositoryCandidateKind g_repository_candidate = RepositoryCandidateKind::None;
 
 CollectorScenario g_scenario = CollectorScenario::Positive;
+
+enum class SourceBaseline {
+    Absent,
+    Present,
+    QueryFailure,
+    IdentityUnknown,
+    InvalidSnapshot,
+};
+
+enum class SourceCurrent {
+    Present,
+    Absent,
+    QueryFailure,
+    InvalidSnapshot,
+    IdentityUnknown,
+};
+
+struct MixedSourceFixture {
+    SourceBaseline baseline = SourceBaseline::Absent;
+    PackageRole role = PackageRole::BuildDependency;
+    bool has_new_source_dependency = false;
+    SourceCurrent current = SourceCurrent::Present;
+};
+
+MixedSourceFixture g_mixed_source;
+bool g_zero_candidate_fixture = false;
 
 void expect(bool condition, const std::string& message) {
     if(!condition) throw std::runtime_error(message);
@@ -265,6 +295,11 @@ BuildPlan collector_plan(bool with_later_work_item = false) {
             edge.resolved_provider = provider;
             edge.resolved_candidate = ProviderResolvedDependencyCandidate{provider, provider.constraint_metadata->provided_version};
             plan.provided.push_back(BuildPlanProvidedDependency{edge.dependency_spec, provider, edge.provider_resolution});
+        } else if(g_repository_candidate == RepositoryCandidateKind::Installed) {
+            edge.kind = DependencyKind::Installed;
+            edge.resolved_package_base.reset();
+            edge.resolved_candidate = InstalledExactPackage{
+                "collector-dependency", ObservedVersion::available(ObservedVersionSource::InstalledExactPackage, "1.0-1")};
         } else {
             edge.kind = DependencyKind::Repo;
             edge.resolved_candidate = RepositoryExactPackage{
@@ -291,13 +326,27 @@ BuildPlan collector_plan(bool with_later_work_item = false) {
             ConfiguredRepositoryIdentity{"core", 0}, "aaa-second", "aaa-second-base", ObservedVersion::available(ObservedVersionSource::RepositoryExactPackage, "2.0-3"), {}, "x86_64"};
         if(g_scenario == CollectorScenario::MixedMissingSource) {
             second.kind = DependencyKind::Aur;
+            second.role = g_mixed_source.role;
             second.resolved_candidate = AurResolvedDependencyCandidate{
                 "aaa-second", "aaa-second-base", ObservedVersion::available(ObservedVersionSource::AurExactPackage, "2.0-3")};
             plan.package_targets.push_back(PlannedPackageTarget{
-                "aaa-second", "aaa-second-base", {PackageRole::BuildDependency}, {requested_root}});
+                "aaa-second", "aaa-second-base", {second.role}, {requested_root}});
             plan.order.insert(plan.order.begin(), BuildPlanEntry{"aaa-second-base", {"aaa-second"}});
         }
         plan.dependency_edges.push_back(std::move(second));
+        if(g_scenario == CollectorScenario::MixedMissingSource && g_mixed_source.has_new_source_dependency) {
+            auto third = plan.dependency_edges.back();
+            third.dependency_spec = "source-third";
+            third.resolved_package_name = "source-third";
+            third.resolved_package_base = "source-third-base";
+            third.requirement = requirement("source-third");
+            third.resolved_candidate = AurResolvedDependencyCandidate{
+                "source-third", "source-third-base", ObservedVersion::available(ObservedVersionSource::AurExactPackage, "1.0-1")};
+            plan.package_targets.push_back(PlannedPackageTarget{
+                "source-third", "source-third-base", {third.role}, {requested_root}});
+            plan.order.insert(plan.order.begin(), BuildPlanEntry{"source-third-base", {"source-third"}});
+            plan.dependency_edges.push_back(std::move(third));
+        }
     }
     if(g_scenario ==
            CollectorScenario::SelectedProviderPostLaunchUnknown ||
@@ -327,6 +376,9 @@ BuildPlan collector_plan(bool with_later_work_item = false) {
         plan.provided.push_back(BuildPlanProvidedDependency{
             "collector-selected-api", provider,
             ProviderResolutionKind::UserSelected});
+    }
+    if(g_scenario == CollectorScenario::NoDependencyEdges) {
+        plan.dependency_edges.clear();
     }
     return plan;
 }
@@ -378,7 +430,9 @@ PreparedProductionSourceBuildInvocation prepared_invocation(
             if((edge.resolved_package_name == "collector-dependency" &&
                 unit.package_base == "collector-dependency-base") ||
                (edge.resolved_package_name == "aaa-second" &&
-                unit.package_base == "aaa-second-base")) {
+                unit.package_base == "aaa-second-base") ||
+               (edge.resolved_package_name == "source-third" &&
+                unit.package_base == "source-third-base")) {
                 work_item.build_plan_dependency_edge_indices.push_back(
                     edge_index);
             }
@@ -425,6 +479,13 @@ PreparedRemoteSourceBuild prepared_remote(bool with_later_work_item = false) {
         provider.package_architecture.reset();
         std::get<ProviderResolvedDependencyCandidate>(plan.dependency_edges.front().resolved_candidate.value()).provider = provider;
         plan.provided.front().provider = provider;
+    } else if(g_scenario == CollectorScenario::UnattributedBuildTarget) {
+        plan.dependency_edges.clear();
+        for(auto& work_item : invocation.work_items) {
+            work_item.build_plan_dependency_edge_indices.clear();
+        }
+    } else if(g_scenario == CollectorScenario::OriginProjectionFailure) {
+        std::get<RepositoryExactPackage>(*plan.dependency_edges.front().resolved_candidate).package_base.clear();
     }
     return PreparedRemoteSourceBuild{
         ResolvedSourceBuildIdentity{ResolvedAurSourceBuildIdentity{
@@ -553,8 +614,41 @@ metadata_stub::LocalPackageMetadata base_devel_metadata(bool protected_case) {
 }
 
 void set_current_metadata() {
-    if(g_scenario == CollectorScenario::BaselineQueryFailure) {
+    if(g_zero_candidate_fixture || g_scenario == CollectorScenario::BaselineQueryFailure ||
+       g_scenario == CollectorScenario::MixedMissingSource) {
         metadata_stub::reset_alpm_stub();
+    }
+    if(g_mixed_source.current != SourceCurrent::Present) {
+        if(g_mixed_source.current == SourceCurrent::QueryFailure) {
+            metadata_stub::set_package_cache_failure();
+            return;
+        }
+        const bool mixed = g_scenario == CollectorScenario::MixedMissingSource &&
+                           g_repository_candidate != RepositoryCandidateKind::None;
+        std::vector<metadata_stub::LocalPackageMetadata> installed{base_devel_metadata(false)};
+        if(mixed) installed.push_back({"collector-dependency", "1.0-1", ALPM_PKG_REASON_DEPEND});
+        if(g_mixed_source.current == SourceCurrent::IdentityUnknown) {
+            installed.push_back({mixed ? "aaa-second" : "collector-dependency", "1.0-1", ALPM_PKG_REASON_DEPEND});
+        }
+        if(g_mixed_source.has_new_source_dependency) {
+            installed.push_back({"source-third", "1.0-1", ALPM_PKG_REASON_DEPEND});
+        }
+        metadata_stub::set_local_packages(installed);
+        for(std::size_t index = 1; index < installed.size(); ++index) {
+            metadata_stub::set_local_package_base(index, installed[index].name + "-base");
+            metadata_stub::set_local_package_architecture(index, "x86_64");
+        }
+        if(g_mixed_source.current == SourceCurrent::InvalidSnapshot) {
+            metadata_stub::set_local_package_version_null(0);
+        } else if(g_mixed_source.current == SourceCurrent::IdentityUnknown) {
+            metadata_stub::set_local_package_architecture_null(mixed ? 2 : 1);
+        }
+        if(mixed) {
+            metadata_stub::enqueue_local_package_query_present_metadata(
+                "collector-dependency", {"collector-dependency", "1.0-1", ALPM_PKG_REASON_DEPEND});
+            metadata_stub::enqueue_local_package_query_present_metadata("base-devel", base_devel_metadata(false));
+        }
+        return;
     }
     if(g_scenario == CollectorScenario::CurrentQueryFailure) {
         metadata_stub::set_package_cache_failure();
@@ -607,7 +701,14 @@ void set_current_metadata() {
             g_scenario == CollectorScenario::EligibleProtected ? ALPM_PKG_REASON_EXPLICIT : g_scenario == CollectorScenario::EligibleUnknown ? static_cast<alpm_pkgreason_t>(999)
                                                                                                                                              : ALPM_PKG_REASON_DEPEND});
     }
+    if(g_scenario == CollectorScenario::MixedMissingSource && g_mixed_source.has_new_source_dependency) {
+        installed.push_back(metadata_stub::LocalPackageMetadata{"source-third", "1.0-1", ALPM_PKG_REASON_DEPEND});
+    }
     metadata_stub::set_local_packages(std::move(installed));
+    if(g_scenario == CollectorScenario::MixedMissingSource && g_mixed_source.has_new_source_dependency) {
+        metadata_stub::set_local_package_base(3, "source-third-base");
+        metadata_stub::set_local_package_architecture(3, "x86_64");
+    }
     if(has_second) {
         metadata_stub::set_local_package_base(2, "aaa-second-base");
         metadata_stub::set_local_package_architecture(2, "x86_64");
@@ -640,6 +741,49 @@ void set_current_metadata() {
 
 void set_baseline_metadata() {
     metadata_stub::reset_alpm_stub();
+    if(g_zero_candidate_fixture) {
+        if(g_scenario == CollectorScenario::BaselineQueryFailure || g_mixed_source.baseline == SourceBaseline::QueryFailure) {
+            metadata_stub::set_package_cache_failure();
+            return;
+        }
+        const bool mixed = g_scenario == CollectorScenario::MixedMissingSource;
+        std::vector<metadata_stub::LocalPackageMetadata> installed{base_devel_metadata(false)};
+        if((mixed && g_repository_candidate != RepositoryCandidateKind::None) || g_mixed_source.baseline != SourceBaseline::Absent) {
+            // A pre-existing version need not match a future source artifact.
+            installed.push_back({"collector-dependency", "0.5-1", ALPM_PKG_REASON_DEPEND});
+        }
+        if(mixed && g_mixed_source.baseline != SourceBaseline::Absent) {
+            installed.push_back({"aaa-second", "1.0-1", ALPM_PKG_REASON_DEPEND});
+        }
+        metadata_stub::set_local_packages(installed);
+        for(std::size_t index = 1; index < installed.size(); ++index) {
+            metadata_stub::set_local_package_base(index, index == 1 ? "collector-dependency-base" : "aaa-second-base");
+            metadata_stub::set_local_package_architecture(index, "x86_64");
+        }
+        if(installed.size() > 1) {
+            if(g_mixed_source.baseline == SourceBaseline::IdentityUnknown) {
+                metadata_stub::set_local_package_architecture_null(installed.size() - 1);
+            } else if(g_mixed_source.baseline == SourceBaseline::InvalidSnapshot) {
+                metadata_stub::set_local_package_version_null(installed.size() - 1);
+            }
+        }
+        return;
+    }
+    if(g_scenario == CollectorScenario::MixedMissingSource && g_mixed_source.baseline != SourceBaseline::Absent) {
+        if(g_mixed_source.baseline == SourceBaseline::QueryFailure) {
+            metadata_stub::set_package_cache_failure();
+            return;
+        }
+        metadata_stub::set_local_packages({{"aaa-second", "2.0-3", ALPM_PKG_REASON_DEPEND}, base_devel_metadata(false)});
+        metadata_stub::set_local_package_base(0, "aaa-second-base");
+        metadata_stub::set_local_package_architecture(0, "x86_64");
+        if(g_mixed_source.baseline == SourceBaseline::IdentityUnknown) {
+            metadata_stub::set_local_package_architecture_null(0);
+        } else if(g_mixed_source.baseline == SourceBaseline::InvalidSnapshot) {
+            metadata_stub::set_local_package_version_null(0);
+        }
+        return;
+    }
     if(g_scenario == CollectorScenario::BaselineQueryFailure) {
         metadata_stub::set_package_cache_failure();
         return;
@@ -688,9 +832,13 @@ std::string describe_result(
 
 RemoteAurCleanupCollectionResult run_scenario(
     CollectorScenario scenario,
-    RepositoryCandidateKind repository_candidate = RepositoryCandidateKind::None) {
+    RepositoryCandidateKind repository_candidate = RepositoryCandidateKind::None,
+    MixedSourceFixture mixed_source = {},
+    bool zero_candidate_fixture = false) {
     g_scenario = scenario;
     g_repository_candidate = repository_candidate;
+    g_mixed_source = mixed_source;
+    g_zero_candidate_fixture = zero_candidate_fixture;
     set_baseline_metadata();
     const bool later =
         scenario == CollectorScenario::FailedLaterWorkItem ||
@@ -832,6 +980,219 @@ DependencyCleanupInteractionResult answer_preview(
     return result;
 }
 
+void test_pre_existing_source_dependency_origin_boundary() {
+    using Status = DependencyCleanupInteractionStatus;
+    using State = DependencyCleanupPreviewState;
+    for(const auto role : {PackageRole::BuildDependency, PackageRole::CheckDependency}) {
+        for(const auto baseline : {SourceBaseline::Present, SourceBaseline::Absent,
+                                   SourceBaseline::QueryFailure, SourceBaseline::IdentityUnknown,
+                                   SourceBaseline::InvalidSnapshot}) {
+            const auto collection = run_scenario(
+                CollectorScenario::MixedMissingSource, RepositoryCandidateKind::DirectBuild, {baseline, role});
+            const auto* assessment = only_assessment(collection);
+            expect(collection.invocation_result().is_success() && assessment != nullptr &&
+                       assessment->package.package().package_name() == "collector-dependency",
+                   "source dependency entered candidate assessments:" + describe_result(collection));
+            const bool source_gap = std::find(collection.issues().begin(), collection.issues().end(),
+                                              RemoteAurCleanupCollectionIssueKind::SourceArtifactOriginUnavailable) != collection.issues().end();
+            const auto preview = make_dependency_cleanup_preview(collection);
+            if(baseline == SourceBaseline::Present) {
+                expect(!source_gap && collection.issues().empty() &&
+                           collection.completeness() == CleanupEvidenceCompleteness::Complete &&
+                           assessment->classification == CleanupClassification::Eligible &&
+                           preview.state() == State::Ready && preview.eligible_candidates().size() == 1,
+                       "pre-existing source dependency blocked safe repository preview:" + describe_result(collection));
+                const auto& candidate = preview.eligible_candidates().front();
+                expect(candidate.package() == assessment->package &&
+                           candidate.package().package().package_base().source().kind() == PackageSourceKind::Repository &&
+                           candidate.expected_installed().reason == InstalledPackageReason::Dependency &&
+                           candidate.shared_requirement() == CleanupSharedRequirementState::NoLongerRequired &&
+                           candidate.policy_protection() == CleanupPolicyProtection::NotProtected,
+                       "mixed preview lost repository safety evidence");
+                std::ostringstream rendered;
+                render_dependency_cleanup_preview(preview, rendered);
+                expect(rendered.str().find("collector-dependency 1.0-1") != std::string::npos &&
+                           rendered.str().find("aaa-second") == std::string::npos,
+                       "mixed preview displayed pre-existing source dependency");
+                const auto approved = answer_preview(preview, "y\n", Status::Approved);
+                expect(approved.approved_snapshot()->preview().eligible_candidates() == preview.eligible_candidates(),
+                       "mixed approval differs from exact repository preview");
+            } else {
+                expect(source_gap && collection.completeness() == CleanupEvidenceCompleteness::Incomplete &&
+                           preview.state() == State::Blocked && preview.eligible_candidates().empty(),
+                       "new/unknown source origin gap failed open:" + describe_result(collection));
+                if(baseline == SourceBaseline::Absent || baseline == SourceBaseline::IdentityUnknown) {
+                    expect(assessment->classification == CleanupClassification::Eligible,
+                           "source gap fixture lost otherwise safe repository candidate:" + describe_result(collection));
+                }
+                answer_preview(preview, "y\n", Status::Blocked);
+            }
+        }
+        const auto multiple = run_scenario(
+            CollectorScenario::MixedMissingSource, RepositoryCandidateKind::DirectBuild,
+            {SourceBaseline::Present, role, true});
+        expect(multiple.completeness() == CleanupEvidenceCompleteness::Incomplete &&
+                   only_assessment(multiple) != nullptr && multiple.has_eligible_candidate() &&
+                   std::find(multiple.issues().begin(), multiple.issues().end(),
+                             RemoteAurCleanupCollectionIssueKind::SourceArtifactOriginUnavailable) != multiple.issues().end(),
+               "pre-existing source hid another new source origin gap:" + describe_result(multiple));
+        const auto blocked = make_dependency_cleanup_preview(multiple);
+        expect(blocked.state() == State::Blocked && blocked.eligible_candidates().empty(),
+               "multiple source dependencies allowed partial approval");
+        answer_preview(blocked, "y\n", Status::Blocked);
+    }
+}
+
+void test_authoritative_zero_candidates() {
+    using Status = DependencyCleanupInteractionStatus;
+    using State = DependencyCleanupPreviewState;
+    const auto expect_no_candidates = [](const RemoteAurCleanupCollectionResult& collection) {
+        expect(collection.invocation_result().is_success() &&
+                   collection.completeness() == CleanupEvidenceCompleteness::Complete &&
+                   collection.assessments().empty() && collection.issues().empty() &&
+                   !collection.has_eligible_candidate(),
+               "authoritative zero-candidate collection was blocked:" + describe_result(collection));
+        expect(metadata_stub::package_query_call_count() == 0,
+               "zero-candidate collection queried candidate-specific policy");
+        const auto preview = make_dependency_cleanup_preview(collection);
+        expect(preview.state() == State::NoCandidates && preview.eligible_candidates().empty(),
+               "authoritative empty collection did not become NoCandidates");
+        answer_preview(preview, "y\n", Status::NoCandidates);
+        expect(collection.invocation_result().is_success(), "NoCandidates changed build/install success");
+    };
+    const auto expect_blocked = [](const RemoteAurCleanupCollectionResult& collection) {
+        expect(collection.completeness() == CleanupEvidenceCompleteness::Incomplete,
+               "unresolved zero-candidate universe became Complete:" + describe_result(collection));
+        const auto preview = make_dependency_cleanup_preview(collection);
+        expect(preview.state() == State::Blocked && preview.eligible_candidates().empty(),
+               "unresolved empty universe became NoCandidates");
+        answer_preview(preview, "y\n", Status::Blocked);
+    };
+
+    // Daily-use case: all tools already installed, successful build, no new
+    // dependency. Include source Check + repository Build and no source receipt.
+    const auto processes = cleanup_test_observed_process_calls();
+    expect_no_candidates(run_scenario(CollectorScenario::MixedMissingSource, RepositoryCandidateKind::DirectBuild,
+                                      {SourceBaseline::Present, PackageRole::CheckDependency}, true));
+    for(const auto kind : {RepositoryCandidateKind::None, RepositoryCandidateKind::Installed, RepositoryCandidateKind::DirectBuild,
+                           RepositoryCandidateKind::DirectCheck, RepositoryCandidateKind::UniqueProvider,
+                           RepositoryCandidateKind::SelectedProvider}) {
+        expect_no_candidates(run_scenario(CollectorScenario::Positive, kind, {SourceBaseline::Present}, true));
+        for(const auto baseline : {SourceBaseline::QueryFailure, SourceBaseline::InvalidSnapshot, SourceBaseline::IdentityUnknown}) {
+            const auto collection = run_scenario(CollectorScenario::Positive, kind, {baseline}, true);
+            expect_blocked(collection);
+        }
+    }
+    expect_no_candidates(run_scenario(CollectorScenario::DuplicateCorrelation, RepositoryCandidateKind::DirectBuild,
+                                      {SourceBaseline::Present}, true));
+    expect_no_candidates(run_scenario(CollectorScenario::NoDependencyEdges, RepositoryCandidateKind::DirectBuild,
+                                      {SourceBaseline::Present}, true));
+    expect_no_candidates(run_scenario(CollectorScenario::RuntimeConsumer, RepositoryCandidateKind::DirectBuild,
+                                      {SourceBaseline::Present}, true));
+    expect_no_candidates(run_scenario(CollectorScenario::RuntimeConsumer, RepositoryCandidateKind::None,
+                                      {SourceBaseline::Absent}, true));
+    expect_no_candidates(run_scenario(CollectorScenario::NoNewDependency, RepositoryCandidateKind::DirectBuild));
+
+    const auto source_gap = run_scenario(CollectorScenario::Positive, RepositoryCandidateKind::None,
+                                         {SourceBaseline::Absent}, true);
+    expect(source_gap.assessments().empty() &&
+               std::find(source_gap.issues().begin(), source_gap.issues().end(),
+                         RemoteAurCleanupCollectionIssueKind::SourceArtifactOriginUnavailable) != source_gap.issues().end(),
+           "empty source origin gap disappeared");
+    expect_blocked(source_gap);
+    // Two proven non-candidates cannot hide a third unresolved source edge.
+    expect_blocked(run_scenario(CollectorScenario::MixedMissingSource, RepositoryCandidateKind::DirectBuild,
+                                {SourceBaseline::Present, PackageRole::CheckDependency, true}, true));
+    expect_blocked(run_scenario(CollectorScenario::MixedMissingSource, RepositoryCandidateKind::DirectBuild,
+                                {SourceBaseline::IdentityUnknown, PackageRole::CheckDependency}, true));
+    for(const auto scenario : {CollectorScenario::MissingCorrelation, CollectorScenario::IncompleteConsumer,
+                               CollectorScenario::CurrentQueryFailure, CollectorScenario::ContradictorySuccess,
+                               CollectorScenario::IncompleteRegisteredTransaction}) {
+        expect_blocked(run_scenario(scenario, RepositoryCandidateKind::DirectBuild, {SourceBaseline::Present}, true));
+    }
+    expect_blocked(run_scenario(CollectorScenario::AmbiguousProvider, RepositoryCandidateKind::UniqueProvider,
+                                {SourceBaseline::Present}, true));
+    expect_blocked(run_scenario(CollectorScenario::UnattributedBuildTarget, RepositoryCandidateKind::None,
+                                {SourceBaseline::Present}, true));
+    const auto repository_gap = run_scenario(CollectorScenario::OriginProjectionFailure, RepositoryCandidateKind::DirectBuild);
+    expect(repository_gap.assessments().empty(), "repository origin-failure fixture unexpectedly produced an origin");
+    expect_blocked(repository_gap);
+    expect(cleanup_test_observed_process_calls() == processes, "zero-candidate collection launched an external process");
+}
+
+void test_current_absent_source_origin_boundary() {
+    using State = DependencyCleanupPreviewState;
+    using Status = DependencyCleanupInteractionStatus;
+    const auto processes = cleanup_test_observed_process_calls();
+    for(const auto role : {PackageRole::BuildDependency, PackageRole::CheckDependency}) {
+        for(const auto current : {SourceCurrent::Absent, SourceCurrent::Present, SourceCurrent::QueryFailure,
+                                  SourceCurrent::InvalidSnapshot, SourceCurrent::IdentityUnknown}) {
+            const auto collection = run_scenario(CollectorScenario::MixedMissingSource, RepositoryCandidateKind::DirectBuild,
+                                                 {SourceBaseline::Absent, role, false, current});
+            const auto preview = make_dependency_cleanup_preview(collection);
+            expect(collection.invocation_result().is_success(), "cleanup changed mixed build/install success");
+            const bool source_gap = std::find(collection.issues().begin(), collection.issues().end(),
+                                              RemoteAurCleanupCollectionIssueKind::SourceArtifactOriginUnavailable) != collection.issues().end();
+            if(current == SourceCurrent::Absent) {
+                const auto* assessment = only_assessment(collection);
+                expect(collection.completeness() == CleanupEvidenceCompleteness::Complete && collection.issues().empty() &&
+                           !source_gap && assessment != nullptr && assessment->classification == CleanupClassification::Eligible &&
+                           assessment->package.package().package_name() == "collector-dependency" &&
+                           preview.state() == State::Ready && preview.eligible_candidates().size() == 1 &&
+                           preview.eligible_candidates().front().package() == assessment->package,
+                       "absent source blocked safe repository preview:" + describe_result(collection));
+                const auto approved = answer_preview(preview, "y\n", Status::Approved);
+                expect(approved.approved_snapshot()->preview().eligible_candidates() == preview.eligible_candidates(),
+                       "absent source changed the exact repository approval snapshot");
+            } else {
+                expect(source_gap && collection.completeness() == CleanupEvidenceCompleteness::Incomplete &&
+                           preview.state() == State::Blocked && preview.eligible_candidates().empty(),
+                       "present/unknown source was treated as absent:" + describe_result(collection));
+                answer_preview(preview, "y\n", Status::Blocked);
+            }
+        }
+    }
+    // Two distinct source packages, one Build and one Check edge, no receipt.
+    for(const auto current : {SourceCurrent::Absent, SourceCurrent::Present, SourceCurrent::QueryFailure,
+                              SourceCurrent::InvalidSnapshot, SourceCurrent::IdentityUnknown}) {
+        const auto collection = run_scenario(CollectorScenario::MixedMissingSource, RepositoryCandidateKind::None,
+                                             {SourceBaseline::Absent, PackageRole::CheckDependency, false, current}, true);
+        const auto preview = make_dependency_cleanup_preview(collection);
+        expect(collection.assessments().empty() && !collection.has_eligible_candidate() &&
+                   collection.invocation_result().is_success() && metadata_stub::package_query_call_count() == 0,
+               "source-only zero-candidate fixture produced assessment/policy queries");
+        if(current == SourceCurrent::Absent) {
+            expect(collection.completeness() == CleanupEvidenceCompleteness::Complete && collection.issues().empty() &&
+                       preview.state() == State::NoCandidates && preview.eligible_candidates().empty(),
+                   "absent source Build/Check dependencies did not become NoCandidates:" + describe_result(collection));
+            answer_preview(preview, "y\n", Status::NoCandidates);
+        } else {
+            expect(collection.completeness() == CleanupEvidenceCompleteness::Incomplete && preview.state() == State::Blocked,
+                   "unresolved source-only universe became NoCandidates:" + describe_result(collection));
+            answer_preview(preview, "y\n", Status::Blocked);
+        }
+    }
+    const auto unresolved = run_scenario(CollectorScenario::MixedMissingSource, RepositoryCandidateKind::None,
+                                         {SourceBaseline::Absent, PackageRole::CheckDependency, true, SourceCurrent::Absent}, true);
+    expect(unresolved.completeness() == CleanupEvidenceCompleteness::Incomplete &&
+               std::find(unresolved.issues().begin(), unresolved.issues().end(),
+                         RemoteAurCleanupCollectionIssueKind::SourceArtifactOriginUnavailable) != unresolved.issues().end(),
+           "current absence hid another present source origin gap");
+    answer_preview(make_dependency_cleanup_preview(unresolved), "y\n", Status::Blocked);
+    for(const auto baseline : {SourceBaseline::QueryFailure, SourceBaseline::InvalidSnapshot}) {
+        const auto collection = run_scenario(CollectorScenario::MixedMissingSource, RepositoryCandidateKind::None,
+                                             {baseline, PackageRole::CheckDependency, false, SourceCurrent::Absent}, true);
+        expect(collection.completeness() == CleanupEvidenceCompleteness::Incomplete &&
+                   std::find(collection.issues().begin(), collection.issues().end(),
+                             RemoteAurCleanupCollectionIssueKind::InvocationAggregateIncomplete) != collection.issues().end() &&
+                   std::find(collection.issues().begin(), collection.issues().end(),
+                             RemoteAurCleanupCollectionIssueKind::SourceArtifactOriginUnavailable) == collection.issues().end(),
+               "current absence bypassed invocation-wide baseline failure:" + describe_result(collection));
+        answer_preview(make_dependency_cleanup_preview(collection), "y\n", Status::Blocked);
+    }
+    expect(cleanup_test_observed_process_calls() == processes, "current-absent cleanup launched an external process");
+}
+
 void test_cleanup_preview_and_interaction() {
     using Status = DependencyCleanupInteractionStatus;
     using State = DependencyCleanupPreviewState;
@@ -933,7 +1294,7 @@ void test_cleanup_preview_and_interaction() {
     expect(zero.state() == State::NoCandidates && zero.eligible_candidates().empty(), "complete zero was blocked");
     answer_preview(zero, "y\n", Status::NoCandidates);
     for(const auto scenario : {CollectorScenario::EligibleUnknown, CollectorScenario::EligibleInvalid,
-                               CollectorScenario::CurrentQueryFailure, CollectorScenario::NoNewDependency,
+                               CollectorScenario::CurrentQueryFailure,
                                CollectorScenario::MixedMissingSource}) {
         const auto incomplete = run_scenario(scenario, RepositoryCandidateKind::DirectBuild);
         expect(incomplete.completeness() == CleanupEvidenceCompleteness::Incomplete, "unsafe collection unexpectedly complete");
@@ -1119,6 +1480,10 @@ execute_prepared_remote_aur_cleanup_invocation(
         set_current_metadata();
         return result;
     }
+    if(g_zero_candidate_fixture) {
+        set_current_metadata();
+        return result;
+    }
     if(g_scenario == CollectorScenario::ReceiptMissing) {
         set_current_metadata();
         return result;
@@ -1182,8 +1547,14 @@ void run_remote_aur_cleanup_candidate_collector_tests() {
     test_authoritative_projection_positive_and_uniqueness();
     test_selected_provider_retry_boundary();
     test_receipt_independent_repository_candidate_matrix();
+    test_pre_existing_source_dependency_origin_boundary();
+    test_authoritative_zero_candidates();
+    test_current_absent_source_origin_boundary();
 }
 
 void run_dependency_cleanup_interaction_tests() {
     test_cleanup_preview_and_interaction();
+    test_pre_existing_source_dependency_origin_boundary();
+    test_authoritative_zero_candidates();
+    test_current_absent_source_origin_boundary();
 }

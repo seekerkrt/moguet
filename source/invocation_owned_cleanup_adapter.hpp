@@ -616,7 +616,7 @@ private:
         const CleanupInvocationLifecycleEvidence& lifecycle,
         const CleanupBaselineSnapshotObservation& baseline_observation,
         const CleanupCurrentInstalledObservation& current_observation,
-        const CleanupPolicyObservation& policy_observation,
+        const std::optional<CleanupPolicyObservation>& policy_observation,
         std::vector<CleanupSourceArtifactCorrelationEvidence>
             source_artifact_evidence,
         std::vector<CleanupSelectedProviderCorrelationEvidence>
@@ -630,13 +630,17 @@ private:
 [[nodiscard]] CleanupInvocationEvidence project_cleanup_route_evidence(
     CleanupRouteKind route_kind);
 
+// A missing policy requests invocation/edge inventory evidence only, including
+// valid empty inventories. It does not establish candidate policy protection or
+// zero candidates; the collector must prove every edge is a non-candidate.
+// Candidate assessment always supplies its real policy observation.
 [[nodiscard]] CleanupInvocationEvidence
 aggregate_remote_aur_cleanup_invocation_evidence(
     const CleanupInvocationSession& session,
     const CleanupInvocationLifecycleEvidence& lifecycle,
     const CleanupBaselineSnapshotObservation& baseline_observation,
     const CleanupCurrentInstalledObservation& current_observation,
-    const CleanupPolicyObservation& policy_observation,
+    const std::optional<CleanupPolicyObservation>& policy_observation,
     std::vector<CleanupSourceArtifactCorrelationEvidence>
         source_artifact_evidence,
     std::vector<CleanupSelectedProviderCorrelationEvidence>
