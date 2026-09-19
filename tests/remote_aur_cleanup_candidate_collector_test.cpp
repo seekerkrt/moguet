@@ -13,6 +13,8 @@
 
 namespace metadata_stub = package_metadata_test_stub;
 
+std::size_t cleanup_test_observed_process_calls();
+
 bool ProductionSourceBuildInvocationResult::is_success() const noexcept {
     return std::all_of(
         work_items.begin(), work_items.end(),
@@ -129,6 +131,12 @@ enum class CollectorScenario {
     IncompleteRegisteredTransaction,
     ContradictorySuccess,
     PreparedProviderMismatch,
+    TwoEligible,
+    EligibleProtected,
+    EligibleUnknown,
+    EligibleInvalid,
+    DuplicateCorrelation,
+    MixedMissingSource,
 };
 
 enum class RepositoryCandidateKind {
@@ -264,6 +272,33 @@ BuildPlan collector_plan(bool with_later_work_item = false) {
         }
     }
     plan.dependency_edges.push_back(std::move(edge));
+    if(g_scenario == CollectorScenario::DuplicateCorrelation) {
+        auto second = plan.dependency_edges.front();
+        second.role = PackageRole::CheckDependency;
+        plan.dependency_edges.push_back(std::move(second));
+    }
+    if(g_scenario == CollectorScenario::TwoEligible ||
+       g_scenario == CollectorScenario::EligibleProtected ||
+       g_scenario == CollectorScenario::EligibleUnknown ||
+       g_scenario == CollectorScenario::EligibleInvalid ||
+       g_scenario == CollectorScenario::MixedMissingSource) {
+        auto second = plan.dependency_edges.front();
+        second.dependency_spec = "aaa-second";
+        second.resolved_package_name = "aaa-second";
+        second.resolved_package_base = "aaa-second-base";
+        second.requirement = requirement("aaa-second");
+        second.resolved_candidate = RepositoryExactPackage{
+            ConfiguredRepositoryIdentity{"core", 0}, "aaa-second", "aaa-second-base", ObservedVersion::available(ObservedVersionSource::RepositoryExactPackage, "2.0-3"), {}, "x86_64"};
+        if(g_scenario == CollectorScenario::MixedMissingSource) {
+            second.kind = DependencyKind::Aur;
+            second.resolved_candidate = AurResolvedDependencyCandidate{
+                "aaa-second", "aaa-second-base", ObservedVersion::available(ObservedVersionSource::AurExactPackage, "2.0-3")};
+            plan.package_targets.push_back(PlannedPackageTarget{
+                "aaa-second", "aaa-second-base", {PackageRole::BuildDependency}, {requested_root}});
+            plan.order.insert(plan.order.begin(), BuildPlanEntry{"aaa-second-base", {"aaa-second"}});
+        }
+        plan.dependency_edges.push_back(std::move(second));
+    }
     if(g_scenario ==
            CollectorScenario::SelectedProviderPostLaunchUnknown ||
        g_scenario ==
@@ -340,9 +375,10 @@ PreparedProductionSourceBuildInvocation prepared_invocation(
                 work_item.selected_repository_provider_edge_indices
                     .push_back(edge_index);
             }
-            if(edge.resolved_package_name ==
-                   "collector-dependency" &&
-               unit.package_base == "collector-dependency-base") {
+            if((edge.resolved_package_name == "collector-dependency" &&
+                unit.package_base == "collector-dependency-base") ||
+               (edge.resolved_package_name == "aaa-second" &&
+                unit.package_base == "aaa-second-base")) {
                 work_item.build_plan_dependency_edge_indices.push_back(
                     edge_index);
             }
@@ -560,7 +596,22 @@ void set_current_metadata() {
     if(g_scenario == CollectorScenario::UnrelatedNewPackage) {
         installed.push_back(metadata_stub::LocalPackageMetadata{"unrelated-new-dependency", "1-1", ALPM_PKG_REASON_DEPEND});
     }
+    const bool has_second = g_scenario == CollectorScenario::TwoEligible ||
+                            g_scenario == CollectorScenario::EligibleProtected ||
+                            g_scenario == CollectorScenario::EligibleUnknown ||
+                            g_scenario == CollectorScenario::EligibleInvalid ||
+                            g_scenario == CollectorScenario::MixedMissingSource;
+    if(has_second) {
+        installed.push_back(metadata_stub::LocalPackageMetadata{
+            "aaa-second", g_scenario == CollectorScenario::EligibleInvalid ? "9.0-1" : "2.0-3",
+            g_scenario == CollectorScenario::EligibleProtected ? ALPM_PKG_REASON_EXPLICIT : g_scenario == CollectorScenario::EligibleUnknown ? static_cast<alpm_pkgreason_t>(999)
+                                                                                                                                             : ALPM_PKG_REASON_DEPEND});
+    }
     metadata_stub::set_local_packages(std::move(installed));
+    if(has_second) {
+        metadata_stub::set_local_package_base(2, "aaa-second-base");
+        metadata_stub::set_local_package_architecture(2, "x86_64");
+    }
     metadata_stub::set_local_package_base(
         0,
         g_scenario == CollectorScenario::CurrentPackageBaseMismatch
@@ -578,6 +629,13 @@ void set_current_metadata() {
         "collector-dependency", std::move(candidate));
     metadata_stub::enqueue_local_package_query_present_metadata(
         "base-devel", std::move(base_devel));
+    if(has_second && g_scenario != CollectorScenario::MixedMissingSource) {
+        metadata_stub::enqueue_local_package_query_present_metadata(
+            "aaa-second", metadata_stub::LocalPackageMetadata{
+                              "aaa-second", "2.0-3", ALPM_PKG_REASON_DEPEND});
+        metadata_stub::enqueue_local_package_query_present_metadata(
+            "base-devel", base_devel_metadata(false));
+    }
 }
 
 void set_baseline_metadata() {
@@ -744,6 +802,179 @@ void test_receipt_independent_repository_candidate_matrix() {
         CollectorScenario::PreparedProviderMismatch, RepositoryCandidateKind::SelectedProvider);
     expect(!mismatched_preparation.has_eligible_candidate(),
            "prepared selected-provider contradiction was ignored:" + describe_result(mismatched_preparation));
+}
+
+DependencyCleanupInteractionResult answer_preview(
+    const DependencyCleanupPreview& preview, const std::string& answer,
+    DependencyCleanupInteractionStatus expected, bool no_confirm = false,
+    bool is_interactive = true) {
+    AppConfig config;
+    config.no_confirm = no_confirm;
+    std::istringstream input(answer);
+    std::ostringstream output;
+    const auto processes = cleanup_test_observed_process_calls();
+    const auto database_sessions = metadata_stub::initialize_call_count();
+    const auto result = interact_dependency_cleanup(preview, config, is_interactive, input, output);
+    expect(result.status() == expected, "cleanup interaction returned the wrong status");
+    expect(result.approved_snapshot().has_value() ==
+               (expected == DependencyCleanupInteractionStatus::Approved),
+           "approval snapshot escaped a non-Approved result");
+    expect(cleanup_test_observed_process_calls() == processes &&
+               metadata_stub::initialize_call_count() == database_sessions,
+           "preview interaction launched an external process or queried package state");
+    if(no_confirm || !is_interactive || preview.state() != DependencyCleanupPreviewState::Ready) {
+        expect(output.str().empty() && input.peek() == (answer.empty() ? std::char_traits<char>::eof() : answer.front()),
+               "unavailable/empty preview prompted or consumed input");
+    } else {
+        expect(output.str().find("Remove build dependencies? [y/N]") != std::string::npos,
+               "cleanup did not use the shared default-No prompt");
+    }
+    return result;
+}
+
+void test_cleanup_preview_and_interaction() {
+    using Status = DependencyCleanupInteractionStatus;
+    using State = DependencyCleanupPreviewState;
+    const auto collection = run_scenario(CollectorScenario::TwoEligible, RepositoryCandidateKind::DirectBuild);
+    expect(collection.completeness() == CleanupEvidenceCompleteness::Complete && collection.assessments().size() == 2,
+           "two-candidate fixture is not complete:" + describe_result(collection));
+    const auto preview = make_dependency_cleanup_preview(collection);
+    expect(preview.state() == State::Ready && preview.eligible_candidates().size() == 2,
+           "complete collection did not preview exactly two candidates");
+    const auto& first = preview.eligible_candidates()[0];
+    const auto& second = preview.eligible_candidates()[1];
+    expect(first.package().package().package_name() == "collector-dependency" &&
+               second.package().package().package_name() == "aaa-second",
+           "preview lost authoritative BuildPlan order");
+    expect(first.package() == collection.assessments()[0].package &&
+               first.package().package().package_base().source().kind() == PackageSourceKind::Repository &&
+               first.package().package().package_base().package_base() == "collector-dependency-base" &&
+               first.package().package_version() == PackageVersionIdentity::composite("1.0-1") &&
+               first.package().architecture() == PackageArchitectureIdentity::known({"x86_64"}) &&
+               first.expected_installed() == InstalledPackageMetadata{
+                                                 "collector-dependency", "1.0-1", InstalledPackageReason::Dependency,
+                                                 InstalledPackageBaseIdentity::known("collector-dependency-base"),
+                                                 InstalledPackageArchitectureIdentity::known("x86_64")} &&
+               first.classification() == CleanupClassification::Eligible && first.shared_requirement() == CleanupSharedRequirementState::NoLongerRequired && first.policy_protection() == CleanupPolicyProtection::NotProtected && first.correlations().size() == 1 && first.correlations()[0].requested_root == root() && first.correlations()[0].role == PackageRole::BuildDependency && first.correlations()[0].dependency_edge->build_plan_edge_index == 0,
+           "preview discarded exact factual identity/safety/correlation");
+    std::ostringstream rendered;
+    render_dependency_cleanup_preview(preview, rendered);
+    expect(rendered.str() == ":: Assessed build dependencies eligible for cleanup:\n  collector-dependency 1.0-1\n  aaa-second 2.0-3\n",
+           "preview renderer changed exact package/version order");
+    const auto repeated = make_dependency_cleanup_preview(run_scenario(CollectorScenario::TwoEligible, RepositoryCandidateKind::DirectBuild));
+    expect(repeated.eligible_candidates() == preview.eligible_candidates(), "preview order/facts are nondeterministic");
+
+    // Destroy/change all live observations after preview: approval still owns
+    // the exact displayed values and performs no rediscovery or expansion.
+    metadata_stub::reset_alpm_stub();
+    for(const std::string answer : {"y\n", "yes\n"}) {
+        const auto result = answer_preview(preview, answer, Status::Approved);
+        expect(result.approved_snapshot()->preview().eligible_candidates() == preview.eligible_candidates(),
+               "approved candidates differ from the displayed exact snapshot");
+    }
+    for(const std::string answer : {"\n", "n\n", "no\n"}) {
+        answer_preview(preview, answer, Status::Declined);
+    }
+    for(const std::string answer : {"q\n", "quit\n", "cancel\n", ""}) {
+        const auto result = answer_preview(preview, answer, Status::Cancelled);
+        expect(result.cancellation_reason() == (answer.empty() ? ConfirmationCancellationReason::EndOfInput
+                                                               : ConfirmationCancellationReason::ExplicitToken),
+               "cancellation/EOF reason was flattened");
+    }
+    expect(answer_preview(preview, "y\n", Status::InteractionUnavailable, true).unavailable_reason() ==
+               DependencyCleanupUnavailableReason::NoConfirm,
+           "noconfirm was not an explicit unavailable result");
+    expect(answer_preview(preview, "y\n", Status::InteractionUnavailable, false, false).unavailable_reason() ==
+               DependencyCleanupUnavailableReason::NonInteractiveInput,
+           "non-TTY was flattened to silent Declined");
+    for(const bool output_failure : {false, true}) {
+        std::istringstream input("y\n");
+        std::ostringstream output;
+        if(output_failure)
+            output.setstate(std::ios::badbit);
+        else
+            input.setstate(std::ios::badbit);
+        const auto processes = cleanup_test_observed_process_calls();
+        const auto result = interact_dependency_cleanup(preview, AppConfig{}, true, input, output);
+        expect(result.status() == Status::InteractionUnavailable && !result.approved_snapshot().has_value() &&
+                   result.unavailable_reason() == (output_failure ? DependencyCleanupUnavailableReason::OutputFailure
+                                                                  : DependencyCleanupUnavailableReason::InputFailure) &&
+                   cleanup_test_observed_process_calls() == processes,
+               "failed preview/input stream authorized cleanup");
+    }
+    {
+        std::istringstream input;
+        input.exceptions(std::ios::failbit | std::ios::badbit);
+        std::ostringstream output;
+        const auto result = interact_dependency_cleanup(preview, AppConfig{}, true, input, output);
+        expect(result.status() == Status::Cancelled && result.cancellation_reason() == ConfirmationCancellationReason::EndOfInput &&
+                   !result.approved_snapshot().has_value(),
+               "exception-enabled clean EOF was flattened to input failure");
+    }
+    expect(collection.invocation_result().is_success() &&
+               collection.invocation_result().work_items.front().production_outcome->build_outcome == ProductionSourceBuildCommandOutcome::Succeeded &&
+               collection.invocation_result().work_items.front().production_outcome->install_outcome == ProductionSourceInstallOutcome::Succeeded,
+           "cleanup interaction changed completed build/install success");
+
+    const auto protected_collection = run_scenario(CollectorScenario::EligibleProtected, RepositoryCandidateKind::DirectBuild);
+    expect(protected_collection.completeness() == CleanupEvidenceCompleteness::Complete &&
+               protected_collection.assessments()[1].classification == CleanupClassification::Protected &&
+               !protected_collection.assessments()[1].preview_snapshot.has_value(),
+           "protected partition was not retained");
+    const auto protected_preview = make_dependency_cleanup_preview(protected_collection);
+    const auto protected_result = answer_preview(protected_preview, "y\n", Status::Approved);
+    expect(protected_result.approved_snapshot()->preview().eligible_candidates().size() == 1 &&
+               protected_result.approved_snapshot()->preview().eligible_candidates()[0] == first,
+           "Protected package entered approved set");
+
+    const auto zero_collection = run_scenario(CollectorScenario::CurrentExplicit, RepositoryCandidateKind::DirectBuild);
+    expect(zero_collection.completeness() == CleanupEvidenceCompleteness::Complete, "complete zero fixture incomplete");
+    const auto zero = make_dependency_cleanup_preview(zero_collection);
+    expect(zero.state() == State::NoCandidates && zero.eligible_candidates().empty(), "complete zero was blocked");
+    answer_preview(zero, "y\n", Status::NoCandidates);
+    for(const auto scenario : {CollectorScenario::EligibleUnknown, CollectorScenario::EligibleInvalid,
+                               CollectorScenario::CurrentQueryFailure, CollectorScenario::NoNewDependency,
+                               CollectorScenario::MixedMissingSource}) {
+        const auto incomplete = run_scenario(scenario, RepositoryCandidateKind::DirectBuild);
+        expect(incomplete.completeness() == CleanupEvidenceCompleteness::Incomplete, "unsafe collection unexpectedly complete");
+        if(scenario == CollectorScenario::EligibleUnknown || scenario == CollectorScenario::EligibleInvalid) {
+            expect(incomplete.assessments()[0].classification == CleanupClassification::Eligible &&
+                       incomplete.assessments()[1].classification == (scenario == CollectorScenario::EligibleUnknown
+                                                                          ? CleanupClassification::Unknown
+                                                                          : CleanupClassification::Invalid),
+                   "mixed unsafe partition fixture did not exercise an eligible subset");
+        }
+        if(scenario == CollectorScenario::MixedMissingSource) {
+            expect(incomplete.has_eligible_candidate() &&
+                       std::find(incomplete.issues().begin(), incomplete.issues().end(),
+                                 RemoteAurCleanupCollectionIssueKind::SourceArtifactOriginUnavailable) != incomplete.issues().end(),
+                   "receipt-free source scope did not block an otherwise Eligible repository candidate");
+        }
+        const auto blocked = make_dependency_cleanup_preview(incomplete);
+        expect(blocked.state() == State::Blocked && blocked.eligible_candidates().empty(),
+               "Incomplete collection became safe partial approval or NoCandidates");
+        answer_preview(blocked, "y\n", Status::Blocked);
+        expect(incomplete.invocation_result().is_success(), "blocked cleanup changed build/install success");
+    }
+    const auto duplicate = make_dependency_cleanup_preview(run_scenario(CollectorScenario::DuplicateCorrelation, RepositoryCandidateKind::DirectBuild));
+    const auto duplicate_result = answer_preview(duplicate, "y\n", Status::Approved);
+    const auto& approved = duplicate_result.approved_snapshot()->preview().eligible_candidates();
+    expect(approved.size() == 1 && approved[0].correlations().size() == 2 &&
+               approved[0].correlations()[0].dependency_edge->build_plan_edge_index == 0 &&
+               approved[0].correlations()[1].dependency_edge->build_plan_edge_index == 1,
+           "duplicate edges duplicated package approval or lost exact correlations");
+    for(const auto kind : {RepositoryCandidateKind::UniqueProvider, RepositoryCandidateKind::SelectedProvider}) {
+        const auto provider = make_dependency_cleanup_preview(run_scenario(CollectorScenario::Positive, kind));
+        const auto result = answer_preview(provider, "y\n", Status::Approved);
+        const auto& edge = result.approved_snapshot()->preview().eligible_candidates()[0].correlations()[0].dependency_edge.value();
+        expect(edge.provider.has_value() && edge.provider->provider.package_name == "collector-dependency" &&
+                   edge.provider->resolution == (kind == RepositoryCandidateKind::UniqueProvider ? ProviderResolutionKind::Unique : ProviderResolutionKind::UserSelected),
+               "provider/resolution identity was not retained");
+    }
+    const auto source = make_dependency_cleanup_preview(run_scenario(CollectorScenario::Positive));
+    const auto source_result = answer_preview(source, "y\n", Status::Approved);
+    expect(source_result.approved_snapshot()->preview().eligible_candidates()[0].package() == candidate_identity(),
+           "receipt-backed source-aware artifact identity was lost");
 }
 
 TrustedAlpmReceiptCaptureResult selected_provider_failure_capture(
@@ -951,4 +1182,8 @@ void run_remote_aur_cleanup_candidate_collector_tests() {
     test_authoritative_projection_positive_and_uniqueness();
     test_selected_provider_retry_boundary();
     test_receipt_independent_repository_candidate_matrix();
+}
+
+void run_dependency_cleanup_interaction_tests() {
+    test_cleanup_preview_and_interaction();
 }

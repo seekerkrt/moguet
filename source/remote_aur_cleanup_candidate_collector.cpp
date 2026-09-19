@@ -411,6 +411,38 @@ RemoteAurCleanupCandidateCollector::finish(
 
     const PreparedRemoteSourceBuild& prepared = session_.prepared();
     const BuildPlan& plan = prepared.aur_build_plan.value();
+    // Slice 2B only enumerates receipt-free repository candidates. A source
+    // build/check edge without actual artifact correlation cannot silently
+    // disappear from a positive preview universe, even if another repository
+    // candidate has complete individual safety evidence.
+    for(std::size_t index = 0; index < plan.dependency_edges.size(); ++index) {
+        const auto& edge = plan.dependency_edges[index];
+        const bool source_provider = edge.kind == DependencyKind::Provided &&
+                                     edge.resolved_provider.has_value() &&
+                                     !std::holds_alternative<RepositoryProviderOrigin>(edge.resolved_provider->origin);
+        if(!is_build_or_check(edge.role) ||
+           (edge.kind != DependencyKind::Aur && !source_provider)) {
+            continue;
+        }
+        const bool has_actual_correlation = std::any_of(
+            source_correlations.begin(), source_correlations.end(),
+            [index](const auto& evidence) {
+                if(evidence.completeness() != CleanupEvidenceCompleteness::Complete) return false;
+                return std::any_of(evidence.selected_artifacts().begin(), evidence.selected_artifacts().end(),
+                                   [index](const auto& selected) {
+                                       return std::any_of(selected.dependency_correlations.begin(), selected.dependency_correlations.end(),
+                                                          [index](const auto& correlation) {
+                                                              return correlation.verification == CleanupEvidenceVerification::Verified &&
+                                                                     correlation.dependency_edge.has_value() &&
+                                                                     correlation.dependency_edge->build_plan_edge_index == index;
+                                                          });
+                                   });
+            });
+        if(!has_actual_correlation) {
+            add_issue(issues, RemoteAurCleanupCollectionIssueKind::SourceArtifactOriginUnavailable);
+            overall = CleanupEvidenceCompleteness::Incomplete;
+        }
+    }
     for(const BuildPlanDependencyEdge& edge : plan.dependency_edges) {
         if(!edge.resolved_candidate.has_value()) continue;
         const auto* provider = std::get_if<ProviderResolvedDependencyCandidate>(
@@ -566,7 +598,10 @@ RemoteAurCleanupCandidateCollector::finish(
         assessments.push_back(RemoteAurCleanupCandidateAssessment{
             std::move(origin.package),
             classification.classification(),
-            classification.reasons()});
+            classification.reasons(),
+            classification.classification() == CleanupClassification::Eligible
+                ? std::optional<DependencyCleanupCandidateSnapshot>{DependencyCleanupCandidateSnapshot(candidate)}
+                : std::nullopt});
     }
 
     return RemoteAurCleanupCollectionResult(

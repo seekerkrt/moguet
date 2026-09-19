@@ -143,6 +143,10 @@ moguet_add_focused_ctest_alias(
     test-remote-aur-cleanup-collector
     TESTS cpp.remote_aur_cleanup_collector
 )
+moguet_add_focused_ctest_alias(
+    test-dependency-cleanup-interaction
+    TESTS cpp.dependency_cleanup_interaction
+)
 
 moguet_add_focused_ctest_alias(
     test-localization

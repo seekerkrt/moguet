@@ -421,6 +421,8 @@ struct CleanupPackageCorrelation {
     std::optional<PackageRole> role;
     std::optional<CleanupDependencyEdgeCorrelation> dependency_edge;
     CleanupEvidenceVerification verification;
+
+    bool operator==(const CleanupPackageCorrelation&) const = default;
 };
 
 // The historical name is retained with the existing projection interfaces.

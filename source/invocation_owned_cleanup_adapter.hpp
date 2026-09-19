@@ -1,5 +1,6 @@
 #pragma once
 
+#include "dependency_cleanup_interaction.hpp"
 #include "invocation_owned_cleanup_model.hpp"
 #include "package_metadata.hpp"
 #include "source_artifact_install_receipt_evidence.hpp"
@@ -701,12 +702,14 @@ enum class RemoteAurCleanupCollectionIssueKind {
     CandidateCorrelationIncomplete,
     PolicyObservationUnavailable,
     InvocationAggregateIncomplete,
+    SourceArtifactOriginUnavailable,
 };
 
 struct RemoteAurCleanupCandidateAssessment {
     SourceAwarePackageIdentity package;
     CleanupClassification classification;
     std::vector<CleanupClassificationReason> reasons;
+    std::optional<DependencyCleanupCandidateSnapshot> preview_snapshot = std::nullopt;
 };
 
 // A selected-provider failure happens before any PackageBase work item. Keep

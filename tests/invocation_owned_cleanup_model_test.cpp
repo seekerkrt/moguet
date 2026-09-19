@@ -15,6 +15,7 @@ void run_invocation_owned_cleanup_adapter_tests();
 void run_trusted_alpm_receipt_tests();
 void run_source_artifact_install_receipt_evidence_tests();
 void run_remote_aur_cleanup_candidate_collector_tests();
+void run_dependency_cleanup_interaction_tests();
 
 // The focused target compiles the existing typed dependency requirement
 // implementation but never evaluates a version constraint. Keeping this
@@ -960,6 +961,10 @@ void test_precedence_and_reason_ordering() {
 
 int main(int argc, char* argv[]) {
     try {
+        if(argc == 2 && std::string(argv[1]) == "--interaction-only") {
+            run_dependency_cleanup_interaction_tests();
+            return 0;
+        }
         if(argc == 2 &&
            std::string(argv[1]) == "--collector-only") {
             run_remote_aur_cleanup_candidate_collector_tests();
@@ -993,6 +998,7 @@ int main(int argc, char* argv[]) {
         run_trusted_alpm_receipt_tests();
         run_source_artifact_install_receipt_evidence_tests();
         run_remote_aur_cleanup_candidate_collector_tests();
+        run_dependency_cleanup_interaction_tests();
     } catch(const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;

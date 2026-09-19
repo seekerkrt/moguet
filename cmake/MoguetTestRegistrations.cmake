@@ -114,6 +114,13 @@ moguet_add_ctest(
         --collector-only
 )
 _moguet_add_direct_ctest(cpp.reviewed_source_state reviewed-source-state-test)
+moguet_add_ctest(
+    NAME cpp.dependency_cleanup_interaction
+    TARGETS invocation-owned-cleanup-model-test
+    COMMAND
+        "$<TARGET_FILE:invocation-owned-cleanup-model-test>"
+        --interaction-only
+)
 _moguet_add_direct_ctest(
     cpp.reviewed_source_state_store
     reviewed-source-state-store-test

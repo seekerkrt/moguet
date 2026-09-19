@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.8.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-19 17:50+0900\n"
+"POT-Creation-Date: 2026-09-20 03:21+0900\n"
 "PO-Revision-Date: 2026-09-19 17:53+0900\n"
 "Last-Translator: Moguet contributors\n"
 "Language-Team: Japanese\n"
@@ -4916,6 +4916,12 @@ msgstr "以前に選択したプロバイダーは、依存関係 {} の候補�
 #, c++-format
 msgid "Provider candidate changed during dependency resolution: {}"
 msgstr "依存関係の解決中にプロバイダー候補が変更されました: {}"
+
+msgid "Assessed build dependencies eligible for cleanup:"
+msgstr "判定済みのビルド依存パッケージのうち、クリーンアップ可能な候補:"
+
+msgid "Remove build dependencies?"
+msgstr "ビルド依存パッケージを削除しますか?"
 
 #, c++-format
 msgid "Selected providers use incompatible identities for package {}: {} and {}."
