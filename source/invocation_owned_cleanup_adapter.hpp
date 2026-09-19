@@ -240,6 +240,7 @@ enum class CleanupLifecycleProjectionIssueKind {
     RepositoryProviderPackageBaseUnavailable,
     RepositoryProviderProvenanceIncomplete,
     LifecycleEvidenceIncomplete,
+    // Historical only: missing strict causal proof is not a projection issue.
     CausalOwnershipUnavailable,
     PolicyProtectionUnavailable,
 };
@@ -462,12 +463,10 @@ enum class CleanupInvocationEvidenceIssueKind {
     WorkItemOutcomeInvalid,
     DependencyEdgeInventoryEmpty,
     CleanupRelevantEdgeInventoryEmpty,
-    DependencyEdgeUnsupportedOrUnowned,
+    DependencyEdgeUnsupported,
     DependencyEdgeInvalidOrUnknown,
     DependencyEdgeAttributionMismatch,
-    SourceArtifactCorrelationMissing,
     SourceArtifactCorrelationUnexpected,
-    SelectedProviderCorrelationMissing,
     SelectedProviderCorrelationUnexpected,
     CorrelationInvocationMismatch,
     CorrelationIncomplete,
@@ -477,14 +476,14 @@ enum class CleanupInvocationEvidenceIssueKind {
     TransactionTokenDuplicate,
     PhaseObservationMissing,
     PhaseObservationMismatch,
-    MakepkgSyncDependenciesUnowned,
+    PolicyObservationIncomplete,
     UncorrelatedActualInstall,
 };
 
 enum class CleanupDependencyEdgeClassificationKind {
-    SupportedOwnerSpecificReceipt,
+    SupportedPlannedDependency,
     AuthoritativelyPreExistingOrIrrelevant,
-    UnsupportedOrUnowned,
+    Unsupported,
     InvalidOrUnknown,
 };
 
@@ -509,6 +508,9 @@ struct CleanupInvocationWorkItemEvidence {
 
 class CleanupInvocationEvidence final {
 public:
+    // Completeness covers ordinary lifecycle / plan / consumer observations.
+    // Optional receipt evidence remains factual and is checked for conflicts;
+    // an empty receipt/token inventory is not an incomplete operation.
     CleanupInvocationEvidence() = delete;
     CleanupInvocationEvidence(const CleanupInvocationEvidence&) = default;
     CleanupInvocationEvidence(CleanupInvocationEvidence&&) noexcept = default;

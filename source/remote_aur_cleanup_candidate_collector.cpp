@@ -66,13 +66,17 @@ struct CandidateOrigin {
     SourceAwarePackageIdentity package;
     std::vector<CleanupPackageCorrelation> correlations;
     bool conflicting_identity = false;
+    CleanupCausalOwnership causal_ownership = CleanupCausalOwnership::Unknown;
+    CleanupCorrelationCoverage coverage = CleanupCorrelationCoverage::Incomplete;
 };
 
 void merge_candidate_origin(
     std::vector<CandidateOrigin>& origins,
     SourceAwarePackageIdentity package,
     std::vector<CleanupPackageCorrelation> correlations,
-    std::vector<RemoteAurCleanupCollectionIssueKind>& issues) {
+    std::vector<RemoteAurCleanupCollectionIssueKind>& issues,
+    CleanupCausalOwnership causal = CleanupCausalOwnership::InvocationOwned,
+    CleanupCorrelationCoverage coverage = CleanupCorrelationCoverage::Complete) {
     const std::string& package_name = package.package().package_name();
     auto existing = std::find_if(
         origins.begin(), origins.end(),
@@ -82,7 +86,7 @@ void merge_candidate_origin(
         });
     if(existing == origins.end()) {
         origins.push_back(CandidateOrigin{
-            std::move(package), std::move(correlations), false});
+            std::move(package), std::move(correlations), false, causal, coverage});
         return;
     }
     if(existing->package != package) {
@@ -92,6 +96,12 @@ void merge_candidate_origin(
             RemoteAurCleanupCollectionIssueKind::
                 CandidateIdentityConflict);
         return;
+    }
+    if(causal == CleanupCausalOwnership::InvocationOwned) {
+        existing->causal_ownership = causal;
+    }
+    if(coverage != CleanupCorrelationCoverage::Complete) {
+        existing->coverage = coverage;
     }
     for(CleanupPackageCorrelation& correlation : correlations) {
         if(std::none_of(
@@ -401,6 +411,35 @@ RemoteAurCleanupCandidateCollector::finish(
 
     const PreparedRemoteSourceBuild& prepared = session_.prepared();
     const BuildPlan& plan = prepared.aur_build_plan.value();
+    for(const BuildPlanDependencyEdge& edge : plan.dependency_edges) {
+        if(!edge.resolved_candidate.has_value()) continue;
+        const auto* provider = std::get_if<ProviderResolvedDependencyCandidate>(
+            &edge.resolved_candidate.value());
+        const bool repository_candidate = std::holds_alternative<RepositoryExactPackage>(
+                                              edge.resolved_candidate.value()) ||
+                                          (provider != nullptr && std::holds_alternative<RepositoryProviderOrigin>(provider->provider.origin));
+        if(!repository_candidate) continue;
+
+        // Enumerate only plan-resolved repository identities, then intersect with
+        // the installed observations. Snapshot names never supply source identity.
+        auto projection = project_invocation_owned_cleanup_candidate(
+            baseline_->snapshot(), current.snapshot(), plan,
+            edge.resolved_candidate.value(), lifecycle);
+        auto* projected = std::get_if<InvocationOwnedCleanupCandidateProjectionSuccess>(&projection);
+        if(projected == nullptr) {
+            add_issue(issues, RemoteAurCleanupCollectionIssueKind::CandidateCorrelationIncomplete);
+            overall = CleanupEvidenceCompleteness::Incomplete;
+            continue;
+        }
+        InvocationOwnedCleanupCandidate& candidate = projected->candidate;
+        if(candidate.baseline == CleanupBaselineObservation::PreExisting ||
+           candidate.current_package.state == CleanupInstalledState::Absent) {
+            continue;
+        }
+        merge_candidate_origin(
+            origins, std::move(candidate.package), std::move(candidate.correlations),
+            issues, CleanupCausalOwnership::Unknown, candidate.correlation_coverage);
+    }
     for(const CleanupSelectedProviderCorrelationEvidence& evidence :
         selected_correlations) {
         for(const CleanupSelectedProviderEdgeCorrelation& selected :
@@ -509,10 +548,10 @@ RemoteAurCleanupCandidateCollector::finish(
             project_cleanup_current_package_evidence(
                 current.snapshot(),
                 origin.package.package().package_name()),
-            CleanupCausalOwnership::InvocationOwned,
+            origin.causal_ownership,
             project_shared_requirement(aggregate, origin.package),
             project_cleanup_policy_protection(policy.evidence()),
-            aggregate_complete && !origin.correlations.empty()
+            aggregate_complete && origin.coverage == CleanupCorrelationCoverage::Complete && !origin.correlations.empty()
                 ? CleanupCorrelationCoverage::Complete
                 : CleanupCorrelationCoverage::Incomplete,
             std::move(origin.correlations)};

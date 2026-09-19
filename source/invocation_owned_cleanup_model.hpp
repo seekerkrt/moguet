@@ -83,7 +83,8 @@ private:
         CleanupInvocationSession& session,
         InvocationDependencyTransactionOwner owner,
         const std::string& transaction_token,
-        std::vector<std::size_t> work_item_indices);
+        std::vector<std::size_t> work_item_indices,
+        bool completed_successfully);
 #endif
 };
 
@@ -142,7 +143,8 @@ private:
         CleanupInvocationSession& session,
         InvocationDependencyTransactionOwner owner,
         const std::string& transaction_token,
-        std::vector<std::size_t> work_item_indices);
+        std::vector<std::size_t> work_item_indices,
+        bool completed_successfully);
 #endif
 };
 
@@ -153,7 +155,8 @@ void mark_cleanup_invocation_baseline_observed_for_test(
     CleanupInvocationSession& session,
     InvocationDependencyTransactionOwner owner,
     const std::string& transaction_token,
-    std::vector<std::size_t> work_item_indices);
+    std::vector<std::size_t> work_item_indices,
+    bool completed_successfully = true);
 #endif
 
 enum class InvocationDependencyTransactionCommandOutcome {

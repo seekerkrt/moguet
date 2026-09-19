@@ -117,7 +117,29 @@ enum class CollectorScenario {
     UnattemptedLaterWorkItem,
     SelectedProviderPostLaunchUnknown,
     SelectedProviderPreLaunchFailure,
+    CurrentReasonUnknown,
+    CurrentIdentityUnknown,
+    BaselineQueryFailure,
+    UnrelatedNewPackage,
+    NoNewDependency,
+    ProviderMismatch,
+    AmbiguousProvider,
+    ProviderMetadataUnknown,
+    IncompleteConsumer,
+    IncompleteRegisteredTransaction,
+    ContradictorySuccess,
+    PreparedProviderMismatch,
 };
+
+enum class RepositoryCandidateKind {
+    None,
+    DirectBuild,
+    DirectCheck,
+    UniqueProvider,
+    SelectedProvider,
+};
+
+RepositoryCandidateKind g_repository_candidate = RepositoryCandidateKind::None;
 
 CollectorScenario g_scenario = CollectorScenario::Positive;
 
@@ -210,6 +232,37 @@ BuildPlan collector_plan(bool with_later_work_item = false) {
         ObservedVersion::available(
             ObservedVersionSource::AurExactPackage, "1.0-1")};
     edge.constraint_evaluation = ConstraintEvaluation::satisfied();
+    if(g_repository_candidate != RepositoryCandidateKind::None) {
+        plan.package_targets.erase(plan.package_targets.begin());
+        plan.order.erase(plan.order.begin());
+        if(g_repository_candidate == RepositoryCandidateKind::DirectCheck &&
+           g_scenario != CollectorScenario::RuntimeConsumer) {
+            edge.role = PackageRole::CheckDependency;
+        }
+        if(g_repository_candidate == RepositoryCandidateKind::UniqueProvider ||
+           g_repository_candidate == RepositoryCandidateKind::SelectedProvider) {
+            ProvidedDependency provider = ProvidedDependency::from_repository_constraint_metadata(
+                "core", 0, "collector-dependency", "collector-dependency-base", "x86_64",
+                ProviderConstraintMetadata{
+                    ProviderCapability("collector-api", "collector-api", std::nullopt),
+                    ObservedVersion::available(ObservedVersionSource::RepositoryExactPackage, "1.0-1"),
+                    ObservedVersion::unknown(ObservedVersionSource::RepositoryProviderCapability,
+                                             ObservedVersionUnknownReason::UnversionedProviderCapability)});
+            edge.kind = DependencyKind::Provided;
+            edge.dependency_spec = "collector-api";
+            edge.requirement = requirement("collector-api");
+            edge.provider_resolution = g_repository_candidate == RepositoryCandidateKind::SelectedProvider
+                                           ? ProviderResolutionKind::UserSelected
+                                           : ProviderResolutionKind::Unique;
+            edge.resolved_provider = provider;
+            edge.resolved_candidate = ProviderResolvedDependencyCandidate{provider, provider.constraint_metadata->provided_version};
+            plan.provided.push_back(BuildPlanProvidedDependency{edge.dependency_spec, provider, edge.provider_resolution});
+        } else {
+            edge.kind = DependencyKind::Repo;
+            edge.resolved_candidate = RepositoryExactPackage{
+                ConfiguredRepositoryIdentity{"core", 0}, "collector-dependency", "collector-dependency-base", ObservedVersion::available(ObservedVersionSource::RepositoryExactPackage, "1.0-1"), {}, "x86_64"};
+        }
+    }
     plan.dependency_edges.push_back(std::move(edge));
     if(g_scenario ==
            CollectorScenario::SelectedProviderPostLaunchUnknown ||
@@ -304,6 +357,9 @@ PreparedProductionSourceBuildInvocation prepared_invocation(
         selected_providers.push_back(
             selected_repository_provider());
     }
+    if(g_repository_candidate == RepositoryCandidateKind::SelectedProvider) {
+        selected_providers = work_items.front().selected_repository_providers;
+    }
     return PreparedProductionSourceBuildInvocation{
         std::move(work_items), std::move(selected_providers),
         PacmanDatabasePaths{"/", "/var/lib/pacman"},
@@ -314,6 +370,26 @@ PreparedRemoteSourceBuild prepared_remote(bool with_later_work_item = false) {
     BuildPlan plan = collector_plan(with_later_work_item);
     PreparedProductionSourceBuildInvocation invocation =
         prepared_invocation(plan);
+    if(g_scenario == CollectorScenario::PreparedProviderMismatch) {
+        invocation.selected_repository_providers.front().package_name = "wrong-provider";
+    }
+    // Corrupt the observed plan only after preparing the valid invocation, so
+    // these tests exercise collector correlation rather than fixture setup.
+    if(g_scenario == CollectorScenario::IncompleteConsumer) {
+        plan.dependency_edges.front().parent_package_base = "missing-consumer";
+    } else if(g_scenario == CollectorScenario::MissingCorrelation &&
+              g_repository_candidate != RepositoryCandidateKind::None) {
+        plan.dependency_edges.front().requirement.reset();
+    } else if(g_scenario == CollectorScenario::ProviderMismatch) {
+        plan.dependency_edges.front().resolved_provider->package_name = "wrong-provider";
+    } else if(g_scenario == CollectorScenario::AmbiguousProvider) {
+        plan.dependency_edges.front().kind = DependencyKind::AmbiguousProvider;
+    } else if(g_scenario == CollectorScenario::ProviderMetadataUnknown) {
+        auto& provider = plan.dependency_edges.front().resolved_provider.value();
+        provider.package_architecture.reset();
+        std::get<ProviderResolvedDependencyCandidate>(plan.dependency_edges.front().resolved_candidate.value()).provider = provider;
+        plan.provided.front().provider = provider;
+    }
     return PreparedRemoteSourceBuild{
         ResolvedSourceBuildIdentity{ResolvedAurSourceBuildIdentity{
             "collector-root", "collector-root-base"}},
@@ -441,6 +517,9 @@ metadata_stub::LocalPackageMetadata base_devel_metadata(bool protected_case) {
 }
 
 void set_current_metadata() {
+    if(g_scenario == CollectorScenario::BaselineQueryFailure) {
+        metadata_stub::reset_alpm_stub();
+    }
     if(g_scenario == CollectorScenario::CurrentQueryFailure) {
         metadata_stub::set_package_cache_failure();
         return;
@@ -467,10 +546,21 @@ void set_current_metadata() {
         g_scenario == CollectorScenario::CurrentExplicit
             ? ALPM_PKG_REASON_EXPLICIT
             : ALPM_PKG_REASON_DEPEND};
+    if(g_scenario == CollectorScenario::CurrentReasonUnknown) {
+        candidate.reason = static_cast<alpm_pkgreason_t>(999);
+    }
     metadata_stub::LocalPackageMetadata base_devel =
         base_devel_metadata(
             g_scenario == CollectorScenario::PolicyProtected);
-    metadata_stub::set_local_packages({candidate, base_devel});
+    if(g_scenario == CollectorScenario::NoNewDependency) {
+        metadata_stub::set_local_packages({base_devel});
+        return;
+    }
+    std::vector<metadata_stub::LocalPackageMetadata> installed{candidate, base_devel};
+    if(g_scenario == CollectorScenario::UnrelatedNewPackage) {
+        installed.push_back(metadata_stub::LocalPackageMetadata{"unrelated-new-dependency", "1-1", ALPM_PKG_REASON_DEPEND});
+    }
+    metadata_stub::set_local_packages(std::move(installed));
     metadata_stub::set_local_package_base(
         0,
         g_scenario == CollectorScenario::CurrentPackageBaseMismatch
@@ -481,6 +571,9 @@ void set_current_metadata() {
         g_scenario == CollectorScenario::CurrentArchitectureMismatch
             ? "aarch64"
             : "x86_64");
+    if(g_scenario == CollectorScenario::CurrentIdentityUnknown) {
+        metadata_stub::set_local_package_architecture_null(0);
+    }
     metadata_stub::enqueue_local_package_query_present_metadata(
         "collector-dependency", std::move(candidate));
     metadata_stub::enqueue_local_package_query_present_metadata(
@@ -489,6 +582,10 @@ void set_current_metadata() {
 
 void set_baseline_metadata() {
     metadata_stub::reset_alpm_stub();
+    if(g_scenario == CollectorScenario::BaselineQueryFailure) {
+        metadata_stub::set_package_cache_failure();
+        return;
+    }
     if(g_scenario == CollectorScenario::PreExisting) {
         metadata_stub::set_local_packages({metadata_stub::LocalPackageMetadata{
                                                "collector-dependency", "1.0-1",
@@ -531,8 +628,11 @@ std::string describe_result(
     return output.str();
 }
 
-RemoteAurCleanupCollectionResult run_scenario(CollectorScenario scenario) {
+RemoteAurCleanupCollectionResult run_scenario(
+    CollectorScenario scenario,
+    RepositoryCandidateKind repository_candidate = RepositoryCandidateKind::None) {
     g_scenario = scenario;
+    g_repository_candidate = repository_candidate;
     set_baseline_metadata();
     const bool later =
         scenario == CollectorScenario::FailedLaterWorkItem ||
@@ -583,6 +683,67 @@ void test_authoritative_projection_positive_and_uniqueness() {
                 std::to_string(static_cast<int>(scenario)) +
                 describe_result(result));
     }
+}
+
+void test_receipt_independent_repository_candidate_matrix() {
+    for(const RepositoryCandidateKind kind : {
+            RepositoryCandidateKind::DirectBuild, RepositoryCandidateKind::DirectCheck,
+            RepositoryCandidateKind::UniqueProvider, RepositoryCandidateKind::SelectedProvider}) {
+        const auto positive = run_scenario(CollectorScenario::Positive, kind);
+        expect(positive.invocation_result().is_success() &&
+                   positive.completeness() == CleanupEvidenceCompleteness::Complete &&
+                   positive.has_eligible_candidate() && only_assessment(positive) != nullptr &&
+                   positive.issues().empty(),
+               "receipt-independent repository candidate was not Eligible: kind=" +
+                   std::to_string(static_cast<int>(kind)) + describe_result(positive));
+        for(const CollectorScenario scenario : {
+                CollectorScenario::PreExisting, CollectorScenario::CurrentExplicit,
+                CollectorScenario::CurrentVersionMismatch, CollectorScenario::CurrentPackageBaseMismatch,
+                CollectorScenario::CurrentArchitectureMismatch, CollectorScenario::CurrentQueryFailure,
+                CollectorScenario::CurrentReasonUnknown, CollectorScenario::CurrentIdentityUnknown,
+                CollectorScenario::BaselineQueryFailure, CollectorScenario::PolicyProtected,
+                CollectorScenario::PolicyUnknown, CollectorScenario::RuntimeConsumer,
+                CollectorScenario::MissingCorrelation, CollectorScenario::IncompleteConsumer,
+                CollectorScenario::FailedLaterWorkItem, CollectorScenario::UnattemptedLaterWorkItem,
+                CollectorScenario::IncompleteRegisteredTransaction, CollectorScenario::ContradictorySuccess,
+                CollectorScenario::NoNewDependency}) {
+            const auto result = run_scenario(scenario, kind);
+            expect(!result.has_eligible_candidate(),
+                   "receipt-independent unsafe candidate became Eligible: scenario=" +
+                       std::to_string(static_cast<int>(scenario)) + describe_result(result));
+            if(scenario == CollectorScenario::CurrentExplicit ||
+               scenario == CollectorScenario::PolicyProtected ||
+               scenario == CollectorScenario::RuntimeConsumer) {
+                expect(only_assessment(result) != nullptr &&
+                           only_assessment(result)->classification == CleanupClassification::Protected,
+                       "ordinary protection was lost:" + describe_result(result));
+            }
+            if(scenario == CollectorScenario::CurrentQueryFailure ||
+               scenario == CollectorScenario::CurrentReasonUnknown ||
+               scenario == CollectorScenario::IncompleteConsumer ||
+               scenario == CollectorScenario::PolicyUnknown) {
+                expect(only_assessment(result) != nullptr &&
+                           only_assessment(result)->classification == CleanupClassification::Unknown,
+                       "unknown ordinary evidence was not retained:" + describe_result(result));
+            }
+        }
+        const auto unrelated = run_scenario(CollectorScenario::UnrelatedNewPackage, kind);
+        expect(unrelated.has_eligible_candidate() && only_assessment(unrelated) != nullptr &&
+                   only_assessment(unrelated)->package.package().package_name() == "collector-dependency",
+               "post-state difference admitted an unrelated package:" + describe_result(unrelated));
+    }
+    for(const CollectorScenario scenario : {CollectorScenario::ProviderMismatch,
+                                            CollectorScenario::AmbiguousProvider, CollectorScenario::ProviderMetadataUnknown}) {
+        const auto result = run_scenario(scenario, RepositoryCandidateKind::UniqueProvider);
+        expect(!result.has_eligible_candidate() && only_assessment(result) != nullptr &&
+                   (only_assessment(result)->classification == CleanupClassification::Unknown ||
+                    only_assessment(result)->classification == CleanupClassification::Invalid),
+               "invalid/unknown repository provider became eligible:" + describe_result(result));
+    }
+    const auto mismatched_preparation = run_scenario(
+        CollectorScenario::PreparedProviderMismatch, RepositoryCandidateKind::SelectedProvider);
+    expect(!mismatched_preparation.has_eligible_candidate(),
+           "prepared selected-provider contradiction was ignored:" + describe_result(mismatched_preparation));
 }
 
 TrustedAlpmReceiptCaptureResult selected_provider_failure_capture(
@@ -710,6 +871,23 @@ execute_prepared_remote_aur_cleanup_invocation(
     CleanupInvocationSession& session = collector.session_for_test();
     ProductionSourceBuildInvocationResult result = successful_result(
         collector.prepared_for_test().invocation);
+    if(g_repository_candidate != RepositoryCandidateKind::None) {
+        if(g_scenario == CollectorScenario::IncompleteRegisteredTransaction) {
+            expect(register_cleanup_invocation_transaction_token_for_test(
+                       session, InvocationDependencyTransactionOwner::SelectedRepositoryProvider,
+                       token('a'), {0}, false),
+                   "incomplete transaction fixture registration failed");
+        }
+        if(g_scenario == CollectorScenario::FailedLaterWorkItem) {
+            result.work_items.back().status = ProductionSourceBuildWorkItemStatus::Failed;
+        } else if(g_scenario == CollectorScenario::UnattemptedLaterWorkItem) {
+            result.work_items.back().status = ProductionSourceBuildWorkItemStatus::NotAttempted;
+        } else if(g_scenario == CollectorScenario::ContradictorySuccess) {
+            result.work_items.front().diagnostic = "success with failure evidence";
+        }
+        set_current_metadata();
+        return result;
+    }
     if(g_scenario == CollectorScenario::ReceiptMissing) {
         set_current_metadata();
         return result;
@@ -772,4 +950,5 @@ execute_prepared_remote_aur_cleanup_invocation(
 void run_remote_aur_cleanup_candidate_collector_tests() {
     test_authoritative_projection_positive_and_uniqueness();
     test_selected_provider_retry_boundary();
+    test_receipt_independent_repository_candidate_matrix();
 }

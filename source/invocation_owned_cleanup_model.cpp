@@ -762,8 +762,10 @@ std::optional<std::size_t>
 CleanupInvocationSession::record_post_success_observation() const {
     if(!is_active()) return std::nullopt;
     std::scoped_lock lock(state_->mutex);
+    // Ordinary invocation success is checked by the phase producer. No trusted
+    // transaction is required, but a registered unfinished transaction is bad
+    // evidence and must still prevent post-success observations.
     if(!state_->baseline_observed ||
-       state_->transaction_inventory.empty() ||
        !std::all_of(
            state_->transaction_inventory.begin(),
            state_->transaction_inventory.end(), [](const auto& entry) {
@@ -816,11 +818,13 @@ bool register_cleanup_invocation_transaction_token_for_test(
     CleanupInvocationSession& session,
     InvocationDependencyTransactionOwner owner,
     const std::string& transaction_token,
-    std::vector<std::size_t> work_item_indices) {
+    std::vector<std::size_t> work_item_indices,
+    bool completed_successfully) {
     if(!session.authority_.register_trusted_transaction_token(
            owner, transaction_token, std::move(work_item_indices))) {
         return false;
     }
+    if(!completed_successfully) return true;
     return session.authority_.mark_trusted_transaction_completed(
         owner, transaction_token);
 }
