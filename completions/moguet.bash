@@ -40,6 +40,7 @@ _moguet_option_id() {
         --select) printf '%s' 10 ;;
         --aur) printf '%s' 11 ;;
         --repo) printf '%s' 12 ;;
+        --details) printf '%s' 20 ;;
         --local) printf '%s' 15 ;;
         --output-dir|--output-dir=*) printf '%s' 16 ;;
         --recursive) printf '%s' 17 ;;
@@ -222,7 +223,7 @@ _moguet() {
     operation="$(_moguet_find_operation || true)"
 
     if [[ -z $operation ]]; then
-        candidates=(build upgrade upgrade-aur upgrade-all clean deps plan fetch add-src edit-src list-src del-src revert -G -Gp -S -Syu -Su -Ss -Si -Qua -h --help -V --version --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --rmdeps --select --aur --repo)
+        candidates=(build upgrade upgrade-aur upgrade-all clean deps plan fetch add-src edit-src list-src del-src revert -G -Gp -S -Syu -Su -Ss -Si -Qua -h --help -V --version --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --rmdeps --select --aur --repo --details)
     else
         case "$operation" in
         build)
@@ -272,14 +273,14 @@ _moguet() {
             ;;
         deps)
             if _moguet_form_prefix_valid deps 0; then
-                candidates=(--noconfirm --recursive)
+                candidates=(--noconfirm --details --recursive)
             else
                 candidates=()
             fi
             ;;
         plan)
             if _moguet_form_prefix_valid plan 0; then
-                candidates=(--noconfirm)
+                candidates=(--noconfirm --details)
             else
                 candidates=()
             fi
@@ -343,7 +344,7 @@ _moguet() {
         -S)
             if _moguet_has_option_id 10; then
                 if _moguet_form_prefix_valid -S 0; then
-                    candidates=(--select --needed --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --aur --repo)
+                    candidates=(--select --needed --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --aur --repo --details)
                 else
                     candidates=()
                 fi

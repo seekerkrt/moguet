@@ -277,6 +277,8 @@ void print_semantic_scopes(
                   std::string_view{"dependency-cleanup"}},
         std::pair{cli_authority::OptionSemanticScope::PackageExport,
                   std::string_view{"package-export"}},
+        std::pair{cli_authority::OptionSemanticScope::PresentationDetail,
+                  std::string_view{"presentation-detail"}},
     };
     print_mask_names(scopes, NAMES);
 }
@@ -458,6 +460,7 @@ int main() {
         OptionId::Select,
         OptionId::Aur,
         OptionId::Repo,
+        OptionId::Details,
         OptionId::LocalSource,
         OptionId::PkgbuildOutputDirectory,
         OptionId::Recursive,

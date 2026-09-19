@@ -602,6 +602,60 @@ run_ok --version
 assert_contains "Moguet v" "$output_file"
 assert_pre_log_exit
 
+# Issue #439 F-01: exercise the production entry before config/XDG/Logger.
+for info_option in --help -h --version -V; do
+    case "$info_option" in
+        --help|-h) canonical_info=--help; info_marker=USAGE ;;
+        --version|-V) canonical_info=--version; info_marker='Moguet v' ;;
+    esac
+    setup_case "details-info-$info_option"
+    # A relative config root would fail if runtime config resolution ran.
+    export XDG_CONFIG_HOME=relative-info-config
+    run_ok "$info_option"
+    assert_contains "$info_marker" "$output_file"
+    assert_pre_log_exit
+    run_ok --noedit "$info_option"
+    assert_contains "$info_marker" "$output_file"
+    assert_pre_log_exit
+
+    for placement in before after; do
+        case "$placement" in
+            before) run_fail --details "$info_option" ;;
+            after) run_fail "$info_option" --details ;;
+        esac
+        assert_contains \
+            "Option --details is not supported for operation $canonical_info." \
+            "$output_file"
+        assert_not_contains "$info_marker" "$output_file"
+        assert_pre_log_exit
+    done
+
+    # Literal option values and opaque operands are not details occurrences.
+    run_ok "$info_option" -- --details
+    assert_contains "$info_marker" "$output_file"
+    assert_pre_log_exit
+    for value_option in --config --root -b -r; do
+        run_ok "$info_option" "$value_option" --details
+        assert_contains "$info_marker" "$output_file"
+        assert_pre_log_exit
+    done
+    run_ok "$info_option" --config=--details
+    assert_contains "$info_marker" "$output_file"
+    assert_pre_log_exit
+
+    # A consumed value does not hide a later actual details occurrence.
+    run_fail "$info_option" --config -- --details
+    assert_contains \
+        "Option --details is not supported for operation $canonical_info." \
+        "$output_file"
+    assert_pre_log_exit
+    run_fail --details "$info_option" -- --details
+    assert_contains \
+        "Option --details is not supported for operation $canonical_info." \
+        "$output_file"
+    assert_pre_log_exit
+done
+
 setup_case unknown-custom-operation
 run_fail unknown-operation
 assert_contains "Unknown operation: unknown-operation" "$output_file"

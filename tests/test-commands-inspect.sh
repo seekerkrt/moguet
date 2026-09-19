@@ -130,6 +130,23 @@ run_fail() {
     fi
 }
 
+# Stable read-only fixtures: compare the complete presentation and query trace.
+# Keep this Slice 3 parity check separate from the rich marker assertions below.
+assert_details_parity() {
+    result=$1
+    shift
+    cp "$stdout_file" "$case_dir/normal.stdout"
+    cp "$stderr_file" "$case_dir/normal.stderr"
+    cp "$command_log" "$case_dir/normal.commands"
+    "run_$result" --details "$@"
+    cmp -s "$case_dir/normal.stdout" "$stdout_file" ||
+        fail_case "Normal/Detailed stdout differs: $*"
+    cmp -s "$case_dir/normal.stderr" "$stderr_file" ||
+        fail_case "Normal/Detailed stderr differs: $*"
+    cmp -s "$case_dir/normal.commands" "$command_log" ||
+        fail_case "Normal/Detailed query or mutation trace differs: $*"
+}
+
 run_ok_with_pipe() {
     input=$1
     shift
@@ -185,6 +202,46 @@ run_tty_ok_with_eof() {
         > "$stdout_file" 2> "$stderr_file"; then
         fail_case "expected interactive EOF command to succeed: $*"
     fi
+}
+
+# Keep stdin on a real PTY while redirecting both presentation streams.
+# Selection availability is owned by stdin, independent of output destination.
+run_redirected_tty_ok() {
+    answer=$1
+    shift
+    : > "$command_log"
+    if ! printf '%s\n' "$answer" |
+        python3 "$repo_root/tests/run-with-pty.py" -- sh -c \
+            'out=$1; err=$2; shift 2; exec "$@" >"$out" 2>"$err"' \
+            sh "$stdout_file" "$stderr_file" "$test_binary" "$@"; then
+        fail_case "expected redirected interactive command to succeed: $*"
+    fi
+}
+
+# Execution evidence survives later Normal compactization. Existing Slice 3
+# byte parity stays separate; here compare only command trace and ANSI controls.
+assert_details_execution_parity() {
+    runner=$1
+    answer=$2
+    shift 2
+    cp "$command_log" "$case_dir/normal.commands"
+    cp "$stdout_file" "$case_dir/normal.stdout"
+    cp "$stderr_file" "$case_dir/normal.stderr"
+    "$runner" "$answer" --details "$@"
+    cmp -s "$case_dir/normal.commands" "$command_log" ||
+        fail_case "Normal/Detailed execution trace differs: $*"
+    python3 - "$case_dir" <<'PYANSI'
+from pathlib import Path
+import re
+import sys
+root = Path(sys.argv[1])
+ansi = re.compile(rb"\x1b\[[0-?]*[ -/]*[@-~]")
+for stream in ("stdout", "stderr"):
+    normal = ansi.findall((root / ("normal." + stream)).read_bytes())
+    detailed = ansi.findall((root / stream).read_bytes())
+    if normal != detailed:
+        raise SystemExit("Normal/Detailed ANSI controls differ: " + stream)
+PYANSI
 }
 
 assert_contains() {
@@ -404,6 +461,7 @@ done
 setup_case deps-partial-failure
 export MOGUET_TEST_INSPECTION_SCENARIO=deps-partial-failure
 run_fail deps deps-first deps-fail deps-third
+assert_details_parity fail deps deps-first deps-fail deps-third
 assert_contains "Failed to inspect dependencies for deps-fail: fixture query failure" "$stderr_file"
 assert_before "Package         : deps-first" "Package         : deps-third" "$stdout_file"
 assert_not_contains "Package         : deps-fail" "$stdout_file"
@@ -424,6 +482,7 @@ echo "  ok: deps validates the whole invocation before metadata resolution"
 setup_case deps-provider-order
 export MOGUET_TEST_INSPECTION_SCENARIO=deps-provider-order
 run_ok deps deps-provider-root
+assert_details_parity ok deps deps-provider-root
 assert_exact_line "      1. aur/provider-z" "$stdout_file"
 assert_exact_line "      2. aur/provider-a" "$stdout_file"
 assert_before "      1. aur/provider-z" "      2. aur/provider-a" "$stdout_file"
@@ -434,6 +493,7 @@ echo "  ok: deps provider numbering preserves candidate order"
 setup_case deps-provider-interactive-selection
 export MOGUET_TEST_INSPECTION_SCENARIO=deps-provider-interactive-selection
 run_tty_ok 2 deps --recursive provider-root
+assert_details_execution_parity run_tty_ok 2 deps --recursive provider-root
 assert_contains_count 1 \
     ":: provider dependency=moguet-inspect-203-virtual-provider" \
     "$stdout_file"
@@ -449,12 +509,27 @@ assert_contains \
     "$stdout_file"
 echo "  ok: deps shares one interactive provider choice with recursive display"
 
+# Issue #439: redirected stdout/stderr do not turn a TTY stdin into non-TTY.
+for operation in plan deps; do
+    setup_case "$operation-provider-redirected-output"
+    export MOGUET_TEST_INSPECTION_SCENARIO=$operation-provider-interactive-selection
+    run_redirected_tty_ok 2 "$operation" provider-root
+    assert_details_execution_parity run_redirected_tty_ok 2 "$operation" provider-root
+    assert_contains "moguet-inspect-203-virtual-provider -> aur/provider-a" "$stdout_file"
+    assert_contains "2) source=AUR package=provider-a PackageBase=provider-a" "$stdout_file"
+    assert_no_git_mutation
+    assert_not_contains "makepkg " "$command_log"
+    assert_not_contains "sudo " "$command_log"
+done
+echo "  ok: details preserves provider selection with redirected output"
+
 # Issue #388: installed state is a read-only suffix on the existing numbered
 # candidate lines. It neither changes candidate order nor selects a provider.
 setup_case deps-provider-installed-state-presentation
 export MOGUET_TEST_INSPECTION_SCENARIO=deps-provider-interactive-selection
 printf '%s\n' 'provider-z 1.0-1' > "$provider_installed_state"
 run_tty_ok 2 deps --recursive provider-root
+assert_details_execution_parity run_tty_ok 2 deps --recursive provider-root
 assert_contains \
     "1) source=AUR package=provider-z PackageBase=provider-z provided=moguet-inspect-203-virtual-provider provided-specification=moguet-inspect-203-virtual-provider version=2.0-1 [installed]" \
     "$stdout_file"
@@ -472,6 +547,7 @@ export MOGUET_TEST_INSPECTION_SCENARIO=deps-provider-interactive-selection
 printf '%s\n' 'provider-a 2.0-1' > "$provider_installed_state"
 export MOGUET_TEST_PACKAGE_METADATA_QUERY_FAILURE_PACKAGE=provider-z
 run_tty_ok 1 deps --recursive provider-root
+assert_details_execution_parity run_tty_ok 1 deps --recursive provider-root
 assert_contains "1) source=AUR package=provider-z PackageBase=provider-z provided=moguet-inspect-203-virtual-provider provided-specification=moguet-inspect-203-virtual-provider version=2.0-1 [installed state unknown]" "$stdout_file"
 assert_contains "Warning: installed state is unavailable for provider candidate provider-z:" "$stdout_file"
 assert_contains \
@@ -485,6 +561,7 @@ echo "  ok: unknown provider state remains selectable with a separate warning"
 setup_case deps-provider-interactive-cancel
 export MOGUET_TEST_INSPECTION_SCENARIO=deps-provider-interactive-cancel
 run_tty_ok q deps --recursive provider-root
+assert_details_execution_parity run_tty_ok q deps --recursive provider-root
 assert_contains_count 1 \
     ":: provider dependency=moguet-inspect-203-virtual-provider" \
     "$stdout_file"
@@ -516,6 +593,7 @@ echo "  ok: deps retains provider EOF cancellation across recursive resolution"
 setup_case deps-provider-non-tty-pipe
 export MOGUET_TEST_INSPECTION_SCENARIO=deps-provider-non-tty-pipe
 run_ok_with_pipe 2 deps provider-root
+assert_details_execution_parity run_ok_with_pipe 2 deps provider-root
 assert_not_contains ":: provider dependency=" "$stdout_file"
 assert_not_contains "Selected provided dependencies:" "$stdout_file"
 assert_exact_line "      1. aur/provider-z" "$stdout_file"
@@ -527,6 +605,7 @@ echo "  ok: deps ignores piped provider input and remains ambiguous"
 setup_case deps-provider-partial-source-failure
 export MOGUET_TEST_INSPECTION_SCENARIO=deps-provider-partial-failure
 run_tty_ok 1 deps partial-provider-root
+assert_details_execution_parity run_tty_ok 1 deps partial-provider-root
 assert_not_contains ":: provider dependency=" "$stdout_file"
 assert_contains "Incomplete provider candidate observations:" "$stdout_file"
 assert_contains \
@@ -544,6 +623,7 @@ echo "  ok: deps retains partial provider observations without prompting"
 setup_case plan-partial-failure
 export MOGUET_TEST_INSPECTION_SCENARIO=plan-partial-failure
 run_ok plan plan-first plan-fail plan-third
+assert_details_parity ok plan plan-first plan-fail plan-third
 assert_contains "AUR package metadata for plan-fail is unavailable: fixture plan failure" "$stdout_file"
 assert_before "  1. plan-first" "  2. plan-third" "$stdout_file"
 assert_exact_line_count 1 "Build plan:" "$stdout_file"
@@ -558,6 +638,7 @@ echo "  ok: plan retains ordinary failure as one incomplete invocation"
 setup_case plan-validation-position
 export MOGUET_TEST_INSPECTION_SCENARIO=plan-validation-position
 run_fail plan plan-first invalid/name plan-third
+assert_details_parity fail plan plan-first invalid/name plan-third
 assert_contains "Invalid package name: invalid/name" "$stderr_file"
 assert_not_contains "Failed to plan build order" "$stderr_file"
 if [ -s "$command_log" ]; then
@@ -568,6 +649,7 @@ echo "  ok: plan validates the whole invocation before metadata resolution"
 setup_case plan-provider-interactive-selection
 export MOGUET_TEST_INSPECTION_SCENARIO=plan-provider-interactive-selection
 run_tty_ok 2 plan provider-root provider-root
+assert_details_execution_parity run_tty_ok 2 plan provider-root provider-root
 assert_contains_count 1 \
     ":: provider dependency=moguet-inspect-203-virtual-provider" \
     "$stdout_file"
@@ -582,6 +664,7 @@ echo "  ok: plan reuses one interactive provider choice across targets"
 setup_case plan-provider-interactive-cancel
 export MOGUET_TEST_INSPECTION_SCENARIO=plan-provider-interactive-cancel
 run_tty_ok q plan provider-root provider-root
+assert_details_execution_parity run_tty_ok q plan provider-root provider-root
 assert_contains_count 1 \
     ":: provider dependency=moguet-inspect-203-virtual-provider" \
     "$stdout_file"
@@ -631,6 +714,7 @@ setup_case plan-provider-constraint-non-tty
 export MOGUET_TEST_INSPECTION_SCENARIO=plan-provider-constraint-non-tty
 expect_constrained_provider_version_match
 run_ok_with_pipe 2 plan provider-constraint-root
+assert_details_execution_parity run_ok_with_pipe 2 plan provider-constraint-root
 assert_not_contains ":: provider dependency=" "$stdout_file"
 assert_contains \
     "  moguet-inspect-350-virtual-provider>=1" "$stdout_file"
@@ -645,6 +729,7 @@ setup_case plan-provider-constraint-noconfirm
 export MOGUET_TEST_INSPECTION_SCENARIO=plan-provider-constraint-noconfirm
 expect_constrained_provider_version_match
 run_tty_ok 2 --noconfirm plan provider-constraint-root
+assert_details_execution_parity run_tty_ok 2 --noconfirm plan provider-constraint-root
 assert_not_contains ":: provider dependency=" "$stdout_file"
 assert_contains \
     "  moguet-inspect-350-virtual-provider>=1" "$stdout_file"
@@ -659,6 +744,7 @@ echo "  ok: constrained provider --noconfirm ambiguity does not invent cancellat
 setup_case plan-provider-noconfirm-tty
 export MOGUET_TEST_INSPECTION_SCENARIO=plan-provider-noconfirm-tty
 run_tty_ok 2 --noconfirm plan provider-root
+assert_details_execution_parity run_tty_ok 2 --noconfirm plan provider-root
 assert_not_contains ":: provider dependency=" "$stdout_file"
 assert_not_contains " (selected)" "$stdout_file"
 assert_contains "Ambiguous provided dependencies:" "$stdout_file"
@@ -669,6 +755,7 @@ echo "  ok: --noconfirm keeps an ambiguous provider fail-closed on a TTY"
 setup_case plan-provider-partial-source-failure
 export MOGUET_TEST_INSPECTION_SCENARIO=plan-provider-partial-failure
 run_tty_ok 1 plan partial-provider-root
+assert_details_execution_parity run_tty_ok 1 plan partial-provider-root
 assert_not_contains ":: provider dependency=" "$stdout_file"
 assert_contains "Incomplete provider candidate observations:" "$stdout_file"
 assert_contains "observed candidates: aur/partial-provider-a" "$stdout_file"
@@ -687,6 +774,7 @@ export MOGUET_TEST_ALPM_VERCMP_EXPECTED_LHS=2
 export MOGUET_TEST_ALPM_VERCMP_EXPECTED_RHS=2
 export MOGUET_TEST_ALPM_VERCMP_RESULT=0
 run_tty_fail 1 plan public-conflict-single-root
+assert_details_execution_parity run_tty_fail 1 plan public-conflict-single-root
 assert_contains "is Conflicting" "$stdout_file"
 assert_not_contains ":: provider dependency=" "$stdout_file"
 assert_no_git_mutation
@@ -695,6 +783,7 @@ echo "  ok: same-root conflict fails before provider interaction"
 setup_case plan-metadata-risk-readiness
 export MOGUET_TEST_INSPECTION_SCENARIO=plan-metadata-risk-readiness
 run_ok plan plan-metadata-risk-root
+assert_details_parity ok plan plan-metadata-risk-root
 assert_exact_line "  completeness: Complete" "$stdout_file"
 assert_exact_line "  Fetch readiness: Ready" "$stdout_file"
 assert_exact_line "  Build readiness: Ready" "$stdout_file"
@@ -711,6 +800,7 @@ echo "  ok: plan releases a complete typed no-match relation guard"
 setup_case plan-split-only-readiness
 export MOGUET_TEST_INSPECTION_SCENARIO=plan-split-only-readiness
 run_ok plan plan-split-child
+assert_details_parity ok plan plan-split-child
 assert_exact_line "  completeness: Complete" "$stdout_file"
 assert_exact_line "  Fetch readiness: Ready" "$stdout_file"
 assert_exact_line "  Build readiness: Ready" "$stdout_file"
@@ -723,6 +813,7 @@ echo "  ok: plan preserves split PackageBase install readiness"
 setup_case plan-density-attention
 export MOGUET_TEST_INSPECTION_SCENARIO=plan-density-attention
 run_ok plan plan-density-root
+assert_details_parity ok plan plan-density-root
 assert_exact_line \
     "  items: 34 total, 34 normal, 0 attention-required" "$stdout_file"
 assert_exact_line "  normal unconstrained dependencies: 33" "$stdout_file"
@@ -826,6 +917,7 @@ export MOGUET_TEST_INSPECTION_SCENARIO=plan-repository-size-identities
 MOGUET_TEST_PACMAN_REPO_PACKAGES='same-package different-package same-semantic repository-aur-package'
 export MOGUET_TEST_PACMAN_REPO_PACKAGES
 run_ok deps --recursive plan-identity-root
+assert_details_parity ok deps --recursive plan-identity-root
 assert_exact_line "  - identity-repository-aur-virtual [provided] by aur/repository-aur-package" "$stdout_file"
 assert_exact_line "  - identity-aur-virtual [provided] by aur/identity-aur-provider" "$stdout_file"
 echo "  ok: recursive dependency display preserves typed provider labels"
@@ -1020,6 +1112,7 @@ export MOGUET_TEST_ALPM_VERCMP_EXPECTED_LHS=2.0-1
 export MOGUET_TEST_ALPM_VERCMP_EXPECTED_RHS=3
 export MOGUET_TEST_ALPM_VERCMP_RESULT=-1
 run_ok deps constraint-unsatisfied-root
+assert_details_parity ok deps constraint-unsatisfied-root
 assert_contains "constraint-leaf>=3: result=Unsatisfied" "$stdout_file"
 assert_contains "Dependency constraint-leaf>=3 is Unsatisfied" "$stdout_file"
 
@@ -1029,24 +1122,28 @@ export MOGUET_TEST_ALPM_VERCMP_EXPECTED_LHS=2.0-1
 export MOGUET_TEST_ALPM_VERCMP_EXPECTED_RHS=2.0-1
 export MOGUET_TEST_ALPM_VERCMP_RESULT=0
 run_ok deps constraint-satisfied-root
+assert_details_parity ok deps constraint-satisfied-root
 assert_contains "constraint-leaf>=2.0-1: result=Satisfied" "$stdout_file"
 assert_not_contains "Warning: Dependency constraint-leaf>=2.0-1" "$stdout_file"
 
 setup_case deps-constraint-unconstrained
 export MOGUET_TEST_INSPECTION_SCENARIO=deps-constraint-unconstrained
 run_ok deps constraint-unconstrained-root
+assert_details_parity ok deps constraint-unconstrained-root
 assert_contains "constraint-leaf: result=Unconstrained" "$stdout_file"
 assert_not_contains "Warning: Dependency constraint-leaf" "$stdout_file"
 
 setup_case deps-constraint-unknown
 export MOGUET_TEST_INSPECTION_SCENARIO=deps-constraint-unknown
 run_ok deps constraint-unknown-root
+assert_details_parity ok deps constraint-unknown-root
 assert_contains "constraint-virtual>=3: result=Unknown" "$stdout_file"
 assert_contains "Dependency constraint-virtual>=3 is Unknown" "$stdout_file"
 
 setup_case deps-constraint-invalid
 export MOGUET_TEST_INSPECTION_SCENARIO=deps-constraint-invalid
 run_fail deps constraint-invalid-root
+assert_details_parity fail deps constraint-invalid-root
 assert_contains "AUR package metadata constraint projection failed: constraint-invalid-root" "$stderr_file"
 
 # Issue #351 F5: an installed exact source is distinct from repository origin,
@@ -1055,6 +1152,7 @@ setup_case deps-installed-source-classification
 export MOGUET_TEST_INSPECTION_SCENARIO=deps-installed-source-classification
 export MOGUET_TEST_PACMAN_INSTALLED_PACKAGES='foreign-installed'
 run_ok deps installed-display-root
+assert_details_parity ok deps installed-display-root
 assert_contains "Installed dependencies:" "$stdout_file"
 assert_exact_line_count 1 "  foreign-installed" "$stdout_file"
 assert_before "Installed dependencies:" "  foreign-installed" "$stdout_file"
@@ -1065,6 +1163,7 @@ echo "  ok: deps presents foreign installed exact packages as Installed"
 setup_case deps-installed-query-failure
 export MOGUET_TEST_INSPECTION_SCENARIO=deps-installed-query-failure
 run_ok deps installed-query-failure-root
+assert_details_parity ok deps installed-query-failure-root
 assert_contains \
     "installed-query-failure>=1: result=Unknown, reason=metadata query failed" \
     "$stdout_file"
@@ -1081,6 +1180,7 @@ export MOGUET_TEST_ALPM_VERCMP_EXPECTED_LHS=2.0-1
 export MOGUET_TEST_ALPM_VERCMP_EXPECTED_RHS=3
 export MOGUET_TEST_ALPM_VERCMP_RESULT=-1
 run_ok plan constraint-unsatisfied-root
+assert_details_parity ok plan constraint-unsatisfied-root
 assert_exact_line "  completeness: Incomplete" "$stdout_file"
 assert_contains "reason: constraint readiness" "$stdout_file"
 assert_contains "constraint-leaf>=3: result=Unsatisfied" "$stdout_file"

@@ -101,24 +101,32 @@ private:
 } // namespace
 
 ProviderCandidatePresenter make_provider_installed_state_candidate_presenter(
-    ProviderInstalledStateLookup& lookup) {
-    auto presenter = std::make_shared<ProviderInstalledStateCandidatePresenter>(
-        lookup);
-    return [presenter = std::move(presenter)](
-               std::ostream& output, std::size_t index,
-               const ProvidedDependency& candidate) {
-        presenter->present(output, index, candidate);
-    };
+    ProviderInstalledStateLookup& lookup, PresentationDetail detail) {
+    // POLICY(#439): select the presentation here; lookup/session semantics
+    // remain independent of detail. Both modes retain rich metadata for now.
+    switch(detail) {
+        case PresentationDetail::Normal:
+        case PresentationDetail::Detailed: {
+            auto presenter = std::make_shared<ProviderInstalledStateCandidatePresenter>(
+                lookup);
+            return [presenter = std::move(presenter)](
+                       std::ostream& output, std::size_t index,
+                       const ProvidedDependency& candidate) {
+                presenter->present(output, index, candidate);
+            };
+        }
+    }
+    throw std::logic_error("Unknown provider presentation detail.");
 }
 
 ProviderCandidatePresenterFactory
 make_provider_installed_state_candidate_presenter_factory() {
-    return [] {
+    return [](PresentationDetail detail) {
         // POLICY(#388): lookupはselection sessionではなく、このcallback phaseの
         // presentation seamが所有する。queryは候補listを実際に表示するまで行わない。
         auto lookup = std::make_shared<ProviderInstalledStateLookup>();
         ProviderCandidatePresenter presenter =
-            make_provider_installed_state_candidate_presenter(*lookup);
+            make_provider_installed_state_candidate_presenter(*lookup, detail);
         return [lookup = std::move(lookup), presenter = std::move(presenter)](
                    std::ostream& output, std::size_t index,
                    const ProvidedDependency& candidate) {

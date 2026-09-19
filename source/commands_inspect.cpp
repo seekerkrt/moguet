@@ -993,7 +993,96 @@ void print_relation_assessment_group(
     }
 }
 
-void print_build_plan(const BuildPlan& plan) {
+void print_detailed_dependency_inspection(
+    const AurPackageInfo& info,
+    std::size_t dependency_count,
+    const DependencyClassification& classified,
+    const BuildPlan& invocation_plan) {
+    std::cout << localization::format_translated_message(
+                     "Package         : {}", info.Name)
+              << std::endl;
+    std::cout << localization::format_translated_message(
+                     "Package Base    : {}", info.PackageBase)
+              << std::endl;
+    std::cout << localization::format_translated_message(
+                     "Dependencies    : {}", dependency_count)
+              << std::endl;
+    std::cout << std::endl;
+    print_dependency_group(
+        localization::translate_message(
+            "Installed dependencies:"),
+        classified.installed);
+    std::cout << std::endl;
+    print_dependency_group(
+        localization::format_translated_message(
+            "Official {} dependencies:", "repo"),
+        classified.repo);
+    std::cout << std::endl;
+    print_dependency_group(
+        localization::format_translated_message(
+            "{} dependencies:", "AUR"),
+        classified.aur);
+    std::cout << std::endl;
+    print_dependency_group(
+        localization::translate_message(
+            "Provided dependencies:"),
+        classified.provided);
+    if(!classified.selected_providers.empty()) {
+        std::cout << std::endl;
+        print_selected_provider_group(
+            localization::translate_message(
+                "Selected provided dependencies:"),
+            classified.selected_providers);
+    }
+    std::cout << std::endl;
+    print_ambiguous_provider_group(
+        localization::translate_message(
+            "Ambiguous provided dependencies:"),
+        classified.ambiguous_providers);
+    std::cout << std::endl;
+    print_dependency_group(
+        localization::translate_message(
+            "Unknown dependencies:"),
+        classified.unknown);
+    std::vector<BuildPlanMetadataRisk> metadata_risks =
+        collect_build_plan_metadata_risks(info);
+    if(!metadata_risks.empty()) {
+        std::cout << std::endl;
+        print_metadata_risk_group(metadata_risks);
+    }
+    if(std::any_of(
+           invocation_plan.relation_assessments.begin(),
+           invocation_plan.relation_assessments.end(),
+           [&info](const PackageRelationAssessment& assessment) {
+               return assessment.declaring_package.package_name ==
+                      info.Name;
+           })) {
+        std::cout << std::endl;
+        print_relation_assessment_group(
+            invocation_plan.relation_assessments, info.Name);
+    }
+    print_incomplete_provider_candidate_sets(invocation_plan);
+    print_constraint_evaluations(invocation_plan, info.Name);
+}
+
+void print_dependency_inspection(
+    const AurPackageInfo& info,
+    std::size_t dependency_count,
+    const DependencyClassification& classified,
+    const BuildPlan& invocation_plan,
+    PresentationDetail detail) {
+    // POLICY(#439): only the route-owned renderer chooses information density.
+    // Normal intentionally shares the full inventory with Detailed for now.
+    switch(detail) {
+        case PresentationDetail::Normal:
+        case PresentationDetail::Detailed:
+            print_detailed_dependency_inspection(
+                info, dependency_count, classified, invocation_plan);
+            return;
+    }
+}
+
+void print_detailed_build_plan(const BuildPlan& plan) {
     const PlanStateProjection state = project_build_plan_state(plan);
     const PresentationProjection presentation =
         project_build_plan_presentation(plan);
@@ -1094,6 +1183,16 @@ void print_build_plan(const BuildPlan& plan) {
                               : "")
                       << std::endl;
         }
+    }
+}
+
+// POLICY(#439): both modes retain rich output until #438 compacts Normal.
+void print_build_plan(const BuildPlan& plan, PresentationDetail detail) {
+    switch(detail) {
+        case PresentationDetail::Normal:
+        case PresentationDetail::Detailed:
+            print_detailed_build_plan(plan);
+            return;
     }
 }
 
@@ -1245,71 +1344,9 @@ int cmd_deps(
                     invocation_plan, info->Name);
 
             if(i > 0) std::cout << std::endl;
-            std::cout << localization::format_translated_message(
-                             "Package         : {}", info->Name)
-                      << std::endl;
-            std::cout << localization::format_translated_message(
-                             "Package Base    : {}", info->PackageBase)
-                      << std::endl;
-            std::cout << localization::format_translated_message(
-                             "Dependencies    : {}", dependencies.size())
-                      << std::endl;
-            std::cout << std::endl;
-            print_dependency_group(
-                localization::translate_message(
-                    "Installed dependencies:"),
-                classified.installed);
-            std::cout << std::endl;
-            print_dependency_group(
-                localization::format_translated_message(
-                    "Official {} dependencies:", "repo"),
-                classified.repo);
-            std::cout << std::endl;
-            print_dependency_group(
-                localization::format_translated_message(
-                    "{} dependencies:", "AUR"),
-                classified.aur);
-            std::cout << std::endl;
-            print_dependency_group(
-                localization::translate_message(
-                    "Provided dependencies:"),
-                classified.provided);
-            if(!classified.selected_providers.empty()) {
-                std::cout << std::endl;
-                print_selected_provider_group(
-                    localization::translate_message(
-                        "Selected provided dependencies:"),
-                    classified.selected_providers);
-            }
-            std::cout << std::endl;
-            print_ambiguous_provider_group(
-                localization::translate_message(
-                    "Ambiguous provided dependencies:"),
-                classified.ambiguous_providers);
-            std::cout << std::endl;
-            print_dependency_group(
-                localization::translate_message(
-                    "Unknown dependencies:"),
-                classified.unknown);
-            std::vector<BuildPlanMetadataRisk> metadata_risks =
-                collect_build_plan_metadata_risks(info.value());
-            if(!metadata_risks.empty()) {
-                std::cout << std::endl;
-                print_metadata_risk_group(metadata_risks);
-            }
-            if(std::any_of(
-                   invocation_plan.relation_assessments.begin(),
-                   invocation_plan.relation_assessments.end(),
-                   [&info](const PackageRelationAssessment& assessment) {
-                       return assessment.declaring_package.package_name ==
-                              info->Name;
-                   })) {
-                std::cout << std::endl;
-                print_relation_assessment_group(
-                    invocation_plan.relation_assessments, info->Name);
-            }
-            print_incomplete_provider_candidate_sets(invocation_plan);
-            print_constraint_evaluations(invocation_plan, info->Name);
+            print_dependency_inspection(
+                info.value(), dependencies.size(), classified,
+                invocation_plan, config.presentation_detail);
             if(recursive) {
                 std::vector<RecursiveDependencyNode> recursive_nodes =
                     resolve_recursive_dependencies(
@@ -1362,7 +1399,7 @@ int cmd_plan(
             targets, select_provider);
         retain_cancelled_provider_decisions(
             plan, config.provider_selection);
-        print_build_plan(plan);
+        print_build_plan(plan, config.presentation_detail);
         print_repository_package_sizes(plan, metadata_context);
     } catch(const std::exception& error) {
         Logger::error(localization::format_translated_message(

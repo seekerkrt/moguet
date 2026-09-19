@@ -476,6 +476,24 @@ void present_root_package_candidate(
     }
 }
 
+void present_root_package_candidates(
+    const RootPackageSearchSnapshot& snapshot, PresentationDetail detail) {
+    // POLICY(#439): retain current source-aware metadata in both modes.
+    // #435 can replace Normal here without changing the selection callback.
+    switch(detail) {
+        case PresentationDetail::Normal:
+        case PresentationDetail::Detailed:
+            std::cout << ":: "
+                      << localization::translate_message("Package candidates:")
+                      << '\n';
+            for(std::size_t index = 0; index < snapshot.candidates.size(); ++index) {
+                present_root_package_candidate(
+                    std::cout, index + 1, snapshot.candidates[index]);
+            }
+            return;
+    }
+}
+
 std::string root_package_selection_issue_message(
     const RootPackageSelectionIssue& issue) {
     return std::visit(
@@ -526,20 +544,12 @@ std::string root_package_selection_issue_message(
 }
 
 RootPackageSelectionInteractionCallback
-root_package_selection_interaction() {
-    return [](const RootPackageSelectionInteractionEvent& event,
-              const RootPackageSearchSnapshot& snapshot) {
+root_package_selection_interaction(PresentationDetail detail) {
+    return [detail](const RootPackageSelectionInteractionEvent& event,
+                    const RootPackageSearchSnapshot& snapshot) {
         if(std::holds_alternative<
                PresentRootPackageSelectionCandidates>(event)) {
-            std::cout << ":: "
-                      << localization::translate_message(
-                             "Package candidates:")
-                      << '\n';
-            for(std::size_t index = 0; index < snapshot.candidates.size();
-                ++index) {
-                present_root_package_candidate(
-                    std::cout, index + 1, snapshot.candidates[index]);
-            }
+            present_root_package_candidates(snapshot, detail);
             return;
         }
         if(std::holds_alternative<PromptForRootPackageSelection>(event)) {
@@ -742,7 +752,7 @@ RootPackageInstallPreparation prepare_root_package_install(
     };
     RootPackageSelectionSession selection_session =
         make_root_package_selection_session(
-            root_package_selection_interaction(),
+            root_package_selection_interaction(config.presentation_detail),
             config.no_confirm);
     if(invocation.query.empty()) {
         const std::string diagnostic = localization::translate_message(

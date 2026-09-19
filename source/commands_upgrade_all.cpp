@@ -1907,6 +1907,7 @@ bool is_supported_upgrade_all_global_option(const std::string& option) {
         case cli_authority::GlobalOptionId::Select:
         case cli_authority::GlobalOptionId::Aur:
         case cli_authority::GlobalOptionId::Repo:
+        case cli_authority::GlobalOptionId::Details:
         case cli_authority::GlobalOptionId::Count:
             return false;
     }

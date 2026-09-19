@@ -1,6 +1,7 @@
 #pragma once
 
 #include "dependency_plan.hpp"
+#include "presentation_detail.hpp"
 
 #include <cstddef>
 #include <functional>
@@ -31,12 +32,14 @@ using ProviderCandidatePresenter = std::function<void(
     const ProvidedDependency& candidate)>;
 
 // selection phaseごとにcandidate presenterを生成する。factory自体はselection
-// sessionへstateful metadata lookupを所有させないための外側の接続点である。
+// sessionへstateful metadata lookupやdetail modeを所有させないための外側の接続点。
+// modeはAppConfigのinvocation snapshotから渡す。
 using ProviderCandidatePresenterFactory =
-    std::function<ProviderCandidatePresenter()>;
+    std::function<ProviderCandidatePresenter(PresentationDetail)>;
 
 // installed-state等を持たない既存のcandidate metadata表示を生成する。
-ProviderCandidatePresenter make_default_provider_candidate_presenter();
+ProviderCandidatePresenter make_default_provider_candidate_presenter(
+    PresentationDetail detail = PresentationDetail::Normal);
 
 // fixed metadata labelを保ったcandidate line本体だけを表示する。suffixは
 // presentation seamが後ろへ追加し、candidate identityへ戻さない。

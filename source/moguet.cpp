@@ -98,7 +98,7 @@ void report_direct_error(const std::string& diagnostic) {
 // CLI入口 / help
 int run_moguet(int argc, char* argv[]);
 void print_help();
-bool handle_info_only_option(int argc, char* argv[]);
+std::optional<int> handle_info_only_option(int argc, char* argv[]);
 bool argv_requests_pkgbuild_export_diagnostics(int argc, char* argv[]);
 
 // shell引数 / command construction
@@ -174,7 +174,9 @@ bool validate_pre_log_operation_route(const ParsedCliArguments& parsed) {
 
 // --- CLI 入口 ---
 int run_moguet(int argc, char* argv[]) {
-    if(handle_info_only_option(argc, argv)) return 0;
+    if(const auto status = handle_info_only_option(argc, argv); status.has_value()) {
+        return status.value();
+    }
 
     // POLICY(#167): parser/root-check failureも -Gp のmachine-readable stdoutへ混ぜない。
     if(argv_requests_pkgbuild_export_diagnostics(argc, argv)) {
@@ -238,7 +240,8 @@ int run_moguet(int argc, char* argv[]) {
     g_config = make_app_config(
         std::move(final_user_config),
         parsed.cli_overrides.no_confirm,
-        parsed.cli_overrides.rm_deps);
+        parsed.cli_overrides.rm_deps,
+        parsed.cli_overrides.presentation_detail);
     g_config.provider_candidate_presenter_factory =
         make_provider_installed_state_candidate_presenter_factory();
 
@@ -948,6 +951,14 @@ void print_help() {
     std::cout << std::endl;
     print_help_section(localization::translate_message("OPTIONS"));
     print_help_entry(
+        cli_option_syntax(OptionId::Details),
+        localization::translate_message(
+            "Show detailed diagnostic and provenance information"));
+    print_help_continuation(localization::format_translated_message(
+        // TRANSLATORS: The placeholders are literal supported CLI forms.
+        "For {}, {}, and {}; changes presentation only, not execution",
+        "plan", "deps", "-S --select"));
+    print_help_entry(
         cli_option_syntax(OptionId::Help),
         localization::translate_message(
             "Show this help message and exit"));
@@ -1091,26 +1102,63 @@ bool argv_requests_pkgbuild_export_diagnostics(int argc, char* argv[]) {
     return false;
 }
 
-bool handle_info_only_option(int argc, char* argv[]) {
+std::optional<int> handle_info_only_option(int argc, char* argv[]) {
+    std::string_view operation;
+    bool has_details = false;
+    bool pending_option_value = false;
     for(int i = 1; i < argc; ++i) {
-        std::string arg = argv[i];
-        if(is_moguet_global_option(arg)) continue;
+        const std::string arg = argv[i];
+        if(!operation.empty()) {
+            // POLICY(#439): inspect only actual global occurrences in the
+            // information route's tail, respecting the parser's lexical bounds.
+            if(pending_option_value) {
+                pending_option_value = false;
+                continue;
+            }
+            if(arg == "--") break;
+        }
+        if(is_moguet_global_option(arg)) {
+            if(arg == cli_authority::option_contract(
+                          cli_authority::OptionId::Details)
+                          .canonical_token) {
+                has_details = true;
+            }
+            continue;
+        }
+        if(!operation.empty()) {
+            pending_option_value = pacman_option_takes_value(arg);
+            continue;
+        }
         if(arg == cli_authority::HELP_SHORT_OPTION ||
            arg == cli_authority::HELP_LONG_OPTION) {
-            print_help();
-            return true;
+            operation = cli_authority::HELP_LONG_OPTION;
+        } else if(arg == cli_authority::VERSION_SHORT_OPTION ||
+                  arg == cli_authority::VERSION_LONG_OPTION) {
+            operation = cli_authority::VERSION_LONG_OPTION;
+        } else {
+            // POLICY(#173): help/versionはoperation位置だけで扱い、option valueやopaque operandを横取りしない。
+            return std::nullopt;
         }
-        if(arg == cli_authority::VERSION_SHORT_OPTION ||
-           arg == cli_authority::VERSION_LONG_OPTION) {
-            // NO_TRANSLATE: Product/version identity is locale-independent.
-            std::cout << application_identity::PROJECT_NAME << " v"
-                      << application_identity::VERSION << std::endl;
-            return true;
-        }
-        // POLICY(#173): help/versionはoperation位置だけで扱い、option valueやopaque operandを横取りしない。
-        return false;
     }
-    return false;
+    if(operation.empty()) return std::nullopt;
+    // Keep both success and rejection before config/XDG/Logger initialization.
+    // Other global options retain the existing information-route behavior.
+    if(has_details) {
+        report_direct_error(cli_invocation_issue_message(CliInvocationIssue{
+            CliInvocationIssueKind::UnsupportedPresentationDetail,
+            std::string(operation), std::nullopt,
+            cli_authority::TargetPolicy::None,
+            cli_authority::OperandKind::None}));
+        return 1;
+    }
+    if(operation == cli_authority::HELP_LONG_OPTION) {
+        print_help();
+    } else {
+        // NO_TRANSLATE: Product/version identity is locale-independent.
+        std::cout << application_identity::PROJECT_NAME << " v"
+                  << application_identity::VERSION << std::endl;
+    }
+    return 0;
 }
 
 // shell引数 / command construction

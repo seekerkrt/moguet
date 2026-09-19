@@ -23,6 +23,7 @@
     "-Qua": "Check AUR and foreign-package updates"
   },
   "options": {
+    "--details": "Show detailed diagnostic and provenance information for plan, deps, and -S --select; presentation only",
     "-h": "Show the help message and exit",
     "--help": "Show the help message and exit",
     "-V": "Show version information and exit",

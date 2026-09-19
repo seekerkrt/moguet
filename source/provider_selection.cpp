@@ -99,8 +99,15 @@ std::optional<std::size_t> parse_candidate_number(
 
 } // namespace
 
-ProviderCandidatePresenter make_default_provider_candidate_presenter() {
-    return present_default_candidate;
+ProviderCandidatePresenter make_default_provider_candidate_presenter(
+    PresentationDetail detail) {
+    // POLICY(#439): keep current metadata in both modes until #435.
+    switch(detail) {
+        case PresentationDetail::Normal:
+        case PresentationDetail::Detailed:
+            return present_default_candidate;
+    }
+    throw std::logic_error("Unknown provider presentation detail.");
 }
 
 void present_provider_candidate_metadata(

@@ -70,6 +70,9 @@ function __moguet_option_id --argument-names word
         case '--repo'
             echo 12
             return 0
+        case '--details'
+            echo 20
+            return 0
         case '--local'
             echo 15
             return 0
@@ -210,7 +213,7 @@ end
 function __moguet_operation_allows --argument-names option_id
     set -l operation (__moguet_operation)
     if test -z "$operation"
-        contains -- $option_id 13 14 0 1 2 3 4 5 6 7 8 9 10 11 12; and return 0; or return 1
+        contains -- $option_id 13 14 0 1 2 3 4 5 6 7 8 9 10 11 12 20; and return 0; or return 1
     end
     switch $operation
         case 'build'
@@ -239,10 +242,10 @@ function __moguet_operation_allows --argument-names option_id
             contains -- $option_id 4; and return 0; or return 1
         case 'deps'
             __moguet_form_prefix_valid 'deps' 0; or return 1
-            contains -- $option_id 4 17; and return 0; or return 1
+            contains -- $option_id 4 20 17; and return 0; or return 1
         case 'plan'
             __moguet_form_prefix_valid 'plan' 0; or return 1
-            contains -- $option_id 4; and return 0; or return 1
+            contains -- $option_id 4 20; and return 0; or return 1
         case 'fetch'
             __moguet_form_prefix_valid 'fetch' 0; or return 1
             contains -- $option_id 4 5; and return 0; or return 1
@@ -272,7 +275,7 @@ function __moguet_operation_allows --argument-names option_id
             __moguet_has_option_id 10; and set selected true
             if test $selected = true
                 __moguet_form_prefix_valid '-S' 0; or return 1
-                contains -- $option_id 10 18 0 1 2 3 4 5 6 7 8 11 12; and return 0; or return 1
+                contains -- $option_id 10 18 0 1 2 3 4 5 6 7 8 11 12 20; and return 0; or return 1
             else
                 contains -- $option_id 18 4 10; and return 0; or return 1
             end
@@ -385,6 +388,7 @@ complete -c moguet -f -n '__moguet_candidate_available 9' -a '--rmdeps' -d 'Unsu
 complete -c moguet -f -n '__moguet_candidate_available 10' -a '--select' -d 'Interactively select source-aware package candidates for plain -S'
 complete -c moguet -f -n '__moguet_candidate_available 11' -a '--aur' -d 'Limit supported sync operations to AUR'
 complete -c moguet -f -n '__moguet_candidate_available 12' -a '--repo' -d 'Use only official binary repositories; with -Syu / -Su, run the repository system upgrade only'
+complete -c moguet -f -n '__moguet_candidate_available 20' -a '--details' -d 'Show detailed diagnostic and provenance information for plan, deps, and -S --select; presentation only'
 complete -c moguet -f -n '__moguet_candidate_available 15' -a '--local' -d 'Use one local PKGBUILD directory as the build root'
 complete -c moguet -f -n '__moguet_candidate_available 16' -a '--output-dir=' -d 'Select an existing export parent for -G'
 complete -c moguet -f -n '__moguet_candidate_available 17' -a '--recursive' -d 'Resolve dependencies recursively'

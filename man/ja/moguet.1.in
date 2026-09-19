@@ -495,6 +495,17 @@ allowlistではありません。repository-only
 .na
 .\" PUBLIC OPTIONS BEGIN
 .TP
+.B "--details"
+.BR plan 、
+.BR deps 、
+.B -S --select
+で詳細な診断情報と由来情報を表示します。
+このinvocationだけの表示指定であり、実行、依存解決、選択、readinessは変更しません。
+対話を有効にしたり、安全確認を省略したりするoptionではありません。
+将来の通常表示のcompact化とは独立して詳細情報を保持します。
+現時点では通常表示と詳細表示で同じ詳細情報を表示します。
+.
+.TP
 .B "-h, --help"
 localized helpを表示し、XDG directoryを作成せず終了します。
 .

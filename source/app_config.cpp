@@ -21,14 +21,16 @@ std::string resolve_editor_from_environment() {
 } // namespace
 
 AppConfig make_app_config(
-    UserConfig final_user_config, bool no_confirm, bool rm_deps) {
+    UserConfig final_user_config, bool no_confirm, bool rm_deps,
+    PresentationDetail presentation_detail) {
     return AppConfig{
         std::move(final_user_config),
         no_confirm,
         rm_deps,
         resolve_editor_from_environment(),
         make_provider_selection_session(no_confirm),
-        {}};
+        {},
+        presentation_detail};
 }
 
 ProviderSelectionCallback provider_selection_callback(const AppConfig& config) {
@@ -37,8 +39,8 @@ ProviderSelectionCallback provider_selection_callback(const AppConfig& config) {
     std::shared_ptr<ProviderSelectionSession> session = config.provider_selection;
     ProviderCandidatePresenter presenter =
         config.provider_candidate_presenter_factory
-            ? config.provider_candidate_presenter_factory()
-            : make_default_provider_candidate_presenter();
+            ? config.provider_candidate_presenter_factory(config.presentation_detail)
+            : make_default_provider_candidate_presenter(config.presentation_detail);
     return [session = std::move(session), presenter = std::move(presenter)](
                const std::string& dependency,
                const std::vector<ProvidedDependency>& candidates) {
