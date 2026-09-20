@@ -1,4 +1,5 @@
 #include "logging.hpp"
+#include "presentation_detail.hpp"
 #include "xdg_directory_safety.hpp"
 #include "xdg_paths.hpp"
 #include "xdg_state_log.hpp"
@@ -1384,6 +1385,131 @@ std::size_t count_text_occurrences(
     return count;
 }
 
+enum class OutputFixtureKind { Terminal,
+                               Pipe,
+                               File };
+
+// A small real-descriptor fixture: Logger still writes through its production
+// cout/cerr buffers. No terminal detection or presentation is mocked.
+class ScopedOutputDescriptor final {
+    int target_;
+    OwnedDescriptor saved_, reader_, writer_;
+
+public:
+    ScopedOutputDescriptor(int target, OutputFixtureKind kind, const fs::path& path)
+        : target_(target), saved_(fcntl(target, F_DUPFD_CLOEXEC, 0)) {
+        expect(saved_.get() >= 0, "Failed to save output descriptor");
+        if(kind == OutputFixtureKind::Terminal) {
+            reader_ = OwnedDescriptor(posix_openpt(O_RDWR | O_NOCTTY | O_CLOEXEC | O_NONBLOCK));
+            expect(reader_.get() >= 0 && grantpt(reader_.get()) == 0 && unlockpt(reader_.get()) == 0,
+                   "Failed to create output PTY");
+            const char* name = ptsname(reader_.get());
+            expect(name != nullptr, "Failed to resolve output PTY");
+            writer_ = OwnedDescriptor(open(name, O_RDWR | O_NOCTTY | O_CLOEXEC));
+        } else if(kind == OutputFixtureKind::Pipe) {
+            int descriptors[2];
+            expect(pipe2(descriptors, O_CLOEXEC | O_NONBLOCK) == 0, "Failed to create output pipe");
+            reader_ = OwnedDescriptor(descriptors[0]);
+            writer_ = OwnedDescriptor(descriptors[1]);
+        } else {
+            writer_ = OwnedDescriptor(open(path.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, PRIVATE_LOG_MODE));
+            reader_ = OwnedDescriptor(open(path.c_str(), O_RDONLY | O_CLOEXEC));
+        }
+        expect(writer_.get() >= 0 && reader_.get() >= 0, "Failed to open output fixture");
+        std::cout.flush();
+        std::cerr.flush();
+        expect(dup2(writer_.get(), target_) >= 0, "Failed to redirect output descriptor");
+        // A failure here unwinds only after installation, so restore explicitly.
+        if((isatty(target_) != 0) != (kind == OutputFixtureKind::Terminal)) {
+            static_cast<void>(dup2(saved_.get(), target_));
+            throw std::runtime_error("Output fixture has wrong TTY state");
+        }
+    }
+
+    ~ScopedOutputDescriptor() noexcept {
+        static_cast<void>(dup2(saved_.get(), target_));
+    }
+
+    std::string drain() const {
+        std::cout.flush();
+        std::cerr.flush();
+        std::string output;
+        std::array<char, 4096> buffer;
+        for(;;) {
+            const auto count = read(reader_.get(), buffer.data(), buffer.size());
+            if(count > 0)
+                output.append(buffer.data(), static_cast<std::size_t>(count));
+            else if(count == 0 || (count < 0 && errno == EAGAIN))
+                return output;
+            else if(errno != EINTR)
+                throw std::runtime_error("Failed to read output fixture");
+        }
+    }
+};
+
+void test_logger_command_output_environment_matrix() {
+    using Kind = OutputFixtureKind;
+    const std::array<std::pair<Kind, Kind>, 5> environments{{{Kind::Terminal, Kind::Terminal}, {Kind::Pipe, Kind::Pipe}, {Kind::File, Kind::Terminal}, {Kind::Terminal, Kind::File}, {Kind::File, Kind::File}}};
+    const std::string command = "'/usr/bin/git' 'fetch' '--' 'https://example.test/upstream.git' 'exact-object'";
+    const std::string summary = "compact-root-tag-summary (1 object)";
+    unsigned cells = 0;
+    for(const auto& [stdout_kind, stderr_kind] : environments) {
+        for(const bool stderr_route : {false, true}) {
+            for(const bool captured : {false, true}) {
+                for(const auto detail : {PresentationDetail::Normal, PresentationDetail::Detailed}) {
+                    PreparedStateFixture fixture;
+                    TemporaryDirectory output_root;
+                    ScopedLoggerReset reset;
+                    auto log_file = state_log::open_default_state_log(fixture.paths(), fixture.directory());
+                    ScopedOutputDescriptor out(STDOUT_FILENO, stdout_kind, output_root.path() / "stdout");
+                    ScopedOutputDescriptor err(STDERR_FILENO, stderr_kind, output_root.path() / "stderr");
+                    if(stderr_route) Logger::set_diagnostics_to_stderr();
+                    Logger::init(std::move(log_file), "matrix-started");
+                    static_cast<void>(out.drain());
+                    static_cast<void>(err.drain());
+                    const auto initial_records = read_lines(fixture.paths().default_log_file);
+                    std::optional<ScopedLoggerDiagnosticCapture> capture;
+                    if(captured) capture.emplace();
+                    if(detail == PresentationDetail::Detailed)
+                        Logger::raw_cmd(command);
+                    else
+                        Logger::command(command, summary);
+                    Logger::error("root-fetch-failure");
+                    if(capture) {
+                        expect(out.drain().empty() && err.drain().empty() &&
+                                   read_lines(fixture.paths().default_log_file) == initial_records,
+                               "Capture leaked command/failure before replay");
+                        capture->replay();
+                        capture->replay();
+                    }
+                    Logger::shutdown();
+                    const auto stdout_text = out.drain();
+                    const auto stderr_text = err.drain();
+                    const auto& presentation = stderr_route ? stderr_text : stdout_text;
+                    const auto& other = stderr_route ? stdout_text : stderr_text;
+                    const std::string expected = detail == PresentationDetail::Detailed ? "Running: " + command : summary;
+                    expect(count_text_occurrences(presentation, expected) == 1 && other.find(expected) == std::string::npos,
+                           "Output environment changed command ownership/cardinality");
+                    expect(stdout_text.find("root-fetch-failure") == std::string::npos &&
+                               count_text_occurrences(stderr_text, "root-fetch-failure") == 1,
+                           "Output environment changed error ownership/cardinality");
+                    expect(presentation.find("\033[1;33m::\033[0m ") != std::string::npos &&
+                               stderr_text.find("\033[1;31m::\033[0m ") != std::string::npos,
+                           "Output environment changed existing ANSI contract");
+                    if(detail == PresentationDetail::Normal) expect((stdout_text + stderr_text).find(command) == std::string::npos,
+                                                                    "Normal output leaked exact command");
+                    const auto lines = read_lines(fixture.paths().default_log_file);
+                    expect(lines.size() == 3, "Output environment lost or duplicated state records");
+                    expect_log_record(lines[1], "EXEC", command);
+                    expect_log_record(lines[2], "ERROR", "root-fetch-failure");
+                    ++cells;
+                }
+            }
+        }
+    }
+    expect(cells == 40, "Output environment matrix lost coverage");
+}
+
 void test_logger_command_presentation_preserves_exec() {
     const std::string command = "'/usr/bin/git' 'fetch' '--' 'https://example.test/upstream.git' 'exact-object'";
     for(const std::string& presentation : {std::string("compact-summary"), "Running: " + command}) {
@@ -1831,6 +1957,9 @@ int main() {
         run_case(
             "Logger command presentation preserves EXEC",
             test_logger_command_presentation_preserves_exec);
+        run_case(
+            "Logger command TTY/pipe/redirect failure matrix (40 cells)",
+            test_logger_command_output_environment_matrix);
         run_case(
             "Logger invalid descriptor adoption rejection",
             test_logger_rejects_invalid_descriptor_flags_without_consuming_owner);

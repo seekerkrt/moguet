@@ -5479,7 +5479,9 @@ std::string module_declaration(const std::string& name, const std::string& path,
     using Reason = PinnedClosureFailureReason;
     for(const std::string kind : {"mapping", "heavy", "sha256", "empty", "root-only", "freeze", "duplicate", "duplicate-peel", "orphan-peel",
                                   "bad-name", "wrong-namespace", "bad-oid", "wrong-width", "framing", "peel-mismatch",
-                                  "missing-peel", "spurious-peel", "unavailable", "bulk-cancel", "tag-count", "tag-depth", "tag-bytes", "chain-header", "corrupt-backing", "cancel"}) {
+                                  "missing-peel", "spurious-peel", "unavailable", "bulk-cancel", "tag-count", "tag-depth", "tag-bytes", "chain-header", "corrupt-backing", "cancel",
+                                  "bulk-launch", "bulk-nonzero", "bulk-timeout", "bulk-signal", "bulk-capture", "bulk-io", "bulk-cancel-zero"}) {
+        const bool process_failure = kind.starts_with("bulk-") && kind != "bulk-cancel";
         struct Reset {
             ~Reset() {
                 set_pinned_closure_test_hooks({});
@@ -5507,6 +5509,7 @@ std::string module_declaration(const std::string& name, const std::string& path,
         }
         std::vector<std::vector<std::string>> normal_argv;
         std::vector<std::string> normal_exec_records;
+        std::optional<BoundedCapturedProcessResult> normal_failure;
         for(const auto presentation_detail : {PresentationDetail::Normal, PresentationDetail::Detailed}) {
             // Freeze deliberately mutates the shared remote after observation.
             if(kind == "freeze" && presentation_detail == PresentationDetail::Detailed) continue;
@@ -5516,6 +5519,7 @@ std::string module_declaration(const std::string& name, const std::string& path,
             std::set<std::string> additional_objects;
             ReviewedBuildFixture fixture("tag-acquisition-" + kind, upstream);
             auto context = fixture.make_context();
+            const auto owned_root = context.owned_root();
             auto environment = fixture.make_environment(context);
             auto selected = select_evaluated_devel_source(std::move(context), std::move(environment));
             auto selection = take_arm<EvaluatedDevelSourceSelection>(selected, "Tag selection failed");
@@ -5525,6 +5529,7 @@ std::string module_declaration(const std::string& name, const std::string& path,
             if(kind == "tag-depth") limits.tag_depth = 1;
             hooks.limits = limits;
             unsigned observations = 0, fetches = 0;
+            std::optional<BoundedCapturedProcessResult> observed_failure;
             hooks.root_tag_command = [&](PresentationDetail received, const std::string& displayed) {
                 require(received == presentation_detail, "Root tag presentation lost invocation detail");
                 require(!displayed_command, "Root tag fetch was presented twice");
@@ -5569,6 +5574,30 @@ std::string module_declaration(const std::string& name, const std::string& path,
                     BoundedCapturedProcessResult cancelled{{}, BoundedProcessExited{128}};
                     cancelled.cancellation_signal = SIGINT;
                     return cancelled;
+                }
+                if(process_failure && has("fetch") && fetches == 2) {
+                    require(policy.hard_timeout.count() > 0 && policy.hard_timeout <= std::chrono::minutes(10) &&
+                                policy.termination_grace == std::chrono::milliseconds(200) &&
+                                policy.stdout_capture_limit == 65536 && policy.suppress_standard_error && !policy.capture_standard_error,
+                            "Bulk fetch process policy changed with presentation");
+                    // Observe the owner's exact invocation above, then exercise real
+                    // bounded-process failures. Poll failure alone needs injection.
+                    if(kind == "bulk-io") {
+                        observed_failure = BoundedCapturedProcessResult{"", BoundedProcessIoOrWaitFailure{BoundedProcessIoStage::Poll, EIO}};
+                    } else {
+                        auto fault = invocation;
+                        fault.executable = kind == "bulk-launch" ? "/moguet-missing-executable" : "/bin/sh";
+                        fault.arguments = {"-c", kind == "bulk-nonzero" ? "exit 23" : kind == "bulk-signal"    ? "kill -TERM $$"
+                                                                                  : kind == "bulk-capture"     ? "printf '01234567890123456789'"
+                                                                                  : kind == "bulk-cancel-zero" ? "trap 'exit 0' INT; kill -INT $PPID; while :; do :; done"
+                                                                                                               : "while :; do :; done"};
+                        auto bounded = policy;
+                        bounded.hard_timeout = std::chrono::milliseconds(kind == "bulk-timeout" ? 100 : 2000);
+                        bounded.termination_grace = std::chrono::milliseconds(20);
+                        if(kind == "bulk-capture") bounded.stdout_capture_limit = 4;
+                        observed_failure = capture_bounded_explicit_process_output_raw(fault, bounded);
+                    }
+                    return *observed_failure;
                 }
                 if(kind == "corrupt-backing" && has("fsck") && has(expected.at("refs/tags/nested").first)) {
                     const auto raw = expected.at("refs/tags/nested").first;
@@ -5621,7 +5650,20 @@ std::string module_declaration(const std::string& name, const std::string& path,
             } terminal;
             const auto log_path = fixture.home() / "root-tag-command.log";
             Logger::init(log_path);
+            const auto before_capture = terminal.output.str();
+            std::unique_ptr<ScopedLoggerDiagnosticCapture> capture;
+            if(process_failure) capture = std::make_unique<ScopedLoggerDiagnosticCapture>();
             auto acquired = acquire_pinned_submodule_closure(std::move(selection), presentation_detail);
+            if(capture) {
+                require(terminal.output.str() == before_capture, "Failed acquisition escaped diagnostic capture");
+                std::ifstream pending(log_path);
+                const std::string pending_log{std::istreambuf_iterator<char>(pending), std::istreambuf_iterator<char>()};
+                require(pending_log.find("[EXEC]") == std::string::npos, "Captured failure wrote EXEC before replay");
+                capture->replay();
+                const auto once = terminal.output.str();
+                capture->replay();
+                require(terminal.output.str() == once, "Failed acquisition replay duplicated terminal output");
+            }
             Logger::shutdown();
             if(kind == "mapping" || kind == "heavy" || kind == "sha256" || kind == "empty" || kind == "root-only" || kind == "freeze") {
                 auto closure = take_arm<InvocationOwnedPinnedSubmoduleClosure>(acquired, "Root tag acquisition failed: " + kind);
@@ -5636,12 +5678,38 @@ std::string module_declaration(const std::string& name, const std::string& path,
                 require(closure.cleanup().succeeded(), "Root tag cleanup failed");
             } else {
                 const auto& failure = require_arm<PinnedClosureFailure>(acquired, "Bad tag observation accepted: " + kind);
-                const auto reason = kind.starts_with("tag-") ? Reason::ResourceLimitExceeded : kind == "chain-header"                  ? Reason::UnexpectedObjectType
-                                                                                           : kind == "corrupt-backing"                 ? Reason::GitProcessFailed
-                                                                                           : kind == "unavailable"                     ? Reason::PinnedObjectUnavailable
-                                                                                           : kind == "cancel" || kind == "bulk-cancel" ? Reason::Cancelled
-                                                                                                                                       : Reason::MalformedObservation;
+                const auto reason = kind == "bulk-cancel-zero" ? Reason::Cancelled : kind == "bulk-nonzero"                  ? Reason::PinnedObjectUnavailable
+                                                                                 : process_failure                           ? Reason::GitProcessFailed
+                                                                                 : kind.starts_with("tag-")                  ? Reason::ResourceLimitExceeded
+                                                                                 : kind == "chain-header"                    ? Reason::UnexpectedObjectType
+                                                                                 : kind == "corrupt-backing"                 ? Reason::GitProcessFailed
+                                                                                 : kind == "unavailable"                     ? Reason::PinnedObjectUnavailable
+                                                                                 : kind == "cancel" || kind == "bulk-cancel" ? Reason::Cancelled
+                                                                                                                             : Reason::MalformedObservation;
                 require(failure.reason == reason && failure.cleanup.succeeded(), "Root tag failure classification: " + kind);
+                if(process_failure) {
+                    require(observed_failure && failure.stage == PinnedClosureStage::RootAcquisition && failure.process &&
+                                failure.process->outcome == observed_failure->outcome &&
+                                failure.process->cancellation_signal == observed_failure->cancellation_signal &&
+                                failure.process->output == observed_failure->output && !fs::exists(owned_root),
+                            "Bulk failure lost process context or retained owned root");
+                    const auto& outcome = observed_failure->outcome;
+                    const bool expected_outcome = kind == "bulk-launch"    ? outcome == BoundedProcessOutcome{BoundedProcessLaunchOrSetupFailure{BoundedProcessLaunchStage::Execve, ENOENT}}
+                                                  : kind == "bulk-nonzero" ? outcome == BoundedProcessOutcome{BoundedProcessExited{23}}
+                                                  : kind == "bulk-timeout" ? std::holds_alternative<BoundedProcessTimedOut>(outcome)
+                                                  : kind == "bulk-signal"  ? outcome == BoundedProcessOutcome{BoundedProcessSignaled{SIGTERM}}
+                                                  : kind == "bulk-capture" ? outcome == BoundedProcessOutcome{BoundedProcessCaptureLimitExceeded{4}}
+                                                  : kind == "bulk-io"      ? outcome == BoundedProcessOutcome{BoundedProcessIoOrWaitFailure{BoundedProcessIoStage::Poll, EIO}}
+                                                                           : outcome == BoundedProcessOutcome{BoundedProcessExited{0}} && observed_failure->cancellation_signal == SIGINT;
+                    require(expected_outcome, "Bulk fixture missed expected process failure: " + kind);
+                    if(presentation_detail == PresentationDetail::Normal)
+                        normal_failure = observed_failure;
+                    else
+                        require(normal_failure && normal_failure->outcome == observed_failure->outcome &&
+                                    normal_failure->cancellation_signal == observed_failure->cancellation_signal &&
+                                    normal_failure->output == observed_failure->output,
+                                "Presentation changed bulk process outcome");
+                }
                 if(kind == "unavailable" || kind == "bulk-cancel") {
                     require(failure.stage == PinnedClosureStage::RootAcquisition && failure.process &&
                                 std::get<BoundedProcessExited>(failure.process->outcome).exit_code == 128 &&
@@ -5663,6 +5731,8 @@ std::string module_declaration(const std::string& name, const std::string& path,
                 require(!additional_objects.contains(upstream.oid()), "Summary included already acquired root X");
                 const auto summary = "Fetching root upstream tag objects (" + std::to_string(additional_objects.size()) + " objects)";
                 const auto output = terminal.output.str();
+                require(output.find(upstream.url()) != std::string::npos && output.find(upstream.oid()) != std::string::npos,
+                        "Root acquisition lost remote/root context before bulk presentation");
                 if(presentation_detail == PresentationDetail::Normal) {
                     require(output.find(summary) != std::string::npos && output.find(*executed_command) == std::string::npos,
                             "Normal root tag presentation is not a compact operation/count summary");
