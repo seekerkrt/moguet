@@ -200,6 +200,7 @@ struct AlpmStubState {
     bool local_database_valid = true;
     alpm_errno_t local_database_valid_error = ALPM_ERR_DB_INVALID;
 
+    bool use_local_cache_for_queries = false;
     bool package_cache_fails = false;
     bool package_cache_empty = false;
     alpm_errno_t package_cache_error = ALPM_ERR_DB_OPEN;
@@ -981,6 +982,10 @@ void require_local_package_query_expectations_consumed() {
         throw std::logic_error(
             "Package metadata stub has unconsumed local package query expectations.");
     }
+}
+
+void use_local_package_cache_for_queries() {
+    g_state.use_local_cache_for_queries = true;
 }
 
 void set_local_packages(const std::vector<LocalPackageMetadata>& packages) {
@@ -1909,6 +1914,18 @@ alpm_pkg_t* alpm_db_get_pkg(alpm_db_t* database, const char* name) {
 
     if(name == nullptr || name[0] == '\0') {
         set_handle_error(database->handle, ALPM_ERR_WRONG_ARGS);
+        return nullptr;
+    }
+
+    if(g_state.use_local_cache_for_queries) {
+        auto* record = record_for_handle(database->handle);
+        if(record != nullptr) {
+            for(const auto& package : record->local_packages) {
+                const char* package_name = alpm_pkg_get_name(package.get());
+                if(package_name != nullptr && std::string(name) == package_name) return package.get();
+            }
+        }
+        set_handle_error(database->handle, ALPM_ERR_PKG_NOT_FOUND);
         return nullptr;
     }
 

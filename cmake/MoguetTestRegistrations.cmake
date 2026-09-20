@@ -950,3 +950,9 @@ moguet_add_ctest(
     COMMAND python3 "${PROJECT_SOURCE_DIR}/tests/test-devel-tracking-bootstrap.py" "$<TARGET_FILE:devel-tracking-bootstrap-test>" --pinned-s4
 )
 set_tests_properties(cpp.pinned_submodule_s4_integration PROPERTIES TIMEOUT 300)
+
+moguet_add_ctest(
+    NAME cpp.dependency_cleanup_execution
+    TARGETS invocation-owned-cleanup-model-test
+    COMMAND "$<TARGET_FILE:invocation-owned-cleanup-model-test>" --execution-only
+)

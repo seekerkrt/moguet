@@ -959,8 +959,14 @@ void test_precedence_and_reason_ordering() {
 
 } // namespace
 
+void run_dependency_cleanup_execution_tests();
+
 int main(int argc, char* argv[]) {
     try {
+        if(argc == 2 && std::string(argv[1]) == "--execution-only") {
+            run_dependency_cleanup_execution_tests();
+            return 0;
+        }
         if(argc == 2 && std::string(argv[1]) == "--interaction-only") {
             run_dependency_cleanup_interaction_tests();
             return 0;
@@ -999,6 +1005,7 @@ int main(int argc, char* argv[]) {
         run_source_artifact_install_receipt_evidence_tests();
         run_remote_aur_cleanup_candidate_collector_tests();
         run_dependency_cleanup_interaction_tests();
+        run_dependency_cleanup_execution_tests();
     } catch(const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;

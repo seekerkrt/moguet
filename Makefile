@@ -99,6 +99,7 @@ CMAKE_FOCUSED_ALIASES := \
 	test-evaluated-devel-source-artifact-transport \
 	test-remote-aur-cleanup-collector \
 	test-dependency-cleanup-interaction \
+	test-dependency-cleanup-execution \
 	test-source-artifact-install-trusted-transport \
 	test-reviewed-source-state \
 	test-reviewed-source-state-store \

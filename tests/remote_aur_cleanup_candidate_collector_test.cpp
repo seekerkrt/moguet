@@ -132,6 +132,7 @@ enum class CollectorScenario {
     ContradictorySuccess,
     PreparedProviderMismatch,
     TwoEligible,
+    ThreeEligible,
     EligibleProtected,
     EligibleUnknown,
     EligibleInvalid,
@@ -313,6 +314,7 @@ BuildPlan collector_plan(bool with_later_work_item = false) {
         plan.dependency_edges.push_back(std::move(second));
     }
     if(g_scenario == CollectorScenario::TwoEligible ||
+       g_scenario == CollectorScenario::ThreeEligible ||
        g_scenario == CollectorScenario::EligibleProtected ||
        g_scenario == CollectorScenario::EligibleUnknown ||
        g_scenario == CollectorScenario::EligibleInvalid ||
@@ -334,6 +336,16 @@ BuildPlan collector_plan(bool with_later_work_item = false) {
             plan.order.insert(plan.order.begin(), BuildPlanEntry{"aaa-second-base", {"aaa-second"}});
         }
         plan.dependency_edges.push_back(std::move(second));
+        if(g_scenario == CollectorScenario::ThreeEligible) {
+            auto third = plan.dependency_edges.back();
+            third.dependency_spec = "third-dependency";
+            third.resolved_package_name = "third-dependency";
+            third.resolved_package_base = "third-dependency-base";
+            third.requirement = requirement("third-dependency");
+            third.resolved_candidate = RepositoryExactPackage{
+                ConfiguredRepositoryIdentity{"core", 0}, "third-dependency", "third-dependency-base", ObservedVersion::available(ObservedVersionSource::RepositoryExactPackage, "3.0-1"), {}, "x86_64"};
+            plan.dependency_edges.push_back(std::move(third));
+        }
         if(g_scenario == CollectorScenario::MixedMissingSource && g_mixed_source.has_new_source_dependency) {
             auto third = plan.dependency_edges.back();
             third.dependency_spec = "source-third";
@@ -691,6 +703,7 @@ void set_current_metadata() {
         installed.push_back(metadata_stub::LocalPackageMetadata{"unrelated-new-dependency", "1-1", ALPM_PKG_REASON_DEPEND});
     }
     const bool has_second = g_scenario == CollectorScenario::TwoEligible ||
+                            g_scenario == CollectorScenario::ThreeEligible ||
                             g_scenario == CollectorScenario::EligibleProtected ||
                             g_scenario == CollectorScenario::EligibleUnknown ||
                             g_scenario == CollectorScenario::EligibleInvalid ||
@@ -704,7 +717,14 @@ void set_current_metadata() {
     if(g_scenario == CollectorScenario::MixedMissingSource && g_mixed_source.has_new_source_dependency) {
         installed.push_back(metadata_stub::LocalPackageMetadata{"source-third", "1.0-1", ALPM_PKG_REASON_DEPEND});
     }
+    if(g_scenario == CollectorScenario::ThreeEligible) {
+        installed.push_back({"third-dependency", "3.0-1", ALPM_PKG_REASON_DEPEND});
+    }
     metadata_stub::set_local_packages(std::move(installed));
+    if(g_scenario == CollectorScenario::ThreeEligible) {
+        metadata_stub::set_local_package_base(3, "third-dependency-base");
+        metadata_stub::set_local_package_architecture(3, "x86_64");
+    }
     if(g_scenario == CollectorScenario::MixedMissingSource && g_mixed_source.has_new_source_dependency) {
         metadata_stub::set_local_package_base(3, "source-third-base");
         metadata_stub::set_local_package_architecture(3, "x86_64");
@@ -736,6 +756,10 @@ void set_current_metadata() {
                               "aaa-second", "2.0-3", ALPM_PKG_REASON_DEPEND});
         metadata_stub::enqueue_local_package_query_present_metadata(
             "base-devel", base_devel_metadata(false));
+    }
+    if(g_scenario == CollectorScenario::ThreeEligible) {
+        metadata_stub::enqueue_local_package_query_present_metadata("third-dependency", {"third-dependency", "3.0-1", ALPM_PKG_REASON_DEPEND});
+        metadata_stub::enqueue_local_package_query_present_metadata("base-devel", base_devel_metadata(false));
     }
 }
 
@@ -1557,4 +1581,12 @@ void run_dependency_cleanup_interaction_tests() {
     test_pre_existing_source_dependency_origin_boundary();
     test_authoritative_zero_candidates();
     test_current_absent_source_origin_boundary();
+}
+
+// Share the real collector fixture with the execution component tests; approval
+// is still obtained exclusively through the production preview/interaction.
+RemoteAurCleanupCollectionResult make_cleanup_execution_test_collection(std::size_t count) {
+    return run_scenario(count == 3 ? CollectorScenario::ThreeEligible : count == 2 ? CollectorScenario::TwoEligible
+                                                                                   : CollectorScenario::Positive,
+                        RepositoryCandidateKind::DirectBuild);
 }

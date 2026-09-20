@@ -29,6 +29,8 @@ constexpr const char* PACMAN_DATABASE_PATH_COMMAND =
     "pacman-conf --verbose RootDir DBPath 2>/dev/null";
 constexpr const char* PACMAN_REPOSITORY_LIST_COMMAND =
     "pacman-conf --repo-list 2>/dev/null";
+constexpr const char* PACMAN_HOLD_PACKAGE_COMMAND =
+    "pacman-conf HoldPkg 2>/dev/null";
 constexpr std::size_t MAX_ALPM_DIAGNOSTIC_LENGTH = 160;
 
 // POLICY: pacman-managed on-disk sync DBをread-onlyで構造/cache parseする。
@@ -1706,6 +1708,31 @@ const PackageMetadataFailure& PackageMetadataError::failure() const noexcept {
     return failure_;
 }
 
+ConfiguredHoldPackagePatternsResult query_configured_hold_package_patterns() {
+    const auto command = capture_command_output_raw(PACMAN_HOLD_PACKAGE_COMMAND);
+    if(command.exit_code != 0 || command.stdout_capture_limit_exceeded) {
+        return PackageMetadataFailure{PackageMetadataErrorCode::ConfigurationUnavailable, {}};
+    }
+    // pacman-conf prints each effective list value followed by a newline, or
+    // no bytes for an empty list. Do not split pacman.conf syntax/whitespace,
+    // trim malformed output, or interpret the patterns as package names.
+    if(!command.output.empty() && command.output.back() != '\n') {
+        return PackageMetadataFailure{PackageMetadataErrorCode::ConfigurationMalformed, {}};
+    }
+    ConfiguredHoldPackagePatterns result;
+    std::istringstream output(command.output);
+    std::string pattern;
+    while(std::getline(output, pattern)) {
+        if(pattern.empty() || std::any_of(pattern.begin(), pattern.end(), [](unsigned char byte) {
+               return byte <= 0x20 || byte == 0x7f;
+           })) {
+            return PackageMetadataFailure{PackageMetadataErrorCode::ConfigurationMalformed, {}};
+        }
+        result.patterns.push_back(std::move(pattern));
+    }
+    return result;
+}
+
 PacmanDatabasePaths resolve_pacman_database_paths() {
     CapturedCommandResult command_result =
         capture_command_output_raw(PACMAN_DATABASE_PATH_COMMAND);
@@ -2229,6 +2256,42 @@ PackageMetadataSession::
                 : std::optional<std::string>(alpm_pkg_get_version(package))});
     }
     return inventory;
+}
+
+std::variant<std::vector<std::string>, PackageMetadataFailure>
+PackageMetadataSession::query_installed_runtime_consumers(
+    const std::string& candidate_name) const {
+    const auto runtime_result = snapshot_installed_package_runtime_dependency_metadata();
+    if(const auto* failure = std::get_if<InstalledPackageRuntimeDependencyMetadataInventoryFailure>(&runtime_result)) {
+        return failure->failure;
+    }
+    if(!is_valid_package_name(candidate_name)) {
+        return PackageMetadataFailure{PackageMetadataErrorCode::InvalidPackageName, {}};
+    }
+    alpm_pkg_t* candidate = nullptr;
+    for(auto* node = impl_->local_package_cache; node != nullptr; node = node->next) {
+        auto* package = static_cast<alpm_pkg_t*>(node->data);
+        if(candidate_name == alpm_pkg_get_name(package)) candidate = package;
+    }
+    if(candidate == nullptr) return PackageMetadataFailure{PackageMetadataErrorCode::QueryFailed, {}};
+    // Reuse the strict Provides validator and libalpm's satisfaction authority;
+    // no dependency grammar or provider selection is implemented here.
+    const auto metadata = snapshot_cleanup_policy_candidate(candidate, candidate_name);
+    if(const auto* failure = std::get_if<PackageMetadataFailure>(&metadata)) return *failure;
+    std::vector<std::string> consumers;
+    for(auto* node = impl_->local_package_cache; node != nullptr; node = node->next) {
+        auto* package = static_cast<alpm_pkg_t*>(node->data);
+        const auto dependencies = snapshot_cleanup_policy_dependencies(alpm_pkg_get_depends(package), {}, false);
+        if(const auto* failure = std::get_if<PackageMetadataFailure>(&dependencies)) return *failure;
+        const auto& specifications = std::get<std::vector<std::string>>(dependencies);
+        if(specifications.empty()) continue;
+        const auto match = evaluate_cleanup_policy_candidate_satisfaction(candidate, specifications);
+        if(const auto* failure = std::get_if<PackageMetadataFailure>(&match)) return *failure;
+        if(std::get<CleanupPolicyCandidateEvaluation>(match) == CleanupPolicyCandidateEvaluation::Protected) {
+            consumers.emplace_back(alpm_pkg_get_name(package));
+        }
+    }
+    return consumers;
 }
 
 InstalledPackageRuntimeDependencyMetadataInventoryResult
