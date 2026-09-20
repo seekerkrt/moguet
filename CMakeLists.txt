@@ -950,6 +950,10 @@ install(
     DESTINATION "${MOGUET_INSTALL_DOCUMENT_DIRECTORY}/docs"
 )
 install(
+    FILES docs/contracts/source-build-rmdeps.md
+    DESTINATION "${MOGUET_INSTALL_DOCUMENT_DIRECTORY}/docs/contracts"
+)
+install(
     FILES
         docs/migration/v1-to-v2.md
         docs/migration/v1-to-v2.ja.md

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.8.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-19 17:50+0900\n"
+"POT-Creation-Date: 2026-09-20 09:34+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -4925,6 +4925,77 @@ msgstr ""
 msgid "Provider candidate changed during dependency resolution: {}"
 msgstr ""
 
+msgid "already absent"
+msgstr ""
+
+msgid "identity changed"
+msgstr ""
+
+msgid "install reason changed"
+msgstr ""
+
+msgid "protected"
+msgstr ""
+
+msgid "still required"
+msgstr ""
+
+msgid "current state unknown"
+msgstr ""
+
+msgid "invalid candidate"
+msgstr ""
+
+msgid "cleanup blocked"
+msgstr ""
+
+#, c++-format
+msgid "Dependency cleanup skipped {}: {}."
+msgstr ""
+
+#, c++-format
+msgid "Dependency cleanup removed: {}."
+msgstr ""
+
+msgid "unknown"
+msgstr ""
+
+#, c++-format
+msgid "Build/install succeeded; dependency cleanup removal failed. Attempted: {}. Exit status: {}."
+msgstr ""
+
+msgid "Dependency cleanup: no candidates remain ready for removal."
+msgstr ""
+
+msgid "Build/install succeeded; dependency cleanup blocked by unavailable or unsafe evidence."
+msgstr ""
+
+msgid "Dependency cleanup: nothing to remove."
+msgstr ""
+
+msgid "Dependency cleanup declined; build/install succeeded."
+msgstr ""
+
+msgid "Dependency cleanup cancelled; build/install succeeded."
+msgstr ""
+
+#. TRANSLATORS: The placeholder is the literal --noconfirm option.
+#, c++-format
+msgid "Build/install succeeded; dependency cleanup unavailable: {} does not approve removal."
+msgstr ""
+
+msgid "Build/install succeeded; dependency cleanup unavailable: input is not interactive."
+msgstr ""
+
+msgid "Build/install succeeded; dependency cleanup unavailable: interaction I/O failed."
+msgstr ""
+
+msgid "Assessed build dependencies eligible for cleanup:"
+msgstr ""
+
+msgid "Remove build dependencies?"
+msgstr ""
+
 #, c++-format
 msgid "Selected providers use incompatible identities for package {}: {} and {}."
 msgstr ""
@@ -5691,7 +5762,9 @@ msgstr ""
 msgid "Compatibility alias for {}"
 msgstr ""
 
-msgid "Unsupported for separated source builds; no dependency cleanup is performed"
+#. TRANSLATORS: The placeholder is the literal AUR identity.
+#, c++-format
+msgid "Preview newly installed build dependencies after remote {} build success; remove only with explicit approval"
 msgstr ""
 
 #. TRANSLATORS: -S, -Ss, -Si, and AUR are literal CLI/project identities.
@@ -8354,9 +8427,6 @@ msgid "system/source: {}"
 msgstr ""
 
 msgid "provider"
-msgstr ""
-
-msgid "unknown"
 msgstr ""
 
 msgid "A dependency kind is not supported by the renderer."

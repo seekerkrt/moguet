@@ -183,7 +183,7 @@ mode = "normal"
 | `NODIFF=false` | keyを省略、または`review.diff = "prompt"` |
 | `EDITOR=...` | TOMLへcopyせず、user environmentの`VISUAL`、次に`EDITOR`を設定 |
 | `LOGFILE=...` | v2.0.0 config keyなし。固定XDG state logを使用 |
-| `RMDEPS=true` | 移行しない。separated source-build dependency cleanupはunsupported |
+| `RMDEPS=true` | 移行しない。v2には永続的な`RMDEPS` config keyはない。dependency cleanupはinvocationごとに明示する`--rmdeps` requestであり、現在はremote AUR buildだけをsupportする。 |
 
 editor解決順は`VISUAL -> EDITOR -> nano`です。default logは次です。
 

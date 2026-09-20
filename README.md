@@ -314,16 +314,28 @@ outside `PATH`, have no man pages, do not accept an executable, state root, or
 destination path, and must never be replaced by a helper from a source or
 build tree. The source-artifact helper stages only write-sealed validated
 artifact bytes into its private root-owned transaction state before a fixed
-`pacman -U` hand-off. The current public source-build `--rmdeps` route remains
-unsupported and fail-closed; installing either helper does not enable
-dependency cleanup.
+`pacman -U` hand-off.
 
-The current development tree uses those owner-specific helpers inside one
-closed remote-AUR lifecycle to build an internal cleanup-candidate assessment.
-Only an exact, correlated actual dependency `Install` can become internally
-eligible after the full invocation and current metadata/policy observations
-succeed. This assessment has no public preview, prompt, or removal connection;
-makepkg sync-dependency ownership remains a separate unresolved authority.
+For remote AUR packages, `moguet build <package> --rmdeps` starts a cleanup
+baseline before dependency installation. Only after the complete build and
+artifact installation succeed does it preview the assessed, newly installed
+build/check dependencies and ask `Remove build dependencies? [y/N]` (default No).
+Explicit Yes is followed by fresh identity, install reason, policy, HoldPkg and
+runtime dependency checks. Only the remaining exact candidates enter one
+`pacman -R --noconfirm --` transaction. This internal option suppresses a duplicate
+pacman prompt after approval; the user's `--noconfirm` does not approve cleanup.
+Non-TTY input also cannot approve removal. No / cancel / EOF leave the completed
+installation intact. This is not `pacman -Qdt` or broad autoremove.
+
+Cleanup results are separate from build/install results. Nothing to remove,
+decline, cancellation and candidates skipped after revalidation return success;
+blocked/unavailable cleanup or removal failure returns command status 1 while
+preserving and reporting the successful installation. Failures show the attempted
+set and known exit status without claiming which packages were removed or retrying.
+Ordinary builds without `--rmdeps` start no cleanup flow or cleanup messages.
+Dry-run performs no cleanup. Local/repository source builds, `-S --aur`, and upgrade
+routes retain their existing rejection boundaries; compatible pacman-only routes
+consume `--rmdeps` as a no-op. See the [cleanup contract](docs/contracts/source-build-rmdeps.md).
 
 The v2.0.0 package and its only executable are named `moguet`; it does not
 install `/usr/bin/jpacker`. Its payload is disjoint from the jpacker v1.16.0

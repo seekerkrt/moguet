@@ -384,7 +384,7 @@ complete -c moguet -f -n '__moguet_candidate_available 5' -a '--dry-run' -d 'Obs
 complete -c moguet -f -n '__moguet_candidate_available 6' -a '--build-mode=' -d 'Select the source-build mode'
 complete -c moguet -f -n '__moguet_candidate_available 7' -a '--rebuild' -d 'Compatibility alias for --build-mode=rebuild'
 complete -c moguet -f -n '__moguet_candidate_available 8' -a '--cleanbuild' -d 'Compatibility alias for --build-mode=clean'
-complete -c moguet -f -n '__moguet_candidate_available 9' -a '--rmdeps' -d 'Unsupported for separated source builds; no dependency cleanup is performed'
+complete -c moguet -f -n '__moguet_candidate_available 9' -a '--rmdeps' -d 'Preview newly installed build dependencies after remote AUR build success; remove only with explicit approval'
 complete -c moguet -f -n '__moguet_candidate_available 10' -a '--select' -d 'Interactively select source-aware package candidates for plain -S'
 complete -c moguet -f -n '__moguet_candidate_available 11' -a '--aur' -d 'Limit supported sync operations to AUR'
 complete -c moguet -f -n '__moguet_candidate_available 12' -a '--repo' -d 'Use only official binary repositories; with -Syu / -Su, run the repository system upgrade only'

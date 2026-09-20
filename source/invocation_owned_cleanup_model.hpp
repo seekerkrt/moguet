@@ -83,7 +83,8 @@ private:
         CleanupInvocationSession& session,
         InvocationDependencyTransactionOwner owner,
         const std::string& transaction_token,
-        std::vector<std::size_t> work_item_indices);
+        std::vector<std::size_t> work_item_indices,
+        bool completed_successfully);
 #endif
 };
 
@@ -142,7 +143,8 @@ private:
         CleanupInvocationSession& session,
         InvocationDependencyTransactionOwner owner,
         const std::string& transaction_token,
-        std::vector<std::size_t> work_item_indices);
+        std::vector<std::size_t> work_item_indices,
+        bool completed_successfully);
 #endif
 };
 
@@ -153,7 +155,8 @@ void mark_cleanup_invocation_baseline_observed_for_test(
     CleanupInvocationSession& session,
     InvocationDependencyTransactionOwner owner,
     const std::string& transaction_token,
-    std::vector<std::size_t> work_item_indices);
+    std::vector<std::size_t> work_item_indices,
+    bool completed_successfully = true);
 #endif
 
 enum class InvocationDependencyTransactionCommandOutcome {
@@ -321,6 +324,9 @@ enum class CleanupInstalledState {
 
 // Causal ownership is deliberately independent from baseline observation.
 // In particular, NewlyObserved cannot be passed as InvocationOwned.
+// Unknown is missing causal proof, not affirmative evidence of another owner.
+// Cleanup eligibility does not require positive proof, but NotInvocationOwned
+// remains protective evidence.
 enum class CleanupCausalOwnership {
     InvocationOwned,
     NotInvocationOwned,
@@ -415,8 +421,12 @@ struct CleanupPackageCorrelation {
     std::optional<PackageRole> role;
     std::optional<CleanupDependencyEdgeCorrelation> dependency_edge;
     CleanupEvidenceVerification verification;
+
+    bool operator==(const CleanupPackageCorrelation&) const = default;
 };
 
+// The historical name is retained with the existing projection interfaces.
+// Eligible describes complete cleanup safety evidence, not proven causality.
 struct InvocationOwnedCleanupCandidate {
     SourceAwarePackageIdentity package;
     CleanupBaselineObservation baseline;
@@ -464,6 +474,7 @@ enum class CleanupClassificationReason {
     CurrentPackageVersionUnavailable,
     CurrentPackageBaseUnknown,
     CurrentPackageArchitectureUnknown,
+    // Historical reason; retained in canonical order, no longer emitted.
     CausalOwnershipUnknown,
     CurrentPackageEvidenceUnverified,
     CorrelationCoverageIncomplete,

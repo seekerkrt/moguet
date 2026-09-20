@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.8.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-19 17:50+0900\n"
+"POT-Creation-Date: 2026-09-20 09:34+0900\n"
 "PO-Revision-Date: 2026-09-19 17:53+0900\n"
 "Last-Translator: Moguet contributors\n"
 "Language-Team: Japanese\n"
@@ -4917,6 +4917,77 @@ msgstr "以前に選択したプロバイダーは、依存関係 {} の候補�
 msgid "Provider candidate changed during dependency resolution: {}"
 msgstr "依存関係の解決中にプロバイダー候補が変更されました: {}"
 
+msgid "already absent"
+msgstr "すでに存在しません"
+
+msgid "identity changed"
+msgstr "パッケージ識別情報が変わりました"
+
+msgid "install reason changed"
+msgstr "インストール理由が変わりました"
+
+msgid "protected"
+msgstr "保護対象です"
+
+msgid "still required"
+msgstr "引き続き必要です"
+
+msgid "current state unknown"
+msgstr "現在の状態を確認できません"
+
+msgid "invalid candidate"
+msgstr "無効な候補です"
+
+msgid "cleanup blocked"
+msgstr "クリーンアップを実行できません"
+
+#, c++-format
+msgid "Dependency cleanup skipped {}: {}."
+msgstr "依存パッケージのクリーンアップをスキップしました: {}（{}）。"
+
+#, c++-format
+msgid "Dependency cleanup removed: {}."
+msgstr "依存パッケージのクリーンアップで削除しました: {}。"
+
+msgid "unknown"
+msgstr "不明"
+
+#, c++-format
+msgid "Build/install succeeded; dependency cleanup removal failed. Attempted: {}. Exit status: {}."
+msgstr "ビルド/インストールは成功しましたが、依存パッケージの削除に失敗しました。試行対象: {}。終了ステータス: {}。"
+
+msgid "Dependency cleanup: no candidates remain ready for removal."
+msgstr "依存パッケージのクリーンアップ: 再検証後に削除できる候補はありません。"
+
+msgid "Build/install succeeded; dependency cleanup blocked by unavailable or unsafe evidence."
+msgstr "ビルド/インストールは成功しましたが、必要な情報の不足または安全性の確認不成立により依存パッケージのクリーンアップを実行できません。"
+
+msgid "Dependency cleanup: nothing to remove."
+msgstr "依存パッケージのクリーンアップ: 削除する候補はありません。"
+
+msgid "Dependency cleanup declined; build/install succeeded."
+msgstr "依存パッケージのクリーンアップは承認されませんでした。ビルド/インストールは成功しています。"
+
+msgid "Dependency cleanup cancelled; build/install succeeded."
+msgstr "依存パッケージのクリーンアップをキャンセルしました。ビルド/インストールは成功しています。"
+
+#. TRANSLATORS: The placeholder is the literal --noconfirm option.
+#, c++-format
+msgid "Build/install succeeded; dependency cleanup unavailable: {} does not approve removal."
+msgstr "ビルド/インストールは成功しましたが、依存パッケージのクリーンアップは実行できません: {}は削除の承認になりません。"
+
+msgid "Build/install succeeded; dependency cleanup unavailable: input is not interactive."
+msgstr "ビルド/インストールは成功しましたが、依存パッケージのクリーンアップは実行できません: 入力が対話形式ではありません。"
+
+msgid "Build/install succeeded; dependency cleanup unavailable: interaction I/O failed."
+msgstr "ビルド/インストールは成功しましたが、依存パッケージのクリーンアップは実行できません: 対話の入出力に失敗しました。"
+
+msgid "Assessed build dependencies eligible for cleanup:"
+msgstr "判定済みのビルド依存パッケージのうち、クリーンアップ可能な候補:"
+
+msgid "Remove build dependencies?"
+msgstr "ビルド依存パッケージを削除しますか?"
+
 #, c++-format
 msgid "Selected providers use incompatible identities for package {}: {} and {}."
 msgstr "選択したプロバイダーがパッケージ {} に互換性のない識別情報を使用しています: {} と {}。"
@@ -5683,8 +5754,10 @@ msgstr "ソースビルドモードを選択"
 msgid "Compatibility alias for {}"
 msgstr "{}との互換性を保つための別名"
 
-msgid "Unsupported for separated source builds; no dependency cleanup is performed"
-msgstr "分離されたソースビルドでは未対応です。依存パッケージは削除しません"
+#. TRANSLATORS: The placeholder is the literal AUR identity.
+#, c++-format
+msgid "Preview newly installed build dependencies after remote {} build success; remove only with explicit approval"
+msgstr "remote {}ビルド成功後に新規のビルド依存候補を表示し、明示承認された場合だけ削除"
 
 #. TRANSLATORS: -S, -Ss, -Si, and AUR are literal CLI/project identities.
 #, c++-format
@@ -8351,9 +8424,6 @@ msgstr "システム/ソース: {}"
 msgid "provider"
 msgstr "プロバイダー"
 
-msgid "unknown"
-msgstr "不明"
-
 msgid "A dependency kind is not supported by the renderer."
 msgstr "依存関係の種別はレンダラーでサポートされていません。"
 
@@ -9620,6 +9690,9 @@ msgstr "{}のデフォルト状態ログを段階{}で安全に使用できま�
 msgid "Unknown state log error code."
 msgstr "不明な状態ログエラーコードです。"
 
+#~ msgid "Unsupported for separated source builds; no dependency cleanup is performed"
+#~ msgstr "分離されたソースビルドでは未対応です。依存パッケージは削除しません"
+
 #~ msgid "No coordinated transition is executed or prompted here; the existing repository transaction policy is unchanged."
 #~ msgstr "ここでは連携遷移の実行や確認入力は行いません。既存のリポジトリトランザクション方針を維持します。"
 
@@ -9832,9 +9905,6 @@ msgstr "不明な状態ログエラーコードです。"
 
 #~ msgid "some phases were not attempted"
 #~ msgstr "未試行の段階があります"
-
-#~ msgid "cleanup failure occurred"
-#~ msgstr "後処理に失敗しました"
 
 #, c++-format
 #~ msgid "duplicate {} targets excluded"

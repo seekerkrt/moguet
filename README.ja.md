@@ -265,15 +265,24 @@ current development packageはprivate implementation helper
 stateを分離したpackage-owned root transaction authorityで、public commandではありません。`PATH`外で
 man pageを持たず、executable、state root、destination pathを引数に取らず、source / build treeのhelperで
 置き換えてはなりません。source-artifact helperはwrite-sealedなvalidated artifact bytesだけをprivateな
-root-owned transaction stateへstageしてからfixed `pacman -U`へ渡します。current public source-buildの
-`--rmdeps`は引き続きunsupported / fail-closedであり、どちらのhelperのinstallもdependency cleanupを
-有効化しません。
+root-owned transaction stateへstageしてからfixed `pacman -U`へ渡します。
 
-current development treeは、これらowner-specific helperを単一のclosed remote AUR lifecycle内部で使い、
-internal cleanup-candidate assessmentを構築します。full invocationとcurrent metadata / policy observationが
-成功し、exactにcorrelateされたactual dependency `Install`だけがinternal `Eligible`へ到達できます。
-このassessmentはpublic preview、prompt、removalへ接続せず、makepkg sync dependencyのownershipも
-独立した未解決authorityのままです。
+remote AUR packageには、`moguet build <package> --rmdeps`でdependency install前のcleanup baselineを
+開始できます。build全体とartifact installの成功後に限り、今回新規に導入されたbuild/check dependencyの
+判定済み候補を表示し、`Remove build dependencies? [y/N]`（default No）で確認します。
+explicit Yes後にもidentity、install reason、policy、HoldPkg、runtime dependencyをfreshに再確認し、
+残るexact candidateだけを1回の`pacman -R --noconfirm --` transactionへ渡します。
+このinternal optionは承認後のpacman重複prompt抑止であり、user `--noconfirm`はcleanup approvalではありません。
+non-TTYも削除を承認しません。No / cancel / EOFは完了済みinstallをそのまま保持します。
+`pacman -Qdt`やbroad autoremoveではありません。
+
+cleanup resultはbuild/install resultと独立しています。候補なし、decline、cancel、再検証で全候補skipは成功扱いです。
+blocked/unavailableやremoval failureはcommand status 1になりますが、install成功を保持して別に報告します。
+削除失敗時はattempted setと既知のexit statusを表示し、実際の削除成否を推測したりretryしたりしません。
+`--rmdeps`未指定の通常buildではcleanup flowもcleanup messageも起動しません。dry-runもcleanupしません。
+local/repository source build、`-S --aur`、upgrade系は既存のreject boundaryを維持し、
+pacman-only compatible routeでは`--rmdeps`を消費してno-opにします。
+詳細は[cleanup contract](docs/contracts/source-build-rmdeps.md)を参照してください。
 
 v2.0.0のpackage名と唯一のexecutableは`moguet`で、`/usr/bin/jpacker`をinstall
 しません。payloadはjpacker v1.16.0 packageと重複しないため、metadataには

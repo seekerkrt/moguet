@@ -22,6 +22,8 @@ source/commands_source_maintenance.cpp
 source/commands_sync.cpp
 source/commands_upgrade_all.cpp
 source/dependency_plan.cpp
+source/dependency_cleanup_execution.cpp
+source/dependency_cleanup_interaction.cpp
 source/dependency_plan_model.cpp
 source/dependency_constraint_presentation.cpp
 source/dependency_spec.cpp

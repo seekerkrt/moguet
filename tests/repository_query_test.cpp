@@ -192,7 +192,8 @@ void test_configured_repository_order() {
             package.package_base == "shared-package" &&
             package.package_version.has_value() &&
             package.package_version->version() != nullptr &&
-            *package.package_version->version() == "3.0-1",
+            *package.package_version->version() == "3.0-1" &&
+            package.architecture == std::optional<std::string>{"x86_64"},
         "Exact lookup lost configured repository precedence");
 
     const std::vector<std::string> commands_before_explicit_query =

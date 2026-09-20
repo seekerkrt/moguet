@@ -247,7 +247,7 @@ decision 9〜15として旧`DECISIONS.md`に記載していた全文contractは�
 | 旧decision | 現行contract | behavior / safety boundary |
 | --- | --- | --- |
 | 9 | [PackageBase build / required-child selection](contracts/packagebase-child-selection.md) | PackageBase build unitとrequired child install selectionの分離 |
-| 10 | [separated source-build `--rmdeps`](contracts/source-build-rmdeps.md) | cleanup ownershipを証明できないsource-buildではfail closed、pacman-onlyでは消費してno-op |
+| 10 | [separated source-build `--rmdeps`](contracts/source-build-rmdeps.md) | remote AUR buildは明示承認とfresh revalidation後のexact cleanup、他source routeは既存reject、pacman-onlyはno-op |
 | 11 | [XDG cache cutover safety](contracts/xdg-cache-safety.md) | cache filesystem identity、symlink、root escape、legacy cache非変更 |
 | 12 | [source-build preference XDG authority](contracts/source-build-preference-xdg.md) | source preferenceのuser XDG authorityと安全なfilesystem操作 |
 | 13 | [ambiguous provider selection](contracts/ambiguous-provider-selection.md) | invocation-localな明示provider選択とmutation前preflight |

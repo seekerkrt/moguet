@@ -14,6 +14,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPOSITORY_ROOT / "scripts"))
 
 from check_public_documentation import (  # noqa: E402
+    SemanticTextContract,
     assert_semantic_text_contract,
     check_release_notes_documentation,
     check_reviewed_source_documentation,
@@ -152,6 +153,84 @@ def expect_system_aur_update_documentation_rejected(
                 return
             fail(f"{label} returned unexpected status {error.code!r}")
     fail(f"{label} unexpectedly passed")
+
+
+def check_rmdeps_migration_row(label: str, text: str, locale: str) -> None:
+    rows = re.findall(r"^\|\s*`?RMDEPS=true`?\s*\|([^\n]*)\|\s*$", text, re.MULTILINE)
+    if len(rows) != 1:
+        fail(f"{label}: expected exactly one RMDEPS=true migration row")
+    contracts = {
+        "en": SemanticTextContract(
+            required_patterns=(
+                r"do not migrate",
+                r"no persistent `?rmdeps`? config key",
+                r"explicit per-invocation `?--rmdeps`? request",
+                r"supported only for remote aur builds?",
+            ),
+            forbidden_patterns=(r"dependency cleanup remains unsupported",),
+        ),
+        "ja": SemanticTextContract(
+            required_patterns=(
+                r"移行しない",
+                r"永続的な\s*`?rmdeps`?\s*config keyはない",
+                r"invocationごとに明示する\s*`?--rmdeps`?\s*request",
+                r"remote aur buildだけをsupport",
+            ),
+            forbidden_patterns=(r"dependency cleanupはunsupported",),
+        ),
+    }
+    assert_semantic_text_contract(label, rows[0], contracts[locale])
+
+
+def check_rmdeps_migration_regressions() -> int:
+    scenario_count = 0
+    for locale, filename, non_migration, persistent, request, scope, stale in (
+        (
+            "en", "v1-to-v2.md", "Do not migrate",
+            "no persistent", "explicit per-invocation", "only for remote AUR builds",
+            "dependency cleanup remains unsupported",
+        ),
+        (
+            "ja", "v1-to-v2.ja.md", "移行しない",
+            "永続的な", "invocationごとに明示する", "remote AUR buildだけ",
+            "dependency cleanupはunsupported",
+        ),
+    ):
+        path = REPOSITORY_ROOT / "docs/migration" / filename
+        text = path.read_text(encoding="utf-8")
+        check_rmdeps_migration_row(filename, text, locale)
+        print(f"  ok: {filename} current RMDEPS migration contract")
+        row = next(
+            line for line in text.splitlines()
+            if re.match(r"^\|\s*`?RMDEPS=true`?\s*\|", line)
+        )
+        # Positive wording variation: do not lock the entire row as a golden string.
+        cases = (
+            ("valid formatting variation", row.replace("`", "").replace(" | ", "  |  "), False),
+            ("missing row", "", True),
+            ("duplicate row", row + "\n" + row, True),
+            ("stale unsupported claim", f"| `RMDEPS=true` | {non_migration}; {stale} |", True),
+            ("additive stale claim", row[:-1] + stale + " |", True),
+            ("persistent config migration", row.replace(non_migration, "Migrate to persistent config"), True),
+            ("missing no-persistent-key policy", row.replace(persistent, ""), True),
+            ("missing explicit invocation request", row.replace(request, ""), True),
+            ("missing remote-only scope", row.replace(scope, "AUR builds"), True),
+            ("contract outside migration row", "| `RMDEPS=true` | Migrate |\n" + row.split("|", 2)[2], True),
+        )
+        for label, candidate, rejected in cases:
+            diagnostic = io.StringIO()
+            try:
+                with redirect_stderr(diagnostic):
+                    check_rmdeps_migration_row(filename, candidate, locale)
+            except SystemExit as error:
+                if error.code != 1 or not rejected or not diagnostic.getvalue():
+                    fail(f"{filename} {label}: unexpected failure: {diagnostic.getvalue()}")
+            else:
+                if rejected:
+                    fail(f"{filename} {label} unexpectedly passed")
+            print(f"  ok: {filename} {label}")
+        scenario_count += 1 + len(cases)
+    return scenario_count
 
 
 def check_release_notes_regressions() -> int:
@@ -498,6 +577,7 @@ def main() -> int:
         + len(runtime_help_mutations)
         + len(system_aur_mutations)
         + check_release_notes_regressions()
+        + check_rmdeps_migration_regressions()
         + 3
     )
     print(

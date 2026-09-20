@@ -83,6 +83,9 @@ void enqueue_local_package_query_failure(
     std::string expected_package_name,
     alpm_errno_t error = ALPM_ERR_DB_OPEN);
 void require_local_package_query_expectations_consumed();
+// Opt-in exact named lookup against the per-handle cache; legacy tests keep
+// their independently scripted single-package/query behavior.
+void use_local_package_cache_for_queries();
 void set_local_packages(const std::vector<LocalPackageMetadata>& packages);
 void set_local_package_provides(
     std::size_t package_index,

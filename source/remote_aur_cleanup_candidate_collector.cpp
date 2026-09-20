@@ -40,6 +40,62 @@ bool is_build_or_check(PackageRole role) noexcept {
            role == PackageRole::CheckDependency;
 }
 
+bool has_authoritative_pre_existing_package(
+    const std::string& package_name,
+    const InstalledPackageStateSnapshotResult& baseline) {
+    if(project_cleanup_baseline_observation(baseline, package_name) != CleanupBaselineObservation::PreExisting) {
+        return false;
+    }
+    // Reuse installed-identity validation on the baseline observation. This
+    // proves exclusion only; it does not infer an actual source artifact.
+    const auto installed = project_cleanup_current_package_evidence(baseline, package_name);
+    return installed.state == CleanupInstalledState::Present &&
+           installed.verification == CleanupEvidenceVerification::Verified &&
+           installed.metadata.has_value() && installed.metadata->name == package_name;
+}
+
+const std::string* dependency_package_name(const BuildPlanDependencyEdge& edge) {
+    if(!edge.resolved_candidate.has_value()) return nullptr;
+    const std::string* package_name = nullptr;
+    if(const auto* aur = std::get_if<AurResolvedDependencyCandidate>(&edge.resolved_candidate.value())) {
+        if(edge.kind == DependencyKind::Aur && edge.resolved_package_name == aur->package_name) {
+            package_name = &aur->package_name;
+        }
+    } else if(const auto* provider = std::get_if<ProviderResolvedDependencyCandidate>(&edge.resolved_candidate.value())) {
+        if(edge.kind == DependencyKind::Provided && edge.resolved_provider == provider->provider) {
+            package_name = &provider->provider.package_name;
+        }
+    } else if(const auto* repository = std::get_if<RepositoryExactPackage>(&edge.resolved_candidate.value())) {
+        if(edge.kind == DependencyKind::Repo && edge.resolved_package_name == repository->package_name) {
+            package_name = &repository->package_name;
+        }
+    } else if(const auto* installed = std::get_if<InstalledExactPackage>(&edge.resolved_candidate.value())) {
+        if(edge.kind == DependencyKind::Installed && edge.resolved_package_name == installed->package_name) {
+            package_name = &installed->package_name;
+        }
+    }
+    return package_name;
+}
+
+bool is_authoritatively_non_candidate(
+    const BuildPlanDependencyEdge& edge,
+    const InstalledPackageStateSnapshotResult& baseline,
+    const InstalledPackageStateSnapshotResult& current) {
+    // The invocation aggregate still validates plan/consumer/snapshot authority
+    // before the collection can be Complete, including baseline query failures.
+    if(!is_build_or_check(edge.role)) return edge.role == PackageRole::RuntimeDependency;
+    const auto* package_name = dependency_package_name(edge);
+    if(package_name == nullptr) return false;
+    const auto installed = project_cleanup_current_package_evidence(current, *package_name);
+    // Defined-phase absence needs no artifact identity or installed metadata;
+    // it proves there is currently nothing to remove, not a mutation history.
+    if(installed.state == CleanupInstalledState::Absent &&
+       installed.verification == CleanupEvidenceVerification::Verified) {
+        return true;
+    }
+    return has_authoritative_pre_existing_package(*package_name, baseline);
+}
+
 bool same_correlation(
     const CleanupPackageCorrelation& lhs,
     const CleanupPackageCorrelation& rhs) noexcept {
@@ -66,13 +122,17 @@ struct CandidateOrigin {
     SourceAwarePackageIdentity package;
     std::vector<CleanupPackageCorrelation> correlations;
     bool conflicting_identity = false;
+    CleanupCausalOwnership causal_ownership = CleanupCausalOwnership::Unknown;
+    CleanupCorrelationCoverage coverage = CleanupCorrelationCoverage::Incomplete;
 };
 
 void merge_candidate_origin(
     std::vector<CandidateOrigin>& origins,
     SourceAwarePackageIdentity package,
     std::vector<CleanupPackageCorrelation> correlations,
-    std::vector<RemoteAurCleanupCollectionIssueKind>& issues) {
+    std::vector<RemoteAurCleanupCollectionIssueKind>& issues,
+    CleanupCausalOwnership causal = CleanupCausalOwnership::InvocationOwned,
+    CleanupCorrelationCoverage coverage = CleanupCorrelationCoverage::Complete) {
     const std::string& package_name = package.package().package_name();
     auto existing = std::find_if(
         origins.begin(), origins.end(),
@@ -82,7 +142,7 @@ void merge_candidate_origin(
         });
     if(existing == origins.end()) {
         origins.push_back(CandidateOrigin{
-            std::move(package), std::move(correlations), false});
+            std::move(package), std::move(correlations), false, causal, coverage});
         return;
     }
     if(existing->package != package) {
@@ -92,6 +152,12 @@ void merge_candidate_origin(
             RemoteAurCleanupCollectionIssueKind::
                 CandidateIdentityConflict);
         return;
+    }
+    if(causal == CleanupCausalOwnership::InvocationOwned) {
+        existing->causal_ownership = causal;
+    }
+    if(coverage != CleanupCorrelationCoverage::Complete) {
+        existing->coverage = coverage;
     }
     for(CleanupPackageCorrelation& correlation : correlations) {
         if(std::none_of(
@@ -401,6 +467,70 @@ RemoteAurCleanupCandidateCollector::finish(
 
     const PreparedRemoteSourceBuild& prepared = session_.prepared();
     const BuildPlan& plan = prepared.aur_build_plan.value();
+    // Slice 2B only enumerates receipt-free repository candidates. A source
+    // build/check edge needs actual artifact correlation unless authoritative
+    // current absence or PreExisting evidence excludes it from cleanup.
+    // Present/Unknown source candidates still block an otherwise safe subset.
+    for(std::size_t index = 0; index < plan.dependency_edges.size(); ++index) {
+        const auto& edge = plan.dependency_edges[index];
+        const bool source_provider = edge.kind == DependencyKind::Provided &&
+                                     edge.resolved_provider.has_value() &&
+                                     !std::holds_alternative<RepositoryProviderOrigin>(edge.resolved_provider->origin);
+        if(!is_build_or_check(edge.role) ||
+           (edge.kind != DependencyKind::Aur && !source_provider)) {
+            continue;
+        }
+        if(is_authoritatively_non_candidate(edge, baseline_->snapshot(), current.snapshot())) {
+            continue;
+        }
+        const bool has_actual_correlation = std::any_of(
+            source_correlations.begin(), source_correlations.end(),
+            [index](const auto& evidence) {
+                if(evidence.completeness() != CleanupEvidenceCompleteness::Complete) return false;
+                return std::any_of(evidence.selected_artifacts().begin(), evidence.selected_artifacts().end(),
+                                   [index](const auto& selected) {
+                                       return std::any_of(selected.dependency_correlations.begin(), selected.dependency_correlations.end(),
+                                                          [index](const auto& correlation) {
+                                                              return correlation.verification == CleanupEvidenceVerification::Verified &&
+                                                                     correlation.dependency_edge.has_value() &&
+                                                                     correlation.dependency_edge->build_plan_edge_index == index;
+                                                          });
+                                   });
+            });
+        if(!has_actual_correlation) {
+            add_issue(issues, RemoteAurCleanupCollectionIssueKind::SourceArtifactOriginUnavailable);
+            overall = CleanupEvidenceCompleteness::Incomplete;
+        }
+    }
+    for(const BuildPlanDependencyEdge& edge : plan.dependency_edges) {
+        if(!edge.resolved_candidate.has_value()) continue;
+        const auto* provider = std::get_if<ProviderResolvedDependencyCandidate>(
+            &edge.resolved_candidate.value());
+        const bool repository_candidate = std::holds_alternative<RepositoryExactPackage>(
+                                              edge.resolved_candidate.value()) ||
+                                          (provider != nullptr && std::holds_alternative<RepositoryProviderOrigin>(provider->provider.origin));
+        if(!repository_candidate) continue;
+
+        // Enumerate only plan-resolved repository identities, then intersect with
+        // the installed observations. Snapshot names never supply source identity.
+        auto projection = project_invocation_owned_cleanup_candidate(
+            baseline_->snapshot(), current.snapshot(), plan,
+            edge.resolved_candidate.value(), lifecycle);
+        auto* projected = std::get_if<InvocationOwnedCleanupCandidateProjectionSuccess>(&projection);
+        if(projected == nullptr) {
+            add_issue(issues, RemoteAurCleanupCollectionIssueKind::CandidateCorrelationIncomplete);
+            overall = CleanupEvidenceCompleteness::Incomplete;
+            continue;
+        }
+        InvocationOwnedCleanupCandidate& candidate = projected->candidate;
+        if(candidate.baseline == CleanupBaselineObservation::PreExisting ||
+           candidate.current_package.state == CleanupInstalledState::Absent) {
+            continue;
+        }
+        merge_candidate_origin(
+            origins, std::move(candidate.package), std::move(candidate.correlations),
+            issues, CleanupCausalOwnership::Unknown, candidate.correlation_coverage);
+    }
     for(const CleanupSelectedProviderCorrelationEvidence& evidence :
         selected_correlations) {
         for(const CleanupSelectedProviderEdgeCorrelation& selected :
@@ -451,12 +581,37 @@ RemoteAurCleanupCandidateCollector::finish(
         }
     }
 
+    std::erase_if(origins, [&](const CandidateOrigin& origin) {
+        return !origin.conflicting_identity &&
+               has_authoritative_pre_existing_package(origin.package.package().package_name(), baseline_->snapshot());
+    });
     if(origins.empty()) {
-        add_issue(
-            issues,
-            RemoteAurCleanupCollectionIssueKind::CandidateOriginMissing);
+        // No candidate means no candidate-specific policy query. The same
+        // aggregate still validates phase, snapshots, plan, consumers and every
+        // edge before the collector can prove an exhausted candidate universe.
+        const auto inventory = aggregate_remote_aur_cleanup_invocation_evidence(
+            session_, lifecycle, baseline_.value(), current, std::nullopt,
+            source_correlations, selected_correlations);
+        const bool inventory_complete = inventory.route_authority() == CleanupRouteAuthority::Complete &&
+                                        inventory.completeness() == CleanupEvidenceCompleteness::Complete &&
+                                        inventory.issues().empty();
+        if(!inventory_complete) {
+            add_issue(issues, RemoteAurCleanupCollectionIssueKind::InvocationAggregateIncomplete);
+            overall = CleanupEvidenceCompleteness::Incomplete;
+        } else {
+            // Aggregate classification is exhaustive and indexed in BuildPlan
+            // order. Multiple edges for one package each require coverage.
+            for(const auto& classified : inventory.edge_classifications()) {
+                if(!is_authoritatively_non_candidate(plan.dependency_edges[classified.build_plan_edge_index],
+                                                     baseline_->snapshot(), current.snapshot())) {
+                    add_issue(issues, RemoteAurCleanupCollectionIssueKind::CandidateOriginMissing);
+                    overall = CleanupEvidenceCompleteness::Incomplete;
+                }
+            }
+        }
+        if(!issues.empty()) overall = CleanupEvidenceCompleteness::Incomplete;
         return RemoteAurCleanupCollectionResult(
-            std::move(result), CleanupEvidenceCompleteness::Incomplete,
+            std::move(result), overall,
             {}, std::move(issues));
     }
 
@@ -509,10 +664,10 @@ RemoteAurCleanupCandidateCollector::finish(
             project_cleanup_current_package_evidence(
                 current.snapshot(),
                 origin.package.package().package_name()),
-            CleanupCausalOwnership::InvocationOwned,
+            origin.causal_ownership,
             project_shared_requirement(aggregate, origin.package),
             project_cleanup_policy_protection(policy.evidence()),
-            aggregate_complete && !origin.correlations.empty()
+            aggregate_complete && origin.coverage == CleanupCorrelationCoverage::Complete && !origin.correlations.empty()
                 ? CleanupCorrelationCoverage::Complete
                 : CleanupCorrelationCoverage::Incomplete,
             std::move(origin.correlations)};
@@ -527,7 +682,10 @@ RemoteAurCleanupCandidateCollector::finish(
         assessments.push_back(RemoteAurCleanupCandidateAssessment{
             std::move(origin.package),
             classification.classification(),
-            classification.reasons()});
+            classification.reasons(),
+            classification.classification() == CleanupClassification::Eligible
+                ? std::optional<DependencyCleanupCandidateSnapshot>{DependencyCleanupCandidateSnapshot(candidate)}
+                : std::nullopt});
     }
 
     return RemoteAurCleanupCollectionResult(

@@ -6,6 +6,7 @@
 /usr/share/doc/moguet/README.md
 /usr/share/doc/moguet/THIRD_PARTY_NOTICES.md
 /usr/share/doc/moguet/docs/LICENSING.md
+/usr/share/doc/moguet/docs/contracts/source-build-rmdeps.md
 /usr/share/doc/moguet/docs/migration/v1-to-v2.ja.md
 /usr/share/doc/moguet/docs/migration/v1-to-v2.md
 /usr/share/doc/moguet/examples/config.toml

@@ -98,6 +98,8 @@ CMAKE_FOCUSED_ALIASES := \
 	test-split-devel-artifact-authority \
 	test-evaluated-devel-source-artifact-transport \
 	test-remote-aur-cleanup-collector \
+	test-dependency-cleanup-interaction \
+	test-dependency-cleanup-execution \
 	test-source-artifact-install-trusted-transport \
 	test-reviewed-source-state \
 	test-reviewed-source-state-store \
@@ -164,6 +166,7 @@ CMAKE_FOCUSED_ALIASES := \
 	test-pacman-routing \
 	test-build-cache-symlink \
 	test-source-build \
+	test-source-build-rmdeps \
 	test-source-selection \
 	test-needed-contract \
 	test-pkgbuild-export

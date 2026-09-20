@@ -1,27 +1,105 @@
-# Separated source-build の `--rmdeps` contract
+# Source-build の `--rmdeps` contract
 
 ## 文書の位置づけ
 
-この文書は、separated AUR / source-build lifecycleにおける`--rmdeps`の意味、拒否境界、pacman-only routeでの消費を定めるnormative production contractである。あわせてIssue #404で将来のsupportへ進むために必要なcleanup ownershipとinteractionのstaged authorityを定める。文書の規範上の正本は日本語本文である。
+この文書はIssue #486のcurrent public contractを所有する。日本語本文をnormative source of truthとする。
+後半のIssue #404 / #485記録は歴史資料であり、そこでのpublic unsupported、strict causal proof必須、
+makepkg syncdeps NO-GO、nonempty candidate必須という判断は、以下のcurrent contractに置き換わる。
+installed helper / transport自身のtransaction outcome、one-shot、retry禁止等の責務は維持する。
 
-current production behaviorとstaged targetは混同しない。Issue #485 Slice 5は、production `PreparedRemoteSourceBuild`をmove ownershipでconsumeする単一closed collectorの内部でだけsessionをmintし、baseline、owner-specific trusted transaction、full invocation result、post-success current / policy、aggregate、exact candidate projection、pure classifierを一方向に接続した。authoritatively correlated actual `Install`だけがcandidate originであり、completeなremote AUR invocationのexact build / check dependencyだけが`Eligible`へ到達できる。一方、production source-buildのpublic `--rmdeps`は引き続きunsupportedかつmutation前fail closedである。candidate assessmentはpreview、prompt、confirmation、removalへ公開・接続せず、cleanup execution capabilityでもない。Issue #404 Slice 3.6のselected repository provider transportと、Issue #485 Slice 2の`SourceArtifactInstall` transportは、installed helper、fixed protocol、root stateをownerごとに分離する。Slice 3はread-only local / configured sync libalpm metadataからexact `base-devel` policy authorityを追加した。Slice 4は2つのowner-specific resultをexact invocation、work item、PackageBase、BuildPlan edge、provider decisionへ閉じ、invocation-wide shared lifetime、route authority、evidence completenessをinternal evidence modelとして追加した。Slice 4.5はcaller文字列では再構成できないone-invocation session、trusted producerだけが発行するselected-provider closed evidence、owner/work-item別token inventory、全edge分類、nonempty invariant、outcome shape validation、actual current PackageBase / architecture、session/phase-bound baseline/current/policyへこのfoundationを閉じた。positiveな`Complete` routeは必要なnonempty evidenceが全て揃ったremote AUR source buildだけであり、local / upgradeは`Unsupported`、standalone repository source / makepkg syncdepsは`Unknown`のままである。`makepkg -s`も未対応であり、独立gateが残るためremovalへ進まない。
+## Current public contract — Issue #486 Slice 5
 
-- Origin Issue: [#269](https://github.com/seekerkrt/moguet/issues/269)
-- Staged extension: [#404](https://github.com/seekerkrt/moguet/issues/404)
-- Related Issues: [#123](https://github.com/seekerkrt/moguet/issues/123)、[#152](https://github.com/seekerkrt/moguet/issues/152)、[#218](https://github.com/seekerkrt/moguet/issues/218)、[#242](https://github.com/seekerkrt/moguet/issues/242)、[#266](https://github.com/seekerkrt/moguet/issues/266)、[#267](https://github.com/seekerkrt/moguet/issues/267)、[#271](https://github.com/seekerkrt/moguet/issues/271)、[#350](https://github.com/seekerkrt/moguet/issues/350)
-- Related PRs: #298（#269 policy）、#241、#257〜#261（#242 separated lifecycle）
-- Update history: Issue #373で旧decision 10の本文から安定contractへ分離。Issue #404 Slice 1でcurrent lifecycle監査、causal ownership、future interaction boundaryを追加。Slice 2でproduction未接続のpure cleanup classification authorityを追加。Slice 3でinstall-reason付きfull local snapshotとproduction未接続のmetadata / lifecycle adapterを追加し、current causal authority不足をNO-GOとして固定。Slice 3.5でtransaction token、owner、command outcome、machine receipt completeness、package operation、invocation ledgerをpure typed contractとして追加した。Slice 3.6でpackage-installed root helper、root-owned transaction state、transaction-local Install hook、one-shot machine receipt、selected-provider typed transportを追加し、Slice 3.5 ledgerへactual `Install` setをprojectできるproduction-capable pathを成立させた。Slice 3.7でmakepkg syncdepsのpublic instrumentation authorityを監査し、安全なroot-owned adapter案は独立security redesignが必要なためDEFER、Issue #404はRETURN-HOMEと判定した。Issue #485 Slice 1でactual archive PackageBase / architectureと`SourceArtifactInstall` owner-specific closed evidenceを追加し、raw generic ledgerをproduction positive projectionから除外した。Issue #485 Slice 2で別installed helper、別`/run` namespace、sealed-bytes root staging、fixed `pacman -U`、Install-only receipt、production observation producerを追加した。Issue #485 Slice 3でexact installed / configured sync `base-devel` meta-package dependencyをprimary authorityとし、libalpm satisfier semantics、exact group compatibility fallback、losslessな`Protected` / `NotProtected` / `Unknown` reducerを追加した。Slice 4でrepository provider PackageBase保持、2 ownerのexact edge correlation、invocation-wide evidence / shared lifetime、route / completeness authorityを追加した。Slice 4.5でclosed selected producer、fresh session/token inventory、exhaustive/non-vacuous completeness、outcome/current/phase authorityを追加した。Slice 5で単一closed collectorをproduction remote AUR orchestrationへ接続し、authoritative candidate assessmentとinstalled positive fixtureを完成した。public cleanup routeは未接続である。
-- Related upper decisions: [decision 1](../decisions.md#decision-1)、[decision 2](../decisions.md#decision-2)、[decision 4](../decisions.md#decision-4)、[decision 5](../decisions.md#decision-5)、[decision 6](../decisions.md#decision-6)、[decision 7](../decisions.md#decision-7)
+canonical optionはMoguet-owned global `--rmdeps`だけであり、aliasを追加せずpacmanへ転送しない。
+positive supportは、repository exact queryで不在を確認してAURへ解決したremote `build <package> --rmdeps`だけ。
+`build --local`、repository source build、`-S --aur`、upgrade系、system/source transitionへ広げない。
 
-## Contract本文（日本語normative source of truth）
+### Requestとlifecycle
 
-### Optionのauthority
+`build_source_target`が要求とoperation resultを所有する。`--rmdeps`未指定なら既存build/installだけを実行し、
+cleanup baseline/session、candidate収集、preview、question、fresh revalidation、HoldPkg query、removal、
+cleanup status表示を起動しない。
 
-旧combined lifecycleでは、`makepkg -sicr`がdependency同期、source artifactのbuild、package install、dependency cleanupを一続きで所有していた。#242以降のseparated lifecycleでは、build-only makepkg、invocation-owned fresh `PKGDEST`、検証済みartifactを扱うtyped `pacman -U` install transactionへ責務を分離している。
+指定時は次の順序を守る。
 
-`--rmdeps`はpacman optionではない。makepkg由来の意味を持つMoguet global optionとしてMoguetが認識し、source-buildとpacman-onlyのroute境界で処理する。pacmanへ転送して解釈させてはならない。
+1. remote source identityと既存option / plan / preparationを検証。
+2. collector内でsessionとpre-state baselineを最初のdependency mutationより前に確立。
+3. 通常のdependency install、makepkg、artifact検証、root artifact installを実行。
+4. current invocation resultの全work item成功を要求し、その後だけpost-state観測とcandidate収集。
+5. existing collectorのComplete / eligible集合からpreviewを構築し、explicit interaction。
+6. Approvedだけを既存executorへ渡し、fresh revalidationのReady subsetをexact one-shot removal。
+7. build/install、interaction、executionを別のtyped resultとして保持し、cleanup outcomeを別に報告。
 
-将来cleanupをsupportする場合もcanonical public surfaceは既存の`--rmdeps`を再利用する。`--cleanup-build-deps`、`--remove-build-deps`等の同義optionやaliasを追加しない。これはfuture supportのoption authorityだけを固定する判断であり、current routeのsupport範囲を広げるものではない。
+下位separated build/install ownerは`--rmdeps`を消費しない。public ownerが要求を保持したまま、
+そのfieldだけfalseにしたconfigを下位へ渡し、他optionや他routeのrejectを維持する。
+build、dependency install、artifact production / install失敗や途中終了ではpreview / question / removalを行わない。
+既存workspace cleanup失敗は既存の独立したstaged outcome / typed exceptionを維持し、full invocation successにはしない。
+失敗したbuildの部分dependency cleanup、repair、rollbackは行わない。
+`--dry-run`はread-only preparation / plan表示までで、cleanup session / interaction / mutationを実行しない。
+
+### Candidate authority
+
+基本はpre absent、post installed、current Dependency reasonに加え、existing BuildPlan role / edge、
+PackageBase、actual name / version / architecture、selected provider、policy / shared lifetimeのexact correlation。
+pre-existing、Explicit、Unknown、identity mismatch、root / runtime target、protected、still-requiredを除外する。
+strict makepkg call-origin / complete causal token proof / hostile same-UID対策をcleanup eligibilityの必須条件にしない。
+既存receiptが持つfactual outcomeは保持するが、その欠落だけで通常の候補を全面的にUnknownへ落とさない。
+
+Completeでcandidate 0はNoCandidatesという正常結果であり、prompt / revalidation / removalは0。
+Incomplete / unsafeなcandidate universeはBlocked。public callerがsafe subsetを再分類してapprovalへ進めない。
+current Absentやauthoritative PreExistingで0になる通常ケースをIncompleteへ戻さない。
+
+### Interactionとremoval
+
+candidateのexact name / versionを先に表示し、`Remove build dependencies? [y/N]`を1回だけ提示する。
+Enter / n / noはDeclined、q / quit / cancel / EOFはCancelledで、mutationは0。build/install成功を保持する。
+user `--noconfirm`はcleanup approvalではなくInteractionUnavailable(NoConfirm)、non-TTYは
+InteractionUnavailable(NonInteractiveInput)。通常build/installは実行できるが、cleanup approvalを推測しない。
+
+explicit Yes後に必ずfresh configuration、installed identity / reason、base-devel policy、effective HoldPkg、
+current runtime consumersを再観測し、shared dependency closureを再縮小する。
+AlreadyAbsent / IdentityChanged / InstallReasonChanged / Protected / StillRequired / Unknown / Invalidはskip。
+HoldPkg matchもProtectedとして報告し、base-develだけが理由であるかのように説明しない。
+Readyが0ならNoCandidatesReady、global query failure等はBlocked。
+
+残るexact setだけを1 transactionの`sudo pacman -R --noconfirm -- <names...>`へ渡す。
+このinternal `--noconfirm`はexplicit Moguet Yesとfresh checks後のpacman重複prompt抑止だけであり、
+user `--noconfirm`をYesへ変換するものではない。
+`-Rs` / `-Rns` / cascade / nodeps、`pacman -Qdt*`、broad orphan sweep、autoremove allを追加しない。
+
+### Result / reporting / exit status
+
+`RemoteSourceBuildResult`は`ProductionSourceBuildInvocationResult`とoptional interaction / executionを保持する。
+未指定はinteractionなし（NotRequested）で無表示。build failureもcleanupを開始しない。
+previewは削除予定候補でありremoved setではない。execution後にremoved setまたはskipped set / reasonを報告する。
+RemovalFailedはattempted exact setと既知のexit statusを保持・表示し、実際に消えたpackageを推測しない。
+retry / rollbackを行わず、build/install successをcleanup failureで書き換えない。
+
+| build/install | cleanup | command exit |
+| --- | --- | --- |
+| 既存failure / partial | 未開始 | 既存non-zero |
+| Success | NotRequested / NoCandidates / Declined / Cancelled | 0 |
+| Success | Removed / NoCandidatesReady（fresh unsafe候補のskip） | 0 |
+| Success | Blocked / InteractionUnavailable / RemovalFailed | 1 |
+
+既存のpartial completionをsuccessへ丸めないCLI慣例に従い、要求されたcleanupを実行できない場合はnon-zero。
+No / cancelという利用者の判断と、candidateがなくなった正常skipはerrorにしない。
+
+### Route matrix
+
+| Route | `--rmdeps` |
+| --- | --- |
+| remote `build <AUR package>` | 上記の明示cleanupをsupport |
+| repository `build <package>` | exact source解決後、build/install mutation前にreject |
+| `build --local` | local root inspection前のrejectを維持 |
+| `-S --aur` / source sync / separated lower lifecycle | 既存rejectを維持 |
+| `upgrade-aur` / `upgrade-all` | query / mutation前のrejectを維持 |
+| registered `upgrade`にsource targetあり | source / system mutation前のrejectを維持 |
+| registered `upgrade`にsource targetなし、その他pacman-only compatible route | Moguetがconsumeしno-op、pacmanへforwardしない |
+
+## Historical implementation record — #404 / #485
+
+以下は各Slice当時の記録。current cleanup permission / public supportには上記#486を適用する。
+transport自身の独立した安全契約の記録を、public cleanupの再設計に合わせて削除しない。
 
 ### Current lifecycle監査（2026-08-27）
 
@@ -476,76 +554,7 @@ networkless disposable Arch fixtureはsynthetic remote AUR rootとMoguet-owned s
 
 Slice 5のassessmentはinternal resultであり、public output、preview、prompt、confirmation、removalへ接続しない。`pacman -R*`、`pacman -Qdt*`、broad orphan scan、automatic rollbackは追加しない。makepkg syncdeps authorityは#484 / #501、mutation直前revalidationとremovalは#486の独立scopeである。Issue #485のcandidate authority completionだけで#486全体をGOとしない。
 
-### Source-build route
-
-source-build route全体では、Slice 5が閉じたowner-specific selected-provider / source-artifact subsetを除き、今回のinvocationが導入したmake / check dependency集合、特にmakepkg syncdepsをMoguetがauthoritativeに所有できない。build前後のinstalled package差分だけでは、次を安全に区別できない。
-
-- 並行するpackage transaction。
-- build前から存在するdependencyとExplicit package。
-- `base-devel`。
-- install reasonの変化。
-- invocation外で導入または変更されたpackage。
-
-したがって、source-build routeの`--rmdeps`はunsupportedであり、意味のあるcleanup要求をsilent ignoreしてはならない。callerは既存のpreflight boundaryに従い、checkout、workspace、process、metadata query、makepkg、artifact install、pacman、sudoなどのexternal mutationより前にfail closedする。
-
-`--rmdeps`を次のいずれにも変換してはならない。
-
-- `makepkg -r`または旧combined lifecycleの暗黙復活。
-- `pacman -Rns`、`pacman -Qdt`、system-wide orphan cleanup。
-- Moguet独自のdependency cleanup。
-- automatic rollback。
-
-`--noconfirm`は削除やcleanupの暗黙許可ではなく、この拒否を突破しない。将来supportを検討する場合も、上記のcausal ownership、protected state、preview / confirmation、build / install / cleanup resultの分離を満たす必要がある。
-
-### pacman-only route
-
-pacman-only routeでは、Moguetがmakepkg dependency installation lifecycleを実行しない。したがって、今回のinvocationが導入したdependencyをcleanupするためのinvocation-owned dependency集合も発生しない。
-
-このrouteではMoguetが`--rmdeps`をglobal optionとして消費するが、作用させないno-opとする。pacmanへ転送せず、pacmanにunknown optionや別の意味として解釈させない。これはsource-build routeで意味のあるcleanup要求をsilent ignoreすることとは異なる。pacman-onlyではcleanup対象となるlifecycleとauthoritative ownershipが存在しないため、安全に作用させる対象がないのである。
-
-この整理はdecision 1の「同じ意味を安全に保てない場合は黙って無視せず、未対応であることを示して実行前に停止する」と矛盾しない。source-build routeには意味のあるcleanup要求とmutation riskがあるためfail closedし、pacman-only routeにはcleanup lifecycle自体がなく、Moguetがoptionを消費してpacmanへ誤転送しないことが、optionの意味を安全に保つ明示的なroute処理だからである。
-
-### Routeの境界
-
-| Route | 契約 |
-| --- | --- |
-| AUR / source-build、`build`、separated PackageBase lifecycle | source resolutionまたは既存callerのall-target preflightに従い、external mutationより前に拒否する |
-| local `build --local` | operation-local parserでlocal root inspectionより前に拒否し、local / remote dependency lifecycleへ`--rmdeps`を渡さない |
-| `upgrade-aur` / `upgrade-all` | query、log / cache初期化、source preparation、system / AUR mutationより前に拒否する。targetやphaseが0件でも成功へ変換しない |
-| registered `upgrade`にregularかつvalidなsource targetがある | source preparationとsystem mutationより前に拒否する |
-| registered `upgrade`にsource targetがなくpacman-only system upgradeへ縮退する | Moguetが消費するが作用させず、system `pacman -Syu`へ転送しない |
-| その他のpacman-only route | Moguet global optionとして消費するが作用させず、pacmanへ転送しない |
-
-### Issue #404 staged interaction authority（production未接続）
-
-このsectionはcandidate lifecycle完成後の後続実装が満たすinteraction authorityであり、current runtimeにcleanup promptが存在するという記述ではない。
-
-- `--rmdeps`未指定では、通常buildへcleanup promptを追加せず、cleanup mutationを行わない。
-- interactive `--rmdeps`では、causal proofを満たすverified candidateが存在する場合だけpreviewを行う。candidateはpromptより先に表示する。
-- confirmationはNo defaultの`[y/N]`を使う。
-- explicit acceptance後も、candidateのcurrent reason、identity、installed state、shared stateをcleanup mutation直前に再validationする。再validationできないcandidateは削除しない。
-- `No` / `Declined`はcleanupをskipする。完了済みbuild / install successをfailureへflattenしない。
-- `q` / `quit` / `cancel`とinteractive EOFはformal cancellationである。cleanup mutationを開始せず、完了済みbuild / installをrollbackしない。operation resultではbuild / install outcomeとcleanup cancellationを別phaseとして保持する。
-- cleanup failureもbuild / install resultとは別phaseとして保持し、先行successを失わない。ただしinvocation全体の成功へ丸めない。
-- `--rmdeps`と`--noconfirm`の併用はcleanup approvalへ変換しない。初期supportではinvocationのexternal mutationより前にfail closedする。
-- non-TTYからの`--rmdeps`もapprovalを推測しない。初期supportではinvocationのexternal mutationより前にfail closedする。
-- 将来non-interactive cleanupをsupportする場合は、`--noconfirm`から推測せず、別のexplicit authorityを定義する。
-
-boolean token、EOF、typed outcome、non-rollbackの共通意味は[interactive confirmation contract](interactive-confirmation.md)に従う。ただしcleanup requestに対する初期`--noconfirm` / non-TTYのroute裁定は、safe default Noで通常buildを継続するのではなく、上記のとおりmutation前fail-closedとする。
-
-Slice 5はinternal candidate assessmentまでを完成したが、production preview、prompt、mutation直前revalidation、exact candidate removalを接続しない。preview / confirmation / revalidation / removalは後続authorityなしに接続してはならない。
-
-## Non-scope / implementationを固定しない範囲
-
-- Slice 1〜2でのdependency cleanup support、remove executor、orphan cleanup、broad autoremove。
-- `pacman -R` / `-Rs` / `-Rns`、`pacman -Qdt` / `-Qdtq`、`makepkg -r`の追加。
-- Slice 1〜2でのinstall-reason付きfull snapshot adapter、causal correlation adapter、production lifecycle接続。
-- Slice 3 adapterのproduction lifecycle / public route接続と、causal authority不足のままのpreview / executor接続。
-- production preview / prompt / revalidation / removal、local / upgrade系supportの先行開放。
-- public runtime parser、route selection、default makepkg / pacman argv、current exit codeの変更。Slice 3.6のexplicit typed selected-provider capabilityが所有する`--hookdir` argvはこのdefault boundaryを変更しない。
-- current lifecycle監査で確認した実装moduleや`-sc` argvを将来の恒久実装として固定すること。
-- selected-provider以外のcausal proofを同じhook transportへ自動一般化すること、またはsnapshot形式、database API、rollback機構へ過剰に先決めすること。
 
 ## Compatibility
 
-利用者向けの`--rmdeps` option分類、source-build fail-closed、pacman-only no-op、route matrix、pass-through policyは、[`compatibility.md`の`--rmdeps` section](../compatibility.md#compat-rmdeps)を参照する。
+利用者向け互換性はrepositoryの `docs/compatibility.md`（`compat-rmdeps` section）も参照。

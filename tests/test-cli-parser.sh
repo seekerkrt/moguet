@@ -593,7 +593,7 @@ assert_contains "list-src" "$output_file"
 assert_contains "del-src <pkg>..." "$output_file"
 assert_contains "revert <pkg>..." "$output_file"
 assert_contains \
-    "Unsupported for separated source builds; no dependency cleanup is performed" \
+    "Preview newly installed build dependencies after remote AUR build success; remove only with explicit approval" \
     "$output_file"
 assert_pre_log_exit
 

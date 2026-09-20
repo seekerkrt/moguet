@@ -143,6 +143,10 @@ moguet_add_focused_ctest_alias(
     test-remote-aur-cleanup-collector
     TESTS cpp.remote_aur_cleanup_collector
 )
+moguet_add_focused_ctest_alias(
+    test-dependency-cleanup-interaction
+    TESTS cpp.dependency_cleanup_interaction
+)
 
 moguet_add_focused_ctest_alias(
     test-localization
@@ -296,3 +300,10 @@ moguet_add_focused_ctest_alias(
     TESTS cpp.split_devel_artifact_authority
     TARGETS evaluated-devel-source-build-test
 )
+
+moguet_add_focused_ctest_alias(
+    test-dependency-cleanup-execution
+    TESTS cpp.dependency_cleanup_execution
+)
+
+moguet_add_focused_ctest_alias(test-source-build-rmdeps TESTS cli.source_build_rmdeps)

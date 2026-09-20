@@ -25,7 +25,7 @@ contractの規範上の正本は各文書の日本語本文である。英語利
 | [Normal authoritative devel routes](devel-normal-routes.md) | #476 S7-D | RPC/Git precedence、normal assessment/execution、registered/dry-run/-Qua |
 | [Reviewed devel source execution bridge](reviewed-devel-source-build-execution.md) | #476 S7-C | typed pinからS4→S5→S6、lossless live result、legacy分離、normal reviewed owner接続 |
 | [PackageBase build / required-child selection](packagebase-child-selection.md) | #268 | PackageBase build unitとrequired child install selectionの分離 |
-| [separated source-build `--rmdeps`](source-build-rmdeps.md) | #269 / #404 | current source-buildのfail-closed、pacman-only no-op、future causal ownership / interaction boundary |
+| [separated source-build `--rmdeps`](source-build-rmdeps.md) | #269 / #404 / #486 | remote AUR buildのexplicit cleanup、fresh revalidation、他routeのrejectとpacman-only no-op |
 | [XDG cache cutover safety](xdg-cache-safety.md) | #305 | cache filesystem identityとlegacy cache非変更 |
 | [source-build preference XDG authority](source-build-preference-xdg.md) | #335 | user XDG authority、ownership、atomic filesystem操作 |
 | [interactive confirmation](interactive-confirmation.md) | #431 | boolean confirmationのsuffix、fixed token、typed outcome、exit / cancellation境界 |

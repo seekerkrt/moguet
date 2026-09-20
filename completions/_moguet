@@ -427,7 +427,7 @@ _moguet_description() {
         --build-mode=) REPLY='Select the source-build mode' ;;
         --rebuild) REPLY='Compatibility alias for --build-mode=rebuild' ;;
         --cleanbuild) REPLY='Compatibility alias for --build-mode=clean' ;;
-        --rmdeps) REPLY='Unsupported for separated source builds; no dependency cleanup is performed' ;;
+        --rmdeps) REPLY='Preview newly installed build dependencies after remote AUR build success; remove only with explicit approval' ;;
         --select) REPLY='Interactively select source-aware package candidates for plain -S' ;;
         --aur) REPLY='Limit supported sync operations to AUR' ;;
         --repo) REPLY='Use only official binary repositories; with -Syu / -Su, run the repository system upgrade only' ;;

@@ -946,10 +946,14 @@ assert_command_content_absent "git clone"
 assert_command_content_absent "makepkg"
 assert_command_content_absent "pacman -U"
 
-setup_case build-rmdeps-rejected
+setup_case repository-build-rmdeps-rejected
+export MOGUET_TEST_PACMAN_REPO_PACKAGES=clean-root
 run_fail --rmdeps --noedit --nodiff --noconfirm build clean-root
 assert_contains "Separated build/install does not support --rmdeps." "$output_file"
-assert_total_command_count 0
+assert_command "alpm sync-query core/clean-root"
+assert_command_content_absent "git clone"
+assert_command_content_absent "makepkg"
+assert_command_content_absent "sudo"
 assert_request_log_empty
 
 setup_case build-resolve-failure

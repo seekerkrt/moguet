@@ -683,12 +683,17 @@ built-in defaultは
 .
 .TP
 .B "--rmdeps"
-legacy cleanup requestとして認識しますが、separated source-build routeではmutation前に
-拒否します。
-Moguetはinvocationが所有するexact dependency setを証明できないため、
-.BR "makepkg -r" 、
-.BR "pacman -Rns" 、
-custom orphan cleanupへ変換しません。
+remote AUR buildとartifact install成功後、今回新たに導入されたbuild/check dependency候補を
+previewし、[y/N]（default No）で確認します。
+explicit Yes後にidentity、reason、policy、HoldPkg、runtime consumerをfreshに再確認し、
+残るexact candidateだけを1 transactionで削除します。
+user --noconfirmとnon-TTYはcleanupを承認しません。
+internal pacman --noconfirmは明示承認後の重複prompt抑止だけです。
+No/cancel/EOFはbuild成功を維持します。Blocked/unavailable/removal failureは
+build/install成功を独立保持してexit 1、候補なしや再検証後のskipはexit 0です。
+未指定、build/install失敗、dry-runではcleanupしません。
+local/repository source build、source sync、upgrade系の既存reject、pacman-only compatible routeのno-opを維持します。
+pacman -Qdtやbroad autoremoveではなく、自動retry/rollbackを行いません。
 .
 .TP
 .B "--aur"
