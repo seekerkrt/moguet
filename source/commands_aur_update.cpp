@@ -9,6 +9,7 @@
 #include "runtime_diagnostic.hpp"
 #include "source_install.hpp"
 
+#include <algorithm>
 #include <iostream>
 #include <optional>
 #include <stdexcept>
@@ -289,7 +290,7 @@ std::string target_status_label(
             if(has_aur_update_bootstrap_intent(target.update)) return localization::translate_message("devel tracking baseline established");
             return localization::translate_message("updated");
         case AurUpdateOperationTargetStatus::NoChange:
-            return localization::translate_message("no change");
+            return localization::translate_message("no package change");
         case AurUpdateOperationTargetStatus::Skipped:
             return localization::translate_message("skipped") + ": " +
                    target_reason_label(target);
@@ -509,7 +510,28 @@ void print_operation_result(
                      "{} update:", "AUR")
               << " " << operation_status_label(result.status)
               << std::endl;
+    const auto normal_target = [](const AurUpdateOperationTargetResult& target) {
+        if(target.status == AurUpdateOperationTargetStatus::Updated ||
+           target.status == AurUpdateOperationTargetStatus::NoChange) return true;
+        return target.status == AurUpdateOperationTargetStatus::Skipped &&
+               !target.preflight_issues.empty() &&
+               std::all_of(target.preflight_issues.begin(), target.preflight_issues.end(),
+                           [](const auto& issue) { return is_routine_aur_update_skip(issue.reason); });
+    };
+    // Preserve target order within each group, not execution order as a new
+    // authority. Normal facts precede attention; child/artifact detail follows.
     for(const auto& target : result.targets) {
+        if(normal_target(target))
+            std::cout << target.update.installed_name << ": "
+                      << target_status_label(target, result.status) << std::endl;
+    }
+    if(!result.is_success() || !result.preparation_warnings.empty() ||
+       !query_result.recoverable_failures.empty() ||
+       std::any_of(result.targets.begin(), result.targets.end(),
+                   [&normal_target](const auto& target) { return !normal_target(target); }))
+        std::cout << localization::translate_message("Attention-required details:") << std::endl;
+    for(const auto& target : result.targets) {
+        if(normal_target(target)) continue;
         if(const AurUpdateExecutionIssue* attention =
                independent_requires_check_attention_issue(result, target);
            attention != nullptr) {
@@ -521,17 +543,6 @@ void print_operation_result(
                   << target_status_label(target, result.status)
                   << std::endl;
     }
-    for(const std::string& line : execution_presentation.summary_lines) {
-        std::cout << line << std::endl;
-    }
-
-    print_preflight_issues(result);
-    print_preparation_details(result);
-    for(const std::string& line : execution_presentation.error_lines) {
-        Logger::error(line);
-    }
-    print_reduction_issues(result);
-
     if(result.has_partial_completion() &&
        result.status != AurUpdateOperationStatus::StoppedOnWorkItemCancellation) {
         std::cout << localization::format_translated_message(
@@ -540,12 +551,41 @@ void print_operation_result(
                          "AUR")
                   << std::endl;
     }
-    if(result.has_cleanup_failure()) {
+    // has_cleanup_failure() also includes acquisition/review workspace cleanup.
+    // A completed transaction elsewhere does not prove the failed cleanup was
+    // post-transaction; use only the affected work item's typed outcome.
+    const auto post_transaction_cleanup = [](AurUpdateWorkItemExecutionStatus status) {
+        return status == AurUpdateWorkItemExecutionStatus::UpdatedCleanupFailed ||
+               status == AurUpdateWorkItemExecutionStatus::NoChangeCleanupFailed;
+    };
+    const bool has_transaction_cleanup =
+        std::any_of(result.execution_work_items.begin(), result.execution_work_items.end(),
+                    [&post_transaction_cleanup](const auto& item) { return post_transaction_cleanup(item.status); }) ||
+        std::any_of(result.targets.begin(), result.targets.end(), [&post_transaction_cleanup](const auto& target) {
+            return target.status == AurUpdateOperationTargetStatus::UpdatedCleanupFailed ||
+                   target.status == AurUpdateOperationTargetStatus::NoChangeCleanupFailed ||
+                   std::any_of(target.execution_contributions.begin(), target.execution_contributions.end(),
+                               [&post_transaction_cleanup](const auto& contribution) { return post_transaction_cleanup(contribution.status); });
+        });
+    if(has_transaction_cleanup) {
         std::cout << localization::format_translated_message(
                          // TRANSLATORS: AUR is a runtime project identity.
                          "{} update cleanup failed after a package transaction.",
                          "AUR")
                   << std::endl;
+    }
+    for(const auto& item : result.execution_work_items) {
+        const bool acquisition_cleanup = item.recipe_acquisition_failure && item.recipe_acquisition_failure->cleanup;
+        const bool review_cleanup = item.devel_execution && item.devel_execution->closure_review_failure &&
+                                    (item.devel_execution->closure_review_failure->reason == PinnedClosureReviewFailureReason::Cancelled ||
+                                     item.devel_execution->closure_review_failure->reason == PinnedClosureReviewFailureReason::Declined) &&
+                                    !item.devel_execution->closure_review_failure->cleanup.succeeded();
+        if(acquisition_cleanup || review_cleanup)
+            std::cout << localization::format_translated_message(
+                             // TRANSLATORS: The placeholders are the PackageBase metadata key and identity.
+                             "Source acquisition/review workspace cleanup failed for {} {}; temporary source data may remain.",
+                             "PackageBase", terminal_safe_runtime_diagnostic_detail(item.package_base))
+                      << std::endl;
     }
     if(result.has_not_attempted_targets()) {
         std::cout << localization::format_translated_message(
@@ -555,12 +595,21 @@ void print_operation_result(
                   << std::endl;
     }
 
+    print_preflight_issues(result);
+    print_preparation_details(result);
+    print_reduction_issues(result);
     print_query_failures(query_result);
     if(!query_result.recoverable_failures.empty() && result.is_success()) {
         Logger::error(localization::format_translated_message(
             // TRANSLATORS: AUR is a runtime project identity.
             "{} update completed, but query failures were reported.",
             "AUR"));
+    }
+    for(const std::string& line : execution_presentation.summary_lines) {
+        std::cout << line << std::endl;
+    }
+    for(const std::string& line : execution_presentation.error_lines) {
+        Logger::error(line);
     }
 }
 

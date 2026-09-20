@@ -120,14 +120,23 @@ def run_case(binary, root, rpc_url, route):
         assert build_cwds.read_text().splitlines()
         assert all(Path(line).name == "audit-a" for line in build_cwds.read_text().splitlines())
         assert sum(line == "git fetch origin" for line in lines) == 2
-        assert sum(line.startswith("sudo pacman -Syu") for line in lines) == (route != "upgrade-aur")
+        repository_commands = [line for line in lines if line.startswith("sudo pacman -S")]
+        expected_repository = [] if route == "upgrade-aur" else ["sudo pacman " + ("-Su" if route == "-Su" else "-Syu")]
+        assert repository_commands == expected_repository, repository_commands
         assert not any(line.startswith("sudo pacman -R") for line in lines)
         assert installed.read_bytes() == installed_after.read_bytes(), "A update was lost/rolled back"
         assert snapshot(cache / "audit-c") == before_c, "C workspace changed"
     except AssertionError:
         print(f"FAIL production cancellation: {route}\n{output}\nCOMMANDS\n{log}", file=sys.stderr)
         raise
+    if route != "upgrade-all":
+        assert output.index("AUR update: Cancelled") < output.index("audit-a: updated") < output.index("Attention-required details:") < output.index("audit-b: Cancelled") < output.index("PackageBase result:")
+    else:
+        assert output.index("upgrade-all summary:") < output.index("Attention-required details:") < output.index("Install outcome for PackageBase audit-a: succeeded.")
+    # Compare only Moguet result presentation: progress includes differing argv.
+    final_output = output[output.index("The repository system upgrade completed."):] if route in ("-Su", "-Syu") else None
     print(f"PASS production cancellation: {route}: A updated / B cancelled / C unattempted; exit 1; no later mutation")
+    return final_output
 
 
 def main():
@@ -148,8 +157,13 @@ def main():
                     raise RuntimeError("RPC fixture did not start")
                 time.sleep(0.02)
             rpc_url = f"http://127.0.0.1:{port.read_text()}/rpc/"
-            for route in ("upgrade-aur", "-Syu", "upgrade-all"):
-                run_case(binary, root, rpc_url, route)
+            system_outputs = {}
+            for route in ("upgrade-aur", "-Su", "-Syu", "upgrade-all"):
+                rendered = run_case(binary, root, rpc_url, route)
+                if rendered is not None:
+                    system_outputs[route] = rendered
+            assert system_outputs["-Su"] == system_outputs["-Syu"], "Su/Syu Moguet presentation differs"
+            print("PASS Su/Syu presentation parity; exact pacman argv preserves refresh distinction")
         finally:
             server.terminate()
             server.wait(timeout=5)

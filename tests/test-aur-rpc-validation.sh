@@ -859,7 +859,34 @@ assert_no_mutation_commands
 assert_cache_entry_absent upgrade-sequence-a
 assert_cache_entry_absent upgrade-sequence-b
 
-echo "AUR RPC validation integration tests: all checks passed"
 
 # Real runner/filtered/route propagation through a production confirmation.
+# Real Auto dispatch with an empty authoritative foreign inventory. The child
+# has no updates, while repository completion still is not an aggregate NoOp.
+for operation in -Su -Syu; do
+    setup_case "system-no-updates-$operation"
+    export MOGUET_TEST_SUDO_EXIT_CODE=0
+    run_ok "$operation"
+    assert_command "sudo pacman $operation"
+    assert_contains "AUR update: no updates" "$output_file"
+    assert_contains "The repository system upgrade completed." "$output_file"
+    assert_contains "The repository system upgrade and normal AUR update completed." "$output_file"
+    assert_not_contains "No operation needed" "$output_file"
+    assert_not_contains "Attention-required details:" "$output_file"
+    assert_not_contains "makepkg " "$command_log"
+    assert_not_contains "sudo pacman -U" "$command_log"
+    if [ "$operation" = -Su ]; then
+        assert_not_contains "sudo pacman -Syu" "$command_log"
+    fi
+    sed -n '/^The repository system upgrade completed[.]/,$p' "$output_file" > "$tmp_dir/no-updates$operation"
+    if [ ! -s "$tmp_dir/no-updates$operation" ]; then
+        echo "system no-updates presentation was not captured" >&2
+        exit 1
+    fi
+done
+cmp "$tmp_dir/no-updates-Su" "$tmp_dir/no-updates-Syu"
+echo "PASS Su/Syu no-update presentation parity; repository completion is not NoOp"
+
 python3 "$repo_root/tests/test-aur-partial-cancellation.py" "$test_binary"
+
+echo "AUR RPC validation integration tests: all checks passed"

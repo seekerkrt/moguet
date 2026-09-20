@@ -164,7 +164,13 @@ def main():
     topology_cases = {name: b"y\ny\ny\nn\ny\n" for name in (
         "topology-tree-sitter", "topology-wezterm", "topology-xpadneo")}
     cases |= split_cases | topology_cases
-    if len(sys.argv) > 2:
+    if len(sys.argv) > 2 and sys.argv[2] == "--update-presentation":
+        selected = ("decline", "default-no", "non-tty", "noconfirm",
+                    "advance-before-revalidation", "cancel", "eof",
+                    "acquire-cleanup", "review-decline-cleanup",
+                    "review-cancel-cleanup", "multi-pinned-review-q-cleanup")
+        cases = {case: (cases | interaction_cases)[case] for case in selected}
+    elif len(sys.argv) > 2:
         cases = ({case: cases[case] for case in closure_failure_details} if sys.argv[2] == "--closure-acquisition" else topology_cases if sys.argv[2] == "--topologies" else split_cases if sys.argv[2] == "--split" else interaction_cases if sys.argv[2] == "--closure-interaction" else pinned_cases if sys.argv[2] == "--pinned-s4"
                  else {sys.argv[2]: (cases | pinned_cases | split_cases)[sys.argv[2]]})
     with http.server.ThreadingHTTPServer(("127.0.0.1", 0), Rpc) as server:
@@ -200,6 +206,30 @@ def main():
             if completed.returncode or f"S553 production {case} PASS" not in output:
                 print(output)
                 raise SystemExit(f"bootstrap fixture {case} failed: exit {completed.returncode}")
+            bootstrap_reasons = {
+                "decline": "devel tracking bootstrap was declined; rerun when ready to review the source",
+                "default-no": "devel tracking bootstrap was declined; rerun when ready to review the source",
+                "advance-before-revalidation": "source/update observation changed before bootstrap; re-check the current state before retrying",
+            }
+            if case in bootstrap_reasons:
+                reason = bootstrap_reasons[case]
+                if output.count(reason) != 1 or "AUR update: Cancelled" in output or "Error:" in output:
+                    print(output)
+                    raise SystemExit(f"bootstrap skip reason/classification was lost: {case}")
+                if not output.index("AUR update:") < output.index("Attention-required details:") < output.index("PackageBase result:") < output.index(reason):
+                    raise SystemExit(f"bootstrap attention/detail hierarchy drifted: {case}")
+            if case == "decline" and "S607 retained InteractionUnavailable projection PASS" not in output:
+                raise SystemExit("retained unavailable projection oracle did not run")
+            if case in ("non-tty", "noconfirm"):
+                if "Requires check: skipped: devel update requires check" not in output or "devel tracking bootstrap interaction was unavailable" in output or "AUR update: Cancelled" in output or "Error:" in output:
+                    raise SystemExit(f"ineligible bootstrap invented a decision or failed: {case}")
+            if case in ("cancel", "eof"):
+                if "AUR update: Cancelled" not in output or any(reason in output for reason in bootstrap_reasons.values()):
+                    raise SystemExit(f"bootstrap cancellation became an optional skip: {case}")
+            if case in ("acquire-cleanup", "review-decline-cleanup", "review-cancel-cleanup", "multi-pinned-review-q-cleanup"):
+                if "Source acquisition/review workspace cleanup failed for PackageBase" not in output or "after a package transaction" in output:
+                    print(output)
+                    raise SystemExit(f"pre-transaction cleanup was misrepresented: {case}")
             if case in closure_failure_details:
                 for detail in ("source closure acquisition failed during root source acquisition:",
                                "authoritative execution incomplete", *closure_failure_details[case]):
@@ -253,7 +283,7 @@ def main():
             if "malicious-old" in output:
                 raise SystemExit(f"old cache bytes reached full review: {case}")
             for line in output.splitlines():
-                if line.startswith(("S604 ", "S593 ", "S553 lifecycle ", "S564 4B2 ", "S564 FG1 ", "S564 topology ", "S564 ordinary ")):
+                if line.startswith(("S607 ", "S604 ", "S593 ", "S553 lifecycle ", "S564 4B2 ", "S564 FG1 ", "S564 topology ", "S564 ordinary ")):
                     print(line)
             print(f"S553 production {case} PASS")
         server.shutdown()

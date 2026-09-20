@@ -1908,10 +1908,17 @@ void present_cross_source_transition(const CrossSourceTransitionExecutionResult&
         std::cout << localization::translate_message("Coordinated cross-source transition completed; exact versions, runtime requirement and install reason verified.") << std::endl;
         return;
     }
-    if(result.confirmation_result && !std::holds_alternative<ConfirmationAccepted>(*result.confirmation_result))
-        Logger::warn(confirmation_stop_diagnostic(*result.confirmation_result));
-    Logger::error(localization::format_translated_message(
-        "Coordinated cross-source transition stopped during {}.", cross_source_stopped_phase(result.stopped_phase)));
+    const std::string stopped_message = localization::format_translated_message(
+        "Coordinated cross-source transition stopped during {}.", cross_source_stopped_phase(result.stopped_phase));
+    if(result.confirmation_result && !std::holds_alternative<ConfirmationAccepted>(*result.confirmation_result)) {
+        const auto diagnostic = project_confirmation_diagnostic(
+            *result.confirmation_result, DiagnosticOperation::PacmanDelegation,
+            DiagnosticPhase::Preflight, {});
+        report_runtime_diagnostic(diagnostic, confirmation_stop_diagnostic(*result.confirmation_result));
+        report_runtime_diagnostic(RuntimeDiagnosticPresentation{diagnostic.severity, stopped_message});
+    } else {
+        Logger::error(stopped_message);
+    }
     if(result.metadata_failure) {
         DiagnosticIdentity identity;
         identity.source_kind = DiagnosticSourceKind::Pacman;
@@ -2020,6 +2027,8 @@ void present_system_aur_update_operation_result(
             return;
     }
 
+    if(authority.status != SystemAurUpdateOperationStatus::Completed)
+        report_system_aur_partial_failure(authority);
     if(authority.aur.operation_result.has_value()) {
         present_filtered_aur_update_execution_result(
             authority.aur.operation_result.value());
@@ -2033,7 +2042,6 @@ void present_system_aur_update_operation_result(
                   << std::endl;
         return;
     }
-    report_system_aur_partial_failure(authority);
 }
 
 int cmd_system_aur_update(
@@ -2133,6 +2141,38 @@ CrossSourceVersionLockCorrelationResult system_aur_version_lock_correlation_for_
 
 int run_system_aur_update_presentation_test(
     const std::string& test_case) {
+    if(test_case.starts_with("confirmation-")) {
+        const auto correlation = system_aur_version_lock_correlation_for_test("version-lock-compatible");
+        CrossSourceTransitionExecutionResult transition{CrossSourceCoordinatedTransitionPlan{
+            .basis = CrossSourceVersionLockObservationBasis::BeforeRepositoryMutation,
+            .observation_completeness = CrossSourceVersionLockObservationStatus::Complete,
+            .correlation = correlation.assessments.front(),
+            .observation_issues = {},
+            .installed_snapshot = std::nullopt,
+            .installed_foreign = std::nullopt,
+            .removal_safety = {},
+            .phases = {},
+        }};
+        transition.confirmation = CrossSourceExecutionPhaseStatus::Failed;
+        transition.stopped_phase = CrossSourceExecutionPhase::Confirmation;
+        if(test_case == "confirmation-declined")
+            transition.confirmation_result = ConfirmationDeclined{ConfirmationDecisionOrigin::ExplicitToken};
+        else if(test_case == "confirmation-cancelled")
+            transition.confirmation_result = ConfirmationCancelled{ConfirmationCancellationReason::ExplicitToken};
+        else if(test_case == "confirmation-eof")
+            transition.confirmation_result = ConfirmationCancelled{ConfirmationCancellationReason::EndOfInput};
+        else if(test_case == "confirmation-noninteractive")
+            transition.confirmation_result = ConfirmationUnavailable{ConfirmationUnavailableReason::NonInteractiveInput};
+        else if(test_case == "confirmation-noconfirm")
+            transition.confirmation_result = ConfirmationUnavailable{ConfirmationUnavailableReason::NoConfirm};
+        else if(test_case == "confirmation-input-failure")
+            transition.confirmation_result = ConfirmationInputFailure{};
+        else
+            throw std::logic_error("Unknown confirmation presentation test case.");
+        SystemAurUpdateOperationResult result;
+        result.coordinated_transition.emplace(std::move(transition));
+        return present_system_aur_test_result(std::move(result));
+    }
     if(test_case.starts_with("preflight-version-lock-")) {
         auto correlation = system_aur_version_lock_correlation_for_test(test_case.substr(10));
         correlation.basis = CrossSourceVersionLockObservationBasis::BeforeRepositoryMutation;

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.8.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-20 17:30+0900\n"
+"POT-Creation-Date: 2026-09-21 06:24+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -949,6 +949,15 @@ msgid "transaction outcome unknown; installed artifact unverified"
 msgstr ""
 
 msgid "transaction failed; package effects unverified"
+msgstr ""
+
+msgid "skipped: devel tracking bootstrap was declined; rerun when ready to review the source"
+msgstr ""
+
+msgid "skipped: devel tracking bootstrap interaction was unavailable; enable interactive source review before retrying"
+msgstr ""
+
+msgid "skipped: source/update observation changed before bootstrap; re-check the current state before retrying"
 msgstr ""
 
 msgid "skipped: devel tracking bootstrap"
@@ -2621,7 +2630,7 @@ msgstr ""
 msgid "updated"
 msgstr ""
 
-msgid "no change"
+msgid "no package change"
 msgstr ""
 
 msgid "skipped"
@@ -2698,6 +2707,9 @@ msgstr ""
 msgid "{} update:"
 msgstr ""
 
+msgid "Attention-required details:"
+msgstr ""
+
 #. TRANSLATORS: AUR is a runtime project identity.
 #, c++-format
 msgid "{} update partially completed before failure."
@@ -2706,6 +2718,11 @@ msgstr ""
 #. TRANSLATORS: AUR is a runtime project identity.
 #, c++-format
 msgid "{} update cleanup failed after a package transaction."
+msgstr ""
+
+#. TRANSLATORS: The placeholders are the PackageBase metadata key and identity.
+#, c++-format
+msgid "Source acquisition/review workspace cleanup failed for {} {}; temporary source data may remain."
 msgstr ""
 
 #. TRANSLATORS: AUR is a runtime project identity.
@@ -2909,9 +2926,6 @@ msgstr ""
 
 #, c++-format
 msgid "  normal unconstrained dependencies: {}"
-msgstr ""
-
-msgid "Attention-required details:"
 msgstr ""
 
 msgid "<plan-wide>"
@@ -3194,6 +3208,64 @@ msgid "Checking source packages..."
 msgstr ""
 
 msgid "Unknown system/source upgrade event kind."
+msgstr ""
+
+msgid "Not attempted"
+msgstr ""
+
+msgid "Unknown registered source outcome."
+msgstr ""
+
+#, c++-format
+msgid "{} summary:"
+msgstr ""
+
+msgid "Completed"
+msgstr ""
+
+#, c++-format
+msgid "  repository system upgrade: {}"
+msgstr ""
+
+msgid "Changed"
+msgstr ""
+
+msgid "Verified unchanged"
+msgstr ""
+
+msgid "Unverified"
+msgstr ""
+
+msgid "Not observed"
+msgstr ""
+
+#, c++-format
+msgid "  repository package state observation: {}"
+msgstr ""
+
+#, c++-format
+msgid "  registered source: {}"
+msgstr ""
+
+msgid "The system/source upgrade partially completed; completed phases were not rolled back."
+msgstr ""
+
+msgid "Requires check: repository package state could not be verified."
+msgstr ""
+
+msgid "    Skipped: explicit rebuild was not accepted; inspect devel source metadata before rebuilding."
+msgstr ""
+
+msgid "    Skipped: update status is unknown; inspect source metadata before rebuilding."
+msgstr ""
+
+msgid "    Inspect the retained build, install and provenance outcomes before retrying."
+msgstr ""
+
+msgid "    Package state is unverified; inspect installed packages before retrying."
+msgstr ""
+
+msgid "    Cleanup failed after a package transaction; inspect the retained result before retrying."
 msgstr ""
 
 #, c++-format
@@ -4460,25 +4532,10 @@ msgstr ""
 msgid "Partial failure"
 msgstr ""
 
-msgid "Not attempted"
-msgstr ""
-
 msgid "Inconsistent"
 msgstr ""
 
 msgid "Unknown operation outcome."
-msgstr ""
-
-msgid "Changed"
-msgstr ""
-
-msgid "Verified unchanged"
-msgstr ""
-
-msgid "Unverified"
-msgstr ""
-
-msgid "Not observed"
 msgstr ""
 
 msgid "Unknown package-state observation."
@@ -4635,10 +4692,6 @@ msgstr ""
 
 #, c++-format
 msgid "{} work-item failure"
-msgstr ""
-
-#, c++-format
-msgid "{} summary:"
 msgstr ""
 
 #, c++-format
