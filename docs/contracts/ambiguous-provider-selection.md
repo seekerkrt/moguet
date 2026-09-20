@@ -48,6 +48,20 @@ completeなexact / provider lookupの後に行うinstalled exact fallbackは、p
 
 non-TTYではpromptを開始せず、stdin pipeをprovider selection inputとして暗黙使用しない。`--noconfirm`でも先頭候補やdefault候補を選ばず、ambiguous errorとしてfail closedする。cancel、EOF、non-TTY、`--noconfirm`はmutation可能なrouteをnon-zeroで停止させる。
 
+### Interactive candidate presentation
+
+Normalは番号、`repository/package`または`aur/package`、versionを主情報として表示する。
+名前が`aur`のconfigured repositoryにはlocalized `[repository]`を添え、AUR sourceと区別する。
+PackageBaseがpackage名と異なる場合はNormalでも補助表示し、同一なら繰り返さない。
+provider capabilityは`[provides: ...]`へまとめ、version付きspecificationを保持する。
+presenterはpromptのdependency contextを所有しないため、unversioned capabilityも一度表示する。
+componentとspecificationの名前が異なる場合はcomponentも補助表示する。
+installed stateの注記・warningとlookup lifetimeは従来の契約を維持する。
+既存`PresentationDetail::Detailed`はfixed metadata fieldsを保持する。
+`--details`のroute supportはCLI authorityに従い、候補表示のために拡張しない。
+NormalのTTY配色はAUR `-Ss`のsource・package・version・installedのstyle primitiveを共有し、
+候補出力がnon-TTYならANSIを追加しない。集合・順序・番号・入力・選択policyは表示modeに依存しない。
+
 ### Installed stateの表示契約（read-only）
 
 provider selection前に、候補の`Installed`状態はread-only補助情報として表示する。installed stateは以下の挙動には影響を与えてはならない。

@@ -516,6 +516,45 @@ assert_contains "$live_dockerfile" 'COPY --chown=moguet-validation:moguet-valida
 assert_contains "$live_dockerfile" 'USER moguet-validation:moguet-validation'
 assert_contains "$live_dockerfile" 'make -j8 --output-sync=target'
 assert_contains "$live_dockerfile" 'CMD ["containers/arch-live-validation/run-provider-selection.sh"]'
+# #435: exercise the real live-lane parser without containers or package work.
+python3 - "$provider_runner" "$validation_status_library" <<'PY_PROVIDER_PRESENTATION'
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+runner = Path(sys.argv[1]).read_text()
+function = runner.split("parse_candidate_contract() {", 1)[1].split("\nassert_same_candidate_presentation()", 1)[0]
+script = """set -eu
+. "$1"
+fail() { echo "$*" >&2; exit 1; }
+REQUIRED_MAKE_DEPENDENCY=cargo
+EXPECTED_PROVIDER_REPOSITORY=extra
+EXPECTED_PROVIDER_PACKAGES=rust,rustup
+first_provider=rust
+second_provider=rustup
+parse_candidate_contract() {""" + function + '\nparse_candidate_contract "$2" "$3"\n'
+plain = ":: Choose a provider for cargo:\n1) extra/rust 1:1.97.1-1 [provides: cargo] [installed]\n2) extra/rustup 1.29.0-2 [provides: cargo]\n"
+styled = plain.replace("extra/rust ", "\x1b[1;35mextra\x1b[0m/\x1b[1mrust\x1b[0m ")
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
+    for label, content, accepted in (
+        ("plain", plain, True), ("styled", styled, True),
+        ("versioned", plain.replace("[provides: cargo]", "[provides: cargo=1.97.1]"), True),
+        ("component", plain.replace("[provides: cargo]", "[provides: other=1] [component: cargo]"), True),
+        ("wrong-source", plain.replace("extra/rust ", "aur/rust "), False),
+        ("wrong-capability", plain.replace("[provides: cargo]", "[provides: other]"), False),
+        ("duplicate-number", plain.replace("2) ", "1) "), False),
+    ):
+        source = root / label
+        source.write_text(content)
+        table = root / (label + ".tsv")
+        result = subprocess.run(["sh", "-c", script, "sh", sys.argv[2], str(source), str(table)], capture_output=True)
+        assert (result.returncode == 0) == accepted, (label, result.stderr)
+        if accepted:
+            assert table.read_text() == "1\trepository\trust\textra\tcargo\n2\trepository\trustup\textra\tcargo\n"
+print("compact provider live parser: plain/style and negative identities passed")
+PY_PROVIDER_PRESENTATION
+
 assert_contains "$provider_runner" 'production_moguet=$repo_root/moguet'
 assert_contains "$provider_runner" 'makepkg --printsrcinfo > .SRCINFO'
 assert_contains "$provider_runner" 'cmp -s "$fixture_expected_srcinfo" "$case_source/.SRCINFO"'

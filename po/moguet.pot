@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.8.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-21 06:24+0900\n"
+"POT-Creation-Date: 2026-09-21 07:37+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -3738,6 +3738,9 @@ msgstr ""
 msgid "{} work item has no invocation root ownership: {}"
 msgstr ""
 
+msgid "[repository]"
+msgstr ""
+
 msgid "Package candidates:"
 msgstr ""
 
@@ -6840,7 +6843,19 @@ msgstr ""
 msgid "Failed to initialize the {} mask: {}"
 msgstr ""
 
+#, c++-format
+msgid "[provides: {}]"
+msgstr ""
+
+#, c++-format
+msgid "[component: {}]"
+msgstr ""
+
 msgid "Provider selection requires a non-empty dependency name."
+msgstr ""
+
+#, c++-format
+msgid "Choose a provider for {}:"
 msgstr ""
 
 #, c++-format

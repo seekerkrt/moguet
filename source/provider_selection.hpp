@@ -37,15 +37,16 @@ using ProviderCandidatePresenter = std::function<void(
 using ProviderCandidatePresenterFactory =
     std::function<ProviderCandidatePresenter(PresentationDetail)>;
 
-// installed-state等を持たない既存のcandidate metadata表示を生成する。
+// installed-state等を持たないcandidate表示を生成する。
 ProviderCandidatePresenter make_default_provider_candidate_presenter(
     PresentationDetail detail = PresentationDetail::Normal);
 
-// fixed metadata labelを保ったcandidate line本体だけを表示する。suffixは
+// Normal / Detailedのcandidate line本体だけを表示する。suffixは
 // presentation seamが後ろへ追加し、candidate identityへ戻さない。
 void present_provider_candidate_metadata(
     std::ostream& output, std::size_t index,
-    const ProvidedDependency& candidate);
+    const ProvidedDependency& candidate,
+    PresentationDetail detail = PresentationDetail::Detailed);
 
 // provider選択をinvocation単位で共有し、CLI入出力とplan callbackを接続する。
 class ProviderSelectionSession final {
