@@ -572,7 +572,7 @@ struct PinnedSubmoduleClosureData {
             fail(active, Reason::MalformedObservation);
         }
     }
-    void acquire_root_tags(std::size_t index, const std::string& locator, const ReviewedSourceObjectId& root_oid) {
+    void acquire_root_tags(std::size_t index, const std::string& locator, const ReviewedSourceObjectId& root_oid, PresentationDetail presentation_detail) {
         // Fetch only observed raw OIDs, never names. Object-only backing stays
         // ref-free, including for annotated and non-reachable tags.
         std::set<std::string> fetched{root_oid.value()};
@@ -587,7 +587,17 @@ struct PinnedSubmoduleClosureData {
         // One bounded argv (at most root_tags full OIDs) avoids a separate
         // HTTPS negotiation per tag without ever resolving a name again.
         if(fetched.size() > 1) {
-            Logger::raw_cmd(displayed);
+#ifdef MOGUET_ENABLE_PINNED_SUBMODULE_CLOSURE_TEST_HOOKS
+            if(g_hooks.root_tag_command) g_hooks.root_tag_command(presentation_detail, displayed);
+#endif
+            // Slice 1 only connects the policy. Preserve both terminal bytes
+            // and the exact-command EXEC record owned by raw_cmd for now.
+            switch(presentation_detail) {
+                case PresentationDetail::Normal:
+                case PresentationDetail::Detailed:
+                    Logger::raw_cmd(displayed);
+                    break;
+            }
             run(Stage::RootAcquisition, index, std::move(fetch), 65536);
         }
         std::vector<std::string> proof{"fsck", "--strict", "--no-reflogs", "--no-dangling", root_oid.value()};
@@ -618,7 +628,7 @@ struct PinnedSubmoduleClosureData {
             }
         }
     }
-    std::size_t acquire(const std::string& locator, const ReviewedSourceObjectId& oid, bool is_root) {
+    std::size_t acquire(const std::string& locator, const ReviewedSourceObjectId& oid, bool is_root, PresentationDetail presentation_detail) {
         active = is_root ? Stage::RootAcquisition : Stage::ChildAcquisition;
         check();
         lineage();
@@ -645,7 +655,7 @@ struct PinnedSubmoduleClosureData {
         // fsck validates raw hashes and connectivity including tree/blob backing;
         // parent gitlinks deliberately do not claim child object availability.
         run(Stage::ObjectProof, index, {"fsck", "--strict", "--no-reflogs", "--no-dangling", oid.value()}, 65536);
-        if(is_root) acquire_root_tags(index, locator, oid);
+        if(is_root) acquire_root_tags(index, locator, oid, presentation_detail);
         return index;
     }
     std::string blob(std::size_t repository, const ReviewedSourceFileVersion& entry, std::size_t limit) {
@@ -657,13 +667,13 @@ struct PinnedSubmoduleClosureData {
         return bytes;
     }
     void traverse(const std::string& locator, const ReviewedSourceObjectId& oid, std::optional<std::size_t> parent_edge,
-                  std::size_t depth, std::set<std::pair<std::string, std::string>>& ancestry) {
+                  std::size_t depth, std::set<std::pair<std::string, std::string>>& ancestry, PresentationDetail presentation_detail) {
         active = Stage::RecursiveTraversal;
         check();
         if(depth > limits.depth) fail(active, Reason::ResourceLimitExceeded);
         const auto key = std::make_pair(locator, oid.value());
         if(!ancestry.insert(key).second) fail(active, Reason::RecursiveCycle);
-        const auto index = acquire(locator, oid, !parent_edge);
+        const auto index = acquire(locator, oid, !parent_edge, presentation_detail);
         auto raw = run(Stage::ObjectProof, index, {"cat-file", "commit", oid.value()}, 1024 * 1024);
         const auto newline = raw.find('\n');
         if(newline != 5 + oid.value().size() || !raw.starts_with("tree ")) fail(active, Reason::UnexpectedObjectType);
@@ -704,7 +714,7 @@ struct PinnedSubmoduleClosureData {
             const auto edge = edges.size();
             const auto child = nodes.size();
             edges.push_back({index, child, declaration.name, declaration.path, declaration.locator, pin});
-            traverse(declaration.locator, pin, edge, depth + 1, ancestry);
+            traverse(declaration.locator, pin, edge, depth + 1, ancestry, presentation_detail);
         }
         ancestry.erase(key);
     }
@@ -854,7 +864,7 @@ std::variant<std::string, PinnedClosureFailure> InvocationOwnedPinnedSubmoduleCl
         return failure;
     }
 }
-PinnedSubmoduleClosureResult acquire_pinned_submodule_closure(EvaluatedDevelSourceSelection selection) {
+PinnedSubmoduleClosureResult acquire_pinned_submodule_closure(EvaluatedDevelSourceSelection selection, PresentationDetail presentation_detail) {
     std::unique_ptr<PinnedSubmoduleClosureData> data;
     PinnedClosureFailure failure{Stage::Input, Reason::InvalidSelection};
     try {
@@ -867,7 +877,7 @@ PinnedSubmoduleClosureResult acquire_pinned_submodule_closure(EvaluatedDevelSour
         data->create();
         const auto oid = data->observe();
         std::set<std::pair<std::string, std::string>> ancestry;
-        data->traverse(data->selection.git_source().source_location(), oid, std::nullopt, 0, ancestry);
+        data->traverse(data->selection.git_source().source_location(), oid, std::nullopt, 0, ancestry, presentation_detail);
         data->inspect();
         data->check();
         return InvocationOwnedPinnedSubmoduleClosure(std::move(data));

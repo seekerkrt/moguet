@@ -1,6 +1,7 @@
 #pragma once
 
 #include "evaluated_devel_source_build.hpp"
+#include "presentation_detail.hpp"
 #include "reviewed_source_git_parser.hpp"
 #include "pinned_submodule_workspace_authority.hpp"
 
@@ -132,10 +133,11 @@ public:
 private:
     friend class PinnedSubmoduleWorkspaceAuthority;
     explicit InvocationOwnedPinnedSubmoduleClosure(std::unique_ptr<PinnedSubmoduleClosureData>) noexcept;
-    friend PinnedSubmoduleClosureResult acquire_pinned_submodule_closure(EvaluatedDevelSourceSelection selection);
+    friend PinnedSubmoduleClosureResult acquire_pinned_submodule_closure(EvaluatedDevelSourceSelection selection, PresentationDetail presentation_detail);
     std::unique_ptr<PinnedSubmoduleClosureData> data_;
 };
-[[nodiscard]] PinnedSubmoduleClosureResult acquire_pinned_submodule_closure(EvaluatedDevelSourceSelection selection);
+// Presentation is an invocation-only dependency, not retained by the closure.
+[[nodiscard]] PinnedSubmoduleClosureResult acquire_pinned_submodule_closure(EvaluatedDevelSourceSelection selection, PresentationDetail presentation_detail);
 
 #ifdef MOGUET_ENABLE_PINNED_SUBMODULE_CLOSURE_TEST_HOOKS
 #include <functional>
@@ -145,6 +147,7 @@ struct PinnedClosureTestHooks {
     std::function<BoundedCapturedProcessResult(const ExplicitProcessInvocation&, const BoundedProcessPolicy&)> process;
     std::function<void(const std::filesystem::path&)> before_remove;
     bool fail_next_backing_allocation = false;
+    std::function<void(PresentationDetail, const std::string&)> root_tag_command;
 };
 void set_pinned_closure_test_hooks(PinnedClosureTestHooks hooks);
 #endif

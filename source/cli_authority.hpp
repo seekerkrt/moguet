@@ -1065,7 +1065,7 @@ inline constexpr std::array<OperationFormSpec, 14> MOGUET_OPERATION_FORMS = {{
          OptionId::Diff, OptionId::NoDiff,
          source_no_confirm_option_relation(), OptionId::DryRun,
          OptionId::BuildMode, OptionId::Rebuild,
-         OptionId::CleanBuild)},
+         OptionId::CleanBuild, OptionId::Details)},
     {OperationId::Build,
      "cli.build.local",
      operand_with_trailing_assignments(OperandKind::Directory),

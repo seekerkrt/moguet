@@ -236,12 +236,12 @@ _moguet_collect_candidates() {
                 fi
             elif _moguet_has_operand build; then
                 if _moguet_form_prefix_valid build 0; then
-                    reply=(--edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild)
+                    reply=(--edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --details)
                 else
                     reply=()
                 fi
             else
-                reply=(--edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --local)
+                reply=(--edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --details --local)
             fi
             ;;
         upgrade)

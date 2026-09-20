@@ -224,9 +224,9 @@ function __moguet_operation_allows --argument-names option_id
                 contains -- $option_id 0 1 4 5 6 7 8 15; and return 0; or return 1
             else if __moguet_has_operand 'build'
                 __moguet_form_prefix_valid 'build' 0; or return 1
-                contains -- $option_id 0 1 2 3 4 5 6 7 8; and return 0; or return 1
+                contains -- $option_id 0 1 2 3 4 5 6 7 8 20; and return 0; or return 1
             else
-                contains -- $option_id 0 1 2 3 4 5 6 7 8 15; and return 0; or return 1
+                contains -- $option_id 0 1 2 3 4 5 6 7 8 20 15; and return 0; or return 1
             end
         case 'upgrade'
             __moguet_form_prefix_valid 'upgrade' 0; or return 1

@@ -7,12 +7,18 @@ installation, or provenance publication.
 
 ## Input and revision authority
 
-`acquire_pinned_submodule_closure(EvaluatedDevelSourceSelection)` consumes the
+`acquire_pinned_submodule_closure(EvaluatedDevelSourceSelection, PresentationDetail)` consumes the
 [4A0 evaluated selection](evaluated-devel-source-build-proof.md), retaining its
 recipe context, environment and lineage in a private, move-only
 `InvocationOwnedPinnedSubmoduleClosure`. Raw URL/selector/OID tuples, copied
 `VcsSourceIdentity`, reviewed metadata, completed S4 and decoded provenance
 cannot construct this owner. Its opaque backing has no construction friendship.
+
+`PresentationDetail` is an explicit invocation-local command presentation input.
+It is passed to the root-tag command owner without being retained in the returned
+closure or affecting selection, acquisition, identity, validity or failure policy.
+Issue #595 Slice 1 preserves the existing command display and state-log `EXEC`
+bytes for both Normal and Detailed.
 
 Only the root uses a remote selector observation: the evaluated default requests
 `HEAD`, while an evaluated explicit branch requests its exact `refs/heads/...`.

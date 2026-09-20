@@ -235,12 +235,12 @@ _moguet() {
                 fi
             elif _moguet_has_operand build; then
                 if _moguet_form_prefix_valid build 0; then
-                    candidates=(--edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild)
+                    candidates=(--edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --details)
                 else
                     candidates=()
                 fi
             else
-                candidates=(--edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --local)
+                candidates=(--edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --details --local)
             fi
             ;;
         upgrade)

@@ -408,6 +408,7 @@ void test_rich_cli_option_and_ownership_contract() {
             details.semantic_scopes == option_scope(OptionSemanticScope::PresentationDetail),
         "--details must be a Moguet-owned global presentation option");
     for(const OperationOptionRelationSet* relations : {
+            &operation_form(operation_metadata(OperationId::Build), 0).option_relations,
             &operation_form(operation_metadata(OperationId::Plan), 0).option_relations,
             &operation_form(operation_metadata(OperationId::Deps), 0).option_relations,
             &special_operation_spec(SpecialOperationId::SyncSelect).option_relations}) {

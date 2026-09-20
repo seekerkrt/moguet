@@ -108,19 +108,19 @@ run_completion moguet build ""
 assert_reply \
     "build form未選択時はremote/localのunion" \
     --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= \
-    --rebuild --cleanbuild --local
+    --rebuild --cleanbuild --details --local
 
 run_completion moguet build pkg ""
 assert_reply \
     "remote build target後はlocal selectorを提示しない" \
     --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= \
-    --rebuild --cleanbuild
+    --rebuild --cleanbuild --details
 
 run_completion moguet build pkg V=1 ""
 assert_reply \
     "remote buildのtrailing assignmentを維持" \
     --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= \
-    --rebuild --cleanbuild
+    --rebuild --cleanbuild --details
 
 run_completion moguet build pkg extra ""
 assert_reply "remote buildのsecond bare operand後は候補を提示しない"
@@ -153,7 +153,7 @@ assert_reply "deps second target後もmulti-target formを閉じない" --noconf
 run_completion moguet plan first second ""
 assert_reply "plan multi-target formを閉じない" --noconfirm --details
 
-for operation in plan deps; do
+for operation in build plan deps; do
     run_completion moguet "$operation" --details --det
     assert_reply "$operationのdetailsはrepeat-idempotent" --details
 done
@@ -233,7 +233,7 @@ assert_reply "未列挙pacman operationもopen grammarとして扱う" --needed 
 run_completion moguet build --rebuild ""
 assert_reply \
     "repeat可能aliasを維持しconflict候補を除外" \
-    --edit --noedit --diff --nodiff --noconfirm --dry-run --rebuild --local
+    --edit --noedit --diff --nodiff --noconfirm --dry-run --rebuild --details --local
 
 zsh_completion="$(dirname -- "${completion_file}")/_moguet"
 fish_completion="$(dirname -- "${completion_file}")/moguet.fish"
@@ -301,6 +301,7 @@ words=(moguet build pkg '')
 CURRENT=4
 _moguet_collect_candidates build
 has_candidate --edit || fail 'remote build primary operand was closed'
+has_candidate --details || fail 'remote build lost --details'
 
 words=(moguet build pkg extra '')
 CURRENT=5
@@ -312,6 +313,7 @@ CURRENT=4
 _moguet_collect_candidates build
 has_candidate --edit || fail 'local build lost --edit'
 has_candidate --diff && fail 'local build leaked --diff'
+has_candidate --details && fail 'local build leaked --details'
 
 words=(moguet build --local directory V=1 '')
 CURRENT=6
@@ -438,12 +440,14 @@ set mock_words moguet build pkg V=1
 __moguet_candidate_available 0; or fail 'remote build assignment flow was closed'
 set mock_words moguet build pkg
 __moguet_candidate_available 0; or fail 'remote build primary operand was closed'
+__moguet_candidate_available 20; or fail 'remote build lost --details'
 set mock_words moguet build pkg extra
 __moguet_candidate_available 0; and fail 'remote build second bare operand remained open'
 
 set mock_words moguet build --local
 __moguet_candidate_available 0; or fail 'local build lost --edit'
 __moguet_candidate_available 2; and fail 'local build leaked --diff'
+__moguet_candidate_available 20; and fail 'local build leaked --details'
 __moguet_candidate_available 15; and fail 'once --local remained available'
 set mock_words moguet build --local directory V=1
 __moguet_candidate_available 0; or fail 'local build assignment flow was closed'

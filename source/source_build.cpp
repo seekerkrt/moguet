@@ -2123,7 +2123,7 @@ SourceBuildExecutionResult execute_source_build_typed(
     auto& pending = std::get<PreparedSourceBuildNeedsBuild>(preparation);
     if(auto devel = SourceBuildPreparedExecutionAccess::take_devel(pending)) {
         SourceBuildExecutionResult out;
-        out.devel_execution.emplace(execute_normal_reviewed_devel(std::move(*devel)));
+        out.devel_execution.emplace(execute_normal_reviewed_devel(std::move(*devel), config.presentation_detail));
         out.devel_update_query = devel_query;
         out.devel_rebuild_confirmation = devel_confirmation;
         out.status = out.devel_execution->complete ? SourceBuildExecutionStatus::Installed : SourceBuildExecutionStatus::AuthoritativeIncomplete;
@@ -2176,7 +2176,7 @@ execute_prepared_source_build_package_base_typed(
     require_supported_separated_install_options(config.rm_deps);
     require_unclaimed_artifact_pkgdest(request.custom_environment);
     if(auto devel = SourceBuildPreparedExecutionAccess::take_devel(prepared)) {
-        return execute_normal_reviewed_devel(std::move(*devel));
+        return execute_normal_reviewed_devel(std::move(*devel), config.presentation_detail);
     }
     PreparedSourceBuildExecutionCapabilities capabilities =
         SourceBuildPreparedExecutionAccess::consume(

@@ -350,6 +350,8 @@ assert_dry_run_rendered dry-run-after-operation \
     fetch clean-root --dry-run
 assert_dry_run_rendered dry-run-duplicate \
     --dry-run build clean-root --dry-run
+assert_dry_run_rendered remote-build-details \
+    --details build --details clean-root --dry-run --details
 assert_dry_run_rendered dry-run-sync-system-update \
     -Syu --dry-run
 

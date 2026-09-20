@@ -94,6 +94,7 @@ void expect_issue(
 
 void test_presentation_detail_plumbing() {
     for(const std::vector<std::string>& arguments : {
+            std::vector<std::string>{"build", "foo"},
             std::vector<std::string>{"plan", "foo", "bar"},
             std::vector<std::string>{"deps", "--recursive", "foo"},
             std::vector<std::string>{"-S", "--select", "--needed", "--aur", "--noconfirm", "--dry-run", "--noedit", "--nodiff", "--build-mode=clean", "foo"}}) {
@@ -184,7 +185,6 @@ void test_presentation_option_ownership_boundaries() {
     expect_valid(pacman, "pacman verbose");
 
     for(const auto& arguments : {
-            std::vector<std::string>{"build", "foo"},
             std::vector<std::string>{"build", "--local", "."},
             std::vector<std::string>{"fetch", "foo"},
             std::vector<std::string>{"clean"},
