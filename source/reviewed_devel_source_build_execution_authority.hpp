@@ -12,6 +12,7 @@ class ReviewedDevelSourceBuildExecutionResult;
 struct ReviewedDevelSourceBuildIntent;
 struct ReviewedDevelSourceBuildRejected;
 enum class ReviewedProductionExecutionChoice;
+enum class PresentationDetail;
 enum class ProductionReviewedSourceOutcome;
 enum class ReviewedSourceAbnormalStateReason;
 
@@ -29,12 +30,12 @@ class ReviewedDevelSourceBuildExecutionAuthority final {
         ProductionReviewedSourceOutcome, std::optional<ReviewedSourceAbnormalStateReason>,
         const ReviewedDevelSourceBuildIntent&, InvocationOwnedRecipeAcquisition*);
     friend std::optional<ReviewedDevelSourceBuildExecutionResult> execute_reviewed_devel_source_build(
-        PreparedReviewedDevelSourceBuildExecution) noexcept;
+        PreparedReviewedDevelSourceBuildExecution, PresentationDetail) noexcept;
 
     static ReviewedProductionSourceExecution prepare(
         ReviewedProductionExecutionChoice, ValidatedCachePath, PinnedReviewedSourceBuild,
         ProductionReviewedSourceOutcome, std::optional<ReviewedSourceAbnormalStateReason>,
         const ReviewedDevelSourceBuildIntent&, InvocationOwnedRecipeAcquisition*);
     static std::optional<ReviewedDevelSourceBuildExecutionResult> execute(
-        PreparedReviewedDevelSourceBuildExecution) noexcept;
+        PreparedReviewedDevelSourceBuildExecution, PresentationDetail) noexcept;
 };

@@ -553,14 +553,18 @@ meaning.
 .TP
 .B "--details"
 Show detailed diagnostic and provenance information for
+remote
+.BR build ,
 .BR plan ,
 .BR deps ,
 and
 .BR "-S --select" .
 This invocation-only option changes presentation, not execution, dependency
 resolution, selection, or readiness. It does not enable interaction or bypass
-safety checks. Detailed information remains available independently of future
-compact normal output; currently both modes retain the same rich information.
+safety checks. During remote source builds, normal output summarizes bulk root
+upstream tag-object fetches by operation and distinct additional object count.
+This option displays the full escaped command instead. Other short, actionable
+commands remain visible in normal output.
 .
 .TP
 .B "-h, --help"

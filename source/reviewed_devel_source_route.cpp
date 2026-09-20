@@ -66,9 +66,9 @@ ReviewedProductionSourceExecution select_normal_reviewed_source_execution(
     return prepare_reviewed_production_source_execution(authoritative ? ReviewedProductionExecutionChoice::AuthoritativeDevel : ReviewedProductionExecutionChoice::Legacy,
                                                         checkout, std::move(pin), outcome, abnormal, *intent, acquisition);
 }
-ReviewedDevelExecutionSnapshot execute_normal_reviewed_devel(PreparedReviewedDevelSourceBuildExecution prepared) {
+ReviewedDevelExecutionSnapshot execute_normal_reviewed_devel(PreparedReviewedDevelSourceBuildExecution prepared, PresentationDetail presentation_detail) {
     auto storage = std::make_shared<std::optional<ReviewedDevelSourceBuildExecutionResult>>();
-    auto executed = execute_reviewed_devel_source_build(std::move(prepared));
+    auto executed = execute_reviewed_devel_source_build(std::move(prepared), presentation_detail);
     if(!executed) throw std::logic_error("Reviewed devel prepared execution is inactive.");
     storage->emplace(std::move(*executed));
     ReviewedDevelExecutionSnapshot out;

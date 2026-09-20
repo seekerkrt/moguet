@@ -224,9 +224,9 @@ function __moguet_operation_allows --argument-names option_id
                 contains -- $option_id 0 1 4 5 6 7 8 15; and return 0; or return 1
             else if __moguet_has_operand 'build'
                 __moguet_form_prefix_valid 'build' 0; or return 1
-                contains -- $option_id 0 1 2 3 4 5 6 7 8; and return 0; or return 1
+                contains -- $option_id 0 1 2 3 4 5 6 7 8 20; and return 0; or return 1
             else
-                contains -- $option_id 0 1 2 3 4 5 6 7 8 15; and return 0; or return 1
+                contains -- $option_id 0 1 2 3 4 5 6 7 8 20 15; and return 0; or return 1
             end
         case 'upgrade'
             __moguet_form_prefix_valid 'upgrade' 0; or return 1
@@ -388,7 +388,7 @@ complete -c moguet -f -n '__moguet_candidate_available 9' -a '--rmdeps' -d 'Prev
 complete -c moguet -f -n '__moguet_candidate_available 10' -a '--select' -d 'Interactively select source-aware package candidates for plain -S'
 complete -c moguet -f -n '__moguet_candidate_available 11' -a '--aur' -d 'Limit supported sync operations to AUR'
 complete -c moguet -f -n '__moguet_candidate_available 12' -a '--repo' -d 'Use only official binary repositories; with -Syu / -Su, run the repository system upgrade only'
-complete -c moguet -f -n '__moguet_candidate_available 20' -a '--details' -d 'Show detailed diagnostic and provenance information for plan, deps, and -S --select; presentation only'
+complete -c moguet -f -n '__moguet_candidate_available 20' -a '--details' -d 'Show detailed diagnostic and provenance information for remote build, plan, deps, and -S --select; presentation only'
 complete -c moguet -f -n '__moguet_candidate_available 15' -a '--local' -d 'Use one local PKGBUILD directory as the build root'
 complete -c moguet -f -n '__moguet_candidate_available 16' -a '--output-dir=' -d 'Select an existing export parent for -G'
 complete -c moguet -f -n '__moguet_candidate_available 17' -a '--recursive' -d 'Resolve dependencies recursively'

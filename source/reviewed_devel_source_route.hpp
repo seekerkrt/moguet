@@ -5,4 +5,4 @@ ReviewedProductionSourceExecution select_normal_reviewed_source_execution(
     ProductionReviewedSourceOutcome outcome, std::optional<ReviewedSourceAbnormalStateReason> abnormal,
     const ReviewedDevelSourceBuildIntent* intent,
     InvocationOwnedRecipeAcquisition* acquisition = nullptr);
-ReviewedDevelExecutionSnapshot execute_normal_reviewed_devel(PreparedReviewedDevelSourceBuildExecution prepared);
+ReviewedDevelExecutionSnapshot execute_normal_reviewed_devel(PreparedReviewedDevelSourceBuildExecution prepared, PresentationDetail presentation_detail);

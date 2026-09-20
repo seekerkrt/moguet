@@ -204,11 +204,14 @@ ReviewedProductionSourceExecution ReviewedDevelSourceBuildExecutionAuthority::pr
 }
 
 std::optional<ReviewedDevelSourceBuildExecutionResult> ReviewedDevelSourceBuildExecutionAuthority::execute(
-    PreparedReviewedDevelSourceBuildExecution prepared) noexcept {
+    PreparedReviewedDevelSourceBuildExecution prepared, PresentationDetail presentation_detail) noexcept {
     if(!prepared.valid()) return std::nullopt;
     ReviewedDevelSourceBuildExecutionResult result(std::move(prepared.state_));
     auto& state = *result.state_;
     try {
+#ifdef MOGUET_ENABLE_REVIEWED_DEVEL_SOURCE_BUILD_EXECUTION_TEST_HOOKS
+        if(g_execution_hooks.before_execution) g_execution_hooks.before_execution(presentation_detail);
+#endif
         enter(state, Stage::Context);
         auto context = create_invocation_owned_source_build_context(std::move(*state.pin));
         state.pin.reset();
@@ -245,7 +248,7 @@ std::optional<ReviewedDevelSourceBuildExecutionResult> ReviewedDevelSourceBuildE
             // build input instead of adopting a planning OID or an old cache.
             auto selected = select_evaluated_devel_source(std::move(*state.context), std::move(std::get<InvocationOwnedMakepkgEnvironment>(environment)));
             if(auto* failure = std::get_if<EvaluatedDevelSourceBuildFailure>(&selected)) return std::move(*failure);
-            auto closure = acquire_pinned_submodule_closure(std::get<EvaluatedDevelSourceSelection>(std::move(selected)));
+            auto closure = acquire_pinned_submodule_closure(std::get<EvaluatedDevelSourceSelection>(std::move(selected)), presentation_detail);
             EvaluatedDevelSourceBuildFailure stopped;
             stopped.stage = EvaluatedDevelSourceBuildStage::SourceWorkspace;
             stopped.reason = EvaluatedDevelSourceBuildFailureReason::SourceReadyInvalid;
@@ -383,8 +386,8 @@ ReviewedProductionSourceExecution prepare_reviewed_production_source_execution(
     return ReviewedDevelSourceBuildExecutionAuthority::prepare(choice, std::move(checkout), std::move(reviewed), outcome, abnormal, intent, acquisition);
 }
 std::optional<ReviewedDevelSourceBuildExecutionResult> execute_reviewed_devel_source_build(
-    PreparedReviewedDevelSourceBuildExecution prepared) noexcept {
-    return ReviewedDevelSourceBuildExecutionAuthority::execute(std::move(prepared));
+    PreparedReviewedDevelSourceBuildExecution prepared, PresentationDetail presentation_detail) noexcept {
+    return ReviewedDevelSourceBuildExecutionAuthority::execute(std::move(prepared), presentation_detail);
 }
 #ifdef MOGUET_ENABLE_REVIEWED_DEVEL_SOURCE_BUILD_EXECUTION_TEST_HOOKS
 void set_reviewed_devel_source_build_execution_test_hooks(ReviewedDevelSourceBuildExecutionTestHooks hooks) {

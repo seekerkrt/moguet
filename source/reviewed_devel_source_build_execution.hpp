@@ -8,6 +8,8 @@
 #include "invocation_owned_recipe_acquisition.hpp"
 #include "pinned_submodule_workspace.hpp"
 
+#include "presentation_detail.hpp"
+
 #include <memory>
 
 enum class ReviewedProductionExecutionChoice { Legacy,
@@ -134,8 +136,10 @@ private:
 
 // Nullopt only for moved-from input. Valid input consumes its one prepared
 // state before any context/build side effect. No legacy fallback on failure.
+// Presentation policy is borrowed for this invocation, never retained in the
+// ordinary intent, prepared authority or execution result.
 [[nodiscard]] std::optional<ReviewedDevelSourceBuildExecutionResult> execute_reviewed_devel_source_build(
-    PreparedReviewedDevelSourceBuildExecution prepared) noexcept;
+    PreparedReviewedDevelSourceBuildExecution prepared, PresentationDetail presentation_detail) noexcept;
 
 // Distinct live result arm for future normal-owner orchestration. The legacy
 // result's private construction and publication-free meaning are unchanged.
@@ -147,6 +151,7 @@ struct ReviewedDevelSourceBuildExecutionTestHooks {
     std::function<void(ReviewedDevelSourceBuildStage, const EvaluatedDevelSourceBuildProof*)> before_stage;
     // Uses the existing S5 test entry; cannot inject a raw completed product.
     std::optional<std::string> exact_transaction_token;
+    std::function<void(PresentationDetail)> before_execution;
 };
 void set_reviewed_devel_source_build_execution_test_hooks(ReviewedDevelSourceBuildExecutionTestHooks hooks);
 #endif

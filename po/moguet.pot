@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.8.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-20 09:34+0900\n"
+"POT-Creation-Date: 2026-09-20 16:30+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -5486,6 +5486,8 @@ msgstr ""
 msgid "Warning: {}"
 msgstr ""
 
+#. TRANSLATORS: The placeholder is an exact shell command and must remain
+#. byte-for-byte locale-neutral.
 #, c++-format
 msgid "Running: {}"
 msgstr ""
@@ -5681,7 +5683,7 @@ msgstr ""
 
 #. TRANSLATORS: The placeholders are literal supported CLI forms.
 #, c++-format
-msgid "For {}, {}, and {}; changes presentation only, not execution"
+msgid "For remote {}, {}, {}, and {}; changes presentation only, not execution"
 msgstr ""
 
 msgid "Show this help message and exit"
@@ -6332,6 +6334,10 @@ msgid "Acceptance authorizes this snapshot as build input; it does not certify s
 msgstr ""
 
 msgid "Use this exact upstream source snapshot as build input?"
+msgstr ""
+
+#, c++-format
+msgid "Fetching root upstream tag objects ({} objects)"
 msgstr ""
 
 #, c++-format

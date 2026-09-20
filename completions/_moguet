@@ -236,12 +236,12 @@ _moguet_collect_candidates() {
                 fi
             elif _moguet_has_operand build; then
                 if _moguet_form_prefix_valid build 0; then
-                    reply=(--edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild)
+                    reply=(--edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --details)
                 else
                     reply=()
                 fi
             else
-                reply=(--edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --local)
+                reply=(--edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --details --local)
             fi
             ;;
         upgrade)
@@ -431,7 +431,7 @@ _moguet_description() {
         --select) REPLY='Interactively select source-aware package candidates for plain -S' ;;
         --aur) REPLY='Limit supported sync operations to AUR' ;;
         --repo) REPLY='Use only official binary repositories; with -Syu / -Su, run the repository system upgrade only' ;;
-        --details) REPLY='Show detailed diagnostic and provenance information for plan, deps, and -S --select; presentation only' ;;
+        --details) REPLY='Show detailed diagnostic and provenance information for remote build, plan, deps, and -S --select; presentation only' ;;
         --local) REPLY='Use one local PKGBUILD directory as the build root' ;;
         --output-dir=) REPLY='Select an existing export parent for -G' ;;
         --recursive) REPLY='Resolve dependencies recursively' ;;

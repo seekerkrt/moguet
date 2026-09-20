@@ -1,5 +1,7 @@
 #ifdef MOGUET_ENABLE_PINNED_SUBMODULE_CLOSURE_TEST_HOOKS
 #include "pinned_submodule_closure.hpp"
+#include "logging.hpp"
+#include "shell_words.hpp"
 #endif
 #ifdef MOGUET_ENABLE_PINNED_CLOSURE_REVIEW_TEST_HOOKS
 #include "pinned_submodule_closure_review.hpp"
@@ -712,7 +714,7 @@ public:
         return take_arm<PinnedReviewedSourceBuild>(publication, "overlay publication failed");
     }
 #ifdef MOGUET_TEST_NORMAL_REVIEWED_DEVEL_EXECUTION
-    SourceBuildExecutionResult normal_execution(const ReviewedDevelSourceBuildIntent& intent, bool no_confirm = false, bool package_base = false) {
+    SourceBuildExecutionResult normal_execution(const ReviewedDevelSourceBuildIntent& intent, bool no_confirm = false, bool package_base = false, PresentationDetail presentation_detail = PresentationDetail::Normal) {
         // Seed an actually accepted #411 record, then release the pin/lease.
         {
             auto accepted = execution_pin();
@@ -726,6 +728,7 @@ public:
         ScopedEnvironmentVariable git("MOGUET_TEST_GIT_EXECUTABLE", wrapper.string());
         AppConfig config;
         config.no_confirm = no_confirm;
+        config.presentation_detail = presentation_detail;
         config.user_config.review.pkgbuild = ReviewPolicy::Skip;
         config.rm_deps = false;
         if(package_base) {
@@ -3171,13 +3174,17 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
                                              "outer-singular-publication-failure", "outer-singular-publication-unknown", "outer-singular-cleanup-failure", "outer-singular-no-allocation",
                                              "outer-set-publication-failure", "outer-set-publication-unknown", "outer-set-cleanup-failure", "outer-set-no-allocation"};
     if(normal && !bootstrap) bridge_cases.emplace_back("exact-version-intent");
+    bridge_cases.emplace_back("details-install");
+    if(normal) bridge_cases.emplace_back("details-package-base-install");
     if(bootstrap) bridge_cases = {bootstrap_case};
     for(const std::string& case_name : bridge_cases) {
+        const auto presentation_detail = case_name.starts_with("details-") ? PresentationDetail::Detailed : PresentationDetail::Normal;
         const bool outer = case_name.starts_with("outer-");
         const bool multi = bootstrap && case_name.starts_with("multi-");
         const bool outer_set = case_name.starts_with("outer-set-");
-        const std::string mode = multi ? case_name.substr(6) : outer ? case_name.substr(outer_set ? 10 : 15)
-                                                                     : case_name;
+        const std::string mode = case_name.starts_with("details-") ? "install" : multi ? case_name.substr(6)
+                                                                             : outer   ? case_name.substr(outer_set ? 10 : 15)
+                                                                                       : case_name;
         if(outer && !normal) continue;
         if(!normal && mode.starts_with("registered-")) continue;
         ArchitectureFixture integration_recipe;
@@ -3744,7 +3751,10 @@ done
                                                                            if(mode == "publication-unknown") fail_next_xdg_generation_store_operation_for_test(XdgGenerationStoreTestFailurePoint::DirectorySync);
                                                                            if(mode == "no-allocation") run_xdg_generation_store_race_once_for_test(XdgGenerationStoreTestRacePoint::AfterVerifiedPublication, &deny_after_bridge_publication);
                                                                        },
-                                                                       token};
+                                                                       token,
+                                                                       [&](PresentationDetail received) {
+                                                                           require(received == presentation_detail, "Runtime dropped invocation presentation detail");
+                                                                       }};
         set_reviewed_devel_source_build_execution_test_hooks(bridge_hooks);
 
 #ifdef MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
@@ -4901,7 +4911,7 @@ done
                     normal_snapshot = &*item.devel_execution;
                     if(mode == "no-allocation") require(blocked && normal_snapshot->projection_failed, "outer allocation fault was missed");
                 } else {
-                    normal_result.emplace(fixture.normal_execution(intent));
+                    normal_result.emplace(fixture.normal_execution(intent, false, case_name == "details-package-base-install", presentation_detail));
                     normal_snapshot = &*normal_result->devel_execution;
                     blocked = publication_allocation::blocked;
                 }
@@ -4937,12 +4947,12 @@ done
                 }
                 auto prepared = take_arm<PreparedReviewedDevelSourceBuildExecution>(selected, "bridge preparation failed");
                 publication_allocation::failures = 0;
-                auto returned = execute_reviewed_devel_source_build(std::move(prepared));
+                auto returned = execute_reviewed_devel_source_build(std::move(prepared), presentation_detail);
                 require(returned.has_value(), "direct bridge result absent");
                 executed.emplace(std::move(*returned));
                 blocked = publication_allocation::blocked;
                 publication_allocation::blocked = false;
-                require(executed && executed->valid() && !prepared.valid() && !execute_reviewed_devel_source_build(std::move(prepared)), "bridge replay/move failed");
+                require(executed && executed->valid() && !prepared.valid() && !execute_reviewed_devel_source_build(std::move(prepared), presentation_detail), "bridge replay/move failed");
                 root = executed->owned_root();
                 direct_moved.emplace(std::move(*executed));
                 require(direct_moved->valid() && !executed->valid(), "bridge result was copied");
@@ -5427,7 +5437,7 @@ void test_selection_process_failures() {
             hooks.event = [&](auto, const auto&) { ++object_events; };
             hooks.before_remove = [&](const auto&) { ++object_events; };
             set_pinned_closure_test_hooks(std::move(hooks));
-            const auto result = acquire_pinned_submodule_closure(std::move(selection));
+            const auto result = acquire_pinned_submodule_closure(std::move(selection), PresentationDetail::Normal);
             const auto& failure = require_arm<PinnedClosureFailure>(result, "Allocation failure minted closure owner");
             require(failure.stage == PinnedClosureStage::Input && failure.reason == PinnedClosureFailureReason::ResourceLimitExceeded &&
                         !failure.process && !failure.error_number && !selection.valid(),
@@ -5467,9 +5477,11 @@ std::string module_declaration(const std::string& name, const std::string& path,
 }
 [[maybe_unused]] void test_root_tag_acquisition() {
     using Reason = PinnedClosureFailureReason;
-    for(const std::string kind : {"mapping", "sha256", "empty", "freeze", "duplicate", "duplicate-peel", "orphan-peel",
+    for(const std::string kind : {"mapping", "heavy", "sha256", "empty", "root-only", "freeze", "duplicate", "duplicate-peel", "orphan-peel",
                                   "bad-name", "wrong-namespace", "bad-oid", "wrong-width", "framing", "peel-mismatch",
-                                  "missing-peel", "spurious-peel", "unavailable", "tag-count", "tag-depth", "tag-bytes", "chain-header", "corrupt-backing", "cancel"}) {
+                                  "missing-peel", "spurious-peel", "unavailable", "bulk-cancel", "tag-count", "tag-depth", "tag-bytes", "chain-header", "corrupt-backing", "cancel",
+                                  "bulk-launch", "bulk-nonzero", "bulk-timeout", "bulk-signal", "bulk-capture", "bulk-io", "bulk-cancel-zero"}) {
+        const bool process_failure = kind.starts_with("bulk-") && kind != "bulk-cancel";
         struct Reset {
             ~Reset() {
                 set_pinned_closure_test_hooks({});
@@ -5480,114 +5492,269 @@ std::string module_declaration(const std::string& name, const std::string& path,
         const auto add = [&](const std::string& name, const std::string& target, bool annotated, std::optional<std::string> peeled) {
             expected.emplace("refs/tags/" + name, std::make_pair(upstream.root_tag(name, target, annotated), peeled));
         };
-        if(kind != "empty") {
+        if(kind == "root-only") add("root", "HEAD", false, {});
+        if(kind != "empty" && kind != "root-only") {
             add("2024", "HEAD", false, {});
             add("release/annotated", "HEAD", true, upstream.oid());
             add("nested", "refs/tags/release/annotated", true, upstream.oid());
             add("unreachable", upstream.unrelated_commit(), false, {});
             add("tree", "HEAD^{tree}", false, {});
             add("blob", "HEAD:payload.txt", true, upstream.object_oid("HEAD:payload.txt"));
+            add("root-alias", "HEAD", false, {});
+            add("raw-alias", "refs/tags/nested", false, upstream.oid());
+            if(kind == "heavy") {
+                for(unsigned tag = 0; tag < 110; ++tag)
+                    add("bulk/" + std::to_string(tag), "HEAD", true, upstream.oid());
+            }
         }
-        ReviewedBuildFixture fixture("tag-acquisition-" + kind, upstream);
-        auto context = fixture.make_context();
-        auto environment = fixture.make_environment(context);
-        auto selected = select_evaluated_devel_source(std::move(context), std::move(environment));
-        auto selection = take_arm<EvaluatedDevelSourceSelection>(selected, "Tag selection failed");
-        PinnedClosureTestHooks hooks;
-        PinnedClosureLimits limits;
-        if(kind == "tag-count") limits.root_tags = 1;
-        if(kind == "tag-depth") limits.tag_depth = 1;
-        hooks.limits = limits;
-        unsigned observations = 0, fetches = 0;
-        hooks.process = [&](const auto& original, const auto& policy) {
-            auto invocation = original;
-            const auto has = [&](const std::string& arg) { return std::find(original.arguments.begin(), original.arguments.end(), arg) != original.arguments.end(); };
-            for(auto& arg : invocation.arguments) {
-                if(arg == "protocol.file.allow=never")
-                    arg = "protocol.file.allow=always";
-                else if(arg == upstream.url())
-                    arg = "file://" + upstream.remote().string();
-            }
-            if(has("fetch")) {
-                ++fetches;
-                const auto remote = std::find(original.arguments.begin(), original.arguments.end(), upstream.url());
-                require(remote != original.arguments.end() && remote + 1 != original.arguments.end(), "Missing exact object fetch");
-                std::set<std::string> actual;
-                for(auto oid = remote + 1; oid != original.arguments.end(); ++oid) {
-                    static_cast<void>(ReviewedSourceObjectId::make(*oid));
-                    require(actual.insert(*oid).second, "Duplicate exact fetch OID");
+        std::vector<std::vector<std::string>> normal_argv;
+        std::vector<std::string> normal_exec_records;
+        std::optional<BoundedCapturedProcessResult> normal_failure;
+        for(const auto presentation_detail : {PresentationDetail::Normal, PresentationDetail::Detailed}) {
+            // Freeze deliberately mutates the shared remote after observation.
+            if(kind == "freeze" && presentation_detail == PresentationDetail::Detailed) continue;
+            std::vector<std::vector<std::string>> actual_argv;
+            std::optional<std::string> displayed_command;
+            std::optional<std::string> executed_command;
+            std::set<std::string> additional_objects;
+            ReviewedBuildFixture fixture("tag-acquisition-" + kind, upstream);
+            auto context = fixture.make_context();
+            const auto owned_root = context.owned_root();
+            auto environment = fixture.make_environment(context);
+            auto selected = select_evaluated_devel_source(std::move(context), std::move(environment));
+            auto selection = take_arm<EvaluatedDevelSourceSelection>(selected, "Tag selection failed");
+            PinnedClosureTestHooks hooks;
+            PinnedClosureLimits limits;
+            if(kind == "tag-count") limits.root_tags = 1;
+            if(kind == "tag-depth") limits.tag_depth = 1;
+            hooks.limits = limits;
+            unsigned observations = 0, fetches = 0;
+            std::optional<BoundedCapturedProcessResult> observed_failure;
+            hooks.root_tag_command = [&](PresentationDetail received, const std::string& displayed) {
+                require(received == presentation_detail, "Root tag presentation lost invocation detail");
+                require(!displayed_command, "Root tag fetch was presented twice");
+                displayed_command = displayed;
+            };
+            hooks.process = [&](const auto& original, const auto& policy) {
+                std::vector<std::string> command_words{original.executable};
+                command_words.insert(command_words.end(), original.arguments.begin(), original.arguments.end());
+                actual_argv.push_back(command_words);
+                auto invocation = original;
+                const auto has = [&](const std::string& arg) { return std::find(original.arguments.begin(), original.arguments.end(), arg) != original.arguments.end(); };
+                for(auto& arg : invocation.arguments) {
+                    if(arg == "protocol.file.allow=never")
+                        arg = "protocol.file.allow=always";
+                    else if(arg == upstream.url())
+                        arg = "file://" + upstream.remote().string();
                 }
-                std::set<std::string> wanted{upstream.oid()};
-                if(fetches != 1) {
-                    wanted.clear();
-                    for(const auto& [name, value] : expected)
-                        if(value.first != upstream.oid()) wanted.insert(value.first);
+                if(has("fetch")) {
+                    ++fetches;
+                    const auto remote = std::find(original.arguments.begin(), original.arguments.end(), upstream.url());
+                    require(remote != original.arguments.end() && remote + 1 != original.arguments.end(), "Missing exact object fetch");
+                    std::set<std::string> actual;
+                    for(auto oid = remote + 1; oid != original.arguments.end(); ++oid) {
+                        static_cast<void>(ReviewedSourceObjectId::make(*oid));
+                        require(actual.insert(*oid).second, "Duplicate exact fetch OID");
+                    }
+                    std::set<std::string> wanted{upstream.oid()};
+                    if(fetches != 1) {
+                        wanted.clear();
+                        for(const auto& [name, value] : expected)
+                            if(value.first != upstream.oid()) wanted.insert(value.first);
+                    }
+                    require(actual == wanted, "Fetch re-resolved a tag name or omitted raw authority");
+                    if(fetches != 1) {
+                        executed_command = shell_words::join(command_words);
+                        additional_objects = actual;
+                    }
                 }
-                require(actual == wanted, "Fetch re-resolved a tag name or omitted raw authority");
-            }
-            if(kind == "unavailable" && has("fetch") && has(expected.at("refs/tags/nested").first))
-                return BoundedCapturedProcessResult{{}, BoundedProcessExited{128}};
-            if(kind == "corrupt-backing" && has("fsck") && has(expected.at("refs/tags/nested").first)) {
-                const auto raw = expected.at("refs/tags/nested").first;
-                const auto repo = fs::read_symlink("/proc/self/fd/" + std::to_string(*original.working_directory_fd));
-                fs::create_directories(repo / "objects" / raw.substr(0, 2));
-                write_file(repo / "objects" / raw.substr(0, 2) / raw.substr(2), "corrupt tag object\n");
-            }
-            auto result = capture_bounded_explicit_process_output_raw(invocation, policy);
-            if(has("ls-remote")) {
-                ++observations;
-                const auto raw = expected.empty() ? upstream.oid() : expected.at("refs/tags/release/annotated").first;
-                const auto record = upstream.oid() + "\trefs/tags/2024\n";
-                if(kind == "duplicate") result.output += record;
-                if(kind == "duplicate-peel") result.output += upstream.oid() + "\trefs/tags/release/annotated^{}\n";
-                if(kind == "orphan-peel") result.output += upstream.oid() + "\trefs/tags/orphan^{}\n";
-                if(kind == "bad-name") result.output += upstream.oid() + "\trefs/tags/bad..name\n";
-                if(kind == "wrong-namespace") result.output += upstream.oid() + "\trefs/heads/other\n";
-                if(kind == "bad-oid") result.output += std::string(40, 'A') + "\trefs/tags/bad\n";
-                if(kind == "wrong-width") result.output += std::string(64, '1') + "\trefs/tags/bad\n";
-                if(kind == "framing") result.output.pop_back();
-                if(kind == "peel-mismatch") {
-                    const auto offset = result.output.find(upstream.oid() + "\trefs/tags/release/annotated^{}");
-                    result.output.replace(offset, upstream.oid().size(), raw);
+                if(kind == "unavailable" && has("fetch") && has(expected.at("refs/tags/nested").first))
+                    return BoundedCapturedProcessResult{{}, BoundedProcessExited{128}};
+                if(kind == "bulk-cancel" && has("fetch") && fetches == 2) {
+                    BoundedCapturedProcessResult cancelled{{}, BoundedProcessExited{128}};
+                    cancelled.cancellation_signal = SIGINT;
+                    return cancelled;
                 }
-                if(kind == "missing-peel") {
-                    const auto offset = result.output.find(upstream.oid() + "\trefs/tags/release/annotated^{}");
-                    result.output.erase(offset, result.output.find('\n', offset) - offset + 1);
+                if(process_failure && has("fetch") && fetches == 2) {
+                    require(policy.hard_timeout.count() > 0 && policy.hard_timeout <= std::chrono::minutes(10) &&
+                                policy.termination_grace == std::chrono::milliseconds(200) &&
+                                policy.stdout_capture_limit == 65536 && policy.suppress_standard_error && !policy.capture_standard_error,
+                            "Bulk fetch process policy changed with presentation");
+                    // Observe the owner's exact invocation above, then exercise real
+                    // bounded-process failures. Poll failure alone needs injection.
+                    if(kind == "bulk-io") {
+                        observed_failure = BoundedCapturedProcessResult{"", BoundedProcessIoOrWaitFailure{BoundedProcessIoStage::Poll, EIO}};
+                    } else {
+                        auto fault = invocation;
+                        fault.executable = kind == "bulk-launch" ? "/moguet-missing-executable" : "/bin/sh";
+                        fault.arguments = {"-c", kind == "bulk-nonzero" ? "exit 23" : kind == "bulk-signal"    ? "kill -TERM $$"
+                                                                                  : kind == "bulk-capture"     ? "printf '01234567890123456789'"
+                                                                                  : kind == "bulk-cancel-zero" ? "trap 'exit 0' INT; kill -INT $PPID; while :; do :; done"
+                                                                                                               : "while :; do :; done"};
+                        auto bounded = policy;
+                        bounded.hard_timeout = std::chrono::milliseconds(kind == "bulk-timeout" ? 100 : 2000);
+                        bounded.termination_grace = std::chrono::milliseconds(20);
+                        if(kind == "bulk-capture") bounded.stdout_capture_limit = 4;
+                        observed_failure = capture_bounded_explicit_process_output_raw(fault, bounded);
+                    }
+                    return *observed_failure;
                 }
-                if(kind == "spurious-peel") result.output += upstream.oid() + "\trefs/tags/2024^{}\n";
-                if(kind == "freeze") {
-                    // Retarget/delete after observation. Raw advertised objects
-                    // remain obtainable; acquisition must not resolve names again.
-                    require_process_success("/usr/bin/git", {"--git-dir=" + upstream.remote().string(), "update-ref", "refs/tags/2024", raw}, git_environment(fixture.home()));
-                    require_process_success("/usr/bin/git", {"--git-dir=" + upstream.remote().string(), "update-ref", "-d", "refs/tags/nested"}, git_environment(fixture.home()));
+                if(kind == "corrupt-backing" && has("fsck") && has(expected.at("refs/tags/nested").first)) {
+                    const auto raw = expected.at("refs/tags/nested").first;
+                    const auto repo = fs::read_symlink("/proc/self/fd/" + std::to_string(*original.working_directory_fd));
+                    fs::create_directories(repo / "objects" / raw.substr(0, 2));
+                    write_file(repo / "objects" / raw.substr(0, 2) / raw.substr(2), "corrupt tag object\n");
                 }
-                if(kind == "cancel") result.cancellation_signal = SIGINT;
+                auto result = capture_bounded_explicit_process_output_raw(invocation, policy);
+                if(has("ls-remote")) {
+                    ++observations;
+                    const auto raw = expected.contains("refs/tags/release/annotated") ? expected.at("refs/tags/release/annotated").first : upstream.oid();
+                    const auto record = upstream.oid() + "\trefs/tags/2024\n";
+                    if(kind == "duplicate") result.output += record;
+                    if(kind == "duplicate-peel") result.output += upstream.oid() + "\trefs/tags/release/annotated^{}\n";
+                    if(kind == "orphan-peel") result.output += upstream.oid() + "\trefs/tags/orphan^{}\n";
+                    if(kind == "bad-name") result.output += upstream.oid() + "\trefs/tags/bad..name\n";
+                    if(kind == "wrong-namespace") result.output += upstream.oid() + "\trefs/heads/other\n";
+                    if(kind == "bad-oid") result.output += std::string(40, 'A') + "\trefs/tags/bad\n";
+                    if(kind == "wrong-width") result.output += std::string(64, '1') + "\trefs/tags/bad\n";
+                    if(kind == "framing") result.output.pop_back();
+                    if(kind == "peel-mismatch") {
+                        const auto offset = result.output.find(upstream.oid() + "\trefs/tags/release/annotated^{}");
+                        result.output.replace(offset, upstream.oid().size(), raw);
+                    }
+                    if(kind == "missing-peel") {
+                        const auto offset = result.output.find(upstream.oid() + "\trefs/tags/release/annotated^{}");
+                        result.output.erase(offset, result.output.find('\n', offset) - offset + 1);
+                    }
+                    if(kind == "spurious-peel") result.output += upstream.oid() + "\trefs/tags/2024^{}\n";
+                    if(kind == "freeze") {
+                        // Retarget/delete after observation. Raw advertised objects
+                        // remain obtainable; acquisition must not resolve names again.
+                        require_process_success("/usr/bin/git", {"--git-dir=" + upstream.remote().string(), "update-ref", "refs/tags/2024", raw}, git_environment(fixture.home()));
+                        require_process_success("/usr/bin/git", {"--git-dir=" + upstream.remote().string(), "update-ref", "-d", "refs/tags/nested"}, git_environment(fixture.home()));
+                    }
+                    if(kind == "cancel") result.cancellation_signal = SIGINT;
+                }
+                if(kind == "tag-bytes" && has("cat-file") && has("tag")) result.output.assign(256 * 1024 + 1, 'x');
+                if(kind == "chain-header" && has("cat-file") && has("tag")) result.output = "object malformed\ntype tag\n";
+                return result;
+            };
+            set_pinned_closure_test_hooks(hooks);
+            // Observe the real Logger surfaces, not just the pre-Logger hook.
+            struct TerminalCapture {
+                std::ostringstream output;
+                std::streambuf* previous = std::cout.rdbuf(output.rdbuf());
+                ~TerminalCapture() {
+                    std::cout.rdbuf(previous);
+                }
+            } terminal;
+            const auto log_path = fixture.home() / "root-tag-command.log";
+            Logger::init(log_path);
+            const auto before_capture = terminal.output.str();
+            std::unique_ptr<ScopedLoggerDiagnosticCapture> capture;
+            if(process_failure) capture = std::make_unique<ScopedLoggerDiagnosticCapture>();
+            auto acquired = acquire_pinned_submodule_closure(std::move(selection), presentation_detail);
+            if(capture) {
+                require(terminal.output.str() == before_capture, "Failed acquisition escaped diagnostic capture");
+                std::ifstream pending(log_path);
+                const std::string pending_log{std::istreambuf_iterator<char>(pending), std::istreambuf_iterator<char>()};
+                require(pending_log.find("[EXEC]") == std::string::npos, "Captured failure wrote EXEC before replay");
+                capture->replay();
+                const auto once = terminal.output.str();
+                capture->replay();
+                require(terminal.output.str() == once, "Failed acquisition replay duplicated terminal output");
             }
-            if(kind == "tag-bytes" && has("cat-file") && has("tag")) result.output.assign(256 * 1024 + 1, 'x');
-            if(kind == "chain-header" && has("cat-file") && has("tag")) result.output = "object malformed\ntype tag\n";
-            return result;
-        };
-        set_pinned_closure_test_hooks(hooks);
-        auto acquired = acquire_pinned_submodule_closure(std::move(selection));
-        if(kind == "mapping" || kind == "sha256" || kind == "empty" || kind == "freeze") {
-            auto closure = take_arm<InvocationOwnedPinnedSubmoduleClosure>(acquired, "Root tag acquisition failed: " + kind);
-            require(closure.root_tags().size() == expected.size() && observations == 1 && fetches == (kind == "empty" ? 1U : 2U), "Tag mapping cardinality/observation changed");
-            std::string previous;
-            for(const auto& tag : closure.root_tags()) {
-                require(previous < tag.ref_name() && expected.at(tag.ref_name()).first == tag.raw().value() &&
-                            expected.at(tag.ref_name()).second == (tag.peeled() ? std::optional<std::string>(tag.peeled()->value()) : std::nullopt),
-                        "Raw/peeled mapping changed");
-                previous = tag.ref_name();
+            Logger::shutdown();
+            if(kind == "mapping" || kind == "heavy" || kind == "sha256" || kind == "empty" || kind == "root-only" || kind == "freeze") {
+                auto closure = take_arm<InvocationOwnedPinnedSubmoduleClosure>(acquired, "Root tag acquisition failed: " + kind);
+                require(closure.root_tags().size() == expected.size() && observations == 1 && fetches == (kind == "empty" || kind == "root-only" ? 1U : 2U), "Tag mapping cardinality/observation changed");
+                std::string previous;
+                for(const auto& tag : closure.root_tags()) {
+                    require(previous < tag.ref_name() && expected.at(tag.ref_name()).first == tag.raw().value() &&
+                                expected.at(tag.ref_name()).second == (tag.peeled() ? std::optional<std::string>(tag.peeled()->value()) : std::nullopt),
+                            "Raw/peeled mapping changed");
+                    previous = tag.ref_name();
+                }
+                require(closure.cleanup().succeeded(), "Root tag cleanup failed");
+            } else {
+                const auto& failure = require_arm<PinnedClosureFailure>(acquired, "Bad tag observation accepted: " + kind);
+                const auto reason = kind == "bulk-cancel-zero" ? Reason::Cancelled : kind == "bulk-nonzero"                  ? Reason::PinnedObjectUnavailable
+                                                                                 : process_failure                           ? Reason::GitProcessFailed
+                                                                                 : kind.starts_with("tag-")                  ? Reason::ResourceLimitExceeded
+                                                                                 : kind == "chain-header"                    ? Reason::UnexpectedObjectType
+                                                                                 : kind == "corrupt-backing"                 ? Reason::GitProcessFailed
+                                                                                 : kind == "unavailable"                     ? Reason::PinnedObjectUnavailable
+                                                                                 : kind == "cancel" || kind == "bulk-cancel" ? Reason::Cancelled
+                                                                                                                             : Reason::MalformedObservation;
+                require(failure.reason == reason && failure.cleanup.succeeded(), "Root tag failure classification: " + kind);
+                if(process_failure) {
+                    require(observed_failure && failure.stage == PinnedClosureStage::RootAcquisition && failure.process &&
+                                failure.process->outcome == observed_failure->outcome &&
+                                failure.process->cancellation_signal == observed_failure->cancellation_signal &&
+                                failure.process->output == observed_failure->output && !fs::exists(owned_root),
+                            "Bulk failure lost process context or retained owned root");
+                    const auto& outcome = observed_failure->outcome;
+                    const bool expected_outcome = kind == "bulk-launch"    ? outcome == BoundedProcessOutcome{BoundedProcessLaunchOrSetupFailure{BoundedProcessLaunchStage::Execve, ENOENT}}
+                                                  : kind == "bulk-nonzero" ? outcome == BoundedProcessOutcome{BoundedProcessExited{23}}
+                                                  : kind == "bulk-timeout" ? std::holds_alternative<BoundedProcessTimedOut>(outcome)
+                                                  : kind == "bulk-signal"  ? outcome == BoundedProcessOutcome{BoundedProcessSignaled{SIGTERM}}
+                                                  : kind == "bulk-capture" ? outcome == BoundedProcessOutcome{BoundedProcessCaptureLimitExceeded{4}}
+                                                  : kind == "bulk-io"      ? outcome == BoundedProcessOutcome{BoundedProcessIoOrWaitFailure{BoundedProcessIoStage::Poll, EIO}}
+                                                                           : outcome == BoundedProcessOutcome{BoundedProcessExited{0}} && observed_failure->cancellation_signal == SIGINT;
+                    require(expected_outcome, "Bulk fixture missed expected process failure: " + kind);
+                    if(presentation_detail == PresentationDetail::Normal)
+                        normal_failure = observed_failure;
+                    else
+                        require(normal_failure && normal_failure->outcome == observed_failure->outcome &&
+                                    normal_failure->cancellation_signal == observed_failure->cancellation_signal &&
+                                    normal_failure->output == observed_failure->output,
+                                "Presentation changed bulk process outcome");
+                }
+                if(kind == "unavailable" || kind == "bulk-cancel") {
+                    require(failure.stage == PinnedClosureStage::RootAcquisition && failure.process &&
+                                std::get<BoundedProcessExited>(failure.process->outcome).exit_code == 128 &&
+                                failure.process->cancellation_signal == (kind == "bulk-cancel" ? std::optional<int>(SIGINT) : std::nullopt),
+                            "Bulk fetch lost process failure context");
+                }
             }
-            require(closure.cleanup().succeeded(), "Root tag cleanup failed");
-        } else {
-            const auto& failure = require_arm<PinnedClosureFailure>(acquired, "Bad tag observation accepted: " + kind);
-            const auto reason = kind.starts_with("tag-") ? Reason::ResourceLimitExceeded : kind == "chain-header"  ? Reason::UnexpectedObjectType
-                                                                                       : kind == "corrupt-backing" ? Reason::GitProcessFailed
-                                                                                       : kind == "unavailable"     ? Reason::PinnedObjectUnavailable
-                                                                                       : kind == "cancel"          ? Reason::Cancelled
-                                                                                                                   : Reason::MalformedObservation;
-            require(failure.reason == reason && failure.cleanup.succeeded(), "Root tag failure classification: " + kind);
+            std::vector<std::string> exec_records;
+            std::ifstream log(log_path);
+            require(log.is_open(), "Root tag log was not created");
+            for(std::string line; std::getline(log, line);) {
+                const auto marker = line.find("] [EXEC] ");
+                if(marker != std::string::npos) exec_records.push_back(line.substr(marker + 9));
+            }
+            require(displayed_command == executed_command, "Root tag command detail drifted from actual executable/argv");
+            if(executed_command) {
+                require(std::count(exec_records.begin(), exec_records.end(), *executed_command) == 1,
+                        "Persistent EXEC lost or duplicated exact root tag command");
+                require(!additional_objects.contains(upstream.oid()), "Summary included already acquired root X");
+                const auto summary = "Fetching root upstream tag objects (" + std::to_string(additional_objects.size()) + " objects)";
+                const auto output = terminal.output.str();
+                require(output.find(upstream.url()) != std::string::npos && output.find(upstream.oid()) != std::string::npos,
+                        "Root acquisition lost remote/root context before bulk presentation");
+                if(presentation_detail == PresentationDetail::Normal) {
+                    require(output.find(summary) != std::string::npos && output.find(*executed_command) == std::string::npos,
+                            "Normal root tag presentation is not a compact operation/count summary");
+                    for(const auto& oid : additional_objects)
+                        require(output.find(oid) == std::string::npos, "Normal presentation leaked a bulk OID");
+                } else {
+                    require(output.find("Running: " + *executed_command) != std::string::npos && output.find(summary) == std::string::npos,
+                            "Detailed terminal lost exact command detail");
+                }
+                if(kind == "heavy") require(additional_objects.size() == 115, "Heavy count included duplicate tags or root X");
+                if(kind == "mapping" || kind == "sha256") require(additional_objects.size() == 5, "Raw alias was counted twice");
+            } else {
+                require(terminal.output.str().find("Fetching root upstream tag objects") == std::string::npos,
+                        "Summary emitted without an additional-object fetch");
+            }
+            if(presentation_detail == PresentationDetail::Normal) {
+                normal_argv = actual_argv;
+                normal_exec_records = exec_records;
+            } else {
+                require(actual_argv == normal_argv, "Presentation detail changed actual Git executable/argv/order");
+                require(exec_records == normal_exec_records, "Presentation detail changed persistent EXEC records");
+            }
         }
         std::cout << "S589 acquisition " << kind << " PASS\n"
                   << std::flush;
@@ -5601,8 +5768,8 @@ std::string module_declaration(const std::string& name, const std::string& path,
     static_assert(!std::is_default_constructible_v<Closure> && !std::is_copy_constructible_v<Closure> && std::is_move_constructible_v<Closure>);
     static_assert(!std::is_constructible_v<Closure, VcsSourceIdentity, std::string>);
     static_assert(!std::is_constructible_v<Closure, DevelBuildProvenance>);
-    static_assert(!std::is_invocable_v<decltype(acquire_pinned_submodule_closure), VcsSourceIdentity>);
-    static_assert(!std::is_invocable_v<decltype(acquire_pinned_submodule_closure), EvaluatedDevelSourceBuildProof>);
+    static_assert(!std::is_invocable_v<decltype(acquire_pinned_submodule_closure), VcsSourceIdentity, PresentationDetail>);
+    static_assert(!std::is_invocable_v<decltype(acquire_pinned_submodule_closure), EvaluatedDevelSourceBuildProof, PresentationDetail>);
     unsigned completed = 0;
     for(const std::string kind : {"single", "nested", "siblings", "freeze", "parent-move", "sha256", "branch",
                                   "missing-declaration", "extra-declaration", "duplicate-name", "duplicate-path", "mismatch", "malformed",
@@ -5747,7 +5914,7 @@ std::string module_declaration(const std::string& name, const std::string& path,
             PinnedClosureTestHooks forbidden;
             forbidden.process = [&](const auto&, const auto&) -> BoundedCapturedProcessResult { ++calls; throw std::runtime_error("moved input launched Git"); };
             set_pinned_closure_test_hooks(std::move(forbidden));
-            auto rejected = acquire_pinned_submodule_closure(std::move(selection));
+            auto rejected = acquire_pinned_submodule_closure(std::move(selection), PresentationDetail::Normal);
             require(std::holds_alternative<PinnedClosureFailure>(rejected) && std::get<PinnedClosureFailure>(rejected).reason == Reason::InvalidSelection && calls == 0, "Moved input minted closure");
             require(std::holds_alternative<InvocationOwnedSourceBuildContextCleaned>(keeper.cleanup()), "Moved input retained context");
             set_pinned_closure_test_hooks({});
@@ -5931,7 +6098,7 @@ std::string module_declaration(const std::string& name, const std::string& path,
             throw std::runtime_error("injected cleanup failure");
         };
         set_pinned_closure_test_hooks(std::move(hooks));
-        auto result = acquire_pinned_submodule_closure(std::move(selection));
+        auto result = acquire_pinned_submodule_closure(std::move(selection), PresentationDetail::Normal);
         require(!selection.valid(), "Selection was not consumed");
         if(expected) {
             const auto* failure = std::get_if<PinnedClosureFailure>(&result);
@@ -6150,7 +6317,7 @@ protected:
             throw std::runtime_error("fixture cleanup refusal");
         };
         set_pinned_closure_test_hooks(acquisition);
-        auto acquired = acquire_pinned_submodule_closure(std::move(selection));
+        auto acquired = acquire_pinned_submodule_closure(std::move(selection), PresentationDetail::Normal);
         auto closure = take_arm<Closure>(acquired, "Review closure acquisition failed");
         const auto* retained_selection = &closure.selection();
         const auto* retained_nodes = &closure.nodes();
@@ -6390,7 +6557,7 @@ prepare() {
             return capture_bounded_explicit_process_output_raw(invocation, policy);
         };
         set_pinned_closure_test_hooks(acquisition);
-        auto acquired = acquire_pinned_submodule_closure(std::move(selection));
+        auto acquired = acquire_pinned_submodule_closure(std::move(selection), PresentationDetail::Normal);
         auto closure = take_arm<InvocationOwnedPinnedSubmoduleClosure>(acquired, "Tag workspace acquisition failed");
         require(closure.root_tags().size() == mapping.size(), "Accepted tag set is incomplete");
         std::istringstream input("yes\n");
@@ -6736,7 +6903,7 @@ prepare() {
             throw std::runtime_error("fixture object cleanup refusal");
         };
         set_pinned_closure_test_hooks(acquisition);
-        auto acquired = acquire_pinned_submodule_closure(std::move(selection));
+        auto acquired = acquire_pinned_submodule_closure(std::move(selection), PresentationDetail::Normal);
         auto closure = take_arm<InvocationOwnedPinnedSubmoduleClosure>(acquired, "Workspace acquisition failed");
         const auto* selection_address = &closure.selection();
         const auto* nodes_address = &closure.nodes();

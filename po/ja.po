@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.8.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-20 09:34+0900\n"
+"POT-Creation-Date: 2026-09-20 16:30+0900\n"
 "PO-Revision-Date: 2026-09-19 17:53+0900\n"
 "Last-Translator: Moguet contributors\n"
 "Language-Team: Japanese\n"
@@ -5478,6 +5478,8 @@ msgstr "{}が{}行目で不正なローカルパッケージメタデータを�
 msgid "Warning: {}"
 msgstr "警告: {}"
 
+#. TRANSLATORS: The placeholder is an exact shell command and must remain
+#. byte-for-byte locale-neutral.
 #, c++-format
 msgid "Running: {}"
 msgstr "実行中: {}"
@@ -5673,8 +5675,8 @@ msgstr "詳細な診断情報と由来情報を表示"
 
 #. TRANSLATORS: The placeholders are literal supported CLI forms.
 #, c++-format
-msgid "For {}, {}, and {}; changes presentation only, not execution"
-msgstr "{}、{}、{}で使用可能。表示だけを変更し、実行動作は変えません"
+msgid "For remote {}, {}, {}, and {}; changes presentation only, not execution"
+msgstr "リモート{}、{}、{}、{}で使用可能。表示だけを変更し、実行動作は変えません"
 
 msgid "Show this help message and exit"
 msgstr "このヘルプを表示して終了"
@@ -6325,6 +6327,10 @@ msgstr "この承認はスナップショットをビルド入力として使う
 
 msgid "Use this exact upstream source snapshot as build input?"
 msgstr "この固定された上流ソースのスナップショットをビルド入力として使用しますか？"
+
+#, c++-format
+msgid "Fetching root upstream tag objects ({} objects)"
+msgstr "ルート上流タグのオブジェクトを取得しています ({} objects)"
 
 #, c++-format
 msgid "Invalid {} target for operation {}: {}"

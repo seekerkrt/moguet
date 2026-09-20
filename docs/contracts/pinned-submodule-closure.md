@@ -7,12 +7,45 @@ installation, or provenance publication.
 
 ## Input and revision authority
 
-`acquire_pinned_submodule_closure(EvaluatedDevelSourceSelection)` consumes the
+`acquire_pinned_submodule_closure(EvaluatedDevelSourceSelection, PresentationDetail)` consumes the
 [4A0 evaluated selection](evaluated-devel-source-build-proof.md), retaining its
 recipe context, environment and lineage in a private, move-only
 `InvocationOwnedPinnedSubmoduleClosure`. Raw URL/selector/OID tuples, copied
 `VcsSourceIdentity`, reviewed metadata, completed S4 and decoded provenance
 cannot construct this owner. Its opaque backing has no construction friendship.
+
+`PresentationDetail` is an explicit invocation-local command presentation input.
+It is passed to the root-tag command owner without being retained in the returned
+closure or affecting selection, acquisition, identity, validity or failure policy.
+Issue #595 Slice 2 presents only the root-tag bulk exact-object fetch as an
+operation summary in Normal, counting distinct additional raw objects from the
+same deduplication set that appends fetch operands (excluding the already fetched
+root X). Detailed renders the actual executable and complete argv with
+`shell_words` quoting, including the trusted Git options. Execution remains
+structured; this text does not serialize the environment or directory descriptors.
+Both modes persist that same command in `EXEC`. Logger diagnostic capture retains
+the terminal message and command separately and replays each once. Short commands
+keep their existing presentation. The summary precedes the bulk fetch on failure
+as well as success; typed process failures and cleanup remain unchanged.
+
+Issue #595 Slice 3 fixes this boundary with real bounded-process failure
+regressions (launch, nonzero, timeout, signal, capture overflow and cancellation
+with exit zero; poll I/O failure is injected). Both detail modes preserve the
+original invocation, process outcome, cleanup and exact `EXEC` payload, including
+diagnostic capture/replay. The preceding root observation/fetch still identifies
+the remote and root X in Normal. The broader route currently projects closure
+acquisition failure as `SourceReadyInvalid`; adding its retained typed closure
+detail to the final CLI renderer is a separate, pre-existing limitation.
+
+Command presentation uses Logger's existing diagnostic stream (stdout by default,
+stderr when explicitly routed); errors use stderr. TTY, pipe and individual
+stdout/stderr file redirects do not select a different presentation or `EXEC`
+payload. Existing ANSI prefixes are preserved on redirected output. The focused
+Logger matrix uses actual PTY/pipe/file descriptors and checks failure events,
+capture silence and one-shot replay against the descriptor-backed state log.
+This does not guarantee replay completion after a physical state-log write
+failure or terminal-emulator-specific wrapping. Presentation/log I/O precedes the
+remaining-deadline calculation; it does not extend the acquisition budget.
 
 Only the root uses a remote selector observation: the evaluated default requests
 `HEAD`, while an evaluated explicit branch requests its exact `refs/heads/...`.

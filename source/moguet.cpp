@@ -956,8 +956,8 @@ void print_help() {
             "Show detailed diagnostic and provenance information"));
     print_help_continuation(localization::format_translated_message(
         // TRANSLATORS: The placeholders are literal supported CLI forms.
-        "For {}, {}, and {}; changes presentation only, not execution",
-        "plan", "deps", "-S --select"));
+        "For remote {}, {}, {}, and {}; changes presentation only, not execution",
+        "build", "plan", "deps", "-S --select"));
     print_help_entry(
         cli_option_syntax(OptionId::Help),
         localization::translate_message(
