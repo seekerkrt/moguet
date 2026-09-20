@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.8.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-20 16:30+0900\n"
+"POT-Creation-Date: 2026-09-20 17:16+0900\n"
 "PO-Revision-Date: 2026-09-19 17:53+0900\n"
 "Last-Translator: Moguet contributors\n"
 "Language-Team: Japanese\n"
@@ -975,6 +975,140 @@ msgstr "  必要な子パッケージ: {} -> {} {}"
 #, c++-format
 msgid "  required child: {}"
 msgstr "  必要な子パッケージ: {}"
+
+msgid "input validation"
+msgstr "入力の検証"
+
+msgid "workspace creation"
+msgstr "作業領域の作成"
+
+msgid "root source observation"
+msgstr "ルートソースの観測"
+
+msgid "root source acquisition"
+msgstr "ルートソースの取得"
+
+msgid "submodule declarations"
+msgstr "サブモジュール宣言"
+
+msgid "submodule acquisition"
+msgstr "サブモジュールの取得"
+
+msgid "object verification"
+msgstr "オブジェクトの検証"
+
+msgid "recursive source traversal"
+msgstr "ソースの再帰探索"
+
+msgid "cleanup"
+msgstr "クリーンアップ"
+
+msgid "unknown source acquisition stage"
+msgstr "不明なソース取得段階"
+
+msgid "invalid source selection"
+msgstr "ソース選択が無効です"
+
+msgid "unsupported source transport"
+msgstr "ソース取得方式が未対応です"
+
+msgid "malformed source observation"
+msgstr "ソース観測結果が不正です"
+
+msgid "submodule declaration mismatch"
+msgstr "サブモジュール宣言が一致しません"
+
+msgid "malformed submodule declaration"
+msgstr "サブモジュール宣言が不正です"
+
+msgid "unsupported submodule update policy"
+msgstr "サブモジュール更新方針が未対応です"
+
+msgid "unsafe source path"
+msgstr "ソースパスが安全ではありません"
+
+msgid "pinned source object unavailable"
+msgstr "固定されたソースオブジェクトを取得できません"
+
+msgid "unexpected source object type"
+msgstr "ソースオブジェクトの種類が想定と異なります"
+
+msgid "source object format mismatch"
+msgstr "ソースオブジェクト形式が一致しません"
+
+msgid "malformed source tree"
+msgstr "ソースツリーが不正です"
+
+msgid "unsafe source filesystem"
+msgstr "ソースのファイルシステムが安全ではありません"
+
+msgid "source identity changed"
+msgstr "ソースの識別情報が変化しました"
+
+msgid "malformed source repository"
+msgstr "ソースリポジトリが不正です"
+
+msgid "source acquisition resource limit exceeded"
+msgstr "ソース取得のリソース上限を超えました"
+
+msgid "source acquisition cancelled"
+msgstr "ソース取得がキャンセルされました"
+
+#, c++-format
+msgid "{} process failed"
+msgstr "{}プロセスが失敗しました"
+
+msgid "source acquisition I/O failure"
+msgstr "ソース取得の入出力に失敗しました"
+
+msgid "source workspace creation failed"
+msgstr "ソース作業領域を作成できませんでした"
+
+msgid "recursive submodule cycle"
+msgstr "サブモジュールの再帰的な循環があります"
+
+msgid "unknown source acquisition reason"
+msgstr "不明なソース取得理由"
+
+#. TRANSLATORS: The placeholders are the acquisition stage and failure reason.
+#, c++-format
+msgid "    source closure acquisition failed during {}: {}"
+msgstr "    ソースクロージャーの取得に失敗しました（{}）: {}"
+
+#, c++-format
+msgid "    source acquisition errno: {}"
+msgstr "    ソース取得のerrno: {}"
+
+#, c++-format
+msgid "    {} process exit code: {}"
+msgstr "    {}プロセスの終了コード: {}"
+
+#, c++-format
+msgid "    {} process terminated by signal: {}"
+msgstr "    {}プロセスを終了したシグナル: {}"
+
+#, c++-format
+msgid "    {} process launch/setup failed (errno {})"
+msgstr "    {}プロセスの起動・準備に失敗しました（errno {}）"
+
+#, c++-format
+msgid "    {} process I/O/wait failed (errno {})"
+msgstr "    {}プロセスの入出力・待機に失敗しました（errno {}）"
+
+#, c++-format
+msgid "    {} process timed out"
+msgstr "    {}プロセスがタイムアウトしました"
+
+#, c++-format
+msgid "    {} process output limit exceeded ({} bytes)"
+msgstr "    {}プロセスの出力上限を超えました（{} バイト）"
+
+#, c++-format
+msgid "    source acquisition cancellation signal: {}"
+msgstr "    ソース取得をキャンセルしたシグナル: {}"
+
+msgid "    source acquisition cleanup incomplete; temporary source data may remain"
+msgstr "    ソース取得後のクリーンアップが未完了です。一時ソースデータが残っている可能性があります"
 
 #. TRANSLATORS: The placeholders are the PackageBase metadata-key
 #. identity and a package-base identity.

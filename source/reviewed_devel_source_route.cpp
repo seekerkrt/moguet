@@ -87,6 +87,7 @@ ReviewedDevelExecutionSnapshot execute_normal_reviewed_devel(PreparedReviewedDev
     }
     try {
         if(const auto* failure = result.recipe_acquisition_failure()) out.recipe_acquisition_failure = *failure;
+        if(const auto* failure = result.closure_failure()) out.closure_failure = *failure;
         if(const auto* failure = result.closure_review_failure()) {
             out.closure_review_failure = *failure;
             if(failure->reason == PinnedClosureReviewFailureReason::Declined)
