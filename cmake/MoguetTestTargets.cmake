@@ -528,6 +528,8 @@ moguet_add_cpp_test(
 set(
     _moguet_root_package_search_test_sources
     tests/root_package_search_test.cpp
+    source/root_package_selection.cpp
+    source/root_package_route_projection.cpp
     source/root_package_search.cpp
     source/root_package_candidate.cpp
     source/package_identifier.cpp
@@ -3578,7 +3580,7 @@ set(
     moguet-source-install-characterization-test=6c63662b6f20cf0abb6a7e056f2bcc88decc6f5bb5da99529cb6551f42b0f9a0
     moguet-upgrade-baseline-metadata-test=80299f0fbc562e071ff894f35a67a0e0b91b2edd5607f1ae8d3caa981d4f61e5
     root-package-candidate-test=79843f8124e6fab46245ecc3d9bd16bf45297c6760d266401f065c1aebf93f89
-    root-package-search-test=38baed8434f602e4c060c56fc18c9be01a2ba42140fec8a9ad6470b0b2c24190
+    root-package-search-test=cec066d6b365b8b4216e565fd4d15a5541f3b5969ce80cc60c6559cd17e2bc5a
     root-package-selection-test=ed344d8a3509a5d3d6ab3d6e219f20560000a3e104cb068787f7297c62d82d4b
     root-package-route-projection-test=d9b05cd2f857bc1ec0845c9a221b0d68401b4bccd1e83c20b8ae4599711fd484
     local-package-metadata-test=59aa5595c36c4e4c08e28c52cf956251ded89b67107973dd59f25b2f86b05ad0
