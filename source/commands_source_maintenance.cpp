@@ -915,9 +915,10 @@ int cmd_build(
     }
 
     try {
-        if(!build_source_target(
-               invocation.package_name,
-               invocation.source_environment, config)) return 1;
+        return build_source_target(
+                   invocation.package_name,
+                   invocation.source_environment, config)
+            .command_exit_status();
     } catch(const ProductionSourceBuildInvocationError& error) {
         Logger::error(
             format_production_source_build_invocation_failure(error));

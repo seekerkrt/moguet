@@ -1215,6 +1215,7 @@ set(
     source/invocation_owned_cleanup_adapter.cpp
     source/remote_aur_cleanup_candidate_collector.cpp
     source/dependency_cleanup_interaction.cpp
+    source/dependency_cleanup_execution.cpp
     source/package_relation.cpp
     source/package_relation_presentation.cpp
     source/source_artifact_install_trusted_protocol.cpp
@@ -2314,6 +2315,7 @@ moguet_add_cpp_test(
         source/invocation_owned_cleanup_adapter.cpp
         source/remote_aur_cleanup_candidate_collector.cpp
         source/dependency_cleanup_interaction.cpp
+        source/dependency_cleanup_execution.cpp
         source/diagnostic_projection.cpp
         source/runtime_diagnostic.cpp
         source/separated_source_build.cpp

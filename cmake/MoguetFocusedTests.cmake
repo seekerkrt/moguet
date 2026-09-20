@@ -305,3 +305,5 @@ moguet_add_focused_ctest_alias(
     test-dependency-cleanup-execution
     TESTS cpp.dependency_cleanup_execution
 )
+
+moguet_add_focused_ctest_alias(test-source-build-rmdeps TESTS cli.source_build_rmdeps)

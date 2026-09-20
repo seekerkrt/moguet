@@ -531,6 +531,37 @@ void configure_foreign_inventory_from_environment() {
     g_state.package_cache_fails = false;
 }
 
+// Dedicated full-CLI cleanup fixture. All installed metadata comes from this
+// case-local file; no host package database is opened by the stub.
+void configure_cleanup_inventory_from_environment() {
+    const char* path = std::getenv("MOGUET_TEST_CLEANUP_METADATA_STATE_FILE");
+    if(path == nullptr) return;
+    std::ifstream input(path);
+    if(!input) throw std::runtime_error("cleanup fixture metadata missing");
+    std::vector<LocalPackageState> packages;
+    std::string line;
+    while(std::getline(input, line)) {
+        std::istringstream fields(line);
+        LocalPackageState package;
+        std::string reason;
+        if(!(fields >> package.name >> package.version >> reason >> package.package_base >> package.architecture)) {
+            throw std::runtime_error("cleanup fixture metadata malformed");
+        }
+        package.reason = reason == "dependency" ? ALPM_PKG_REASON_DEPEND : ALPM_PKG_REASON_EXPLICIT;
+        std::string dependency;
+        while(fields >> dependency) {
+            package.dependencies.push_back({dependency, std::nullopt, ALPM_DEP_MOD_ANY});
+        }
+        packages.push_back(std::move(package));
+    }
+    g_state.local_packages = std::move(packages);
+    for(auto& package : g_state.local_packages)
+        rebuild_local_dependencies(package);
+    g_state.use_local_cache_for_queries = true;
+    g_state.package_cache_empty = false;
+    g_state.package_cache_fails = false;
+}
+
 void configure_package_lookup_from_environment(
     const char* queried_package_name,
     PackageLookupMode& lookup_mode,
@@ -637,6 +668,7 @@ void configure_repository_package_from_environment(
 
         package_state.lookup_mode = PackageLookupMode::Present;
         package_state.returned_name = fixture_package;
+        if(std::getenv("MOGUET_TEST_CLEANUP_METADATA_STATE_FILE")) package_state.version = "1.0-1";
         package_state.package_base = fixture_package_base.empty()
                                          ? fixture_package
                                          : fixture_package_base;
@@ -1491,6 +1523,7 @@ alpm_handle_t* alpm_initialize(
 
     try {
         configure_foreign_inventory_from_environment();
+        configure_cleanup_inventory_from_environment();
     } catch(...) {
         g_state.local_packages.clear();
         g_state.package_cache_fails = true;
@@ -1627,6 +1660,7 @@ int alpm_db_get_valid(alpm_db_t* database) {
 }
 
 alpm_list_t* alpm_db_get_pkgcache(alpm_db_t* database) {
+    if(std::getenv("MOGUET_TEST_CLEANUP_METADATA_STATE_FILE") && database != nullptr && database->kind == AlpmStubDatabaseKind::Local) append_alpm_event("alpm cleanup snapshot");
     if(database != nullptr && database->kind == AlpmStubDatabaseKind::Sync) {
         append_alpm_event("alpm sync-cache", database->repository_name.c_str());
         g_state.sync_database_operations.push_back(

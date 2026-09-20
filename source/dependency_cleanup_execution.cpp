@@ -2,6 +2,8 @@
 
 #include "invocation_owned_cleanup_adapter.hpp"
 #include "package_identifier.hpp"
+#include "localization.hpp"
+#include "logging.hpp"
 #include "process.hpp"
 #include "shell_words.hpp"
 
@@ -199,4 +201,89 @@ DependencyCleanupExecutionResult execute_dependency_cleanup(const DependencyClea
     // Do not expose the destructive helper: retaining an earlier read-only
     // revalidation result must never bypass a new mutation-time observation.
     return remove_revalidated_candidates(revalidate_dependency_cleanup(*interaction.approved_snapshot()));
+}
+
+namespace {
+std::string cleanup_skip_reason(DependencyCleanupCandidateRevalidationStatus status) {
+    switch(status) {
+        case Status::AlreadyAbsent: return localization::translate_message("already absent");
+        case Status::IdentityChanged: return localization::translate_message("identity changed");
+        case Status::InstallReasonChanged: return localization::translate_message("install reason changed");
+        case Status::Protected: return localization::translate_message("protected");
+        case Status::StillRequired: return localization::translate_message("still required");
+        case Status::Unknown: return localization::translate_message("current state unknown");
+        case Status::Invalid: return localization::translate_message("invalid candidate");
+        case Status::Ready: break;
+    }
+    return localization::translate_message("cleanup blocked");
+}
+} // namespace
+
+void report_dependency_cleanup_result(
+    const DependencyCleanupInteractionResult& interaction,
+    const std::optional<DependencyCleanupExecutionResult>& execution) {
+    if(execution) {
+        if(execution->revalidation) {
+            for(const auto& candidate : execution->revalidation->candidates()) {
+                if(candidate.status == Status::Ready) continue;
+                Logger::info(localization::format_translated_message(
+                    "Dependency cleanup skipped {}: {}.",
+                    candidate.approved.expected_installed().name, cleanup_skip_reason(candidate.status)));
+            }
+        }
+        std::string names;
+        for(const auto& candidate : execution->attempted) {
+            if(!names.empty()) names += ", ";
+            names += candidate.expected_installed().name;
+        }
+        switch(execution->status) {
+            case DependencyCleanupExecutionStatus::Removed:
+                Logger::info(localization::format_translated_message("Dependency cleanup removed: {}.", names));
+                return;
+            case DependencyCleanupExecutionStatus::RemovalFailed:
+                // A failed pacman transaction does not prove which packages remain.
+                Logger::error(localization::format_translated_message(
+                    "Build/install succeeded; dependency cleanup removal failed. Attempted: {}. Exit status: {}.",
+                    names, execution->removal_exit_status ? std::to_string(*execution->removal_exit_status) : localization::translate_message("unknown")));
+                return;
+            case DependencyCleanupExecutionStatus::NoCandidatesReady:
+                Logger::info(localization::translate_message("Dependency cleanup: no candidates remain ready for removal."));
+                return;
+            case DependencyCleanupExecutionStatus::Blocked:
+                Logger::warn(localization::translate_message("Build/install succeeded; dependency cleanup blocked by unavailable or unsafe evidence."));
+                return;
+        }
+    }
+    using Interaction = DependencyCleanupInteractionStatus;
+    switch(interaction.status()) {
+        case Interaction::NoCandidates:
+            Logger::info(localization::translate_message("Dependency cleanup: nothing to remove."));
+            return;
+        case Interaction::Declined:
+            Logger::info(localization::translate_message("Dependency cleanup declined; build/install succeeded."));
+            return;
+        case Interaction::Cancelled:
+            Logger::info(localization::translate_message("Dependency cleanup cancelled; build/install succeeded."));
+            return;
+        case Interaction::InteractionUnavailable:
+            switch(*interaction.unavailable_reason()) {
+                case DependencyCleanupUnavailableReason::NoConfirm:
+                    Logger::warn(localization::format_translated_message(
+                        // TRANSLATORS: The placeholder is the literal --noconfirm option.
+                        "Build/install succeeded; dependency cleanup unavailable: {} does not approve removal.", "--noconfirm"));
+                    return;
+                case DependencyCleanupUnavailableReason::NonInteractiveInput:
+                    Logger::warn(localization::translate_message("Build/install succeeded; dependency cleanup unavailable: input is not interactive."));
+                    return;
+                case DependencyCleanupUnavailableReason::InputFailure:
+                case DependencyCleanupUnavailableReason::OutputFailure:
+                    Logger::warn(localization::translate_message("Build/install succeeded; dependency cleanup unavailable: interaction I/O failed."));
+                    return;
+            }
+            return;
+        case Interaction::Blocked:
+        case Interaction::Approved:
+            Logger::warn(localization::translate_message("Build/install succeeded; dependency cleanup blocked by unavailable or unsafe evidence."));
+            return;
+    }
 }

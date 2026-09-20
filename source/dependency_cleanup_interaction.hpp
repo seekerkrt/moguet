@@ -125,7 +125,7 @@ private:
         std::istream&, std::ostream&);
 };
 
-// Production-capable seam; ordinary builds and public --rmdeps do not call it.
+// Remote AUR --rmdeps interaction; ordinary builds do not call it.
 [[nodiscard]] DependencyCleanupInteractionResult interact_dependency_cleanup(
     const DependencyCleanupPreview& preview, const AppConfig& config);
 

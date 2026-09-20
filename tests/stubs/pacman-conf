@@ -3,6 +3,13 @@ set -eu
 
 printf 'pacman-conf %s\n' "$*" >> "$MOGUET_TEST_COMMAND_LOG"
 
+if [ "$#" -eq 1 ] && [ "$1" = HoldPkg ]; then
+    if [ -n "${MOGUET_TEST_HOLDPKG:-}" ]; then
+        printf '%s\n' "$MOGUET_TEST_HOLDPKG"
+    fi
+    exit "${MOGUET_TEST_HOLDPKG_EXIT_CODE:-0}"
+fi
+
 if [ "$#" -eq 1 ] && [ "${1:-}" = "--repo-list" ]; then
     exit_code=${MOGUET_TEST_PACMAN_CONF_REPOSITORY_LIST_EXIT_CODE:-0}
     if [ "$exit_code" -ne 0 ]; then

@@ -36,6 +36,8 @@ struct RepositoryPackagePresent {
     std::optional<std::vector<std::string>> configured_repository_order =
         std::nullopt;
     std::vector<RepositoryProviderCapability> provides = {};
+    // Preserve the strict observation through BuildPlan for cleanup identity.
+    std::optional<std::string> architecture = std::nullopt;
 
     bool operator==(const RepositoryPackagePresent&) const = default;
 };

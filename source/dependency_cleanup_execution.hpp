@@ -71,8 +71,13 @@ struct DependencyCleanupExecutionResult {
     std::optional<int> removal_exit_status;
 };
 
-// Internal production seam, deliberately disconnected from public CLI routes.
+// The public remote AUR owner calls this only after explicit approval.
 // Every call checks Approved and obtains new read authority immediately before
 // its one exact attempt. No API accepts a caller-retained Ready plan for mutation.
 [[nodiscard]] DependencyCleanupExecutionResult execute_dependency_cleanup(
     const DependencyCleanupInteractionResult& interaction);
+
+// Report cleanup independently; never describe the successful build as failed.
+void report_dependency_cleanup_result(
+    const DependencyCleanupInteractionResult& interaction,
+    const std::optional<DependencyCleanupExecutionResult>& execution);

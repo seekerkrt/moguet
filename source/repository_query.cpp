@@ -126,7 +126,7 @@ StrictRepositoryPackageQueryResult query_repository_package_strict(
                 package->package_base,
                 package->package_version,
                 observation.configured_repository_order,
-                package->provides};
+                package->provides, package->architecture};
         }
         if(std::holds_alternative<RepositoryExactPackageAbsent>(
                source_result)) {

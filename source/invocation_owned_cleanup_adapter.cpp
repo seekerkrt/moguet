@@ -1254,10 +1254,13 @@ bool direct_edge_identity_shape_is_complete(
             } else if constexpr(std::is_same_v<
                                     Candidate,
                                     RepositoryExactPackage>) {
+                // Repository edges conventionally omit the source-build base
+                // field. The typed exact repository observation owns PackageBase;
+                // if a caller also supplied the redundant field it must agree.
                 return edge.kind == DependencyKind::Repo &&
-                       edge.resolved_package_base ==
-                           std::optional<std::string>{
-                               candidate.package_base} &&
+                       is_valid_package_name(candidate.package_base) &&
+                       (!edge.resolved_package_base.has_value() ||
+                        edge.resolved_package_base == candidate.package_base) &&
                        edge.resolved_package_name.value() ==
                            candidate.package_name &&
                        requirement->package_name() == candidate.package_name;

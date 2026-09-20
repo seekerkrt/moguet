@@ -2,6 +2,7 @@
 
 #include "artifact_install_plan.hpp"
 #include "dependency_provider.hpp"
+#include "dependency_cleanup_execution.hpp"
 #include "dependency_plan.hpp"
 #include "package_metadata.hpp"
 #include "repository_query.hpp"
@@ -926,7 +927,17 @@ const RequiredPackageArtifactTarget& require_singular_required_package_target(
 void require_supported_production_source_build_options(
     const AppConfig& config);
 
-bool build_source_target(
+// Cleanup is optional independently of the completed build/install outcome.
+// Missing interaction means NotRequested (or build did not reach full success).
+struct RemoteSourceBuildResult {
+    ProductionSourceBuildInvocationResult build_install;
+    std::optional<DependencyCleanupInteractionResult> cleanup_interaction;
+    std::optional<DependencyCleanupExecutionResult> cleanup_execution;
+
+    int command_exit_status() const noexcept;
+};
+
+RemoteSourceBuildResult build_source_target(
     const std::string& package_name,
     const SourceBuildEnvironment& custom_environment,
     const AppConfig& config);
@@ -1060,8 +1071,7 @@ execute_selected_repository_provider_transaction(
     const PreparedProductionSourceBuildInvocation& invocation,
     const AppConfig& config);
 
-// Production-capable internal API for Slice 3.6. It is intentionally not
-// connected to the current public --rmdeps route.
+// Internal selected-provider transport owned by the remote AUR collector.
 SelectedRepositoryProviderTrustedReceiptExecutionResult
 execute_selected_repository_provider_transaction(
     const PreparedProductionSourceBuildInvocation& invocation,

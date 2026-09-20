@@ -166,6 +166,7 @@ CMAKE_FOCUSED_ALIASES := \
 	test-pacman-routing \
 	test-build-cache-symlink \
 	test-source-build \
+	test-source-build-rmdeps \
 	test-source-selection \
 	test-needed-contract \
 	test-pkgbuild-export

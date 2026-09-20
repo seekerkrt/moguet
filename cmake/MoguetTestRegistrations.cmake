@@ -956,3 +956,11 @@ moguet_add_ctest(
     TARGETS invocation-owned-cleanup-model-test
     COMMAND "$<TARGET_FILE:invocation-owned-cleanup-model-test>" --execution-only
 )
+
+moguet_add_ctest(
+    NAME cli.source_build_rmdeps
+    TARGETS moguet-aur-rpc-validation-test moguet-source-install-characterization-test
+    COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test-source-build-rmdeps.py"
+        "$<TARGET_FILE:moguet-aur-rpc-validation-test>"
+        "$<TARGET_FILE:moguet-source-install-characterization-test>"
+)

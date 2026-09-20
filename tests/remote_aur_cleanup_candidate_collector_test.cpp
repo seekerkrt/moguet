@@ -141,6 +141,7 @@ enum class CollectorScenario {
     NoDependencyEdges,
     UnattributedBuildTarget,
     OriginProjectionFailure,
+    RepositoryEdgeBaseMismatch,
 };
 
 enum class RepositoryCandidateKind {
@@ -303,6 +304,9 @@ BuildPlan collector_plan(bool with_later_work_item = false) {
                 "collector-dependency", ObservedVersion::available(ObservedVersionSource::InstalledExactPackage, "1.0-1")};
         } else {
             edge.kind = DependencyKind::Repo;
+            // Canonical resolver leaves the source-work-item base field empty.
+            edge.resolved_package_base.reset();
+            if(g_scenario == CollectorScenario::RepositoryEdgeBaseMismatch) edge.resolved_package_base = "wrong-base";
             edge.resolved_candidate = RepositoryExactPackage{
                 ConfiguredRepositoryIdentity{"core", 0}, "collector-dependency", "collector-dependency-base", ObservedVersion::available(ObservedVersionSource::RepositoryExactPackage, "1.0-1"), {}, "x86_64"};
         }
@@ -970,6 +974,9 @@ void test_receipt_independent_repository_candidate_matrix() {
                     only_assessment(result)->classification == CleanupClassification::Invalid),
                "invalid/unknown repository provider became eligible:" + describe_result(result));
     }
+    const auto mismatched_base = run_scenario(CollectorScenario::RepositoryEdgeBaseMismatch, RepositoryCandidateKind::DirectBuild);
+    expect(!mismatched_base.has_eligible_candidate() && mismatched_base.completeness() == CleanupEvidenceCompleteness::Incomplete,
+           "contradictory repository edge PackageBase became eligible");
     const auto mismatched_preparation = run_scenario(
         CollectorScenario::PreparedProviderMismatch, RepositoryCandidateKind::SelectedProvider);
     expect(!mismatched_preparation.has_eligible_candidate(),

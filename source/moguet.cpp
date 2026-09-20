@@ -1047,8 +1047,9 @@ void print_help() {
             cli_authority::BUILD_MODE_CLEAN_OPTION));
     print_help_entry(
         cli_option_syntax(OptionId::RmDeps),
-        localization::translate_message(
-            "Unsupported for separated source builds; no dependency cleanup is performed"));
+        localization::format_translated_message(
+            // TRANSLATORS: The placeholder is the literal AUR identity.
+            "Preview newly installed build dependencies after remote {} build success; remove only with explicit approval", "AUR"));
     print_help_entry(
         cli_option_syntax(OptionId::Aur),
         localization::format_translated_message(
