@@ -67,6 +67,8 @@ catalog_file=$stage_dir/usr/share/locale/ja/LC_MESSAGES/$GETTEXT_DOMAIN.mo
 built_catalog_file=$fixture_build_dir/cmake-production/locale/ja/LC_MESSAGES/$GETTEXT_DOMAIN.mo
 license_dir=$stage_dir/usr/share/licenses/$PACKAGE_NAME
 doc_dir=$stage_dir/usr/share/doc/$PACKAGE_NAME
+contracts_dir=$doc_dir/docs/contracts
+rmdeps_contract_file=$contracts_dir/source-build-rmdeps.md
 migration_dir=$doc_dir/docs/migration
 licensing_file=$doc_dir/docs/LICENSING.md
 config_sample_file=$doc_dir/examples/config.toml
@@ -291,6 +293,8 @@ assert_package_artifacts_installed() {
         "$config_sample_file"
     assert_installed_file "$repo_root/docs/LICENSING.md" \
         "$licensing_file"
+    assert_installed_file "$repo_root/docs/contracts/source-build-rmdeps.md" \
+        "$rmdeps_contract_file"
     assert_installed_file "$repo_root/docs/migration/v1-to-v2.md" \
         "$migration_dir/v1-to-v2.md"
     assert_installed_file "$repo_root/docs/migration/v1-to-v2.ja.md" \
@@ -335,6 +339,7 @@ assert_package_artifacts_absent() {
         "$doc_dir/THIRD_PARTY_NOTICES.md" \
         "$config_sample_file" \
         "$licensing_file" \
+        "$rmdeps_contract_file" \
         "$migration_dir/v1-to-v2.md" \
         "$migration_dir/v1-to-v2.ja.md"
     do
@@ -495,6 +500,8 @@ custom_japanese_man=$custom_stage_dir$custom_jamandir/$COMMAND_NAME.1
 custom_catalog=$custom_stage_dir$custom_localedir/ja/LC_MESSAGES/$GETTEXT_DOMAIN.mo
 custom_license_dir=$custom_stage_dir$custom_licensedir
 custom_doc_dir=$custom_stage_dir$custom_docdir
+custom_contracts_dir=$custom_doc_dir/docs/contracts
+custom_rmdeps_contract=$custom_contracts_dir/source-build-rmdeps.md
 custom_migration_dir=$custom_doc_dir/docs/migration
 custom_config_sample=$custom_doc_dir/examples/config.toml
 
@@ -545,6 +552,8 @@ assert_installed_file "$repo_root/sample/config.toml" \
     "$custom_config_sample"
 assert_installed_file "$repo_root/docs/LICENSING.md" \
     "$custom_doc_dir/docs/LICENSING.md"
+assert_installed_file "$repo_root/docs/contracts/source-build-rmdeps.md" \
+    "$custom_rmdeps_contract"
 assert_installed_file "$repo_root/docs/migration/v1-to-v2.md" \
     "$custom_migration_dir/v1-to-v2.md"
 assert_installed_file "$repo_root/docs/migration/v1-to-v2.ja.md" \
@@ -585,6 +594,7 @@ for custom_owned_file in \
     "$custom_doc_dir/THIRD_PARTY_NOTICES.md" \
     "$custom_config_sample" \
     "$custom_doc_dir/docs/LICENSING.md" \
+    "$custom_rmdeps_contract" \
     "$custom_migration_dir/v1-to-v2.md" \
     "$custom_migration_dir/v1-to-v2.ja.md"
 do

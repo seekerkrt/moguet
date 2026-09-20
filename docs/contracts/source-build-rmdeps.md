@@ -557,4 +557,4 @@ Slice 5のassessmentはinternal resultであり、public output、preview、prom
 
 ## Compatibility
 
-利用者向け互換性は[compatibility](../compatibility.md#compat-rmdeps)も参照。
+利用者向け互換性はrepositoryの `docs/compatibility.md`（`compat-rmdeps` section）も参照。
