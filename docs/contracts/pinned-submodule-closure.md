@@ -17,8 +17,16 @@ cannot construct this owner. Its opaque backing has no construction friendship.
 `PresentationDetail` is an explicit invocation-local command presentation input.
 It is passed to the root-tag command owner without being retained in the returned
 closure or affecting selection, acquisition, identity, validity or failure policy.
-Issue #595 Slice 1 preserves the existing command display and state-log `EXEC`
-bytes for both Normal and Detailed.
+Issue #595 Slice 2 presents only the root-tag bulk exact-object fetch as an
+operation summary in Normal, counting distinct additional raw objects from the
+same deduplication set that appends fetch operands (excluding the already fetched
+root X). Detailed renders the actual executable and complete argv with
+`shell_words` quoting, including the trusted Git options. Execution remains
+structured; this text does not serialize the environment or directory descriptors.
+Both modes persist that same command in `EXEC`. Logger diagnostic capture retains
+the terminal message and command separately and replays each once. Short commands
+keep their existing presentation. The summary precedes the bulk fetch on failure
+as well as success; typed process failures and cleanup remain unchanged.
 
 Only the root uses a remote selector observation: the evaluated default requests
 `HEAD`, while an evaluated explicit branch requests its exact `refs/heads/...`.

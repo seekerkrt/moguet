@@ -36,8 +36,10 @@ execution result、returned closure、source/tag/snapshot identityやpersistent 
 modeはexecution choice、validity、argv、timeout、failure分類を決定しない。
 
 CLI relationの追加はremote `build --details`だけとし、local buildやplain/delegated pacman route等の
-既存rejectを維持する。Slice 1ではNormal / Detailedとも従来のcommand文字列を`Logger::raw_cmd`へ渡し、
-terminal表示とstate-log `EXEC`を維持する。compact表示とexact loggingの分離は後続Sliceの責務とする。
+既存rejectを維持する。Slice 2のroot-tag一括fetchだけはNormalでoperationと追加object数を表示し、
+Detailedとstate-log `EXEC`にはactual executable / argvのescaped表現を渡す。
+terminal表示とexact command recordの分離・件数authorityは
+[closure contract](pinned-submodule-closure.md#input-and-revision-authority)を正とする。
 
 ## Initial subset / intent policy
 

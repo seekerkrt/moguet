@@ -1384,6 +1384,27 @@ std::size_t count_text_occurrences(
     return count;
 }
 
+void test_logger_command_presentation_preserves_exec() {
+    const std::string command = "'/usr/bin/git' 'fetch' '--' 'https://example.test/upstream.git' 'exact-object'";
+    for(const std::string& presentation : {std::string("compact-summary"), "Running: " + command}) {
+        PreparedStateFixture fixture;
+        ScopedLoggerReset logger_reset;
+        ScopedStreamCapture stdout_capture(std::cout);
+        auto log_file = state_log::open_default_state_log(fixture.paths(), fixture.directory());
+        Logger::init(std::move(log_file), "command-started");
+        Logger::command(command, presentation);
+        Logger::shutdown();
+        const auto lines = read_lines(fixture.paths().default_log_file);
+        expect(lines.size() == 2, "Command presentation changed persistent record cardinality.");
+        expect_log_record(lines[1], "EXEC", command);
+        expect(stdout_capture.str().find(presentation) != std::string::npos,
+               "Command terminal presentation was lost.");
+        if(presentation == "compact-summary")
+            expect(stdout_capture.str().find(command) == std::string::npos,
+                   "Compact terminal presentation leaked exact command.");
+    }
+}
+
 void test_logger_diagnostic_capture_replays_once_and_releases_scope() {
     PreparedStateFixture fixture;
     ScopedLoggerReset logger_reset;
@@ -1395,6 +1416,7 @@ void test_logger_diagnostic_capture_replays_once_and_releases_scope() {
     Logger::warn("captured-warning");
     Logger::error("captured-error");
     Logger::raw_cmd("captured-command");
+    Logger::command("exact-bulk-command", "compact-bulk-summary");
     expect(
         stdout_capture.str().empty() && stderr_capture.str().empty(),
         "Diagnostic capture emitted before replay.");
@@ -1409,13 +1431,17 @@ void test_logger_diagnostic_capture_replays_once_and_releases_scope() {
 
     const std::vector<std::string> lines =
         read_lines(fixture.paths().default_log_file);
-    expect(lines.size() == 5, "Captured diagnostics were lost or duplicated.");
+    expect(lines.size() == 6, "Captured diagnostics were lost or duplicated.");
     expect_log_record(lines[0], "INFO", "capture-started");
     expect_log_record(lines[1], "INFO", "captured-info");
     expect_log_record(lines[2], "WARN", "captured-warning");
     expect_log_record(lines[3], "ERROR", "captured-error");
     expect_log_record(lines[4], "EXEC", "captured-command");
+    expect_log_record(lines[5], "EXEC", "exact-bulk-command");
     const std::string stdout_text = stdout_capture.str();
+    expect(count_text_occurrences(stdout_text, "compact-bulk-summary") == 1 &&
+               stdout_text.find("exact-bulk-command") == std::string::npos,
+           "Captured command presentation leaked EXEC or lost its summary.");
     expect(
         stdout_text.find("capture-started") <
                 stdout_text.find("captured-info") &&
@@ -1802,6 +1828,9 @@ int main() {
         run_case(
             "Logger diagnostic capture one-shot scope",
             test_logger_diagnostic_capture_replays_once_and_releases_scope);
+        run_case(
+            "Logger command presentation preserves EXEC",
+            test_logger_command_presentation_preserves_exec);
         run_case(
             "Logger invalid descriptor adoption rejection",
             test_logger_rejects_invalid_descriptor_flags_without_consuming_owner);

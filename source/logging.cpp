@@ -76,8 +76,9 @@ void ScopedLoggerDiagnosticCapture::stop() noexcept {
 }
 
 void ScopedLoggerDiagnosticCapture::capture(
-    LoggerDiagnosticLevel level, const std::string& message) {
-    events_.push_back(LoggerDiagnosticEvent{level, message});
+    LoggerDiagnosticLevel level, const std::string& message,
+    const std::string& command_presentation) {
+    events_.push_back(LoggerDiagnosticEvent{level, message, command_presentation});
 }
 
 void ScopedLoggerDiagnosticCapture::replay() {
@@ -97,16 +98,17 @@ void ScopedLoggerDiagnosticCapture::replay() {
                 Logger::error(event.message);
                 break;
             case LoggerDiagnosticLevel::Command:
-                Logger::raw_cmd(event.message);
+                Logger::command(event.message, event.command_presentation);
                 break;
         }
     }
 }
 
 bool Logger::capture_diagnostic(
-    LoggerDiagnosticLevel level, const std::string& message) {
+    LoggerDiagnosticLevel level, const std::string& message,
+    const std::string& command_presentation) {
     if(active_diagnostic_capture == nullptr) return false;
-    active_diagnostic_capture->capture(level, message);
+    active_diagnostic_capture->capture(level, message, command_presentation);
     return true;
 }
 
@@ -241,13 +243,14 @@ void Logger::error(const std::string& msg) {
 }
 
 void Logger::raw_cmd(const std::string& cmd) {
-    if(capture_diagnostic(LoggerDiagnosticLevel::Command, cmd)) return;
     // TRANSLATORS: The placeholder is an exact shell command and must remain
     // byte-for-byte locale-neutral.
-    diagnostic_stream() << "\033[1;33m::\033[0m "
-                        << localization::format_translated_message(
-                               "Running: {}", cmd)
-                        << std::endl;
+    command(cmd, localization::format_translated_message("Running: {}", cmd));
+}
+
+void Logger::command(const std::string& cmd, const std::string& terminal_message) {
+    if(capture_diagnostic(LoggerDiagnosticLevel::Command, cmd, terminal_message)) return;
+    diagnostic_stream() << "\033[1;33m::\033[0m " << terminal_message << std::endl;
     // NO_TRANSLATE: EXEC is a stable state-log schema token.
     write_log_record("EXEC", cmd);
 }

@@ -43,6 +43,7 @@ enum class LoggerDiagnosticLevel {
 struct LoggerDiagnosticEvent {
     LoggerDiagnosticLevel level = LoggerDiagnosticLevel::Info;
     std::string message;
+    std::string command_presentation;
 };
 
 // Synchronous route preparation can retain diagnostics without touching the
@@ -67,7 +68,8 @@ public:
 private:
     friend class Logger;
 
-    void capture(LoggerDiagnosticLevel level, const std::string& message);
+    void capture(LoggerDiagnosticLevel level, const std::string& message,
+                 const std::string& command_presentation);
 
     std::vector<LoggerDiagnosticEvent> events_;
     bool active_ = false;
@@ -77,7 +79,8 @@ private:
 // CLI 表示と log file 出力をまとめる薄い logger。
 class Logger {
     static bool capture_diagnostic(
-        LoggerDiagnosticLevel level, const std::string& message);
+        LoggerDiagnosticLevel level, const std::string& message,
+        const std::string& command_presentation = {});
     static void write_log_record(
         std::string_view level, const std::string& message);
     static void adopt_state_log_backend(
@@ -113,6 +116,9 @@ public:
     }
     static void error(const std::string& msg);
     static void raw_cmd(const std::string& cmd);
+    // The terminal message is presentation only; EXEC always retains cmd.
+    // Diagnostic capture/replay preserves both without emitting either early.
+    static void command(const std::string& cmd, const std::string& terminal_message);
 
 #ifdef MOGUET_TEST_XDG_STATE_LOG_HOOKS
     static int state_log_descriptor_for_test() noexcept;

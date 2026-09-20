@@ -2,6 +2,8 @@
 #include "git_remote_revision_observer.hpp"
 #include "trusted_git_process_policy.hpp"
 #include "logging.hpp"
+#include "localization.hpp"
+#include "shell_words.hpp"
 
 #include <algorithm>
 #include <array>
@@ -26,6 +28,10 @@ using Clock = std::chrono::steady_clock;
 using Stage = PinnedClosureStage;
 using Reason = PinnedClosureFailureReason;
 
+struct RootTagCommandPresentation {
+    PresentationDetail detail;
+    std::size_t additional_objects;
+};
 
 // Post-fetch storage bounds are not hard network or disk quotas.
 constexpr std::size_t MAX_ENTRIES = 262144;
@@ -467,7 +473,8 @@ struct PinnedSubmoduleClosureData {
         lineage();
     }
     std::string run(Stage stage, std::optional<std::size_t> repository, std::vector<std::string> operation,
-                    std::size_t limit, bool initializing = false) {
+                    std::size_t limit, bool initializing = false,
+                    std::optional<RootTagCommandPresentation> root_tag_presentation = std::nullopt) {
         active = stage;
         notify(stage, root_path);
         check();
@@ -481,6 +488,26 @@ struct PinnedSubmoduleClosureData {
         ExplicitProcessInvocation invocation{"/usr/bin/git", std::move(arguments), environment};
         invocation.working_directory_fd = repository ? repositories.at(*repository).descriptor.get() : root.get();
         invocation.standard_input_fd = input.get();
+        if(root_tag_presentation) {
+            // Project the actual executable/argv, including trusted Git options.
+            // This serialization is diagnostic only; execution stays structured.
+            const auto command = shell_words::quote(invocation.executable) + " " + shell_words::join(invocation.arguments);
+#ifdef MOGUET_ENABLE_PINNED_SUBMODULE_CLOSURE_TEST_HOOKS
+            if(g_hooks.root_tag_command) g_hooks.root_tag_command(root_tag_presentation->detail, command);
+#endif
+            switch(root_tag_presentation->detail) {
+                case PresentationDetail::Normal:
+                    // TRANSLATORS: The placeholder counts distinct additional raw Git objects, not tag names.
+                    Logger::command(command, localization::format_translated_message(
+                                                 "Fetching root upstream tag objects ({} objects)",
+                                                 root_tag_presentation->additional_objects));
+                    break;
+                case PresentationDetail::Detailed:
+                    Logger::raw_cmd(command);
+                    break;
+            }
+        }
+        // Terminal and state-log I/O must consume the acquisition budget too.
         const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - Clock::now());
         if(remaining.count() <= 0) fail(active, Reason::ResourceLimitExceeded);
         const BoundedProcessPolicy policy{remaining, std::chrono::milliseconds(200), limit, true, false};
@@ -577,28 +604,18 @@ struct PinnedSubmoduleClosureData {
         // ref-free, including for annotated and non-reachable tags.
         std::set<std::string> fetched{root_oid.value()};
         std::vector<std::string> fetch{"fetch", "--no-tags", "--no-recurse-submodules", "--no-auto-maintenance", "--no-write-commit-graph", "--no-write-fetch-head", "--", locator};
-        std::string displayed = "git fetch --no-tags --no-recurse-submodules " + locator;
         for(const auto& tag : root_tags) {
             if(fetched.insert(tag.raw().value()).second) {
                 fetch.push_back(tag.raw().value());
-                displayed += " " + tag.raw().value();
             }
         }
         // One bounded argv (at most root_tags full OIDs) avoids a separate
         // HTTPS negotiation per tag without ever resolving a name again.
         if(fetched.size() > 1) {
-#ifdef MOGUET_ENABLE_PINNED_SUBMODULE_CLOSURE_TEST_HOOKS
-            if(g_hooks.root_tag_command) g_hooks.root_tag_command(presentation_detail, displayed);
-#endif
-            // Slice 1 only connects the policy. Preserve both terminal bytes
-            // and the exact-command EXEC record owned by raw_cmd for now.
-            switch(presentation_detail) {
-                case PresentationDetail::Normal:
-                case PresentationDetail::Detailed:
-                    Logger::raw_cmd(displayed);
-                    break;
-            }
-            run(Stage::RootAcquisition, index, std::move(fetch), 65536);
+            // The same insertion decision appends argv and counts objects;
+            // the initial root X is already fetched and is not additional.
+            run(Stage::RootAcquisition, index, std::move(fetch), 65536, false,
+                RootTagCommandPresentation{presentation_detail, fetched.size() - 1});
         }
         std::vector<std::string> proof{"fsck", "--strict", "--no-reflogs", "--no-dangling", root_oid.value()};
         for(const auto& tag : root_tags)
