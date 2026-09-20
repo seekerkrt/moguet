@@ -610,6 +610,20 @@ std::string child_outcome_label(
     }
     switch(status) {
         case AurUpdateChildExecutionStatus::BootstrapSkipped:
+            // Dependency work skipped with an independent root may have no
+            // decision of its own. Never infer one from prompt text or argv.
+            if(work_item.bootstrap_decision) {
+                switch(work_item.bootstrap_decision->state) {
+                    case AurUpdateBootstrapDecisionState::Declined:
+                        return localization::translate_message("skipped: devel tracking bootstrap was declined; rerun when ready to review the source");
+                    case AurUpdateBootstrapDecisionState::InteractionUnavailable:
+                        return localization::translate_message("skipped: devel tracking bootstrap interaction was unavailable; enable interactive source review before retrying");
+                    case AurUpdateBootstrapDecisionState::ObservationChanged:
+                        return localization::translate_message("skipped: source/update observation changed before bootstrap; re-check the current state before retrying");
+                    case AurUpdateBootstrapDecisionState::Accepted:
+                        break;
+                }
+            }
             return localization::translate_message("skipped: devel tracking bootstrap");
         case AurUpdateChildExecutionStatus::Installed:
             return localization::translate_message("installed / updated");

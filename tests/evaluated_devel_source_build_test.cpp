@@ -13,6 +13,7 @@
 #ifdef MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
 #include "aur_devel_update.hpp"
 #include "system_aur_update_operation.hpp"
+#include "aur_update_cli_presentation.hpp"
 #include "commands_aur_update.hpp"
 #include "commands_sync.hpp"
 #include "cli_parser.hpp"
@@ -4548,6 +4549,29 @@ done
                         "bootstrap decline/unavailable lost RequiresCheck skip");
                 require(build_entries == 0 && execute_calls == 0 && g_bridge_publication_entries == 0, "unaccepted bootstrap mutated package/provenance");
                 require(cache_before == bootstrap_cache_snapshot(old_cache), "unaccepted bootstrap mutated checkout/cache");
+                present_filtered_aur_update_execution_result(filtered);
+                if(mode == "non-tty" || mode == "noconfirm")
+                    require(!target.bootstrap_decision, "ineligible bootstrap invented a decision");
+                if(mode == "decline") {
+                    // Projection-only evidence for interaction lost after candidate
+                    // observation. Ordinary non-TTY skips never acquire a trial.
+                    auto unavailable_execution = *filtered.execution;
+                    unavailable_execution.work_item_results[bootstrap_index].bootstrap_decision =
+                        AurUpdateBootstrapDecision{AurUpdateBootstrapDecisionState::InteractionUnavailable, std::nullopt};
+                    const auto unavailable = reduce_aur_update_operation_result(
+                        filtered.preflight, filtered.preparation, DevelRequiresCheckPolicy::SkipIndependentTarget, unavailable_execution);
+                    require(unavailable.is_success() && unavailable.reduction_issues.empty() &&
+                                unavailable.targets[bootstrap_index].bootstrap_decision &&
+                                unavailable.targets[bootstrap_index].bootstrap_decision->state == AurUpdateBootstrapDecisionState::InteractionUnavailable,
+                            "retained unavailable decision lost through reduction");
+                    const auto presentation = format_aur_update_cli_presentation(unavailable);
+                    require(presentation.error_lines.empty() &&
+                                std::count_if(presentation.summary_lines.begin(), presentation.summary_lines.end(), [](const auto& line) {
+                                    return line.find("devel tracking bootstrap interaction was unavailable; enable interactive source review before retrying") != std::string::npos;
+                                }) == 1,
+                            "retained unavailable decision lost actionable presentation");
+                    std::cout << "S607 retained InteractionUnavailable projection PASS\n";
+                }
             } else {
                 require(!result.is_success(), "failed/cancelled bootstrap became success");
                 present_filtered_aur_update_execution_result(filtered);

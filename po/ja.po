@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.8.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-20 17:16+0900\n"
+"POT-Creation-Date: 2026-09-21 06:24+0900\n"
 "PO-Revision-Date: 2026-09-19 17:53+0900\n"
 "Last-Translator: Moguet contributors\n"
 "Language-Team: Japanese\n"
@@ -944,6 +944,15 @@ msgstr "トランザクション結果は不明です。インストールされ
 
 msgid "transaction failed; package effects unverified"
 msgstr "トランザクションは失敗しました。パッケージへの影響は未検証です"
+
+msgid "skipped: devel tracking bootstrap was declined; rerun when ready to review the source"
+msgstr "スキップ: 開発版追跡の初期登録が辞退されました。ソースをレビューできるときに再実行してください"
+
+msgid "skipped: devel tracking bootstrap interaction was unavailable; enable interactive source review before retrying"
+msgstr "スキップ: 開発版追跡の初期登録に必要な対話を利用できませんでした。再試行前に対話形式のソースレビューを有効にしてください"
+
+msgid "skipped: source/update observation changed before bootstrap; re-check the current state before retrying"
+msgstr "スキップ: 初期登録前にソース・更新の観測が変わりました。再試行前に現在の状態を確認し直してください"
 
 msgid "skipped: devel tracking bootstrap"
 msgstr "スキップ: devel追跡の初期化"
@@ -2614,8 +2623,8 @@ msgstr "devel追跡の基準情報を作成しました"
 msgid "updated"
 msgstr "更新済み"
 
-msgid "no change"
-msgstr "変更なし"
+msgid "no package change"
+msgstr "パッケージの変更なし"
 
 msgid "skipped"
 msgstr "スキップ"
@@ -2691,6 +2700,9 @@ msgstr "{}更新の問い合わせが{}に対して失敗しました: {}"
 msgid "{} update:"
 msgstr "{}更新:"
 
+msgid "Attention-required details:"
+msgstr "確認が必要な詳細:"
+
 #. TRANSLATORS: AUR is a runtime project identity.
 #, c++-format
 msgid "{} update partially completed before failure."
@@ -2700,6 +2712,11 @@ msgstr "{}更新は失敗前に一部完了しました。"
 #, c++-format
 msgid "{} update cleanup failed after a package transaction."
 msgstr "{}更新ではパッケージ処理後の後処理に失敗しました。"
+
+#. TRANSLATORS: The placeholders are the PackageBase metadata key and identity.
+#, c++-format
+msgid "Source acquisition/review workspace cleanup failed for {} {}; temporary source data may remain."
+msgstr "{} {} のソース取得・レビュー用作業領域の後処理に失敗しました。一時ソースデータが残っている可能性があります。"
 
 #. TRANSLATORS: AUR is a runtime project identity.
 #, c++-format
@@ -2903,9 +2920,6 @@ msgstr "  項目: 全{}件、通常{}件、要確認{}件"
 #, c++-format
 msgid "  normal unconstrained dependencies: {}"
 msgstr "  通常の制約なし依存関係: {}"
-
-msgid "Attention-required details:"
-msgstr "確認が必要な詳細:"
 
 msgid "<plan-wide>"
 msgstr "<プラン全体>"
@@ -3187,6 +3201,64 @@ msgstr "ソースパッケージを確認しています..."
 
 msgid "Unknown system/source upgrade event kind."
 msgstr "不明なシステム/ソース更新イベント種別です。"
+
+msgid "Not attempted"
+msgstr "未試行"
+
+msgid "Unknown registered source outcome."
+msgstr "登録済みソースの結果が不明です。"
+
+#, c++-format
+msgid "{} summary:"
+msgstr "{}の概要:"
+
+msgid "Completed"
+msgstr "完了"
+
+#, c++-format
+msgid "  repository system upgrade: {}"
+msgstr "  リポジトリのシステム更新: {}"
+
+msgid "Changed"
+msgstr "変更あり"
+
+msgid "Verified unchanged"
+msgstr "変更なしを確認"
+
+msgid "Unverified"
+msgstr "未検証"
+
+msgid "Not observed"
+msgstr "未観測"
+
+#, c++-format
+msgid "  repository package state observation: {}"
+msgstr "  リポジトリパッケージ状態の観測: {}"
+
+#, c++-format
+msgid "  registered source: {}"
+msgstr "  登録済みソース: {}"
+
+msgid "The system/source upgrade partially completed; completed phases were not rolled back."
+msgstr "システム・ソース更新は一部完了しました。完了した段階はロールバックされていません。"
+
+msgid "Requires check: repository package state could not be verified."
+msgstr "要確認: リポジトリパッケージの状態を検証できませんでした。"
+
+msgid "    Skipped: explicit rebuild was not accepted; inspect devel source metadata before rebuilding."
+msgstr "    スキップ: 明示的な再ビルドが承認されませんでした。再ビルド前に開発版ソースのメタデータを確認してください。"
+
+msgid "    Skipped: update status is unknown; inspect source metadata before rebuilding."
+msgstr "    スキップ: 更新状態が不明です。再ビルド前にソースのメタデータを確認してください。"
+
+msgid "    Inspect the retained build, install and provenance outcomes before retrying."
+msgstr "    再試行前に、保持されたビルド・インストール・来歴の各結果を確認してください。"
+
+msgid "    Package state is unverified; inspect installed packages before retrying."
+msgstr "    パッケージ状態は未検証です。再試行前にインストール済みパッケージを確認してください。"
+
+msgid "    Cleanup failed after a package transaction; inspect the retained result before retrying."
+msgstr "    パッケージ処理後の後処理に失敗しました。再試行前に保持された結果を確認してください。"
 
 #, c++-format
 msgid "  required child: {} -> {} {} (explicit): installed"
@@ -4452,26 +4524,11 @@ msgstr "操作不要"
 msgid "Partial failure"
 msgstr "部分的失敗"
 
-msgid "Not attempted"
-msgstr "未試行"
-
 msgid "Inconsistent"
 msgstr "不整合"
 
 msgid "Unknown operation outcome."
 msgstr "操作結果が不明です。"
-
-msgid "Changed"
-msgstr "変更あり"
-
-msgid "Verified unchanged"
-msgstr "変更なしを確認"
-
-msgid "Unverified"
-msgstr "未検証"
-
-msgid "Not observed"
-msgstr "未観測"
 
 msgid "Unknown package-state observation."
 msgstr "パッケージ状態の観測が不明です。"
@@ -4628,10 +4685,6 @@ msgstr "表示境界の理由が不明です。"
 #, c++-format
 msgid "{} work-item failure"
 msgstr "{}作業項目の失敗"
-
-#, c++-format
-msgid "{} summary:"
-msgstr "{}の概要:"
 
 #, c++-format
 msgid "  operation outcome: {}"
@@ -9830,6 +9883,9 @@ msgstr "{}のデフォルト状態ログを段階{}で安全に使用できま�
 msgid "Unknown state log error code."
 msgstr "不明な状態ログエラーコードです。"
 
+#~ msgid "no change"
+#~ msgstr "変更なし"
+
 #~ msgid "Unsupported for separated source builds; no dependency cleanup is performed"
 #~ msgstr "分離されたソースビルドでは未対応です。依存パッケージは削除しません"
 
@@ -9981,9 +10037,6 @@ msgstr "不明な状態ログエラーコードです。"
 #~ msgid "Interactive package selection has an unknown input gate."
 #~ msgstr "対話形式のパッケージ選択の入力ゲートが不明です。"
 
-#~ msgid "no package state change"
-#~ msgstr "パッケージ状態の変更なし"
-
 #~ msgid "package state changed"
 #~ msgstr "パッケージ状態が変更されました"
 
@@ -10023,10 +10076,6 @@ msgstr "不明な状態ログエラーコードです。"
 
 #~ msgid "<unknown preference>"
 #~ msgstr "<不明な設定>"
-
-#, c++-format
-#~ msgid "registered source: {}: {}"
-#~ msgstr "登録済みソース: {}: {}"
 
 #, c++-format
 #~ msgid "The {} phase is {} without a typed reason."

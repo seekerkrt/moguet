@@ -1864,13 +1864,13 @@ void print_operation_result(const UpgradeAllOperationResult& result) {
     // remain orthogonal. Normal items are aggregated before attention detail.
     print_upgrade_all_summary(
         operation_state, phase_observations, runtime_presentation);
+    print_upgrade_all_attention(runtime_presentation);
     print_system_reviewed_source_outcomes(result.system_source);
     if(presentation != nullptr) {
         for(const std::string& line : presentation->summary_lines) {
             std::cout << line << std::endl;
         }
     }
-    print_upgrade_all_attention(runtime_presentation);
     print_cross_source_version_lock_correlation(result);
     print_duplicate_exclusions(result);
     print_external_satisfaction(result);

@@ -538,4 +538,34 @@ if "$msgfmt_command" --check --check-format --check-domain \
     fail 'msgfmt accepted a catalog with mismatched C++ format placeholders.'
 fi
 
+
+# #607: normal update outcomes, attention, and bootstrap actions must survive
+# compilation into the Japanese catalog (including fuzzy exclusion behavior).
+python3 - "$catalog_dir" <<'PY_CATALOG'
+import gettext
+import sys
+from pathlib import Path
+with (Path(sys.argv[1]) / "ja/LC_MESSAGES/moguet.mo").open("rb") as stream:
+    catalog = gettext.GNUTranslations(stream)
+expected = {
+    "skipped: devel tracking bootstrap was declined; rerun when ready to review the source": "スキップ: 開発版追跡の初期登録が辞退されました。ソースをレビューできるときに再実行してください",
+    "skipped: devel tracking bootstrap interaction was unavailable; enable interactive source review before retrying": "スキップ: 開発版追跡の初期登録に必要な対話を利用できませんでした。再試行前に対話形式のソースレビューを有効にしてください",
+    "skipped: source/update observation changed before bootstrap; re-check the current state before retrying": "スキップ: 初期登録前にソース・更新の観測が変わりました。再試行前に現在の状態を確認し直してください",
+    "Completed": "完了",
+    "no package change": "パッケージの変更なし",
+    "Requires check": "確認が必要",
+    "Partial failure": "部分的失敗",
+    "Not attempted": "未試行",
+    "Attention-required details:": "確認が必要な詳細:",
+    "The system/source upgrade partially completed; completed phases were not rolled back.": "システム・ソース更新は一部完了しました。完了した段階はロールバックされていません。",
+    "{} update cleanup failed after a package transaction.": "{}更新ではパッケージ処理後の後処理に失敗しました。",
+    "Source acquisition/review workspace cleanup failed for {} {}; temporary source data may remain.": "{} {} のソース取得・レビュー用作業領域の後処理に失敗しました。一時ソースデータが残っている可能性があります。"
+}
+for message, translated in expected.items():
+    actual = catalog.gettext(message)
+    if actual != translated:
+        raise SystemExit(f"update catalog semantic mismatch: {message!r}: {actual!r}")
+print("update presentation EN/JA compiled-catalog parity passed")
+PY_CATALOG
+
 printf 'localization-test: all checks passed\n'

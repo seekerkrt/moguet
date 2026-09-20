@@ -157,6 +157,7 @@ setup_case() {
     unset MOGUET_TEST_PACMAN_Q_OUTPUT_FILE
     unset MOGUET_TEST_PACMAN_Q_EXIT_CODE
     unset MOGUET_TEST_PACMAN_QM_OUTPUT
+    unset MOGUET_TEST_REGISTERED_DEVEL_STATE
     unset MOGUET_TEST_APP_CONFIG_CASE
     unset MOGUET_TEST_RELEASE_STATE_LOG_BEFORE_DISPATCH
     unset MOGUET_TEST_GIT_REMOTE_URL
@@ -2548,6 +2549,54 @@ assert_output_before \
     "  produced artifact: registered-child-debug 4.2-3 (not selected; not installed)" \
     "$output_file"
 
+# RequiresCheck remains a successful legacy skip with final identity/reason.
+for check_answer in explicit-no noninteractive noconfirm; do
+    setup_upgrade_transition_case "upgrade-requires-check-$check_answer" \
+        1.0-1 1.0-1 enabled https://aur.archlinux.org/clean-root.git
+    export MOGUET_TEST_REGISTERED_DEVEL_STATE=check
+    if [ "$check_answer" = explicit-no ]; then
+        refresh_repository_metadata_fixture
+        printf 'n\n' > "$case_dir/answer"
+        if ! PATH=$upgrade_metadata_path python3 "$repo_root/tests/run-with-pty.py" -- \
+            "$upgrade_metadata_test_binary" --noedit --nodiff upgrade \
+            < "$case_dir/answer" > "$output_file" 2>&1; then
+            cat "$output_file" >&2
+            exit 1
+        fi
+    elif [ "$check_answer" = noconfirm ]; then
+        run_upgrade_ok --noedit --nodiff --noconfirm upgrade
+    else
+        run_upgrade_ok --noedit --nodiff upgrade
+    fi
+    assert_contains "  registered source: Requires check [source=aur, package=clean-root, PackageBase=clean-root]" "$output_file"
+    assert_contains "Skipped: explicit rebuild was not accepted; inspect devel source metadata before rebuilding." "$output_file"
+    assert_output_before "upgrade summary:" "Attention-required details:" "$output_file"
+    assert_output_before "Attention-required details:" "  registered source: Requires check" "$output_file"
+    assert_not_contains "No operation needed" "$output_file"
+    assert_not_contains "Cancelled" "$output_file"
+    assert_command_content_absent "makepkg"
+    assert_command_content_absent "pacman -U"
+done
+
+# A confirmation exception does not return aggregate evidence (F9).
+setup_upgrade_transition_case upgrade-requires-check-cancel \
+    1.0-1 1.0-1 enabled https://aur.archlinux.org/clean-root.git
+export MOGUET_TEST_REGISTERED_DEVEL_STATE=check
+refresh_repository_metadata_fixture
+printf 'q\n' > "$case_dir/answer"
+if ! validation_expect_status upgrade-requires-check-cancel 1 \
+    "$output_file" "$output_file" env PATH="$upgrade_metadata_path" \
+    python3 "$repo_root/tests/run-with-pty.py" -- \
+    "$upgrade_metadata_test_binary" --noedit --nodiff upgrade < "$case_dir/answer"; then
+    cat "$output_file" >&2
+    exit 1
+fi
+assert_contains "Cancelled:" "$output_file"
+assert_not_contains "upgrade summary:" "$output_file"
+assert_not_contains "registered source: Not attempted" "$output_file"
+assert_command_content_absent "makepkg"
+assert_command_content_absent "pacman -U"
+
 setup_case upgrade-first-runtime-source-failure-stops-later-source
 for package in beta alpha; do
     : > "$preference_dir/$package"
@@ -2561,6 +2610,12 @@ assert_command "sudo pacman -Syu --noconfirm"
 assert_command "git clone https://gitlab.archlinux.org/archlinux/packaging/packages/$preference_first.git $preference_first"
 assert_command_absent "git clone https://gitlab.archlinux.org/archlinux/packaging/packages/$preference_second.git $preference_second"
 assert_contains "Failed while building/installing PackageBase $preference_first ($preference_first): Failed to clone $preference_first" "$output_file"
+assert_contains "  repository system upgrade: Completed" "$output_file"
+assert_contains "The system/source upgrade partially completed; completed phases were not rolled back." "$output_file"
+assert_contains "  registered source: Execution failure [source=repository-source, repository=core, package=$preference_first, PackageBase=$preference_first]" "$output_file"
+assert_contains "  registered source: Not attempted [source=repository-source, repository=core, package=$preference_second, PackageBase=$preference_second]" "$output_file"
+assert_output_before "upgrade summary:" "Attention-required details:" "$output_file"
+
 assert_not_contains "Processing $preference_second..." "$output_file"
 assert_command_occurrence_before "sudo pacman -Syu --noconfirm" 1 \
     "git clone https://gitlab.archlinux.org/archlinux/packaging/packages/$preference_first.git $preference_first" 1
@@ -2588,6 +2643,12 @@ assert_command_count "makepkg --packagelist" 1
 assert_command_count "makepkg -sc --noconfirm" 1
 assert_command_prefix_count "sudo pacman -U --noconfirm -- " 1
 assert_cleanup_partial_success_fixture "$install_success_log"
+assert_contains "  registered source: updated, but cleanup failed" "$output_file"
+assert_contains "  registered source: Not attempted" "$output_file"
+assert_contains "Cleanup failed after a package transaction; inspect the retained result before retrying." "$output_file"
+assert_output_before "upgrade summary:" "Attention-required details:" "$output_file"
+assert_output_before "Attention-required details:" "Package installation succeeded, but artifact workspace cleanup failed:" "$output_file"
+
 
 # PR2 contract: strict readerはread不能なregistered preferenceをempty
 # environmentへ丸めず、system/source mutation前にtyped preparation failureとする。
