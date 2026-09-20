@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.8.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-20 16:30+0900\n"
+"POT-Creation-Date: 2026-09-20 17:30+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -980,6 +980,140 @@ msgstr ""
 #. TRANSLATORS: The placeholder is a package name.
 #, c++-format
 msgid "  required child: {}"
+msgstr ""
+
+msgid "input validation"
+msgstr ""
+
+msgid "workspace creation"
+msgstr ""
+
+msgid "root source observation"
+msgstr ""
+
+msgid "root source acquisition"
+msgstr ""
+
+msgid "submodule declarations"
+msgstr ""
+
+msgid "submodule acquisition"
+msgstr ""
+
+msgid "object verification"
+msgstr ""
+
+msgid "recursive source traversal"
+msgstr ""
+
+msgid "cleanup"
+msgstr ""
+
+msgid "unknown source acquisition stage"
+msgstr ""
+
+msgid "invalid source selection"
+msgstr ""
+
+msgid "unsupported source transport"
+msgstr ""
+
+msgid "malformed source observation"
+msgstr ""
+
+msgid "submodule declaration mismatch"
+msgstr ""
+
+msgid "malformed submodule declaration"
+msgstr ""
+
+msgid "unsupported submodule update policy"
+msgstr ""
+
+msgid "unsafe source path"
+msgstr ""
+
+msgid "pinned source object unavailable"
+msgstr ""
+
+msgid "unexpected source object type"
+msgstr ""
+
+msgid "source object format mismatch"
+msgstr ""
+
+msgid "malformed source tree"
+msgstr ""
+
+msgid "unsafe source filesystem"
+msgstr ""
+
+msgid "source identity changed"
+msgstr ""
+
+msgid "malformed source repository"
+msgstr ""
+
+msgid "source acquisition resource limit exceeded"
+msgstr ""
+
+msgid "source acquisition cancelled"
+msgstr ""
+
+#, c++-format
+msgid "{} process failed"
+msgstr ""
+
+msgid "source acquisition I/O failure"
+msgstr ""
+
+msgid "source workspace creation failed"
+msgstr ""
+
+msgid "recursive submodule cycle"
+msgstr ""
+
+msgid "unknown source acquisition reason"
+msgstr ""
+
+#. TRANSLATORS: The placeholders are the acquisition stage and failure reason.
+#, c++-format
+msgid "    source closure acquisition failed during {}: {}"
+msgstr ""
+
+#, c++-format
+msgid "    source acquisition errno: {}"
+msgstr ""
+
+#, c++-format
+msgid "    {} process exit code: {}"
+msgstr ""
+
+#, c++-format
+msgid "    {} process terminated by signal: {}"
+msgstr ""
+
+#, c++-format
+msgid "    {} process launch/setup failed (errno {})"
+msgstr ""
+
+#, c++-format
+msgid "    {} process I/O/wait failed (errno {})"
+msgstr ""
+
+#, c++-format
+msgid "    {} process timed out"
+msgstr ""
+
+#, c++-format
+msgid "    {} process output limit exceeded ({} bytes)"
+msgstr ""
+
+#, c++-format
+msgid "    source acquisition cancellation signal: {}"
+msgstr ""
+
+msgid "    source acquisition cleanup incomplete; temporary source data may remain"
 msgstr ""
 
 #. TRANSLATORS: The placeholders are the PackageBase metadata-key

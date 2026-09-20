@@ -3197,6 +3197,7 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
             integration_recipe.sibling_arch = "moguet_other_arch";
         }
 #ifdef MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
+        const bool closure_acquisition_failure = mode.starts_with("closure-acquire-");
         const bool representative = mode.starts_with("topology-");
         std::string representative_root_payload = "post-tag revision\n";
         // Actual AUR evidence and fixture reductions: fixtures/devel-production-topologies.md.
@@ -3413,12 +3414,25 @@ done
                 if(::lstat(path.c_str(), &identity) == 0) closure_identity = identity;
             }
         };
-        if(mode == "pinned-review-q-cleanup") closure_hooks.before_remove = [&](const auto&) {
+        if(mode == "pinned-review-q-cleanup" || mode == "closure-acquire-cleanup") closure_hooks.before_remove = [&](const auto&) {
             ++closure_cleanup_attempts;
             throw std::runtime_error("closure cleanup fixture refusal");
         };
         closure_hooks.process = [&](const auto& original, const auto& policy) {
             require(closure_reviews + 1 == initial_evaluations, "SourceReady reacquired/reviewed closure without a new selection");
+            if(closure_acquisition_failure && std::find(original.arguments.begin(), original.arguments.end(), "fetch") != original.arguments.end()) {
+                BoundedCapturedProcessResult failed{"closure process output must not be dumped", BoundedProcessExited{42}};
+                if(mode == "closure-acquire-timeout") failed.outcome = BoundedProcessTimedOut{};
+                if(mode == "closure-acquire-cancel-zero") {
+                    failed.outcome = BoundedProcessExited{0};
+                    failed.cancellation_signal = SIGINT;
+                }
+                if(mode == "closure-acquire-launch") failed.outcome = BoundedProcessLaunchOrSetupFailure{BoundedProcessLaunchStage::Execve, ENOENT};
+                if(mode == "closure-acquire-signal") failed.outcome = BoundedProcessSignaled{SIGTERM};
+                if(mode == "closure-acquire-io") failed.outcome = BoundedProcessIoOrWaitFailure{BoundedProcessIoStage::Wait, EIO};
+                if(mode == "closure-acquire-limit") failed.outcome = BoundedProcessCaptureLimitExceeded{1024};
+                return failed;
+            }
             auto invocation = original;
             if(std::find(invocation.arguments.begin(), invocation.arguments.end(), "ls-remote") != invocation.arguments.end()) ++root_observations;
             for(auto& arg : invocation.arguments) {
@@ -4010,6 +4024,62 @@ done
             if(migration_cache_case) {
                 require(cache_before == bootstrap_cache_snapshot(old_cache), "migration changed old checkout bytes/inventory/HEAD/refs/config");
                 require(!fs::exists(old_git_calls), "migration invoked Git on old checkout");
+            }
+            if(closure_acquisition_failure) {
+                require(!result.is_success() && filtered.execution && filtered.reduced_operation_result.reduction_issues.empty(),
+                        "Closure acquisition failure became successful/incoherent");
+                const auto& item = filtered.execution->work_item_results[bootstrap_index];
+                require(item.devel_execution && item.devel_execution->owner && item.devel_execution->closure_failure,
+                        "Closure acquisition detail lost at snapshot/runner boundary");
+                const auto& owner = *item.devel_execution->owner;
+                const auto* original = owner.closure_failure();
+                const auto expected_reason = mode == "closure-acquire-cancel-zero"                                    ? PinnedClosureFailureReason::Cancelled
+                                             : mode == "closure-acquire-nonzero" || mode == "closure-acquire-cleanup" ? PinnedClosureFailureReason::PinnedObjectUnavailable
+                                                                                                                      : PinnedClosureFailureReason::GitProcessFailed;
+                require(original && original->stage == PinnedClosureStage::RootAcquisition && original->reason == expected_reason &&
+                            original->process && owner.issue() == Issue::BuildFailure && !owner.build_completed() && !owner.publication(),
+                        "Closure acquisition authority changed");
+                const auto check_projection = [&](const ReviewedDevelExecutionSnapshot& snapshot) {
+                    require(snapshot.owner == item.devel_execution->owner && snapshot.closure_failure && !snapshot.projection_failed,
+                            "Projection lost original owner/detail");
+                    const auto& projected = *snapshot.closure_failure;
+                    require(projected.stage == original->stage && projected.reason == original->reason && projected.error_number == original->error_number &&
+                                projected.process && projected.process->outcome == original->process->outcome &&
+                                projected.process->cancellation_signal == original->process->cancellation_signal && projected.process->output == original->process->output &&
+                                projected.cleanup.objects.has_value() == original->cleanup.objects.has_value() &&
+                                projected.cleanup.selection.has_value() == original->cleanup.selection.has_value() && projected.abandoned_root == original->abandoned_root,
+                            "Typed acquisition detail changed across projection");
+                    if(original->cleanup.objects) require(projected.cleanup.objects->reason == original->cleanup.objects->reason &&
+                                                              projected.cleanup.objects->error_number == original->cleanup.objects->error_number,
+                                                          "Projection changed cleanup cause");
+                };
+                check_projection(*item.devel_execution);
+                const auto& reduced_item = filtered.reduced_operation_result.execution_work_items[bootstrap_index];
+                require(reduced_item.devel_execution.has_value(), "Reducer lost acquisition snapshot");
+                check_projection(*reduced_item.devel_execution);
+                require(filtered.execution->status == AurUpdateInvocationExecutionStatus::StoppedOnWorkItemFailure &&
+                            filtered.reduced_operation_result.status == AurUpdateOperationStatus::StoppedOnWorkItemFailure &&
+                            target.status == AurUpdateOperationTargetStatus::Failed && item.status == AurUpdateWorkItemExecutionStatus::Failed &&
+                            item.failure_kind == AurUpdateWorkItemFailureKind::AuthoritativeExecutionIncomplete && !item.cancellation &&
+                            target.execution_failure_kind == item.failure_kind && std::holds_alternative<std::monostate>(item.failure_detail),
+                        "Acquisition diagnostic changed failure/cancellation/exit authority");
+                require(!item.devel_execution->closure_review_failure && !item.recipe_acquisition_failure &&
+                            initial_evaluations == 1 && root_observations == 1 && closure_reviews == 0 && workspace_clones == 0 &&
+                            source_preparations == 0 && package_builds == 0 && prepare_calls == 0 && execute_calls == 0 && g_bridge_publication_entries == 0,
+                        "Acquisition failure reached downstream work or a different failure route");
+                require(!fs::exists(owner.owned_root()), "Acquisition failure leaked selection context");
+                const bool cleanup_failed = mode == "closure-acquire-cleanup";
+                require(original->cleanup.succeeded() == !cleanup_failed, "Original cleanup result changed");
+                if(cleanup_failed) {
+                    require(original->cleanup.objects && closure_cleanup_attempts == 1 && original->abandoned_root == closure_root && fs::exists(closure_root),
+                            "Cleanup refusal was lost or retried");
+                    // Test-owned backing retained by the injected refusal.
+                    fs::remove_all(closure_root);
+                } else
+                    require(!fs::exists(closure_root), "Acquisition failure leaked object backing");
+                present_system_aur_update_operation_result(std::move(result));
+                std::cout << "S604 closure acquisition " << mode << " PASS\nS553 production " << case_name << " PASS\n";
+                continue;
             }
             if(split_group) {
                 for(const auto& issue : filtered.reduced_operation_result.reduction_issues)
