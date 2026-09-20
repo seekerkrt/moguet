@@ -69,7 +69,9 @@ void test_provider_presentation_receives_invocation_detail() {
         const auto selected = callback("virtual", candidates);
         expect(selected.has_value() && selected.value() == candidates[1],
                "presentation detail changed callback selection identity");
-        expect(output.str().find("2) source=AUR package=aur-provider PackageBase=aur-base") != std::string::npos,
+        expect(output.str().find(detail == PresentationDetail::Detailed
+                                     ? "2) source=AUR package=aur-provider PackageBase=aur-base"
+                                     : "2) aur/aur-provider 1.0 (PackageBase: aur-base)") != std::string::npos,
                "callback lost rich provider metadata");
     }
 }

@@ -548,6 +548,10 @@ from pathlib import Path
 with (Path(sys.argv[1]) / "ja/LC_MESSAGES/moguet.mo").open("rb") as stream:
     catalog = gettext.GNUTranslations(stream)
 expected = {
+    "[repository]": "[リポジトリ]",
+    "[provides: {}]": "[提供: {}]",
+    "[component: {}]": "[コンポーネント: {}]",
+    "Choose a provider for {}:": "{} を提供するパッケージを選択してください:",
     "skipped: devel tracking bootstrap was declined; rerun when ready to review the source": "スキップ: 開発版追跡の初期登録が辞退されました。ソースをレビューできるときに再実行してください",
     "skipped: devel tracking bootstrap interaction was unavailable; enable interactive source review before retrying": "スキップ: 開発版追跡の初期登録に必要な対話を利用できませんでした。再試行前に対話形式のソースレビューを有効にしてください",
     "skipped: source/update observation changed before bootstrap; re-check the current state before retrying": "スキップ: 初期登録前にソース・更新の観測が変わりました。再試行前に現在の状態を確認し直してください",

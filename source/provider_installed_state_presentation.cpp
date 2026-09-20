@@ -1,6 +1,7 @@
 #include "provider_installed_state_presentation.hpp"
 
 #include "localization.hpp"
+#include "package_text_style.hpp"
 
 #include <memory>
 #include <ostream>
@@ -30,21 +31,25 @@ bool is_session_level_failure(PackageMetadataErrorCode code) {
 class ProviderInstalledStateCandidatePresenter final {
 public:
     explicit ProviderInstalledStateCandidatePresenter(
-        ProviderInstalledStateLookup& lookup)
-        : lookup_(lookup) {
+        ProviderInstalledStateLookup& lookup, PresentationDetail detail)
+        : lookup_(lookup), detail_(detail) {
     }
 
     void present(
         std::ostream& output, std::size_t index,
         const ProvidedDependency& candidate) {
-        present_provider_candidate_metadata(output, index, candidate);
+        present_provider_candidate_metadata(output, index, candidate, detail_);
 
         ProviderInstalledStateObservation observation =
             lookup_.query(candidate.package_name);
         const PackageMetadataFailure* failure = nullptr;
         switch(observation.state()) {
             case ProviderInstalledState::Installed:
-                output << ' ' << localization::translate_message("[installed]");
+                output << ' ';
+                package_text_style::installed(
+                    output, localization::translate_message("[installed]"),
+                    detail_ == PresentationDetail::Normal &&
+                        package_text_style::enabled_for(output));
                 break;
             case ProviderInstalledState::NotInstalled:
                 break;
@@ -94,6 +99,7 @@ private:
     }
 
     ProviderInstalledStateLookup& lookup_;
+    PresentationDetail detail_;
     bool session_failure_reported_ = false;
     std::set<std::string> reported_package_failures_;
 };
@@ -102,13 +108,12 @@ private:
 
 ProviderCandidatePresenter make_provider_installed_state_candidate_presenter(
     ProviderInstalledStateLookup& lookup, PresentationDetail detail) {
-    // POLICY(#439): select the presentation here; lookup/session semantics
-    // remain independent of detail. Both modes retain rich metadata for now.
+    // Detail belongs to the phase-local presenter, never the lookup/session.
     switch(detail) {
         case PresentationDetail::Normal:
         case PresentationDetail::Detailed: {
             auto presenter = std::make_shared<ProviderInstalledStateCandidatePresenter>(
-                lookup);
+                lookup, detail);
             return [presenter = std::move(presenter)](
                        std::ostream& output, std::size_t index,
                        const ProvidedDependency& candidate) {

@@ -28,6 +28,18 @@ interactive stdinでだけ、番号、複数番号、inclusive range、および
 
 invalidなselection expressionは一部だけを採用せず、同じcandidate snapshotに対してretryする。複数sourceの同名candidateを同時に選んだ場合はalternative source conflictとしてline全体を不採用にする。表示順はselection indexを固定するpresentation policyであり、sourceを暗黙決定するpriorityではない。
 
+### Interactive candidate presentation
+
+Normalは番号、`repository/package`または`aur/package`、versionを主情報として表示する。
+名前が`aur`のconfigured repositoryにはlocalized `[repository]`を添え、AUR sourceと区別する。
+PackageBaseがpackage名と異なる場合はNormalでも補助表示し、同一なら繰り返さない。
+root candidateのdescriptionはidentity直下へindentし、選択可能な`@group`も表示する。
+root candidateにinstalled stateを追加照会しない。
+既存`PresentationDetail::Detailed`はfixed metadata fieldsを保持する。
+`--details`のroute supportはCLI authorityに従い、候補表示のために拡張しない。
+NormalのTTY配色はAUR `-Ss`のsource・package・version・installedのstyle primitiveを共有し、
+候補出力がnon-TTYならANSIを追加しない。集合・順序・番号・入力・選択policyは表示modeに依存しない。
+
 ### Selection-before-mutationとroute projection
 
 全selected rootのselection、identity validation、repository / AUR route projection、全static preflightが完了するまで、pacman、sudo、clone、git fetch、makepkg、artifact install、cache / workspace mutationを開始しない。

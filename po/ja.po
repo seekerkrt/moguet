@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.8.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-21 06:24+0900\n"
+"POT-Creation-Date: 2026-09-21 07:37+0900\n"
 "PO-Revision-Date: 2026-09-19 17:53+0900\n"
 "Last-Translator: Moguet contributors\n"
 "Language-Team: Japanese\n"
@@ -3730,6 +3730,9 @@ msgstr "無効な{}パッケージ対象です: {}"
 msgid "{} work item has no invocation root ownership: {}"
 msgstr "{}の作業項目に呼び出しルートの所有関係がありません: {}"
 
+msgid "[repository]"
+msgstr "[リポジトリ]"
+
 msgid "Package candidates:"
 msgstr "パッケージ候補:"
 
@@ -6832,8 +6835,20 @@ msgstr "無視するシグナルの動作設定を初期化できませんでし
 msgid "Failed to initialize the {} mask: {}"
 msgstr "{} マスクを初期化できませんでした: {}"
 
+#, c++-format
+msgid "[provides: {}]"
+msgstr "[提供: {}]"
+
+#, c++-format
+msgid "[component: {}]"
+msgstr "[コンポーネント: {}]"
+
 msgid "Provider selection requires a non-empty dependency name."
 msgstr "プロバイダー選択には空でない依存関係名が必要です。"
+
+#, c++-format
+msgid "Choose a provider for {}:"
+msgstr "{} を提供するパッケージを選択してください:"
 
 #, c++-format
 msgid "Select a provider from [{}], or press {} / enter {} to cancel:"

@@ -12,6 +12,7 @@
 #include "logging.hpp"
 #include "package_identifier.hpp"
 #include "package_metadata.hpp"
+#include "package_text_style.hpp"
 #include "process.hpp"
 #include "repository_query.hpp"
 #include "root_package_route_projection.hpp"
@@ -111,13 +112,15 @@ bool search_aur(
             const std::string& name = info.Name;
             // NO_TRANSLATE(Issue #308): "aur/" is the stable repository
             // namespace prefix; name and version are package identities.
-            std::cout << "\033[1;35maur\033[0m/\033[1m" << name << "\033[0m \033[1;32m"
-                      << info.Version << "\033[0m";
+            // Preserve -Ss output policy while sharing its semantic palette.
+            package_text_style::identity(std::cout, "aur", name, true);
+            std::cout << ' ';
+            package_text_style::version(std::cout, info.Version, true);
             if(installed_foreign_packages.has_value() &&
                installed_foreign_packages->contains(name)) {
-                std::cout << " \033[1;36m"
-                          << localization::translate_message("[installed]")
-                          << "\033[0m";
+                std::cout << ' ';
+                package_text_style::installed(
+                    std::cout, localization::translate_message("[installed]"), true);
             }
             if(info.OutOfDate.has_value()) {
                 std::cout << " \033[1;31m"
@@ -438,39 +441,65 @@ std::string root_package_presentation_value(
 void present_root_package_candidate(
     std::ostream& output,
     std::size_t index,
-    const RootPackageSearchCandidate& candidate) {
-    // NO_TRANSLATE: source/repository/package/PackageBase/version/groups are
-    // stable machine-readable candidate field labels.
+    const RootPackageSearchCandidate& candidate,
+    PresentationDetail detail) {
+    // NO_TRANSLATE: Detailed retains fixed metadata labels; Normal uses
+    // source namespaces, PackageBase, and @group as package-domain syntax.
     output << index << ") ";
-    if(const auto* repository =
-           std::get_if<RepositoryRootPackageIdentity>(
+    if(detail == PresentationDetail::Normal) {
+        const bool styled = package_text_style::enabled_for(output);
+        const auto* repository = std::get_if<RepositoryRootPackageIdentity>(
+            &candidate.candidate.identity());
+        package_text_style::identity(
+            output, repository ? repository->repository_name : "aur",
+            candidate.candidate.package_name(), styled);
+        output << ' ';
+        package_text_style::version(
+            output, root_package_presentation_value(candidate.candidate.presentation().version), styled);
+        // A configured repository may itself be named aur. Keep source kind
+        // observable even when its namespace spelling matches the AUR label.
+        if(repository != nullptr && repository->repository_name == "aur") {
+            output << ' ' << localization::translate_message("[repository]");
+        }
+        if(const auto* aur = std::get_if<AurRootPackageIdentity>(
                &candidate.candidate.identity());
-       repository != nullptr) {
-        output << "source=repository"
-               << " repository=" << repository->repository_name
-               << " package=" << repository->package_name;
+           aur != nullptr && aur->package_base != aur->package_name) {
+            output << " (PackageBase: " << aur->package_base << ')';
+        }
     } else {
-        const auto& aur = std::get<AurRootPackageIdentity>(
-            candidate.candidate.identity());
-        output << "source=AUR"
-               << " package=" << aur.package_name
-               << " PackageBase=" << aur.package_base;
+        if(const auto* repository =
+               std::get_if<RepositoryRootPackageIdentity>(
+                   &candidate.candidate.identity());
+           repository != nullptr) {
+            output << "source=repository"
+                   << " repository=" << repository->repository_name
+                   << " package=" << repository->package_name;
+        } else {
+            const auto& aur = std::get<AurRootPackageIdentity>(
+                candidate.candidate.identity());
+            output << "source=AUR"
+                   << " package=" << aur.package_name
+                   << " PackageBase=" << aur.package_base;
+        }
+        output << " version="
+               << root_package_presentation_value(
+                      candidate.candidate.presentation().version);
     }
-    output << " version="
-           << root_package_presentation_value(
-                  candidate.candidate.presentation().version);
     if(!candidate.selectable_group_names.empty()) {
-        output << " groups=";
+        output << (detail == PresentationDetail::Detailed ? " groups=" : " (");
         for(std::size_t group_index = 0;
             group_index < candidate.selectable_group_names.size();
             ++group_index) {
             if(group_index > 0) output << ',';
             output << '@' << candidate.selectable_group_names[group_index];
         }
+        if(detail == PresentationDetail::Normal) output << ')';
     }
     output << '\n';
     if(candidate.candidate.presentation().description.has_value()) {
-        output << "    "
+        output << (detail == PresentationDetail::Normal
+                       ? std::string(std::to_string(index).size() + 2, ' ')
+                       : "    ")
                << candidate.candidate.presentation().description.value()
                << '\n';
     }
@@ -478,8 +507,6 @@ void present_root_package_candidate(
 
 void present_root_package_candidates(
     const RootPackageSearchSnapshot& snapshot, PresentationDetail detail) {
-    // POLICY(#439): retain current source-aware metadata in both modes.
-    // #435 can replace Normal here without changing the selection callback.
     switch(detail) {
         case PresentationDetail::Normal:
         case PresentationDetail::Detailed:
@@ -488,7 +515,7 @@ void present_root_package_candidates(
                       << '\n';
             for(std::size_t index = 0; index < snapshot.candidates.size(); ++index) {
                 present_root_package_candidate(
-                    std::cout, index + 1, snapshot.candidates[index]);
+                    std::cout, index + 1, snapshot.candidates[index], detail);
             }
             return;
     }
