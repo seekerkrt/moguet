@@ -132,15 +132,17 @@ foreach(_moguet_direct_focus IN ITEMS
     )
 endforeach()
 
-# Select the registrations themselves so the public alias and its build
-# dependencies follow the canonical closure shard graph.
-set(_moguet_closure_tests ${MOGUET_CTEST_NAMES})
-list(FILTER _moguet_closure_tests INCLUDE REGEX "^cpp\\.pinned_submodule_closure\\.")
+# The public frontend requires every semantic shard independently of the
+# actual registrations. Discovering these names from MOGUET_CTEST_NAMES would
+# silently accept a missing or extra shard sharing the same runtime target.
 moguet_add_focused_ctest_alias(
     test-pinned-submodule-closure
-    TESTS ${_moguet_closure_tests}
+    TESTS
+        cpp.pinned_submodule_closure.declarations
+        cpp.pinned_submodule_closure.objects
+        cpp.pinned_submodule_closure.failures
+        cpp.pinned_submodule_closure.tags
 )
-unset(_moguet_closure_tests)
 
 moguet_add_focused_ctest_alias(
     test-git-remote-revision-observer
