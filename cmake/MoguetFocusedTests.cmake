@@ -68,7 +68,6 @@ foreach(_moguet_direct_focus IN ITEMS
     invocation-owned-cleanup-model
     invocation-owned-recipe-acquisition
     invocation-owned-source-build-context
-    pinned-submodule-closure
     pinned-submodule-closure-review
     pinned-submodule-workspace
     pinned-submodule-s4-integration
@@ -132,6 +131,16 @@ foreach(_moguet_direct_focus IN ITEMS
         TESTS "cpp.${_moguet_direct_ctest}"
     )
 endforeach()
+
+# Select the registrations themselves so the public alias and its build
+# dependencies follow the canonical closure shard graph.
+set(_moguet_closure_tests ${MOGUET_CTEST_NAMES})
+list(FILTER _moguet_closure_tests INCLUDE REGEX "^cpp\\.pinned_submodule_closure\\.")
+moguet_add_focused_ctest_alias(
+    test-pinned-submodule-closure
+    TESTS ${_moguet_closure_tests}
+)
+unset(_moguet_closure_tests)
 
 moguet_add_focused_ctest_alias(
     test-git-remote-revision-observer
