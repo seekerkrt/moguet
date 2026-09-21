@@ -1126,8 +1126,10 @@ exec /usr/bin/git "$@"
                     "MOGUET_TEST_OVERLAY_RACE_DIRECTORY",
                     raced_directory.c_str(), 1) == 0,
             "Failed to configure overlay stability Git wrapper");
+    // Allow editor changes so only an unstable observation rejects this
+    // mutation, rather than the no-editor comparison with the earlier state.
     ReviewedSourceEditorOverlayProofResult sealed =
-        seal_reviewed_source_no_editor_overlay(
+        seal_reviewed_source_editor_overlay(
             exact, std::move(boundary));
     static_cast<void>(::unsetenv("MOGUET_TEST_GIT_EXECUTABLE"));
     static_cast<void>(::unsetenv("MOGUET_TEST_OVERLAY_RACE_MARKER"));
@@ -1138,6 +1140,8 @@ exec /usr/bin/git "$@"
         "Git-invisible mutation during projection was sealed");
     require(fs::exists(marker) && fs::is_directory(raced_directory) &&
                 failure.checkout_failure.has_value() &&
+                failure.checkout_failure->stage ==
+                    TrustedGitPinnedCheckoutStage::OverlayObservation &&
                 failure.checkout_failure->reason ==
                     TrustedGitPinnedCheckoutFailureReason::
                         OverlayMismatch,

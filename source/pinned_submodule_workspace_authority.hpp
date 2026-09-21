@@ -75,6 +75,9 @@ class PinnedSubmoduleWorkspaceAuthority final {
     static int builddir_descriptor(const EvaluatedDevelSourceSelection& selection);
     static void refuse_context_cleanup(const EvaluatedDevelSourceSelection& selection) noexcept;
     static BoundedCapturedProcessResult execute(const ExplicitProcessInvocation& invocation, const BoundedProcessPolicy& policy);
+    // Only after the complete independent workspace passes its final proof.
+    // Keeps selection/context and accepted semantic authority in the same owner.
+    static std::optional<PinnedClosureFailure> release_acquisition_backing(InvocationOwnedPinnedSubmoduleClosure& closure);
     // Local object copy only; failure preserves 4A detail but does not clean
     // its parent context before the derived workspace has checked ownership.
     static std::optional<PinnedClosureFailure> clone_objects(

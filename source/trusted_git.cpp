@@ -1931,27 +1931,18 @@ OverlayProjectionResult observe_stable_pinned_checkout_overlay(
            checkout, identity, worktree_policy)) {
         return *failure;
     }
-    OverlayProjectionResult first = project_pinned_checkout_overlay(
+    // One projection proves its own manifest-before/after stability. Later
+    // phase boundaries obtain a fresh observation and compare it to expected.
+    OverlayProjectionResult observed = project_pinned_checkout_overlay(
         checkout, identity, lifetime_guard_descriptor, stage);
-    if(std::holds_alternative<TrustedGitPinnedCheckoutFailure>(first)) {
-        return std::get<TrustedGitPinnedCheckoutFailure>(std::move(first));
+    if(std::holds_alternative<TrustedGitPinnedCheckoutFailure>(observed)) {
+        return std::get<TrustedGitPinnedCheckoutFailure>(std::move(observed));
     }
     if(auto failure = validate_pinned_checkout_materialization(
            checkout, identity, worktree_policy)) {
         return *failure;
     }
-    OverlayProjectionResult second = project_pinned_checkout_overlay(
-        checkout, identity, lifetime_guard_descriptor, stage);
-    if(std::holds_alternative<TrustedGitPinnedCheckoutFailure>(second)) {
-        return std::get<TrustedGitPinnedCheckoutFailure>(std::move(second));
-    }
-    if(std::get<OverlayProjection>(first) !=
-       std::get<OverlayProjection>(second)) {
-        return pinned_checkout_failure(
-            TrustedGitPinnedCheckoutFailureReason::OverlayMismatch,
-            stage);
-    }
-    return std::get<OverlayProjection>(std::move(second));
+    return std::get<OverlayProjection>(std::move(observed));
 }
 
 int run_pinned_checkout_git(

@@ -1565,7 +1565,7 @@ if [ ! -d "$entry_path/.git" ] || [ -L "$entry_path/.git" ] ||
     fail "valid clone descendants were not retained as regular entries: $entry_path"
 fi
 
-# --- Regular paths retain fetch/build/re-clone behavior ---
+# --- Regular paths retain fetch/build/fresh-clone behavior ---
 
 setup_case regular-existing-fetch
 create_regular_repo "$entry_path"
@@ -1706,25 +1706,48 @@ if [ ! -d "$entry_path/.git" ]; then
     fail "fetch remote mismatch removed the existing checkout"
 fi
 
+# Existing derived state is preserved on failure, including Git config and
+# filesystem identity. Recovery must be a separate explicit operation.
 setup_case build-existing-remote-mismatch
 create_regular_repo "$entry_path"
 printf 'old clone marker\n' > "$entry_path/old-marker"
-printf 'https://example.invalid/wrong.git\n' > "$entry_path/.git/.moguet-test-remote-url"
+write_standard_git_config "$entry_path" https://example.invalid/wrong.git
+snapshot_directory "$entry_path" "$case_dir/checkout-before.snapshot"
 run_fail "$case_dir/output" --noedit --nodiff build clean-root
-assert_contains "Remote URL mismatch. Re-cloning..." "$case_dir/output"
-assert_output_before "Remote URL mismatch. Re-cloning..." "Running: git clone" "$case_dir/output"
+assert_contains "Remote URL mismatch for existing cache checkout clean-root." "$case_dir/output"
+assert_contains "Build stopped; cache preserved. Check the configured source and cache before retrying." "$case_dir/output"
 assert_command "git config --get remote.origin.url"
-assert_command "git clone https://aur.archlinux.org/clean-root.git clean-root"
-assert_command "makepkg --packagelist"
-assert_command_before "git config --get remote.origin.url" "git clone https://aur.archlinux.org/clean-root.git clean-root"
+assert_command_absent "git clone https://aur.archlinux.org/clean-root.git clean-root"
 assert_command_absent "git fetch origin"
 assert_command_absent "git reset --hard origin/main"
-if [ -e "$entry_path/old-marker" ]; then
-    fail "remote mismatch did not replace the old regular clone"
-fi
-if [ ! -d "$entry_path/.git" ]; then
-    fail "remote mismatch re-clone did not create a repository"
-fi
+assert_no_build_or_install_commands
+assert_directory_unchanged "$entry_path" "$case_dir/checkout-before.snapshot"
+
+setup_case build-existing-nonrepository
+mkdir -p "$entry_path"
+printf 'existing cache contents\n' > "$entry_path/sentinel"
+snapshot_directory "$entry_path" "$case_dir/checkout-before.snapshot"
+run_fail "$case_dir/output" --noedit --nodiff build clean-root
+assert_contains "Missing .git directory for existing cache checkout clean-root." "$case_dir/output"
+assert_contains "Build stopped; cache preserved. Check the configured source and cache before retrying." "$case_dir/output"
+assert_command_absent "git config --get remote.origin.url"
+assert_command_absent "git clone https://aur.archlinux.org/clean-root.git clean-root"
+assert_command_absent "git fetch origin"
+assert_command_absent "git reset --hard origin/main"
+assert_no_build_or_install_commands
+assert_directory_unchanged "$entry_path" "$case_dir/checkout-before.snapshot"
+
+setup_case build-existing-regular-file
+mkdir -p "$cache_root"
+printf 'existing cache file\n' > "$entry_path"
+snapshot_directory "$cache_root" "$case_dir/cache-before.snapshot"
+run_fail "$case_dir/output" --noedit --nodiff build clean-root
+assert_contains "directory required" "$case_dir/output"
+assert_command_absent "git clone https://aur.archlinux.org/clean-root.git clean-root"
+assert_command_absent "git fetch origin"
+assert_command_absent "git reset --hard origin/main"
+assert_no_build_or_install_commands
+assert_directory_unchanged "$cache_root" "$case_dir/cache-before.snapshot"
 
 # --- Clone failure rollback for both fetch and build call sites ---
 

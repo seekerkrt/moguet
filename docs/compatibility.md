@@ -582,6 +582,10 @@ user `--noconfirm`とnon-TTYはInteractionUnavailableとなりremove 0。`--dry-
 
 cacheのdestructive operationはtrusted root内へ限定し、symlink / root escapeをfollowせず、identity replacement、ownership不明、preflight不足をfail closedとする。cache cleanupは全targetのpreflight前に開始しない。legacy cacheを自動read / migrate / modify / deleteしない。Git executionも親processの危険なroutingやconfig environmentを暗黙継承しない。
 
+source-buildは既存cacheのremote不一致、directoryでないentry、`.git`欠落を検出すると、entryを保持して
+non-zeroで停止する。自動削除・recloneで同じ操作を続けない。正常な既存cacheの更新、欠落時のfresh clone、
+今回新規作成したentryの取得失敗時の安全なrollbackは維持する。
+
 このsectionはuser-visibleな安全要約であり、filesystem identity、rollback、implementation proportionalityの正本は[XDG cache safety contract](contracts/xdg-cache-safety.md)である。
 
 v2.8.0では、trusted cache recursive cleanupの作業FDをentry総数ではなくtree depthに応じた量へ制限する。

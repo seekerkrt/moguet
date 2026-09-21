@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.8.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-21 09:14+0900\n"
+"POT-Creation-Date: 2026-09-21 10:39+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -5695,6 +5695,10 @@ msgid "{} returned invalid local package metadata at line {}."
 msgstr ""
 
 #, c++-format
+msgid "Local source workspace cleanup could not be completed; temporary source data may remain at {}."
+msgstr ""
+
+#, c++-format
 msgid "Warning: {}"
 msgstr ""
 
@@ -7609,7 +7613,12 @@ msgstr ""
 msgid "Processing {}..."
 msgstr ""
 
-msgid "Remote URL mismatch. Re-cloning..."
+#, c++-format
+msgid "Missing {} directory for existing cache checkout {}. Build stopped; cache preserved. Check the configured source and cache before retrying."
+msgstr ""
+
+#, c++-format
+msgid "Remote URL mismatch for existing cache checkout {}. Build stopped; cache preserved. Check the configured source and cache before retrying."
 msgstr ""
 
 msgid "Updating repository..."

@@ -8,6 +8,10 @@ branch / tag同期のownerはGitHub Actionsのmirror workflowとする。同じr
 candidateまでのvalidation selection、approval evidence、evidence reuse / invalidation、review closureは
 [validation.md](validation.md)をpolicy authorityとする。
 
+能力と責任範囲は[project stance](project-stance.md)、設計上の根拠とauthorityのphase / lifetimeは
+[設計ポリシーの責務境界](decisions.md#decision-6)、具体的な保証は[contract index](contracts/README.md)から確認する。
+変更するcontractを特定したうえで、上記validation policyから段階に応じたevidenceを選ぶ。
+
 ## Branches
 
 ### main

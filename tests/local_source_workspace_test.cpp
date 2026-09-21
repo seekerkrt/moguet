@@ -551,6 +551,75 @@ void test_destructor_cleanup() {
         "Destructor cleanup changed the original local tree");
 }
 
+void test_cleanup_failure_is_terminal() {
+    for(const bool explicit_cleanup : {true, false}) {
+        WorkspaceFixture fixture;
+        const auto original = snapshot_tree(fixture.source_path());
+        LocalSourceRoot source_root = fixture.open_source_root();
+        ValidatedCacheRoot cache_root = fixture.prepare_cache_root();
+        fs::path workspace_path;
+        std::size_t cleanup_attempts = 0;
+        const LocalSourceWorkspaceFailure injected_failure{
+            LocalSourceWorkspaceStage::Cleanup,
+            LocalSourceWorkspaceErrorCode::CleanupFailure,
+            "injected-cleanup", std::make_error_code(std::errc::permission_denied)};
+        ScopedWorkspaceTestHook hook(
+            [&](LocalSourceWorkspaceTestEvent event, const fs::path&) {
+                if(event == LocalSourceWorkspaceTestEvent::BeforeCleanupRemoval &&
+                   ++cleanup_attempts == 1) {
+                    throw LocalSourceWorkspaceError(injected_failure);
+                }
+            });
+        {
+            LocalSourceWorkspace workspace =
+                materialize_local_source_workspace(source_root, cache_root);
+            workspace_path = workspace.path();
+            if(explicit_cleanup) {
+                bool failed = false;
+                try {
+                    workspace.cleanup();
+                } catch(const LocalSourceWorkspaceError& error) {
+                    failed = true;
+                    expect(error.failure() == injected_failure,
+                           "Cleanup did not preserve the complete typed failure");
+                }
+                expect(failed, "Injected cleanup unexpectedly succeeded");
+                const auto residue = snapshot_tree(workspace_path);
+                LocalSourceWorkspace moved = std::move(workspace);
+                bool retry_rejected = false;
+                try {
+                    moved.cleanup();
+                } catch(const LocalSourceWorkspaceError& error) {
+                    retry_rejected = true;
+                    expect(
+                        error.failure().stage == LocalSourceWorkspaceStage::Cleanup &&
+                            error.failure().code == LocalSourceWorkspaceErrorCode::InvalidState,
+                        "Terminal cleanup retry used the wrong typed failure");
+                }
+                expect(retry_rejected, "Terminal cleanup retry was accepted");
+                expect(snapshot_tree(workspace_path) == residue,
+                       "Terminal cleanup retry changed the residue");
+                bool identity_rejected = false;
+                try {
+                    moved.require_unchanged_identity();
+                } catch(const LocalSourceWorkspaceError& error) {
+                    identity_rejected = true;
+                    expect(error.failure().code == LocalSourceWorkspaceErrorCode::InvalidState,
+                           "Terminal workspace used the wrong identity failure");
+                }
+                expect(identity_rejected, "Terminal workspace remained usable");
+            }
+        }
+        expect(cleanup_attempts == 1, "Cleanup failure caused a destructor retry");
+        expect(fs::is_directory(workspace_path),
+               "Cleanup failure caused fallback removal of the workspace");
+        expect(read_file(workspace_path / "PKGBUILD") == PKGBUILD_CONTENT,
+               "Cleanup failure caused fallback removal of workspace content");
+        expect(snapshot_tree(fixture.source_path()) == original,
+               "Cleanup failure changed the user-owned source tree");
+    }
+}
+
 void test_read_only_source_directory_remains_cleanup_capable() {
     WorkspaceFixture fixture;
     const fs::path read_only_directory =
@@ -1007,8 +1076,9 @@ void test_cleanup_rebuilds_named_lineage_before_removal() {
     WorkspaceFixture fixture;
     LocalSourceRoot source_root = fixture.open_source_root();
     ValidatedCacheRoot cache_root = fixture.prepare_cache_root();
-    LocalSourceWorkspace workspace = materialize_local_source_workspace(
-        source_root, cache_root);
+    std::optional<LocalSourceWorkspace> owner(
+        materialize_local_source_workspace(source_root, cache_root));
+    LocalSourceWorkspace& workspace = *owner;
     const fs::path workspace_path = workspace.path();
     const fs::path outside_parent =
         cache_root.canonical_path().parent_path();
@@ -1067,10 +1137,10 @@ void test_cleanup_rebuilds_named_lineage_before_removal() {
 
     fs::rename(workspace_path, replacement_backup);
     fs::rename(moved_workspace, workspace_path);
-    workspace.cleanup();
+    owner.reset();
     expect(
-        !fs::exists(workspace_path),
-        "Restored source workspace was not cleaned");
+        read_file(workspace_path / "PKGBUILD") == PKGBUILD_CONTENT,
+        "Destructor retried cleanup after named lineage was restored");
     expect(
         read_file(replacement_backup / "replacement-marker") ==
             "replacement\n",
@@ -1083,10 +1153,9 @@ void test_cleanup_rejects_inode_reuse_aba_replacement() {
         snapshot_tree(fixture.source_path());
     LocalSourceRoot source_root = fixture.open_source_root();
     ValidatedCacheRoot cache_root = fixture.prepare_cache_root();
-    const auto initial_cache_entries =
-        direct_child_names(cache_root.canonical_path());
-    LocalSourceWorkspace workspace = materialize_local_source_workspace(
-        source_root, cache_root);
+    std::optional<LocalSourceWorkspace> owner(
+        materialize_local_source_workspace(source_root, cache_root));
+    LocalSourceWorkspace& workspace = *owner;
     const fs::path workspace_path = workspace.path();
     const fs::path target = workspace_path / "PKGBUILD";
     const struct stat original_status = node_status(target);
@@ -1160,14 +1229,11 @@ void test_cleanup_rejects_inode_reuse_aba_replacement() {
         snapshot_tree(fixture.source_path()) == original,
         "Inode-reuse ABA cleanup changed the original source tree");
 
-    workspace.cleanup();
+    owner.reset();
     expect(
-        !fs::exists(workspace_path),
-        "Restored cleanup authority left the ABA workspace");
-    expect(
-        direct_child_names(cache_root.canonical_path()) ==
-            initial_cache_entries,
-        "ABA recovery cleanup left cache entries");
+        relative_entry_names(workspace_path) == planned_entries &&
+            read_file(target) == "replacement\n",
+        "Destructor retried cleanup after an ABA refusal");
 }
 
 void test_large_tree_cleanup_succeeds_with_bounded_fd_usage() {
@@ -1244,6 +1310,7 @@ int main() {
             "full snapshot and explicit cleanup",
             test_full_snapshot_and_explicit_cleanup);
         run_case("destructor cleanup", test_destructor_cleanup);
+        run_case("terminal cleanup failure", test_cleanup_failure_is_terminal);
         run_case(
             "read-only directory cleanup capability",
             test_read_only_source_directory_remains_cleanup_capable);

@@ -44,7 +44,8 @@ using PinnedClosureReviewResult = std::variant<AcceptedPinnedSubmoduleClosure, P
 
 // Explicit authorization to build the exact upstream snapshot, not a claim
 // that its contents were audited or are safe, nor recipe acceptance/S4 proof.
-// The whole 4A owner (including selection and object backing) survives.
+// The whole 4A owner survives. Only acquisition backing is released privately
+// after the complete independent SourceReady transfer proof.
 class AcceptedPinnedSubmoduleClosure final {
 public:
     AcceptedPinnedSubmoduleClosure() = delete;

@@ -4,7 +4,6 @@
 #include "trusted_cache.hpp"
 
 #include <filesystem>
-#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <system_error>
@@ -78,17 +77,15 @@ struct LocalSourceBuildAccess;
 class LocalSourceWorkspace final {
     enum class State {
         Active,
+        CleanupAttempted,
         Cleaned,
         MovedFrom
     };
 
-    // The retained directory closes before the rollback guard runs.
-    std::unique_ptr<DirCleanupGuard> cleanup_guard_;
     RetainedTrustedCacheDirectory directory_;
     State state_ = State::Active;
 
-    LocalSourceWorkspace(
-        std::unique_ptr<DirCleanupGuard> cleanup_guard,
+    explicit LocalSourceWorkspace(
         RetainedTrustedCacheDirectory directory) noexcept;
 
     friend LocalSourceWorkspace materialize_local_source_workspace(
@@ -106,6 +103,7 @@ public:
     const std::filesystem::path& path() const noexcept;
 
     void require_unchanged_identity() const;
+    // A failed attempt is terminal; it neither becomes success nor retries.
     void cleanup();
 };
 

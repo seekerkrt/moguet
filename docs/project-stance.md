@@ -4,7 +4,8 @@
 
 この文書は、Moguetの現在と将来の発展に共通する立ち位置を整理するためのメモである。
 
-厳密な設計仕様や開発ルールではなく、今後の機能追加や方向性判断で迷ったときに立ち戻るための考え方を記録する。
+製品として目指す能力と引き受ける責任範囲を示す。設計上の規範は[設計ポリシー](decisions.md)、
+具体的な保証は[個別contract](contracts/README.md)、その証拠は[validation policy](validation.md)へつなぐ。
 
 ## Arch の流儀を尊重する
 
@@ -71,6 +72,22 @@ Moguet の当面の役割は、pacman / makepkg の流れを尊重しつつ、AU
 - root / sudo 実行など危険な使い方を防ぐこと
 - `--noconfirm`、対話プロンプト、default selection の挙動を一貫させること
 - pacman / makepkg に任せるべきことを Moguet 側で抱え込みすぎないこと
+
+能力の広さと責任範囲の広さは同じではない。ordinary/common AUR package topologyは、正しい根拠を持って
+扱える範囲で普通に動くことを目指す。未対応・不明・不整合を観測し、必要なauthorityを確立できない場合は、
+定義された境界でfail closedし、理由を示して停止する。
+
+Moguetは必要なauthorityを、必要なphaseで、必要な期間だけ保持する。source / revision / artifact /
+install identity、provenance、明示承認、破壊操作のcontainment、利用者所有sourceの非破壊、
+failure・cancellation・partial outcomeの保全は、その境界で守るべき正しさである。
+same-UID userやreview済みbuild processの常時監視、phase間の一時改変から復元までの完全検出、
+全descendantのsecurity mediation、汎用sandboxや汎用network policyは引き受けない。
+
+**検出は自動、復旧は明示操作（Detection is automatic. Recovery is explicit.）**とする。
+これは定義済みの観測でderived stateの不整合を検出する責務であり、任意の手動改変の追跡、
+自動修復、修復後に同じ失敗transactionを継続する保証ではない。対応する復旧もMoguet-ownedな
+disposable stateへ狭く限定し、ownershipとcontainmentを確認する。unknown / external pathや
+利用者所有sourceの削除、durable provenance / review stateの消去、万能resetを意味しない。
 
 ## 将来のbuild tuningで広げたい方向
 

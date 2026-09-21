@@ -370,7 +370,7 @@ struct PinnedSubmoduleClosureData {
     std::string leaf;
     Descriptor parent, root;
     struct stat parent_identity{}, root_identity{};
-    bool created = false, closed = false;
+    bool created = false, closed = false, objects_cleanup_attempted = false;
     PinnedClosureCleanupResult cleanup_result;
     std::vector<Repository> repositories;
     std::vector<PinnedSubmoduleNode> nodes;
@@ -735,9 +735,11 @@ struct PinnedSubmoduleClosureData {
         }
         ancestry.erase(key);
     }
-    PinnedClosureCleanupResult cleanup() noexcept {
-        if(closed) return cleanup_result;
-        closed = true;
+    void cleanup_objects() noexcept {
+        if(objects_cleanup_attempted) return;
+        // Physical release is terminal even on refusal. Semantic selection and
+        // Accepted lineage remain live until the enclosing owner is cleaned.
+        objects_cleanup_attempted = true;
         if(created) try {
                 active = Stage::Cleanup;
                 notify(active, root_path);
@@ -773,11 +775,31 @@ struct PinnedSubmoduleClosureData {
             } catch(...) {
                 cleanup_result.objects = PinnedClosureCleanupFailure{Reason::IoFailure, std::nullopt};
             }
+        repositories.clear();
+        root = Descriptor();
+        parent = Descriptor();
+    }
+    PinnedClosureCleanupResult cleanup() noexcept {
+        if(closed) return cleanup_result;
+        closed = true;
+        cleanup_objects();
         const auto selected = selection.cleanup();
         if(const auto* failure = std::get_if<InvocationOwnedSourceBuildContextFailure>(&selected)) cleanup_result.selection = *failure;
         return cleanup_result;
     }
 };
+
+std::optional<PinnedClosureFailure> PinnedSubmoduleWorkspaceAuthority::release_acquisition_backing(
+    InvocationOwnedPinnedSubmoduleClosure& closure) {
+    if(!closure.valid()) return PinnedClosureFailure{Stage::Input, Reason::InvalidSelection};
+    auto& data = *closure.data_;
+    data.cleanup_objects();
+    if(!data.cleanup_result.objects) return std::nullopt;
+    PinnedClosureFailure failure{Stage::Cleanup, data.cleanup_result.objects->reason, data.cleanup_result.objects->error_number};
+    failure.cleanup = data.cleanup_result;
+    failure.abandoned_root = data.root_path;
+    return failure;
+}
 
 std::optional<PinnedClosureFailure> PinnedSubmoduleWorkspaceAuthority::clone_objects(
     const InvocationOwnedPinnedSubmoduleClosure& closure, std::size_t node,

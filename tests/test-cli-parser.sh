@@ -708,7 +708,18 @@ assert_contains "conflict-only" "$output_file"
 
 setup_case multi-target-plan
 run_ok plan clean-root conflict-only
+assert_contains "Plan targets: clean-root, conflict-only" "$output_file"
+assert_contains "Fetch/build/install: ready" "$output_file"
+assert_not_contains "Plan state:" "$output_file"
+assert_not_contains "construction:" "$output_file"
+
+# --details changes presentation density while preserving multi-target routing.
+run_ok --details plan clean-root conflict-only
 assert_contains "Plan state:" "$output_file"
+assert_contains "construction: Constructed" "$output_file"
+assert_contains "Fetch readiness: Ready" "$output_file"
+assert_contains "Build readiness: Ready" "$output_file"
+assert_contains "Install readiness: Ready" "$output_file"
 assert_contains "clean-root" "$output_file"
 assert_contains "conflict-only" "$output_file"
 

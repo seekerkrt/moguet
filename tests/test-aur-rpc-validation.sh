@@ -769,37 +769,46 @@ assert_contains "provider-one" "$output_file"
 
 setup_case ambiguous-provider
 run_ok plan ambiguous-provider-root
-assert_contains "construction: Constructed" "$output_file"
+# Normal suppresses successful construction, but keeps the target and every
+# incomplete/provider/readiness guard produced from the validated schema.
+assert_contains "Plan targets: ambiguous-provider-root" "$output_file"
+assert_not_contains "construction:" "$output_file"
 assert_contains "completeness: Incomplete" "$output_file"
 assert_contains "provider decision: Ambiguous" "$output_file"
 assert_contains "Fetch readiness: Blocked" "$output_file"
 assert_contains "Build readiness: Blocked" "$output_file"
 assert_contains "Install readiness: Blocked" "$output_file"
 assert_contains "Ambiguous provided dependencies:" "$output_file"
+assert_no_mutation_commands
 
 setup_case cycle
 run_ok plan cycle-root-174
-assert_contains "construction: Constructed" "$output_file"
+assert_contains "Plan targets: cycle-root-174" "$output_file"
 assert_contains "completeness: Incomplete" "$output_file"
 assert_contains "Fetch readiness: Blocked" "$output_file"
 assert_contains "Cyclic dependencies:" "$output_file"
+assert_no_mutation_commands
 
 setup_case unresolved
 run_ok plan unresolved-root-174
-assert_contains "construction: Constructed" "$output_file"
+assert_contains "Plan targets: unresolved-root-174" "$output_file"
 assert_contains "completeness: Incomplete" "$output_file"
 assert_contains "Fetch readiness: Blocked" "$output_file"
 assert_contains "Unresolved dependencies:" "$output_file"
+assert_no_mutation_commands
 
 setup_case split
 run_ok plan valid-split
-assert_contains "Split package install targets:" "$output_file"
-assert_contains "valid-split (base: valid-split-base)" "$output_file"
-assert_contains "construction: Constructed" "$output_file"
-assert_contains "completeness: Complete" "$output_file"
-assert_contains "Fetch readiness: Ready" "$output_file"
-assert_contains "Build readiness: Ready" "$output_file"
+assert_contains "Plan targets: valid-split" "$output_file"
+assert_contains "1. valid-split-base" "$output_file"
+assert_contains "target package: valid-split" "$output_file"
+assert_not_contains "construction:" "$output_file"
+assert_not_contains "completeness:" "$output_file"
+assert_not_contains "Fetch readiness:" "$output_file"
+assert_not_contains "Build readiness:" "$output_file"
 assert_contains "Install readiness: Blocked" "$output_file"
+assert_contains "Use the package-base set lifecycle" "$output_file"
+assert_no_mutation_commands
 
 setup_case normal-fetch
 run_ok fetch valid-root

@@ -4,7 +4,8 @@ Issue #564 Slice 4B1の唯一のinput authorityは、liveな
 [`AcceptedPinnedSubmoduleClosure`](pinned-submodule-closure-review.md)である。
 `materialize_pinned_submodule_workspace()`はwhole ownerをmoveし、
 `SourceReadyPinnedSubmoduleWorkspace`へ移す。同じevaluated selection、recipe context、
-acceptance、object backing、nodes、edges、pinsを保持する。selection release、raw path、
+acceptance、nodes、edges、pins、raw tag identityを保持する。acquisition object backingは全copyと
+SourceReady final proof成功まで保持し、その直後にprivateな一度限りのcleanupで解放する。selection release、raw path、
 raw metadata、decoded provenanceからのmintは公開しない。
 
 ## Local materialization
@@ -114,6 +115,13 @@ persistent user cacheはauthorityに使わず、触らず、削除しない。�
 fresh invocation/acceptanceから開始する。unknownまたはidentityが交換されたstateはtyped failureとする。
 
 move-only success ownerがderived workspaceとAccepted whole ownerを保持する。
+SourceReadyを返す前に、全nodeの独立copy、tag projection、final proofを完了し、元の4A rootと
+bare repositoriesだけを既存のbounded removalで削除する。元repository、root、parentのFDも閉じるが、
+selection/context、confirmation、nodes/edges/tagsは同じownerに残す。これはFD closeだけではなく
+失敗し得るfilesystem cleanupであり、拒否時は`Cleanup` stageのfailureに元の4A consequenceと
+`abandoned_root`を保持し、SourceReadyを返さずmakepkgへ進まない。成功・失敗のどちらも試行済みとし、
+後段cleanup/destructorは物理削除を再試行しない。残るworkspace/contextは通常のcleanupを一度行う。
+copy途中やfinal proof失敗時にはこの早期releaseへ入らず、既存のfailure unwindでcleanupする。
 explicit cleanupはretained workspace bindingsとsealed inventoryを照合してから、既存invocation
 contextのbounded removalへ委譲する。unsafe cleanupでは既存contextのunproven-content refusalも設定し、
 親のgeneric scanが交換されたsubtreeを再採用しないようにする。materialization途中でinventoryが
@@ -142,7 +150,8 @@ whole owner内のselection/contextをprivateに借用し、成功時はS4 result
 private adapterはretained workspaceを`BUILDDIR/<PackageBase>/src/<evaluated source name>`へ一度relocateする。
 childのrelative gitfile/core.worktree bindingとinodeを保ち、native親directoriesもretainする。
 同じworkspaceのobject storeから`SRCDEST/<source name>`へindependent local mirrorを作り、accepted Xの
-local refをnative selectorへbindする。4A backingには書き込まない。SRCDESTのpreexisting contentやnative leaf collisionは
+local refをnative selectorへbindする。このnative mirrorはSourceReady後の派生物であり、既に解放済みの
+4A backingを参照しない。SRCDESTのpreexisting contentやnative leaf collisionは
 採用せずfail-closedとし、ambient/persistent cacheを使わない。
 
 Issue #591では、prepared metadata/packagelist後の既存PreparedReproofが成功した場合だけ、private bridgeから
@@ -173,8 +182,11 @@ child pinsはwhole owner内のinvocation-local evidenceでありprovenance v1 / 
 
 ## Remaining scope / validation
 
-production activationはexact target-less ordinary `-Syu` / `-Su` Auto + initial ProvenanceMissing + current typed bootstrap intentだけ。
-package名や`-git` suffixでこのbranchを選択しない。通常のvalid-provenance / non-devel経路を変更しない。
+production activationはtyped initial-Missing bootstrapと、`ordinary_devel_package_base` intentで選択された
+既存のordinary authoritative devel更新を含む。どちらも[normal routes](devel-normal-routes.md)と
+[execution bridge](reviewed-devel-source-build-execution.md)の対応範囲内で同じclosed chainを使う。
+package名や`-git` suffixだけでこのbranchを選択せず、既存provenanceをMissingへ戻さない。
+non-devel、local、registered、その他のupgrade variantへactivationを広げない。
 Slice 5はsplit PackageBase groupを、Slice 6は代表3topologyのdeterministic coverageを接続する。
 [fixtureの範囲](../../tests/fixtures/devel-production-topologies.md)を参照する。live Cargo取得、一般sandbox、
 persistent cache manager、continuous監視を今回の対応に含めない。

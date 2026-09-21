@@ -28,6 +28,21 @@ cache rootはXDG user cache authorityへ切り替える。legacy cacheを正本�
 
 このcontractが固定するのは上記の安全契約であり、現在のmodule、type、capability plumbing、trusted Git policy、removal planningを恒久的architectureとして固定するものではない。現在のproject規模に対してcostが不釣り合いになった場合、安全契約を維持したまま、より小さく比例したarchitectureへ統合、縮小、置換してよい。その簡素化は安全契約の撤回ではない。
 
+### Existing source-build cache inconsistency（#575 / F575-01）
+
+source-build準備では、既存derived cache checkoutのremoteが期待するsource identityと一致しない場合、
+entryを保持したまま理由を示して失敗し、現在のoperationを停止する。既存entryがdirectoryでない場合や
+`.git`が欠落している場合も、削除してcloneし直す経路へ進めない。unsafeなGit metadata、symlink、
+ownership / containment不明等は、それぞれの既存validation failureを維持する。
+
+検出は自動だが、復旧は別の明示操作の責務とする。不整合を検出したentryを自動削除・reclone・
+fetch / resetしてbuildを続けず、後続makepkg / installやdurable reviewed / provenance stateの
+更新へ進まない。この境界は新しいrecovery commandや任意path削除の許可を意味しない。
+
+期待どおりの既存checkoutの通常fetch / update、entryが本当に欠落している場合のfresh acquisitionは
+維持する。このinvocationが新規作成したentryの取得失敗時は、既存のownership、containment、
+generation / named-lineage検証に基づくabort rollbackを維持する。
+
 ### Bounded recursive cleanup（v2.8.0 / #550）
 
 trusted cacheのrecursive cleanup planはentry総数に比例する同時open descriptorを必要としない。
