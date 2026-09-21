@@ -191,7 +191,7 @@ ctimeをmetadata/hash/MTREE読取の後にも再証明する。libalpm metadata�
 - evaluated source projection
 - `ActualBuiltGitRevision`
 - complete declared child set D、およびactual outputs Bの各retained descriptor、`PackageChildIdentity`、`BuiltPackageArtifactEvidence`
-- SourceReady inputではaccepted closure/child pins/backingを含むwhole owner（invocation内だけのseparate evidence）
+- SourceReady inputではaccepted closure/child pinsと独立copy済みworkspace/mirrorを含むwhole owner（invocation内だけのseparate evidence）。元のacquisition backingはSourceReady final proof後に解放済み
 
 artifact pathはdiagnostic/presentation valueでありauthorityではない。proof破棄または明示cleanupまでcontextと
 artifactを保持する。S5-Aの`EvaluatedDevelSourceArtifactTransport`はproof全体をmoveでconsumeし、

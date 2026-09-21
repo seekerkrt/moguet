@@ -3400,6 +3400,7 @@ done
         unsigned source_preparations = 0, package_builds = 0, closure_cleanup_attempts = 0;
         std::optional<int> preparation_exit, prepared_srcinfo_exit, prepared_packagelist_exit, package_build_exit;
         unsigned initial_evaluations = 0, root_observations = 0, closure_reviews = 0, workspace_clones = 0, closure_phase_points = 0;
+        bool awaiting_source_ready_proof = true;
         std::map<std::string, fs::path> closure_remotes{{upstream.url(), upstream.remote()}};
         if(pinned) {
             closure_remotes.emplace(submodule->url(), submodule->remote());
@@ -3408,8 +3409,9 @@ done
         for(const auto& child : representative_children)
             closure_remotes.emplace(child->url(), child->remote());
         PinnedClosureTestHooks closure_hooks;
-        closure_hooks.event = [&](auto, const auto& path) {
+        closure_hooks.event = [&](auto stage, const auto& path) {
             closure_root = path;
+            if(stage == PinnedClosureStage::RootObservation) awaiting_source_ready_proof = true;
             if(closure_interaction && !closure_identity) {
                 struct stat identity{};
                 if(::lstat(path.c_str(), &identity) == 0) closure_identity = identity;
@@ -3481,6 +3483,8 @@ done
         }
         workspace_hooks.before_reproof = [&](const auto& root) {
             ++closure_phase_points;
+            require(fs::exists(closure_root) == std::exchange(awaiting_source_ready_proof, false),
+                    "Original backing must survive transfer proof only");
             if(generated_output && closure_phase_points <= 3)
                 require(regular_bytes(closure_phase_points == 3 ? root.parent_path() : root) < INVENTORY_BYTE_LIMIT,
                         "Immutable/native baseline already exceeds cap");
@@ -3503,6 +3507,7 @@ done
             if(phase == EvaluatedDevelSourceBuildProcess::SourcePreparation) ++source_preparations;
             if(phase == EvaluatedDevelSourceBuildProcess::PackageBuild) ++package_builds;
             if(pinned && phase == EvaluatedDevelSourceBuildProcess::SourcePreparation) {
+                require(!fs::exists(closure_root), "Native makepkg still has acquisition backing");
                 require(std::find(invocation.arguments.begin(), invocation.arguments.end(), "--holdver") != invocation.arguments.end(), "Native preparation lost holdver");
                 require(std::find(invocation.arguments.begin(), invocation.arguments.end(), "--noextract") == invocation.arguments.end(), "Native prepare() was skipped");
             }
@@ -4632,7 +4637,7 @@ done
             if(pinned) {
                 require(initial_evaluations == 1 && root_observations == 1 && closure_reviews == 1 && workspace_clones == 6,
                         "Repeated selection/acquisition/review/materialization or wrong recursive inventory");
-                require(success ? fs::exists(closure_root) : !fs::exists(closure_root), "4A backing lifetime mismatch");
+                require(!fs::exists(closure_root), "4A backing survived transfer into downstream S4/S5/S6");
                 if(success) {
                     require(closure_phase_points == 5, "Missing prepared/post-build closure proof");
                     if(generated_output) {
@@ -6638,7 +6643,9 @@ prepare() {
         auto selected = select_evaluated_devel_source(std::move(context), std::move(environment));
         auto selection = take_arm<EvaluatedDevelSourceSelection>(selected, "Tag workspace selection failed");
         bool accepted_phase = false;
+        fs::path object_root;
         PinnedClosureTestHooks acquisition;
+        acquisition.event = [&](auto, const auto& path) { object_root = path; };
         acquisition.process = [&](const auto& original, const auto& policy) {
             require(!accepted_phase, "Moguet reacquired tags after acceptance");
             auto invocation = original;
@@ -6730,6 +6737,7 @@ prepare() {
         };
         workspace.before_reproof = [&](const fs::path& root) {
             ++points;
+            require(fs::exists(object_root) == (points == 1), "Tag proof used the wrong acquisition backing lifetime");
             verify_mapping(root);
             if(points >= 3) verify_mapping(mirror_path);
             if(points >= 4) require(fs::is_regular_file(mirror_path.parent_path() / "fixture-cache/input"), "Prepared cache fixture missing");
@@ -6817,6 +6825,7 @@ prepare() {
             failure = *error;
         else {
             auto ready = take_arm<SourceReadyPinnedSubmoduleWorkspace>(materialized, "No tag workspace");
+            require(!fs::exists(object_root), "Tag SourceReady retained original backing");
             auto built = resume_evaluated_devel_source(std::move(ready));
             if(auto* error = std::get_if<EvaluatedDevelSourceBuildFailure>(&built)) {
                 build_failure = *error;
@@ -6905,7 +6914,7 @@ prepare() {
         "single", "nested", "siblings", "sha256", "attributes", "root-only", "move", "destructor", "explicit-reproof",
         "wrong-root", "wrong-child", "gitfile", "absolute-gitfile", "symlink-gitfile", "missing-gitdir", "wrong-name", "extra-module",
         "missing-child", "index-drift", "declaration-drift", "unexpected-repo", "workspace-replaced", "root-gitdir-replaced",
-        "cleanup-refusal", "object-cleanup-refusal", "cancel", "git-failure", "allocation", "moved-input", "object-transfer-failure",
+        "cleanup-refusal", "object-cleanup-refusal", "early-object-cleanup-refusal", "cancel", "git-failure", "allocation", "moved-input", "object-transfer-failure",
         "config-drift", "object-alternate", "http-object-alternate", "name-collision", "preexisting-workspace", "unclean-source", "partial-cleanup-replacement", "inventory-byte-limit", "root-objects-replaced", "child-worktree-replaced"};
     const auto read = [](const fs::path& path) {
         std::ifstream input(path, std::ios::binary);
@@ -6977,8 +6986,12 @@ prepare() {
         if(leaf) remotes.emplace(leaf->url(), leaf->remote());
         fs::path object_root;
         bool accepted_phase = false;
+        unsigned object_cleanup_events = 0;
         PinnedClosureTestHooks acquisition;
-        acquisition.event = [&](auto, const auto& path) { object_root = path; };
+        acquisition.event = [&](auto stage, const auto& path) {
+            object_root = path;
+            if(stage == PinnedClosureStage::Cleanup) ++object_cleanup_events;
+        };
         acquisition.process = [&](const auto& original, const auto& policy) {
             require(!accepted_phase, "4B1 reused acquisition/read runner after acceptance");
             auto invocation = original;
@@ -6992,7 +7005,7 @@ prepare() {
             }
             return capture_bounded_explicit_process_output_raw(invocation, policy);
         };
-        if(kind == "object-cleanup-refusal") acquisition.before_remove = [&](const auto&) {
+        if(kind == "object-cleanup-refusal" || kind == "early-object-cleanup-refusal") acquisition.before_remove = [&](const auto&) {
             ++object_cleanup_attempts;
             throw std::runtime_error("fixture object cleanup refusal");
         };
@@ -7013,6 +7026,16 @@ prepare() {
         auto accepted = take_arm<Accepted>(reviewed, "Workspace review did not accept");
         accepted_phase = true;
         const auto original_backing = fingerprint(object_root);
+        const auto has_backing_descriptors = [&] {
+            for(const auto& entry : fs::directory_iterator("/proc/self/fd")) {
+                std::error_code error;
+                const auto target = fs::read_symlink(entry.path(), error).string();
+                if(!error && (target == object_root.string() || target == object_root.string() + " (deleted)" ||
+                              target.starts_with(object_root.string() + "/"))) return true;
+            }
+            return false;
+        };
+        require(has_backing_descriptors(), "Acquisition did not retain its physical backing");
         // The already accepted pins, not advanced remote tips, must be used.
         upstream.commit("remote root moved after acceptance\n");
         child.commit("remote child moved after acceptance\n");
@@ -7035,6 +7058,7 @@ prepare() {
                     "4B1 used remote/ref fallback or lost fixed process policy");
             if(has("clone")) {
                 ++clones;
+                require(fingerprint(object_root) == original_backing, "Backing released or changed before complete transfer");
                 require(has("--local") && has("--no-hardlinks") && has("--no-checkout") && has("protocol.file.allow=always") && has("protocol.https.allow=never"), "Object transfer shared mutable backing");
             }
             if(kind == "partial-cleanup-replacement" && has("clone") && clones == 2)
@@ -7044,8 +7068,14 @@ prepare() {
                                                     kind == "cancel" ? std::optional<int>(SIGINT) : std::nullopt};
             return capture_bounded_explicit_process_output_raw(invocation, policy);
         };
+        const bool incomplete_transfer = kind == "partial-cleanup-replacement" || kind == "cancel" || kind == "git-failure" ||
+                                         kind == "object-transfer-failure" || kind == "wrong-root" || kind == "inventory-byte-limit";
+        bool backing_retained_until_abort = false;
         workspace.before_cleanup = [&](const auto& root) {
             ++cleanup_attempts;
+            // Assert outside cleanup: its exception boundary must not turn a
+            // failed test oracle into an expected cleanup-refusal result.
+            if(incomplete_transfer) backing_retained_until_abort = fs::exists(object_root) && object_cleanup_events == 0;
             if(kind == "cleanup-refusal") throw std::runtime_error("fixture cleanup refusal");
             if(kind == "partial-cleanup-replacement") {
                 fs::rename(root / ".git", root / "saved-gitdir");
@@ -7102,7 +7132,10 @@ prepare() {
             if(kind == "unclean-source") write_file(child_path / "payload.txt", "unaccepted source\n");
         };
         const std::set<std::string> positives{"single", "nested", "siblings", "sha256", "attributes", "root-only", "move", "destructor", "explicit-reproof"};
-        if(!positives.contains(kind)) workspace.before_reproof = tamper;
+        workspace.before_reproof = [&](const auto& root) {
+            require(fingerprint(object_root) == original_backing, "Backing changed before SourceReady final proof");
+            if(!positives.contains(kind)) tamper(root);
+        };
         if(kind == "object-transfer-failure") write_file(object_root / "node-0/config", "[core]\n bare = false\n");
         if(kind == "preexisting-workspace") {
             fs::create_directory(builddir / "pinned-submodule-workspace");
@@ -7129,8 +7162,14 @@ prepare() {
                 auto ready = take_arm<Ready>(result, "Workspace did not become source-ready: " + kind);
                 const auto root = ready.root();
                 require(&ready.accepted().closure().selection() == selection_address && &ready.accepted().closure().nodes() == nodes_address &&
-                            &ready.accepted().closure().edges() == edges_address && fingerprint(object_root) == original_backing,
-                        "Workspace copied owner lineage or mutated 4A backing");
+                            &ready.accepted().closure().edges() == edges_address && !fs::exists(object_root) &&
+                            !has_backing_descriptors() && object_cleanup_events == 1,
+                        "Workspace lost semantic lineage or retained acquisition backing");
+                workspace.before_reproof = [&](const auto&) {
+                    require(!fs::exists(object_root), "Post-transfer proof reached original backing");
+                };
+                set_pinned_workspace_test_hooks(workspace);
+                require(!ready.reprove(), "Independent SourceReady reproof failed after backing release");
                 require(git(root, {"rev-parse", "HEAD"}) == exact_root && git(root, {"status", "--porcelain", "--ignore-submodules=none"}).empty(), "Wrong/unclean exact root");
                 require(clones == ready.accepted().closure().nodes().size(), "Occurrence stores were deduplicated");
                 if(kind != "root-only") {
@@ -7183,7 +7222,7 @@ prepare() {
                 if(kind == "config-drift" || kind == "object-alternate" || kind == "http-object-alternate" || kind == "name-collision") expected = Reason::GitdirMismatch;
                 if(kind == "allocation" || kind == "inventory-byte-limit") expected = Reason::ResourceLimitExceeded;
                 if(kind == "moved-input") expected = Reason::InvalidAcceptedClosure;
-                if(kind == "object-transfer-failure" || kind == "git-failure" || kind == "partial-cleanup-replacement") expected = Reason::MaterializationFailed;
+                if(kind == "object-transfer-failure" || kind == "git-failure" || kind == "partial-cleanup-replacement" || kind == "early-object-cleanup-refusal") expected = Reason::MaterializationFailed;
                 if(kind == "cancel") expected = Reason::Cancelled;
                 if(kind == "inventory-byte-limit") require(failure.stage == PinnedWorkspaceStage::SourceReadyReproof,
                                                            "Immutable byte limit failed at the wrong phase");
@@ -7198,18 +7237,26 @@ prepare() {
                 if(kind == "cleanup-refusal" || kind == "workspace-replaced" || kind == "preexisting-workspace" || kind == "partial-cleanup-replacement") require(failure.cleanup.workspace && failure.cleanup.closure.selection &&
                                                                                                                                                                       failure.cleanup.closure.selection->reason == InvocationOwnedSourceBuildContextFailureReason::UnprovenCleanupContent && failure.abandoned_workspace,
                                                                                                                                                                   "Workspace refusal was lost to parent cleanup");
-                if(kind == "object-cleanup-refusal") require(failure.cleanup.closure.objects && object_cleanup_attempts == 1, "4A cleanup consequence lost");
+                if(kind == "object-cleanup-refusal" || kind == "early-object-cleanup-refusal") require(failure.cleanup.closure.objects && object_cleanup_attempts == 1, "4A cleanup consequence lost");
+                if(kind == "early-object-cleanup-refusal")
+                    require(failure.stage == PinnedWorkspaceStage::Cleanup && failure.acquisition &&
+                                failure.acquisition->stage == PinnedClosureStage::Cleanup &&
+                                failure.acquisition->abandoned_root == object_root && fs::exists(object_root) &&
+                                !has_backing_descriptors() &&
+                                !failure.cleanup.closure.selection && !fs::exists(context_root),
+                            "Early release refusal minted SourceReady or lost cleanup consequence");
                 if(kind == "workspace-replaced" || kind == "preexisting-workspace") require(read(builddir / "pinned-submodule-workspace/user-marker") == "retain\n", "Unknown replacement/user content deleted");
                 if(kind == "partial-cleanup-replacement") require(read(builddir / "pinned-submodule-workspace/.git/user-marker") == "retain\n", "Partial cleanup adopted replacement metadata");
             }
         }
-        require(cleanup_attempts <= 1 && object_cleanup_attempts <= 1, "Destructor retried cleanup");
+        require(cleanup_attempts <= 1 && object_cleanup_attempts <= 1 && object_cleanup_events <= 1, "Destructor retried cleanup");
+        if(incomplete_transfer) require(backing_retained_until_abort, "Incomplete transfer/proof released backing before abort cleanup");
         if(moved) require(moved->valid() && moved->cleanup().succeeded(), "Invalid input consumed another Accepted owner");
         if(positives.contains(kind) && kind != "explicit-reproof")
             require(cleanup_attempts == 1 && !fs::exists(context_root) && !fs::exists(object_root), "Positive owner cleanup was left to the fixture");
         if(fs::exists(context_root)) cleanup_retained_fixture(context_root, context_identity);
         if(fs::exists(object_root)) {
-            require(kind == "object-cleanup-refusal", "Unexpected backing residue");
+            require(kind == "object-cleanup-refusal" || kind == "early-object-cleanup-refusal", "Unexpected backing residue");
             fs::remove_all(object_root);
         }
         fixture.require_no_provenance_publication();

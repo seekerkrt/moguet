@@ -748,6 +748,14 @@ PinnedSubmoduleWorkspaceResult PinnedSubmoduleWorkspaceAuthority::materialize(Ac
         data->project_root_tags();
         data->seal();
         data->prove();
+        // All authoritative bytes now live in the independently proven stores.
+        // Native preparation derives its mirror from these copies, while the
+        // same Accepted selection/context and exact identities remain alive.
+        if(auto error = release_acquisition_backing(data->accepted.closure_)) {
+            PinnedWorkspaceFailure release{Stage::Cleanup, Reason::MaterializationFailed};
+            release.acquisition = std::move(error);
+            throw Failure(std::move(release));
+        }
         data->ready = true;
         return SourceReadyPinnedSubmoduleWorkspace(std::move(data));
     } catch(Failure& error) {
