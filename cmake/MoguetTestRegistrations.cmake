@@ -946,7 +946,7 @@ moguet_add_ctest(
 set_tests_properties(cpp.pinned_submodule_workspace PROPERTIES TIMEOUT 300)
 
 # 4B2 runs only recursive production integration cases on the existing full
-# bootstrap owner fixture. It does not execute that fixture's 68-case lane.
+# bootstrap owner fixture. It does not execute that fixture's full bootstrap lane.
 moguet_add_ctest(
     NAME cpp.pinned_submodule_s4_integration
     TARGETS devel-tracking-bootstrap-test

@@ -1138,6 +1138,8 @@ foreach(
     endif()
 endforeach()
 
+# Counts are display-only projections of the independent expected inventories.
+# Exact membership and uniqueness below remain the configure gate.
 list(LENGTH MOGUET_EXPECTED_CPP_TEST_TARGETS _moguet_expected_target_count)
 list(
     LENGTH
@@ -1154,35 +1156,6 @@ list(
     MOGUET_EXPECTED_CPP_TEST_FIREWALL_DESCRIPTORS
     _moguet_expected_firewall_descriptor_count
 )
-if(NOT _moguet_expected_target_count EQUAL 120)
-    message(
-        FATAL_ERROR
-        "Expected C++ test target inventory must contain 120 entries, got "
-        "${_moguet_expected_target_count}"
-    )
-endif()
-if(NOT _moguet_expected_support_count EQUAL 32)
-    message(
-        FATAL_ERROR
-        "Expected test support/stub inventory must contain 32 entries, got "
-        "${_moguet_expected_support_count}"
-    )
-endif()
-if(NOT _moguet_expected_firewall_count EQUAL 53)
-    message(
-        FATAL_ERROR
-        "Expected link firewall inventory must contain 53 entries, got "
-        "${_moguet_expected_firewall_count}"
-    )
-endif()
-if(NOT _moguet_expected_firewall_descriptor_count EQUAL 53)
-    message(
-        FATAL_ERROR
-        "Expected link firewall descriptor inventory must contain 53 "
-        "entries, got ${_moguet_expected_firewall_descriptor_count}"
-    )
-endif()
-
 _moguet_validate_firewall_descriptor_ledger(
     Expected
     MOGUET_EXPECTED_CPP_TEST_FIREWALL_DESCRIPTORS
@@ -1241,9 +1214,9 @@ list(
 list(LENGTH MOGUET_CTEST_NAMES _moguet_ctest_count)
 message(
     STATUS
-    "Moguet C++ tests: targets=${_moguet_test_target_count}/120, "
-    "support=${_moguet_test_support_count}/32, "
-    "firewalls=${_moguet_test_firewall_count}/53, "
-    "descriptors=${_moguet_test_firewall_descriptor_count}/53, "
+    "Moguet C++ tests: targets=${_moguet_test_target_count}/${_moguet_expected_target_count}, "
+    "support=${_moguet_test_support_count}/${_moguet_expected_support_count}, "
+    "firewalls=${_moguet_test_firewall_count}/${_moguet_expected_firewall_count}, "
+    "descriptors=${_moguet_test_firewall_descriptor_count}/${_moguet_expected_firewall_descriptor_count}, "
     "CTest registrations=${_moguet_ctest_count}"
 )

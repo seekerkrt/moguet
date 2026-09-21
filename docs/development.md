@@ -111,8 +111,8 @@ include / link graph、negative compile recipeを所有しない。
 | `build/cmake-production` | `BUILD_TESTING=OFF` | 通常の`make`、install / uninstall、production smoke |
 | `build/cmake-testing` | `BUILD_TESTING=ON` | developer、CTest、host / release validation、focused test |
 
-通常の`make`はproduction treeだけから`moguet`をbuildし、107個のC++ test-ledger executable、
-1個の`EXCLUDE_FROM_ALL` installed transport fixture harness、132件のCTest registrationを不用意にbuildしない。
+通常の`make`はproduction treeだけから`moguet`をbuildし、C++ test executableや
+`EXCLUDE_FROM_ALL` installed transport fixture harnessをbuildせず、CTestも登録しない。
 `make test`はtesting treeをbuildし、CTestを実行してから
 gettext、shell、docs、packaging等のrepository-specific validationを実行する。`make test-<area>`は
 互換entrypointとして残るが、exact target / CTest selectionは
@@ -211,19 +211,17 @@ environment初期化、cache、toolchainに委ねる。CMP0156 / CMP0181のNEW�
 `cmake/MoguetTests.cmake`、`MoguetTestTargets.cmake`、`MoguetTestRegistrations.cmake`が次のfail-closed
 inventoryを所有する。
 
-| Inventory | Expected |
-| --- | ---: |
-| C++ test executables | 116 |
-| installed transport fixture harnesses (`EXCLUDE_FROM_ALL`) | 1 |
-| support / stub translation units | 32 |
-| link firewalls | 50 |
-| firewall descriptors | 50 |
-| CTest registrations | 147 |
+C++ test executable、support / stub source、link firewall、firewall descriptorは、独立した
+expected一覧とactual graphのexact membership / uniquenessをconfigure時に照合する。
+CTest runtime targetとの対応、descriptorのtargetとhash、installed transport fixtureの
+`EXCLUDE_FROM_ALL`も検証する。configure summaryのinventory件数は各一覧から導出する。
+CTest registrationには独立した全名前集合とのexact照合がないため、frontend contractの総数guardは
+余剰registrationや同一runtime targetを共有するshardの欠落を検出する補助として維持する。
 
 stub / real implementation exclusion、replacement ABI、ALPM stub、exact source closureをtarget-localに
 維持する。単一production libraryを全testへ無条件linkしない。negative compileはCTest registrationから
 effective CMake compiler / launcher / compile optionを取得し、GNU Make recursive compileへ戻さない。
-Make focused aliasとCMake focused targetは各127件で一致し、missing / unexpectedを0に保つ。
+Makeの互換focused alias一覧とCMakeの実target集合を照合し、重複とmissing / unexpectedを拒否する。
 
 `make test-installed-fixture-compile`は既存のinstalled transport fixture全体をcompile/linkする
 host gateであり、fixtureを実行しない。`make test`のrepository validationにも含め、production headerと

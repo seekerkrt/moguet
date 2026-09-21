@@ -124,7 +124,7 @@ host suiteの並列安全性はtestの隔離とproduction registrationを根拠�
 `cpp.invocation_owned_source_build_context`は失敗時にproduction parentへfallbackしなかったことを
 証明するため、`/tmp/moguet-source-build-context-*`全体のinventoryも前後比較する。
 他のcontext生成testがこのnamespaceを変えるので、この1登録だけ`RUN_SERIAL=TRUE`とする。
-他の152登録にはserial指定なし。`RESOURCE_LOCK`、`PROCESSORS` overrideもなし（既定1 slot）。
+他の登録にはserial指定なし。`RESOURCE_LOCK`、`PROCESSORS` overrideもなし（既定1 slot）。
 既存TIMEOUTと全test/assertionを維持する。
 将来共有write resourceや内部CPU並列処理を追加する場合は、fixture隔離または該当testだけの
 CTest native `RESOURCE_LOCK` / `PROCESSORS`等で宣言する。同一build treeに対する別のCTestや

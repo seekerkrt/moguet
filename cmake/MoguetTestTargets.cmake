@@ -3558,7 +3558,7 @@ set(
     evaluated-devel-source-build-test
 )
 
-# These hashes are an independent fail-closed ledger for the 53 link
+# These hashes are an independent fail-closed ledger for the link
 # firewalls.  Before changing any entry, compare the target's complete CMake
 # source/link profile with the legacy Make closure and re-establish parity;
 # never derive or update this expected ledger from the configure-time actual
