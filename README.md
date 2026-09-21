@@ -528,7 +528,7 @@ visible. Use `moguet --details plan <pkg>` or `moguet --details deps <pkg>` for
 full state/readiness, provenance, relation diagnostics, all constraint reasons,
 and the existing empty-category inventory. Both modes use the same typed result
 and preserve provider choices, readiness, and exit status. See the
-[plan/deps presentation policy](docs/compatibility.md#compat-plan-deps-presentation).
+[plan/deps presentation policy](https://github.com/seekerkrt/moguet/blob/develop/docs/compatibility.md#compat-plan-deps-presentation).
 
 Human-readable diagnostics are projections of typed state, never the authority
 used to classify it. English and Japanese keep the same hierarchy: a normal

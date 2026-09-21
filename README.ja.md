@@ -461,7 +461,7 @@ source-build preferenceへqueryしません。
 未充足・不明・不正な結果は個別に残します。`moguet --details plan <pkg>` /
 `moguet --details deps <pkg>`でstate/readiness、由来情報、relation診断、全制約の理由と
 既存の空category一覧を確認できます。両modeは同じtyped結果を使い、provider選択、readiness、
-終了statusを変えません。[plan/deps表示policy](docs/compatibility.md#compat-plan-deps-presentation)を参照してください。
+終了statusを変えません。[plan/deps表示policy](https://github.com/seekerkrt/moguet/blob/develop/docs/compatibility.md#compat-plan-deps-presentation)を参照してください。
 
 human-readable diagnosticはtyped stateのprojectionであり、classificationを決める
 authorityではありません。英日ともnormal summary、attention-required detail、route-owned
