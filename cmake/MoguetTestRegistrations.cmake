@@ -919,12 +919,15 @@ moguet_add_ctest(
 )
 set_tests_properties(cpp.devel_tracking_bootstrap PROPERTIES TIMEOUT 480)
 
-moguet_add_ctest(
-    NAME cpp.pinned_submodule_closure
-    TARGETS pinned-submodule-closure-test
-    COMMAND "$<TARGET_FILE:pinned-submodule-closure-test>" --pinned-closure
-)
-set_tests_properties(cpp.pinned_submodule_closure PROPERTIES TIMEOUT 300)
+foreach(_moguet_closure_shard IN ITEMS declarations objects failures tags)
+    moguet_add_ctest(
+        NAME "cpp.pinned_submodule_closure.${_moguet_closure_shard}"
+        TARGETS pinned-submodule-closure-test
+        COMMAND "$<TARGET_FILE:pinned-submodule-closure-test>" --pinned-closure "${_moguet_closure_shard}"
+    )
+    set_tests_properties("cpp.pinned_submodule_closure.${_moguet_closure_shard}" PROPERTIES TIMEOUT 300)
+endforeach()
+unset(_moguet_closure_shard)
 
 # 4B0 foundation only; no production bootstrap/S4 integration is run here.
 moguet_add_ctest(

@@ -5860,7 +5860,7 @@ std::string module_declaration(const std::string& name, const std::string& path,
     }
 }
 
-[[maybe_unused]] void test_pinned_closure() {
+[[maybe_unused]] void test_pinned_closure(const std::vector<std::string>& cases, unsigned expected_completed) {
     using Closure = InvocationOwnedPinnedSubmoduleClosure;
     using Reason = PinnedClosureFailureReason;
     using Stage = PinnedClosureStage;
@@ -5870,18 +5870,7 @@ std::string module_declaration(const std::string& name, const std::string& path,
     static_assert(!std::is_invocable_v<decltype(acquire_pinned_submodule_closure), VcsSourceIdentity, PresentationDetail>);
     static_assert(!std::is_invocable_v<decltype(acquire_pinned_submodule_closure), EvaluatedDevelSourceBuildProof, PresentationDetail>);
     unsigned completed = 0;
-    for(const std::string kind : {"single", "nested", "siblings", "freeze", "parent-move", "sha256", "branch",
-                                  "missing-declaration", "extra-declaration", "duplicate-name", "duplicate-path", "mismatch", "malformed",
-                                  "file", "ssh", "scp", "ext", "git", "http", "relative", "branch-key", "merge", "rebase", "none", "custom",
-                                  "absolute", "dotdot", "dot", "empty-component", "overlong", "component", "missing-object", "blob", "tree",
-                                  "depth-bound", "edge-bound", "declaration-bound", "aggregate-bound", "records-bound", "metadata-bound", "process-bound",
-                                  "launch", "nonzero", "timeout", "signal", "cancel", "overflow", "config", "alternates", "cleanup",
-                                  "tag", "wrong-format", "missing-modules", "symlink-modules", "gitlink-modules", "root-unavailable",
-                                  "child-cancel", "io", "cleanup-primary", "duplicate-tree", "tree-framing", "tree-mode", "tree-oid",
-                                  "limit-slack", "overlap", "missing-path", "missing-url", "duplicate-key", "quoted", "moved-input",
-                                  "duplicate-tree-record", "read-cleanup-process", "read-cleanup-exception",
-                                  "init-launch", "init-nonzero", "fetch-launch", "fetch-timeout", "fetch-signal", "fetch-overflow", "fetch-io", "fetch-nonzero",
-                                  "observation-duplicate", "observation-wrong-ref", "observation-malformed"}) {
+    for(const std::string& kind : cases) {
         const auto format = kind == "sha256" ? GitObjectFormat::Sha256 : GitObjectFormat::Sha1;
         UpstreamGitFixture child("closure-child-" + kind, format);
         UpstreamGitFixture root("closure-root-" + kind, format);
@@ -6290,9 +6279,51 @@ std::string module_declaration(const std::string& name, const std::string& path,
         std::cout << "S564 4A " << kind << " PASS\n"
                   << std::flush;
     }
-    require(completed == 84, "Closure matrix coverage count changed");
+    require(completed == expected_completed, "Closure matrix coverage count changed");
     std::cout << "S564 4A final inventory PASS: " << completed << " cases\n";
 }
+// Each shard owns whole fixture lifecycles in a separate CTest process. In
+// particular, tag Normal/Detailed comparisons share their upstream and stay
+// together; no process-global environment or hooks are used concurrently.
+// Keep the former 84-case completion oracle independent of the selected lists
+// (32 + 29 + 23), so an accidentally omitted group still fails the shard.
+[[maybe_unused]] void test_pinned_closure_shard(std::string_view shard) {
+    if(shard == "declarations") {
+        test_pinned_closure({"missing-declaration", "extra-declaration", "duplicate-name", "duplicate-path", "mismatch", "malformed",
+                             "file", "ssh", "scp", "ext", "git", "http",
+                             "relative", "branch-key", "merge", "rebase", "none", "custom",
+                             "absolute", "dotdot", "dot", "empty-component", "overlong", "component",
+                             "missing-modules", "symlink-modules", "gitlink-modules", "overlap", "missing-path", "missing-url",
+                             "duplicate-key", "quoted"},
+                            32);
+        return;
+    }
+    if(shard == "objects") {
+        test_pinned_closure({"single", "nested", "siblings", "freeze", "parent-move", "sha256",
+                             "branch", "missing-object", "blob", "tree", "tag", "wrong-format",
+                             "root-unavailable", "depth-bound", "edge-bound", "declaration-bound", "aggregate-bound", "records-bound",
+                             "metadata-bound", "process-bound", "limit-slack", "duplicate-tree", "tree-framing", "tree-mode",
+                             "tree-oid", "duplicate-tree-record", "observation-duplicate", "observation-wrong-ref", "observation-malformed"},
+                            29);
+        return;
+    }
+    if(shard == "failures") {
+        test_pinned_closure_allocation_cleanup();
+        test_pinned_closure({"launch", "nonzero", "timeout", "signal", "cancel", "overflow",
+                             "config", "alternates", "cleanup", "child-cancel", "io", "cleanup-primary",
+                             "moved-input", "read-cleanup-process", "read-cleanup-exception", "init-launch", "init-nonzero", "fetch-launch",
+                             "fetch-timeout", "fetch-signal", "fetch-overflow", "fetch-io", "fetch-nonzero"},
+                            23);
+        return;
+    }
+    if(shard == "tags") {
+        test_root_tag_acquisition();
+        return;
+    }
+    throw std::invalid_argument("Unknown pinned closure shard: '" + std::string(shard) +
+                                "' (expected declarations, objects, failures, or tags)");
+}
+
 #endif
 
 #ifdef MOGUET_ENABLE_PINNED_CLOSURE_REVIEW_TEST_HOOKS
@@ -7286,10 +7317,9 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
         return 0;
 #endif
 #if defined(MOGUET_ENABLE_PINNED_SUBMODULE_CLOSURE_TEST_HOOKS) && !defined(MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION)
-        if(argc != 2 || std::string(argv[1]) != "--pinned-closure") throw std::invalid_argument("Explicit closure mode required");
-        test_pinned_closure_allocation_cleanup();
-        test_pinned_closure();
-        test_root_tag_acquisition();
+        if(argc != 3 || std::string(argv[1]) != "--pinned-closure")
+            throw std::invalid_argument("Expected --pinned-closure <declarations|objects|failures|tags>");
+        test_pinned_closure_shard(argv[2]);
         require(context_root_inventory() == before, "Closure retained selection context");
         return 0;
 #endif
