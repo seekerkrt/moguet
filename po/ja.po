@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.8.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-21 09:14+0900\n"
+"POT-Creation-Date: 2026-09-21 10:25+0900\n"
 "PO-Revision-Date: 2026-09-19 17:53+0900\n"
 "Last-Translator: Moguet contributors\n"
 "Language-Team: Japanese\n"
@@ -7604,8 +7604,13 @@ msgstr "{} に対する信頼できるインストール済みパッケージの
 msgid "Processing {}..."
 msgstr "{} を処理しています..."
 
-msgid "Remote URL mismatch. Re-cloning..."
-msgstr "リモート URL が一致しません。clone し直します..."
+#, c++-format
+msgid "Missing {} directory for existing cache checkout {}. Build stopped; cache preserved. Check the configured source and cache before retrying."
+msgstr "{} ディレクトリが既存のキャッシュ checkout {} にありません。ビルドを停止し、キャッシュを保持しました。再試行する前に、設定されたソースとキャッシュを確認してください。"
+
+#, c++-format
+msgid "Remote URL mismatch for existing cache checkout {}. Build stopped; cache preserved. Check the configured source and cache before retrying."
+msgstr "既存のキャッシュ checkout {} のリモート URL が一致しません。ビルドを停止し、キャッシュを保持しました。再試行する前に、設定されたソースとキャッシュを確認してください。"
 
 msgid "Updating repository..."
 msgstr "リポジトリを更新しています..."
@@ -9959,6 +9964,9 @@ msgstr "{}のデフォルト状態ログを段階{}で安全に使用できま�
 
 msgid "Unknown state log error code."
 msgstr "不明な状態ログエラーコードです。"
+
+#~ msgid "Remote URL mismatch. Re-cloning..."
+#~ msgstr "リモート URL が一致しません。clone し直します..."
 
 #~ msgid "no change"
 #~ msgstr "変更なし"
