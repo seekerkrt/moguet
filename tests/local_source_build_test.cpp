@@ -372,6 +372,7 @@ struct ScenarioObservation {
     fs::path source_workspace_path;
     fs::path artifact_workspace_path;
     std::size_t source_workspace_events = 0;
+    std::size_t cleanup_removal_attempts = 0;
     bool cleanup_failure_injected = false;
     std::string hook_failure;
     SourceBuildEnvironment source_environment;
@@ -421,6 +422,9 @@ void observe_source_workspace_event(
     const fs::path&) {
     if(g_observation == nullptr) return;
     ++g_observation->source_workspace_events;
+    if(event == LocalSourceWorkspaceTestEvent::BeforeCleanupRemoval) {
+        ++g_observation->cleanup_removal_attempts;
+    }
     if(event == LocalSourceWorkspaceTestEvent::BeforeCleanupRemoval &&
        (g_observation->kind == ScenarioKind::CleanupFailureAfterSuccess ||
         g_observation->kind ==
@@ -1153,7 +1157,16 @@ void test_primary_failure_preserves_secondary_source_cleanup_failure() {
         observation.cleanup_failure_injected,
         "Secondary cleanup failure hook did not run");
     expect_observed_hooks_succeeded(observation);
-    expect_source_workspace_cleaned(observation);
+    expect(
+        fs::is_directory(observation.source_workspace_path),
+        "Known cleanup failure did not preserve the source workspace");
+    expect(
+        read_file(observation.source_workspace_path / "PKGBUILD") ==
+            "mutated snapshot\n",
+        "Known cleanup failure deleted source workspace content");
+    expect(
+        observation.cleanup_removal_attempts == 1,
+        "Known cleanup failure triggered another removal attempt");
     expect_artifact_diagnostic_retained(observation, failure);
     fixture.expect_original_tree_unchanged();
 }
@@ -1185,7 +1198,16 @@ void test_successful_build_preserves_typed_source_cleanup_failure() {
         observation.cleanup_failure_injected,
         "Standalone source cleanup failure hook did not run");
     expect_observed_hooks_succeeded(observation);
-    expect_source_workspace_cleaned(observation);
+    expect(
+        fs::is_directory(observation.source_workspace_path),
+        "Known cleanup failure did not preserve the source workspace");
+    expect(
+        read_file(observation.source_workspace_path / "PKGBUILD") ==
+            "mutated snapshot\n",
+        "Known cleanup failure deleted source workspace content");
+    expect(
+        observation.cleanup_removal_attempts == 1,
+        "Known cleanup failure triggered another removal attempt");
     expect_artifact_diagnostic_retained(observation, failure);
     fixture.expect_original_tree_unchanged();
 }

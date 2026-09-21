@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.8.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-21 10:25+0900\n"
+"POT-Creation-Date: 2026-09-21 10:39+0900\n"
 "PO-Revision-Date: 2026-09-19 17:53+0900\n"
 "Last-Translator: Moguet contributors\n"
 "Language-Team: Japanese\n"
@@ -5685,6 +5685,10 @@ msgstr "{}の出力がローカルメタデータのサイズ上限を超えま�
 #, c++-format
 msgid "{} returned invalid local package metadata at line {}."
 msgstr "{}が{}行目で不正なローカルパッケージメタデータを返しました。"
+
+#, c++-format
+msgid "Local source workspace cleanup could not be completed; temporary source data may remain at {}."
+msgstr "ローカルソース作業領域のクリーンアップを完了できませんでした。{} に一時ソースデータが残っている可能性があります。"
 
 #, c++-format
 msgid "Warning: {}"

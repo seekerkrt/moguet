@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.8.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-21 10:25+0900\n"
+"POT-Creation-Date: 2026-09-21 10:39+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -5692,6 +5692,10 @@ msgstr ""
 #. option; the second is a line number in generated metadata.
 #, c++-format
 msgid "{} returned invalid local package metadata at line {}."
+msgstr ""
+
+#, c++-format
+msgid "Local source workspace cleanup could not be completed; temporary source data may remain at {}."
 msgstr ""
 
 #, c++-format

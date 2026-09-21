@@ -34,6 +34,7 @@ source/interactive_confirmation.cpp
 source/local_source_build_dependency_preparation.cpp
 source/local_source_install.cpp
 source/local_source_metadata_evaluation.cpp
+source/local_source_workspace.cpp
 source/logging.cpp
 source/moguet.cpp
 source/package_base_artifact_install_executor.cpp

@@ -62,6 +62,9 @@ local root childrenはExplicit、dependency planが要求するchildrenはDepend
 
 source workspaceのcleanupとartifact workspaceのdiagnostic retentionは別lifecycleである。cleanup failureやpartial completionをprimary build / install failureへflattenせず、completed child、failed target、unattempted targetを区別する。unsafe identity replacementを観測した場合はnamed replacementをcleanupせず、manual inspection用artifactを保持し得る。
 
+source snapshotのmaterialize成功まではconstruction guardがpartial workspaceのrollbackを所有し、成功後はsource workspaceだけがcleanupを所有する。cleanup未試行のままscopeを離れる場合の通常RAII cleanupは維持する。
+source workspaceは所有するcleanup経路で一度だけ削除を試みる。成功時はclean状態となり、後続のdestructorは追加削除しない。安全にcleanupを完了できない場合はtyped failure / refusalを保持して試行済みとし、destructorやmember guardから暗黙に再試行しない。残留し得るworkspace pathを診断に示し、残留を削除済みや操作成功として報告しない。primary build failureとsecondary cleanup failureは両方保持し、build成功後でもsource cleanup failureならinstallへ進まない。user-owned source保護、named lineage / ownership / generationの検証、readonly sourceから作ったcopyの通常cleanupは維持する。
+
 ### Production execution orderとfailure
 
 全plan、metadata evaluation、source identity、artifact identity、static preflightが完了した後のpackage-side実行順は次のとおりである。
