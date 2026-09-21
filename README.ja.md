@@ -456,6 +456,13 @@ freshなinstalled-foreign inventory、AUR metadata、plan、provider decision、
 取り直します。`moguet --dry-run -Syu --repo`はrepository intentだけを表示し、AURや
 source-build preferenceへqueryしません。
 
+`plan`と`deps`は通常、対象と要確認の結果を簡潔に示します。`deps`は非emptyな依存一覧を残し、
+空categoryとpackage名に等しいPackageBaseを省略します。正常な制約は件数へ集約し、
+未充足・不明・不正な結果は個別に残します。`moguet --details plan <pkg>` /
+`moguet --details deps <pkg>`でstate/readiness、由来情報、relation診断、全制約の理由と
+既存の空category一覧を確認できます。両modeは同じtyped結果を使い、provider選択、readiness、
+終了statusを変えません。[plan/deps表示policy](docs/compatibility.md#compat-plan-deps-presentation)を参照してください。
+
 human-readable diagnosticはtyped stateのprojectionであり、classificationを決める
 authorityではありません。英日ともnormal summary、attention-required detail、route-owned
 necessary detailの順を保ちます。operation outcomeとpackage state observationを分け、plan

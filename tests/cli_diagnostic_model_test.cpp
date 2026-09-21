@@ -285,6 +285,52 @@ void test_package_relation_public_diagnostics() {
     expect_no_internal_relation_tokens(
         declared_diagnostic, "declared fallback diagnostic");
 
+    // Both presentations consume the same completed assessment; rendering
+    // must preserve every typed value and retain fail-closed classifications.
+    const std::array assessments = {installed, planned, replacement, no_match,
+                                    unknown, invalid, declared};
+    const std::array<std::string_view, 7> summaries = {
+        "installed conflict with installed-provider",
+        "planned conflict with planned-child (PackageBase: planned-base)",
+        "potential replacement of legacy-provider",
+        "no matching installed or planned target",
+        "relation judgment unavailable (installed: source unavailable)",
+        "invalid relation metadata or observation (root attribution is invalid)",
+        "assessment incomplete"};
+    for(std::size_t index = 0; index < assessments.size(); ++index) {
+        const auto& assessment = assessments[index];
+        const auto before = assessment;
+        const auto normal = package_relation_assessment_summary_display(assessment);
+        const auto detailed = package_relation_assessment_diagnostic_display(assessment);
+        expect(assessment == before, "relation rendering changed typed authority");
+        expect_contains(normal, summaries[index], "compact relation classification");
+        expect_contains(normal, assessment.declaration.raw_specification(), "compact relation target");
+        expect_not_contains(normal, "roots:", "compact provenance suppression");
+        expect_no_internal_relation_tokens(normal, "compact relation summary");
+        expect(normal.size() < detailed.size(), "compact relation is not shorter");
+        if(index == 3) {
+            expect_not_contains(normal, "Build/install is blocked", "no-match summary");
+        } else {
+            expect_contains(normal, "Build/install is blocked", "fail-closed summary");
+        }
+    }
+    expect_contains(package_relation_assessment_summary_display(replacement),
+                    "no automatic replacement", "replacement safety summary");
+
+    for(const auto version_match : {PackageRelationVersionMatchKind::Unavailable,
+                                    PackageRelationVersionMatchKind::Invalid}) {
+        auto version_failure = installed;
+        version_failure.kind = version_match == PackageRelationVersionMatchKind::Invalid
+                                   ? PackageRelationAssessmentKind::Invalid
+                                   : PackageRelationAssessmentKind::Unknown;
+        version_failure.attributed_package_evidence->version_match = version_match;
+        const auto before = version_failure;
+        const auto normal = package_relation_assessment_summary_display(version_failure);
+        expect_contains(normal, version_match == PackageRelationVersionMatchKind::Invalid ? "version evidence invalid for installed-provider" : "version judgment unavailable for installed-provider", "version failure summary");
+        expect_contains(normal, "Build/install is blocked", "version failure blocking");
+        expect(version_failure == before, "version failure rendering changed authority");
+    }
+
     // A valid installed old-self reaches the same complete NoMatch wording;
     // structural invalidity remains a distinct fail-closed diagnostic.
     expect_not_contains(
