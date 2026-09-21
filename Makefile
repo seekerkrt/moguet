@@ -310,6 +310,8 @@ export MOGUET_FRONTEND_USE_DEFAULT_COMPILE_OPTIONS
 	test-cmake-frontend-contract \
 	test-build-authority-closure \
 	test-validation-status \
+	test-release-validate \
+	release-validate \
 	test-format-changed-cpp \
 	test-markdown-links \
 	test-completion-schema \
@@ -580,6 +582,13 @@ test-build-authority-closure: cmake-test-configure
 test-validation-status:
 	sh tests/test-validation-status.sh
 
+# Keep this non-recursive: make -n must not start RC validation.
+release-validate:
+	bash scripts/release-validate.sh
+
+test-release-validate:
+	bash tests/test-release-validate.sh
+
 test-format-changed-cpp: \
 	scripts/format-changed-cpp.sh \
 	tests/test-format-changed-cpp.sh \
@@ -789,6 +798,7 @@ test-repository: \
 	test-cmake-frontend-contract \
 	test-build-authority-closure \
 	test-validation-status \
+	test-release-validate \
 	test-format-changed-cpp \
 	test-markdown-links \
 	test-public-documentation \

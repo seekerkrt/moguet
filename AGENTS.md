@@ -59,6 +59,7 @@ Moguetは、pacman、makepkg、AUR、gitの既存契約を尊重しながらArch
 - `make release-check`: standalone互換target。full host A–Dではない
 - `make test-container`: offline/current Arch Docker E
 - `make test-container-live`: actual provider / AUR / local F
+- `make release-validate`: final RCのhost / offline/current Arch / live validationをcandidate identity付きで直列実行するoperator入口。policyは`docs/validation.md`
 - `git diff --check`: docs-onlyを含む差分の基本確認
 
 C++の生成・編集後は、`docs/coding-conventions.md`のchanged-file workflowを正とし、通常のvalidation前に
