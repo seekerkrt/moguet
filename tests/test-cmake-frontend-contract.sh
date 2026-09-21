@@ -608,9 +608,9 @@ reconfigure_with_equivalent_compiler() {
     if [ "$build_testing" = ON ]; then
         # CMake validates independent expected membership and uniqueness for
         # these inventories; their displayed lengths are not a second ledger.
-        # Keep the registration total until an independent registration set
-        # also rejects extra names and missing shards sharing a runtime target.
-        grep -E '^-- Moguet C\+\+ tests: targets=[0-9]+/[0-9]+, support=[0-9]+/[0-9]+, firewalls=[0-9]+/[0-9]+, descriptors=[0-9]+/[0-9]+, CTest registrations=159$' \
+        # Registration membership is checked against the independent focused
+        # frontend requirements, including every required closure shard.
+        grep -E '^-- Moguet C\+\+ tests: targets=[0-9]+/[0-9]+, support=[0-9]+/[0-9]+, firewalls=[0-9]+/[0-9]+, descriptors=[0-9]+/[0-9]+, CTest registrations=[0-9]+$' \
             "$configure_log" >/dev/null ||
             fail "$label configure summary is missing or invalid"
     else

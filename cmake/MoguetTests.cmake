@@ -11,6 +11,7 @@ set(MOGUET_CPP_TEST_FIREWALL_DESCRIPTORS "")
 set(MOGUET_CPP_TEST_OBJECT_TARGETS "")
 set(MOGUET_CTEST_RUNTIME_TARGETS "")
 set(MOGUET_CTEST_NAMES "")
+set(MOGUET_FOCUSED_CTEST_NAMES "")
 
 # PkgConfig::ALPM carries both compile usage requirements and the real link.
 # Wrap only the latter so tests such as the root-identity executable can link
@@ -1015,6 +1016,12 @@ function(moguet_add_focused_ctest_alias alias_name)
         USES_TERMINAL
         VERBATIM
     )
+
+    # These are the public frontends' independently declared requirements,
+    # not names discovered from the runtime registration graph. Different
+    # aliases may intentionally require the same test.
+    list(APPEND MOGUET_FOCUSED_CTEST_NAMES ${_moguet_focus_TESTS})
+    set(MOGUET_FOCUSED_CTEST_NAMES ${MOGUET_FOCUSED_CTEST_NAMES} PARENT_SCOPE)
 endfunction()
 
 function(_moguet_assert_exact_inventory label expected_variable actual_variable)
@@ -1121,6 +1128,22 @@ endfunction()
 include("${CMAKE_CURRENT_LIST_DIR}/MoguetTestTargets.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/MoguetTestRegistrations.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/MoguetFocusedTests.cmake")
+
+# Every runtime registration must serve an independently declared focused
+# frontend. Keep both the helper ledger and CMake's actual test graph exact;
+# a raw add_test() must not bypass this contract.
+list(REMOVE_DUPLICATES MOGUET_FOCUSED_CTEST_NAMES)
+_moguet_assert_exact_inventory(
+    "CTest registration"
+    MOGUET_FOCUSED_CTEST_NAMES
+    MOGUET_CTEST_NAMES
+)
+get_property(_moguet_registered_ctests DIRECTORY PROPERTY TESTS)
+_moguet_assert_exact_inventory(
+    "CMake test registration"
+    MOGUET_FOCUSED_CTEST_NAMES
+    _moguet_registered_ctests
+)
 
 foreach(
     _moguet_expected_inventory

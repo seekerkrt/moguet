@@ -215,8 +215,12 @@ C++ test executable、support / stub source、link firewall、firewall descripto
 expected一覧とactual graphのexact membership / uniquenessをconfigure時に照合する。
 CTest runtime targetとの対応、descriptorのtargetとhash、installed transport fixtureの
 `EXCLUDE_FROM_ALL`も検証する。configure summaryのinventory件数は各一覧から導出する。
-CTest registrationには独立した全名前集合とのexact照合がないため、frontend contractの総数guardは
-余剰registrationや同一runtime targetを共有するshardの欠落を検出する補助として維持する。
+CTest registrationは、`MoguetFocusedTests.cmake`の独立したfrontend要求集合をexpectedとして、
+registration helperの名前集合とCMakeの実test集合をそれぞれexact照合する。全registrationは
+focused frontendから要求され、複数aliasによる同一testの共有は許す。closureの各shardも
+frontend側で明示的に要求し、actual登録から要求集合を生成しない。余剰・欠落の検出は総数に
+依存せず、表示件数はactual集合から導出する。この照合は名前のmembershipを保証し、個々の
+名前とselectorの意味の対応は既存の登録宣言とbehavioral testが所有する。
 
 stub / real implementation exclusion、replacement ABI、ALPM stub、exact source closureをtarget-localに
 維持する。単一production libraryを全testへ無条件linkしない。negative compileはCTest registrationから
