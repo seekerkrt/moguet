@@ -3,13 +3,13 @@
 ## 位置づけ
 
 この文書は、development、logical Slice completion、PR / merge、release candidateの各段階で、
-必要なvalidation、approval evidence、evidenceの再利用と無効化、reviewの終了条件を定める
+validationの追加判断、必要な実行とapproval evidence、evidenceの再利用と無効化、reviewの終了条件を定める
 policy authorityである。
 
 C++ build / install graphは`CMakeLists.txt`と`cmake/`、C++ test registration / executionはCTest、
 repository validation targetの実際のprerequisiteとrecipeは`Makefile`と`scripts/`、branch / PR /
-release操作は[`development.md`](development.md)を正とする。この文書は、それらの実行段階と証拠の
-十分性を所有する。記載と実装がdriftした場合は、対象を十分に見なして続行せず、両者を揃える。
+release操作は[`development.md`](development.md)を正とする。この文書は、validationの追加判断、実行段階と
+証拠の十分性を所有する。記載と実装がdriftした場合は、対象を十分に見なして続行せず、両者を揃える。
 
 目的はcoverageの削減ではない。変更が壊し得るcontractを先に特定し、そのcontractを
 所有するvalidationで証明するrisk-based validationを正式運用とする。
@@ -25,6 +25,43 @@ release操作は[`development.md`](development.md)を正とする。この文書
 各Sliceへcontinuous hostile mutation immunity、すべてのsame-UID race、観測間の一時改変→復元検出、
 汎用sandbox / network policy / all-descendant mediationの証明を要求しない。
 この非目標を、観測済み不整合の無視やphase-point / privileged boundaryのnegative test省略の根拠にはしない。
+
+## Validationを追加する前の判断
+
+新しいtest / fixture / checker / ledgerを追加する前に、守るcontract、元bug / requirementと、
+既存validationが同じcontract / failure classをどこまで証明しているかを確認する。
+findingが出るたびに専用testを1本増やすことを既定にしない。
+
+- 既存fixture / regressionで同じfailure classを再現できる場合は、その最小拡張を優先する。
+  同じcontractのために別の独立fixtureを増やさない。
+- 既存testが同じcontract / failure classを十分強く証明している場合は、新testを追加しない。
+  変更には必ず新testが必要、というruleにはしない。
+- actual production behaviorに接続する新しいfailure classには、最小のregressionを追加する。
+  可能ならuser-visible / production-connectedな証拠を、単なるsynthetic internal misuseより優先する。
+
+synthetic internal-only test、friend一覧やprivate implementation detailだけを固定するtest、
+manual total ledger、同じmembershipのduplicate ledger、fixtureを守るためだけのcheckerや
+checkerを守るためだけのcheckerは、独立したcontract / failure class / authority boundaryを守る
+必要性を説明できない限り増やさない。validationを守るためのvalidationを再帰的に増設しない。
+これはsynthetic / internal-only validationの一律禁止でも、production-connected testがあれば
+component testをすべて不要とする方針でもない。
+
+この追加判断は、必要なnegative testや次の重要contractの検証を弱める根拠にはしない。
+
+- source / revision / artifact / install / provenanceの相関、phase-point correctness。
+- destructive operationのownership / containmentとfail-closed、cancellation / partial outcome、
+  compatibility / migration、production-connected regressions。
+- privileged / private authorityの不正なconstructionとcross-context misuseの禁止。negative compileが守る
+  raw / historicalからのlive authority mint禁止、whole-owner / copy / borrow制約、権限のないconsumerによる
+  private construction禁止等は独立したcompile-time contractであり、internal-onlyに見えることだけを理由に削除しない。
+
+追加時にはruntime、fixture / setup、maintenance、manual synchronizationのcostとparallelismへの
+影響も考慮し、同じcontractの検証強度を維持できる、より小さく理解可能なvalidationを選ぶ。
+速度のためにcoverageを落とさない。実行対象と時期は以下のvalidation matrix、evidence reuse /
+invalidationとreview closureに従う。
+
+この節はhuman / agent review policyである。このpolicy自体を検証するための専用checker、shell test、
+CMake oracle、count ledgerは追加しない。
 
 ## 前提として維持するmechanism contract
 
