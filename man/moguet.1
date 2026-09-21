@@ -565,6 +565,10 @@ safety checks. During remote source builds, normal output summarizes bulk root
 upstream tag-object fetches by operation and distinct additional object count.
 This option displays the full escaped command instead. Other short, actionable
 commands remain visible in normal output.
+For plan and deps, normal output keeps nonempty dependency information and
+attention-required results, aggregates successful constraints, and suppresses
+repeated identity and empty categories. Details retain all constraint reasons,
+state/readiness, provenance, and relation diagnostics from the same typed result.
 .
 .TP
 .B "-h, --help"

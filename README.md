@@ -520,6 +520,16 @@ succeeds it obtains a fresh installed-foreign inventory, AUR metadata, plan,
 provider decisions, and preflight. `moguet --dry-run -Syu --repo` shows only
 the repository intent and does not query AUR or source-build preferences.
 
+`plan` and `deps` normally show a compact result with attention before routine
+inventory. `deps` retains nonempty dependency lists; empty categories and a
+PackageBase identical to the package name are omitted. Successful constraints
+are counted together, while unsatisfied, unknown, and invalid results remain
+visible. Use `moguet --details plan <pkg>` or `moguet --details deps <pkg>` for
+full state/readiness, provenance, relation diagnostics, all constraint reasons,
+and the existing empty-category inventory. Both modes use the same typed result
+and preserve provider choices, readiness, and exit status. See the
+[plan/deps presentation policy](docs/compatibility.md#compat-plan-deps-presentation).
+
 Human-readable diagnostics are projections of typed state, never the authority
 used to classify it. English and Japanese keep the same hierarchy: a normal
 summary first, attention-required details next, and route-owned necessary

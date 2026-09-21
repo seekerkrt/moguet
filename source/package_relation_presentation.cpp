@@ -311,6 +311,70 @@ std::string matched_package_component_display(
 
 } // namespace
 
+std::string package_relation_assessment_summary_display(
+    const PackageRelationAssessment& assessment) {
+    const std::string relation = localization::format_translated_message(
+        "{}: {} -> {}", relation_kind_display(assessment.declaration.kind()),
+        package_identity_display(assessment.declaring_package),
+        observed_value_display(assessment.declaration.raw_specification()));
+    const std::string matched = assessment.attributed_package_evidence.has_value()
+                                    ? package_identity_display(assessment.attributed_package_evidence->observed_package)
+                                    : localization::translate_message("not observed");
+    switch(assessment.kind) {
+        case PackageRelationAssessmentKind::ConfirmedInstalledConflict:
+            return localization::format_translated_message(
+                "{}; installed conflict with {}. Build/install is blocked.",
+                relation, matched);
+        case PackageRelationAssessmentKind::ConfirmedPlannedTargetConflict:
+            return localization::format_translated_message(
+                "{}; planned conflict with {}. Build/install is blocked.",
+                relation, matched);
+        case PackageRelationAssessmentKind::PotentialReplacement:
+            return localization::format_translated_message(
+                "{}; potential replacement of {}. Review required; no automatic replacement. Build/install is blocked.",
+                relation, matched);
+        case PackageRelationAssessmentKind::ConfirmedNoMatchingCurrentOrPlannedTarget:
+            return localization::format_translated_message(
+                "{}; no matching installed or planned target.", relation);
+        case PackageRelationAssessmentKind::Unknown:
+        case PackageRelationAssessmentKind::Invalid: {
+            std::string reason = observation_completeness_display(
+                assessment.active_evidence.observation_completeness);
+            if(assessment.attributed_observation_failure.has_value()) {
+                const auto& failure = *assessment.attributed_observation_failure;
+                reason = localization::format_translated_message(
+                    "{}: {}", observation_role_display(failure.role),
+                    observation_failure_kind_display(failure.kind));
+            } else if(assessment.attributed_package_evidence.has_value() &&
+                      assessment.attributed_package_evidence->invalid_reason.has_value()) {
+                reason = match_invalid_reason_display(
+                    *assessment.attributed_package_evidence->invalid_reason);
+            } else if(assessment.attributed_package_evidence.has_value()) {
+                const auto& evidence = *assessment.attributed_package_evidence;
+                if(evidence.version_match == PackageRelationVersionMatchKind::Unavailable) {
+                    reason = localization::format_translated_message(
+                        "version judgment unavailable for {}", matched);
+                } else if(evidence.version_match == PackageRelationVersionMatchKind::Invalid) {
+                    reason = localization::format_translated_message(
+                        "version evidence invalid for {}", matched);
+                }
+            }
+            if(assessment.kind == PackageRelationAssessmentKind::Invalid) {
+                return localization::format_translated_message(
+                    "{}; invalid relation metadata or observation ({}). Build/install is blocked.",
+                    relation, reason);
+            }
+            return localization::format_translated_message(
+                "{}; relation judgment unavailable ({}). Build/install is blocked.",
+                relation, reason);
+        }
+        case PackageRelationAssessmentKind::DeclaredRelation:
+            return localization::format_translated_message(
+                "{}; assessment incomplete. Build/install is blocked.", relation);
+    }
+    return localization::translate_message("Invalid relation metadata or observation.");
+}
+
 std::string package_relation_assessment_diagnostic_display(
     const PackageRelationAssessment& assessment) {
     const std::string declaring_package =

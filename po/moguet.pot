@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.8.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-21 07:37+0900\n"
+"POT-Creation-Date: 2026-09-21 09:14+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -2986,6 +2986,10 @@ msgid "  - {}: result={}, reason={}"
 msgstr ""
 
 #, c++-format
+msgid "Constraints: {} satisfied or unconstrained"
+msgstr ""
+
+#, c++-format
 msgid "Installed package metadata for {} is unavailable: {}"
 msgstr ""
 
@@ -3037,6 +3041,15 @@ msgstr ""
 msgid "Package relation assessments:"
 msgstr ""
 
+msgid "Selected provided dependencies:"
+msgstr ""
+
+msgid "Ambiguous provided dependencies:"
+msgstr ""
+
+msgid "Unknown dependencies:"
+msgstr ""
+
 #, c++-format
 msgid "Package         : {}"
 msgstr ""
@@ -3063,13 +3076,16 @@ msgstr ""
 msgid "Provided dependencies:"
 msgstr ""
 
-msgid "Selected provided dependencies:"
+msgid "Build plan:"
 msgstr ""
 
-msgid "Ambiguous provided dependencies:"
-msgstr ""
+#, c++-format
+msgid "     target package: {}"
+msgid_plural "     target packages: {}"
+msgstr[0] ""
+msgstr[1] ""
 
-msgid "Unknown dependencies:"
+msgid " (selected)"
 msgstr ""
 
 msgid "Split package install targets:"
@@ -3085,16 +3101,22 @@ msgstr ""
 msgid "Cyclic dependencies:"
 msgstr ""
 
-msgid "Build plan:"
+#, c++-format
+msgid "Plan targets: {}"
+msgstr ""
+
+msgid "Fetch/build/install: ready"
 msgstr ""
 
 #, c++-format
-msgid "     target package: {}"
-msgid_plural "     target packages: {}"
-msgstr[0] ""
-msgstr[1] ""
+msgid "  {}: {} — {} ({})"
+msgstr ""
 
-msgid " (selected)"
+msgid "Dependency edges:"
+msgstr ""
+
+#, c++-format
+msgid "  {}: {}"
 msgstr ""
 
 msgid "Fetch targets:"
@@ -6487,6 +6509,49 @@ msgid "current or planned"
 msgstr ""
 
 #, c++-format
+msgid "{}: {} -> {}"
+msgstr ""
+
+#, c++-format
+msgid "{}; installed conflict with {}. Build/install is blocked."
+msgstr ""
+
+#, c++-format
+msgid "{}; planned conflict with {}. Build/install is blocked."
+msgstr ""
+
+#, c++-format
+msgid "{}; potential replacement of {}. Review required; no automatic replacement. Build/install is blocked."
+msgstr ""
+
+#, c++-format
+msgid "{}; no matching installed or planned target."
+msgstr ""
+
+#, c++-format
+msgid "version judgment unavailable for {}"
+msgstr ""
+
+#, c++-format
+msgid "version evidence invalid for {}"
+msgstr ""
+
+#, c++-format
+msgid "{}; invalid relation metadata or observation ({}). Build/install is blocked."
+msgstr ""
+
+#, c++-format
+msgid "{}; relation judgment unavailable ({}). Build/install is blocked."
+msgstr ""
+
+#, c++-format
+msgid "{}; assessment incomplete. Build/install is blocked."
+msgstr ""
+
+msgid "Invalid relation metadata or observation."
+msgstr ""
+
+#, c++-format
 msgid "Installed conflict confirmed: declaring package {} declares conflict {} for target component {}; matched installed package {} through {}; build/install is blocked before mutation."
 msgstr ""
 
@@ -6512,9 +6577,6 @@ msgstr ""
 
 #, c++-format
 msgid "Declared relation awaiting assessment: declaring package {} declares {} {} for target component {}; current/planned assessment is incomplete, so build/install remains blocked under the fail-closed policy."
-msgstr ""
-
-msgid "Invalid relation metadata or observation."
 msgstr ""
 
 msgid "Exact upstream source snapshot (separate from recipe review)\n"

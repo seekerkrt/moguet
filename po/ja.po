@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.8.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-21 07:37+0900\n"
+"POT-Creation-Date: 2026-09-21 09:14+0900\n"
 "PO-Revision-Date: 2026-09-19 17:53+0900\n"
 "Last-Translator: Moguet contributors\n"
 "Language-Team: Japanese\n"
@@ -2979,6 +2979,10 @@ msgid "  - {}: result={}, reason={}"
 msgstr "  - {}: 結果={}, 理由={}"
 
 #, c++-format
+msgid "Constraints: {} satisfied or unconstrained"
+msgstr "制約: {}件は充足または制約なし"
+
+#, c++-format
 msgid "Installed package metadata for {} is unavailable: {}"
 msgstr "インストール済みパッケージ{}のメタデータを利用できません: {}"
 
@@ -3030,6 +3034,15 @@ msgstr "    置換: {}"
 msgid "Package relation assessments:"
 msgstr "パッケージ関係の判定:"
 
+msgid "Selected provided dependencies:"
+msgstr "選択済みの提供依存関係:"
+
+msgid "Ambiguous provided dependencies:"
+msgstr "プロバイダーを一意に決定できない依存関係:"
+
+msgid "Unknown dependencies:"
+msgstr "不明な依存関係:"
+
 #, c++-format
 msgid "Package         : {}"
 msgstr "パッケージ      : {}"
@@ -3056,14 +3069,16 @@ msgstr "{}依存関係:"
 msgid "Provided dependencies:"
 msgstr "提供された依存関係:"
 
-msgid "Selected provided dependencies:"
-msgstr "選択済みの提供依存関係:"
+msgid "Build plan:"
+msgstr "ビルド計画:"
 
-msgid "Ambiguous provided dependencies:"
-msgstr "プロバイダーを一意に決定できない依存関係:"
+#, c++-format
+msgid "     target package: {}"
+msgid_plural "     target packages: {}"
+msgstr[0] "     対象パッケージ: {}"
 
-msgid "Unknown dependencies:"
-msgstr "不明な依存関係:"
+msgid " (selected)"
+msgstr " （選択済み）"
 
 msgid "Split package install targets:"
 msgstr "分割パッケージのインストール対象:"
@@ -3078,16 +3093,23 @@ msgstr "未解決の依存関係:"
 msgid "Cyclic dependencies:"
 msgstr "循環している依存関係:"
 
-msgid "Build plan:"
-msgstr "ビルド計画:"
+#, c++-format
+msgid "Plan targets: {}"
+msgstr "プラン対象: {}"
+
+msgid "Fetch/build/install: ready"
+msgstr "取得/ビルド/インストール: 準備完了"
 
 #, c++-format
-msgid "     target package: {}"
-msgid_plural "     target packages: {}"
-msgstr[0] "     対象パッケージ: {}"
+msgid "  {}: {} — {} ({})"
+msgstr "  {}: {} — {}（{}）"
 
-msgid " (selected)"
-msgstr " （選択済み）"
+msgid "Dependency edges:"
+msgstr "依存関係の内訳:"
+
+#, c++-format
+msgid "  {}: {}"
+msgstr "  {}: {}"
 
 msgid "Fetch targets:"
 msgstr "取得対象:"
@@ -6479,6 +6501,49 @@ msgid "current or planned"
 msgstr "現在または計画中"
 
 #, c++-format
+msgid "{}: {} -> {}"
+msgstr "{}: {} -> {}"
+
+#, c++-format
+msgid "{}; installed conflict with {}. Build/install is blocked."
+msgstr "{}; インストール済みの{}と競合。ビルド/インストールは実行不可です。"
+
+#, c++-format
+msgid "{}; planned conflict with {}. Build/install is blocked."
+msgstr "{}; 計画中の{}と競合。ビルド/インストールは実行不可です。"
+
+#, c++-format
+msgid "{}; potential replacement of {}. Review required; no automatic replacement. Build/install is blocked."
+msgstr "{}; {}の置換候補。確認が必要で、自動置換は行いません。ビルド/インストールは実行不可です。"
+
+#, c++-format
+msgid "{}; no matching installed or planned target."
+msgstr "{}; インストール済み/計画中の一致対象なし。"
+
+#, c++-format
+msgid "version judgment unavailable for {}"
+msgstr "{}のバージョン判定を利用できません"
+
+#, c++-format
+msgid "version evidence invalid for {}"
+msgstr "{}のバージョン根拠が不正です"
+
+#, c++-format
+msgid "{}; invalid relation metadata or observation ({}). Build/install is blocked."
+msgstr "{}; 関係メタデータまたは観測が不正です（{}）。ビルド/インストールは実行不可です。"
+
+#, c++-format
+msgid "{}; relation judgment unavailable ({}). Build/install is blocked."
+msgstr "{}; 関係を確定できません（{}）。ビルド/インストールは実行不可です。"
+
+#, c++-format
+msgid "{}; assessment incomplete. Build/install is blocked."
+msgstr "{}; 判定が未完了です。ビルド/インストールは実行不可です。"
+
+msgid "Invalid relation metadata or observation."
+msgstr "関係メタデータまたは観測が不正です。"
+
+#, c++-format
 msgid "Installed conflict confirmed: declaring package {} declares conflict {} for target component {}; matched installed package {} through {}; build/install is blocked before mutation."
 msgstr "インストール済みパッケージとの競合を確認: 宣言元パッケージ{}は競合 {} を宣言（対象コンポーネント: {}）; インストール済みパッケージ{}が{}として一致; ビルド/インストールは変更前に停止します。"
 
@@ -6505,9 +6570,6 @@ msgstr "関係メタデータまたは観測が不正です: 宣言元パッケ�
 #, c++-format
 msgid "Declared relation awaiting assessment: declaring package {} declares {} {} for target component {}; current/planned assessment is incomplete, so build/install remains blocked under the fail-closed policy."
 msgstr "宣言済み関係の判定待ち: 宣言元パッケージ{}は{} {} を宣言（対象コンポーネント: {}）; 現在/計画中の判定が未完了のため、安全側にビルド/インストールを停止します。"
-
-msgid "Invalid relation metadata or observation."
-msgstr "関係メタデータまたは観測が不正です。"
 
 msgid "Exact upstream source snapshot (separate from recipe review)\n"
 msgstr "固定された上流ソースのスナップショット（レシピのレビューとは別です）\n"

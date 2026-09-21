@@ -386,13 +386,44 @@ classificationは、installed packageとのconfirmed conflict、planned target�
 
 Moguetが所有するのはmetadata observation、typed classification、pre-transaction diagnostic、safety stopまでである。automatic package removal、automatic replacement、automatic conflict resolution、replacement targetやproviderのimplicit selection、full dependency / conflict solverの置換、libalpm transaction prepare / commitは行わない。`pacman` / libalpmが最終transaction authorityであり、Moguetのpreflight successはtransaction successを意味しない。`--noconfirm`もrelation guardをbypassせず、自動削除・自動置換を許可しない。
 
+<a id="compat-plan-deps-presentation"></a>
+
+## plan / depsのNormalとDetailed表示
+
+`plan` / `deps`は同じ`BuildPlan`、typed dependency edge、`ConstraintEvaluation`、relation assessmentを
+表示する。既存の`PresentationDetail::Normal` / `Detailed`だけで表示密度を選び、`--details`は
+新しい解決、provider choice、constraint評価、readiness判定を開始する指定ではない。
+
+Normalは対象と実行準備を短く示し、attentionを通常の一覧より先に置く。`plan`は入力target、
+非Readyのcapability、Incomplete / Unknown、失敗、providerの未決定/取消/利用不可を保持する。
+全capabilityがReadyの場合だけ取得/ビルド/インストールの準備完了を1行にまとめる。
+依存関係の内訳は観測済みedgeのkind別件数であり、unique package数やinstall件数ではない。
+PackageBase単位のbuild順とselected providerの結果も保持する。`deps`は非emptyな依存categoryの
+package一覧を残し、空categoryとpackage名に等しいPackageBaseを省略する。異なるPackageBaseは残す。
+
+constraintはtyped `Satisfied` / `Unconstrained`だけを件数へ集約し、`Unsatisfied` / `Unknown` /
+`Invalid` / `Conflicting`は個別の結果と理由を保持する。raw constraintの再parseやversion比較を
+rendererへ追加しない。relationは宣言元と宣言内容を保った短文にし、installed conflict、planned
+conflict、要確認のpotential replacement、complete no-match、Unknown、Invalid、未評価を区別する。
+Unknown / Invalid / 未評価とblocking relationの実行不可を省略せず、replacementを自動置換の許可にしない。
+
+Detailedは既存のstate / completeness /各capability readiness、work item counts、attention理由、
+source / root attribution、target component、full relation diagnostic、全constraint評価とreason、
+空categoryを含む既存inventory、PackageBaseを保持する。通常表示で抑えた成功constraintも全件表示する。
+solver、execution eligibility/order、confirmation/cancellation、inspectionの終了codeは両modeで同じである。
+TTY / redirected出力で密度policyを切り替えず、既存Loggerと出力channelを維持する。
+
+provider候補一覧・prompt・候補のPackageBase/provides・TTY stylingは#435のinteractive selection owner、
+root search/rankingは#436のownerである。ここで扱うのは選択後のprovider結果summaryだけであり、
+候補rendererを再設計しない。既存のpackage size表示・取得経路は次節の契約を維持する。
+
 <a id="compat-plan-size"></a>
 
 ## Planのofficial package size summary
 
 `plan <pkg>...`で表示するofficial repository dependencyのpackage sizeはpresentation metadataであり、BuildPlanのgraph safety、AUR build unitのsize、dependency resolution、provider selection、transactionを変更しない。configured repository orderとread-only sync metadataをauthorityとし、package absence、query failure、malformed metadata、configuration failure、0 bytesを区別する。size metadataが取得できなくても、既存のplan本文を表示できる場合はgraph statusやexit codeを不必要に変えない。
 
-dependency edgeはmetadata trust boundaryで構成したtyped requirement、installed / configured repository / AUR / local / providerのsource-aware candidate、`ConstraintEvaluation`を保持し、production downstreamでraw constraintを再parseしない。`deps`は`Satisfied` / `Unconstrained`を通常表示し、`Unsatisfied` / `Unknown`をresult / reason付きwarningとして継続する。`plan`は同じ2状態をincompleteとする。`Invalid` / `Conflicting`はread-only plan constructionでもfail-closedとする。`fetch`、build、install、upgrade、local buildは`Unsatisfied` / `Unknown`を含め、成功を証明できないconstraint resultをclone、fetch、source mutation、build、sudo、pacman、transaction開始前に拒否する。preflight successはtransaction successを意味しない。
+dependency edgeはmetadata trust boundaryで構成したtyped requirement、installed / configured repository / AUR / local / providerのsource-aware candidate、`ConstraintEvaluation`を保持し、production downstreamでraw constraintを再parseしない。`deps`は`Satisfied` / `Unconstrained`を通常表示では件数へ集約し、`Unsatisfied` / `Unknown`をresult / reason付きwarningとして継続する。`plan`は同じ2状態をincompleteとする。`Invalid` / `Conflicting`はread-only plan constructionでもfail-closedとする。`fetch`、build、install、upgrade、local buildは`Unsatisfied` / `Unknown`を含め、成功を証明できないconstraint resultをclone、fetch、source mutation、build、sudo、pacman、transaction開始前に拒否する。preflight successはtransaction successを意味しない。
 
 <a id="compat-aur-status"></a>
 

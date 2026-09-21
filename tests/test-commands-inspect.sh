@@ -130,8 +130,8 @@ run_fail() {
     fi
 }
 
-# Stable read-only fixtures: compare the complete presentation and query trace.
-# Keep this Slice 3 parity check separate from the rich marker assertions below.
+# Stable read-only fixtures: both modes must retain status, diagnostics channel,
+# and the complete query/mutation trace. Density assertions are separate.
 assert_details_parity() {
     result=$1
     shift
@@ -139,8 +139,6 @@ assert_details_parity() {
     cp "$stderr_file" "$case_dir/normal.stderr"
     cp "$command_log" "$case_dir/normal.commands"
     "run_$result" --details "$@"
-    cmp -s "$case_dir/normal.stdout" "$stdout_file" ||
-        fail_case "Normal/Detailed stdout differs: $*"
     cmp -s "$case_dir/normal.stderr" "$stderr_file" ||
         fail_case "Normal/Detailed stderr differs: $*"
     cmp -s "$case_dir/normal.commands" "$command_log" ||
@@ -516,6 +514,7 @@ echo "  ok: deps provider numbering preserves candidate order"
 setup_case deps-provider-interactive-selection
 export MOGUET_TEST_INSPECTION_SCENARIO=deps-provider-interactive-selection
 run_tty_ok 2 deps --recursive provider-root
+assert_contains "moguet-inspect-203-virtual-provider -> aur/provider-a" "$stdout_file"
 assert_details_execution_parity run_tty_ok 2 deps --recursive provider-root
 assert_contains_count 1 \
     ":: Choose a provider for moguet-inspect-203-virtual-provider" \
@@ -679,6 +678,7 @@ echo "  ok: plan validates the whole invocation before metadata resolution"
 setup_case plan-provider-interactive-selection
 export MOGUET_TEST_INSPECTION_SCENARIO=plan-provider-interactive-selection
 run_tty_ok 2 plan provider-root provider-root
+assert_contains "moguet-inspect-203-virtual-provider -> aur/provider-a (selected)" "$stdout_file"
 assert_details_execution_parity run_tty_ok 2 plan provider-root provider-root
 assert_contains_count 1 \
     ":: Choose a provider for moguet-inspect-203-virtual-provider" \
@@ -694,6 +694,8 @@ echo "  ok: plan reuses one interactive provider choice across targets"
 setup_case plan-provider-interactive-cancel
 export MOGUET_TEST_INSPECTION_SCENARIO=plan-provider-interactive-cancel
 run_tty_ok q plan provider-root provider-root
+assert_contains "provider decision: Cancelled" "$stdout_file"
+assert_contains "Build readiness: Blocked" "$stdout_file"
 assert_details_execution_parity run_tty_ok q plan provider-root provider-root
 assert_contains_count 1 \
     ":: Choose a provider for moguet-inspect-203-virtual-provider" \
@@ -785,6 +787,8 @@ echo "  ok: --noconfirm keeps an ambiguous provider fail-closed on a TTY"
 setup_case plan-provider-partial-source-failure
 export MOGUET_TEST_INSPECTION_SCENARIO=plan-provider-partial-failure
 run_tty_ok 1 plan partial-provider-root
+assert_contains "provider decision: Unavailable" "$stdout_file"
+assert_contains "result=Unknown" "$stdout_file"
 assert_details_execution_parity run_tty_ok 1 plan partial-provider-root
 assert_not_contains ":: Choose a provider for " "$stdout_file"
 assert_contains "Incomplete provider candidate observations:" "$stdout_file"
@@ -813,6 +817,9 @@ echo "  ok: same-root conflict fails before provider interaction"
 setup_case plan-metadata-risk-readiness
 export MOGUET_TEST_INSPECTION_SCENARIO=plan-metadata-risk-readiness
 run_ok plan plan-metadata-risk-root
+assert_contains "conflict: plan-metadata-risk-root -> legacy-risk-package" "$stdout_file"
+assert_contains "replacement: plan-metadata-risk-root -> replaced-risk-package" "$stdout_file"
+assert_not_contains "source:" "$stdout_file"
 assert_details_parity ok plan plan-metadata-risk-root
 assert_exact_line "  completeness: Complete" "$stdout_file"
 assert_exact_line "  Fetch readiness: Ready" "$stdout_file"
@@ -830,6 +837,9 @@ echo "  ok: plan releases a complete typed no-match relation guard"
 setup_case plan-split-only-readiness
 export MOGUET_TEST_INSPECTION_SCENARIO=plan-split-only-readiness
 run_ok plan plan-split-child
+assert_contains "Install readiness: Blocked" "$stdout_file"
+assert_contains "plan-split-suite" "$stdout_file"
+assert_contains "target package: plan-split-child" "$stdout_file"
 assert_details_parity ok plan plan-split-child
 assert_exact_line "  completeness: Complete" "$stdout_file"
 assert_exact_line "  Fetch readiness: Ready" "$stdout_file"
@@ -843,7 +853,14 @@ echo "  ok: plan preserves split PackageBase install readiness"
 setup_case plan-density-attention
 export MOGUET_TEST_INSPECTION_SCENARIO=plan-density-attention
 run_ok plan plan-density-root
+assert_exact_line "Plan targets: plan-density-root" "$stdout_file"
+assert_exact_line "Fetch/build/install: ready" "$stdout_file"
+assert_exact_line "Constraints: 33 satisfied or unconstrained" "$stdout_file"
+assert_not_contains "result=Unconstrained" "$stdout_file"
+assert_not_contains "Plan state:" "$stdout_file"
+assert_not_contains "  construction:" "$stdout_file"
 assert_details_parity ok plan plan-density-root
+assert_contains_count 33 "result=Unconstrained" "$stdout_file"
 assert_exact_line \
     "  items: 34 total, 34 normal, 0 attention-required" "$stdout_file"
 assert_exact_line "  normal unconstrained dependencies: 33" "$stdout_file"
@@ -851,6 +868,88 @@ assert_contains "Confirmed no matching current or planned target" "$stdout_file"
 assert_not_contains "ConfirmedNoMatchingCurrentOrPlannedTarget" "$stdout_file"
 assert_not_contains "Attention-required details:" "$stdout_file"
 echo "  ok: typed no-match metadata remains in the normal plan summary"
+
+# Issue #438: the dependency inventory remains useful at Normal density.
+for operation in deps plan; do
+    setup_case "$operation-density-mixed"
+    export MOGUET_TEST_INSPECTION_SCENARIO=plan-density-attention
+    export MOGUET_TEST_PACMAN_REPO_PACKAGES='normal-dependency-0 normal-dependency-1'
+    run_ok "$operation" plan-density-root
+    assert_not_contains "result=Unconstrained" "$stdout_file"
+    assert_not_exact_line "  None" "$stdout_file"
+    assert_contains "Constraints: 33 satisfied or unconstrained" "$stdout_file"
+    if [ "$operation" = deps ]; then
+        assert_not_contains "Package Base" "$stdout_file"
+        assert_contains "Official repo dependencies:" "$stdout_file"
+        assert_contains "AUR dependencies:" "$stdout_file"
+        assert_exact_line "  normal-dependency-0" "$stdout_file"
+        assert_exact_line "  normal-dependency-31" "$stdout_file"
+    else
+        assert_exact_line "  repo: 2" "$stdout_file"
+        assert_exact_line "  aur: 31" "$stdout_file"
+    fi
+    assert_details_parity ok "$operation" plan-density-root
+    assert_contains_count 33 "result=Unconstrained" "$stdout_file"
+    if [ "$operation" = deps ]; then
+        assert_contains "Package Base    : plan-density-root" "$stdout_file"
+        assert_exact_line "  None" "$stdout_file"
+    fi
+
+done
+
+setup_case deps-empty-and-split
+export MOGUET_TEST_INSPECTION_SCENARIO=plan-split-only-readiness
+run_ok deps plan-split-child
+assert_exact_line "Package Base    : plan-split-suite" "$stdout_file"
+assert_exact_line "Dependencies    : 0" "$stdout_file"
+assert_not_exact_line "  None" "$stdout_file"
+assert_details_parity ok deps plan-split-child
+assert_exact_line "  None" "$stdout_file"
+
+# Existing metadata failure seam exercises the production relation assessment.
+for operation in plan deps; do
+    setup_case "$operation-relation-unavailable"
+    export MOGUET_TEST_INSPECTION_SCENARIO=plan-metadata-risk-readiness
+    export MOGUET_TEST_PACKAGE_METADATA_INITIALIZE_FAILURE=1
+    run_ok "$operation" plan-metadata-risk-root
+    assert_contains "relation judgment unavailable" "$stdout_file"
+    assert_contains "Build/install is blocked" "$stdout_file"
+    assert_not_contains "roots:" "$stdout_file"
+    assert_details_parity ok "$operation" plan-metadata-risk-root
+    assert_contains "Relation judgment unavailable" "$stdout_file"
+    assert_contains "roots:" "$stdout_file"
+    assert_no_git_mutation
+done
+
+for operation in plan deps; do
+    setup_case "$operation-confirmed-relations"
+    export MOGUET_TEST_INSPECTION_SCENARIO=plan-metadata-risk-readiness
+    set_foreign_inventory 'legacy-risk-package 1 explicit
+replaced-risk-package 1 explicit'
+    run_ok "$operation" plan-metadata-risk-root
+    assert_contains "installed conflict with legacy-risk-package" "$stdout_file"
+    assert_contains "potential replacement of replaced-risk-package" "$stdout_file"
+    assert_contains "no automatic replacement" "$stdout_file"
+    assert_details_parity ok "$operation" plan-metadata-risk-root
+    assert_contains "Installed conflict confirmed" "$stdout_file"
+    assert_contains "Potential replacement impact" "$stdout_file"
+    assert_no_git_mutation
+
+    setup_case "$operation-invalid-relation"
+    export MOGUET_TEST_INSPECTION_SCENARIO=plan-metadata-risk-readiness
+    set_foreign_inventory 'invalid/package 1 explicit'
+    run_ok "$operation" plan-metadata-risk-root
+    assert_contains "invalid relation metadata or observation" "$stdout_file"
+    assert_contains "Build/install is blocked" "$stdout_file"
+    if [ "$operation" = plan ]; then
+        assert_contains "construction: Failed" "$stdout_file"
+        assert_contains "completeness: Incomplete" "$stdout_file"
+    fi
+    assert_details_parity ok "$operation" plan-metadata-risk-root
+    assert_contains "Invalid relation metadata or observation" "$stdout_file"
+    assert_contains "fail-closed" "$stdout_file"
+    assert_no_git_mutation
+done
 
 # Issue #125: formatterはprivate helperのまま、repository metadataからplan表示へ流して固定する。
 setup_case plan-repository-size-formatter
@@ -900,7 +999,7 @@ assert_before "  attention: result-query-failure: Metadata       : unavailable (
     "  attention: result-malformed: Metadata       : unavailable (invalid metadata)" \
     "$stdout_file"
 assert_before "  1. plan-result-root" "  2. plan-result-later-root" "$stdout_file"
-assert_exact_line "  completeness: Complete" "$stdout_file"
+assert_exact_line "Fetch/build/install: ready" "$stdout_file"
 echo "  ok: plan repository metadata preserves zero, absence, failure, and malformed states"
 
 # semantic lookupは(exact repository, package)、成功表示はreturned repo/packageでdedupeする。
@@ -1142,6 +1241,7 @@ export MOGUET_TEST_ALPM_VERCMP_EXPECTED_LHS=2.0-1
 export MOGUET_TEST_ALPM_VERCMP_EXPECTED_RHS=3
 export MOGUET_TEST_ALPM_VERCMP_RESULT=-1
 run_ok deps constraint-unsatisfied-root
+assert_contains "constraint-leaf>=3: result=Unsatisfied" "$stdout_file"
 assert_details_parity ok deps constraint-unsatisfied-root
 assert_contains "constraint-leaf>=3: result=Unsatisfied" "$stdout_file"
 assert_contains "Dependency constraint-leaf>=3 is Unsatisfied" "$stdout_file"
@@ -1152,6 +1252,8 @@ export MOGUET_TEST_ALPM_VERCMP_EXPECTED_LHS=2.0-1
 export MOGUET_TEST_ALPM_VERCMP_EXPECTED_RHS=2.0-1
 export MOGUET_TEST_ALPM_VERCMP_RESULT=0
 run_ok deps constraint-satisfied-root
+assert_exact_line "Constraints: 1 satisfied or unconstrained" "$stdout_file"
+assert_not_contains "result=Satisfied" "$stdout_file"
 assert_details_parity ok deps constraint-satisfied-root
 assert_contains "constraint-leaf>=2.0-1: result=Satisfied" "$stdout_file"
 assert_not_contains "Warning: Dependency constraint-leaf>=2.0-1" "$stdout_file"
@@ -1159,6 +1261,8 @@ assert_not_contains "Warning: Dependency constraint-leaf>=2.0-1" "$stdout_file"
 setup_case deps-constraint-unconstrained
 export MOGUET_TEST_INSPECTION_SCENARIO=deps-constraint-unconstrained
 run_ok deps constraint-unconstrained-root
+assert_exact_line "Constraints: 1 satisfied or unconstrained" "$stdout_file"
+assert_not_contains "result=Unconstrained" "$stdout_file"
 assert_details_parity ok deps constraint-unconstrained-root
 assert_contains "constraint-leaf: result=Unconstrained" "$stdout_file"
 assert_not_contains "Warning: Dependency constraint-leaf" "$stdout_file"
@@ -1166,6 +1270,8 @@ assert_not_contains "Warning: Dependency constraint-leaf" "$stdout_file"
 setup_case deps-constraint-unknown
 export MOGUET_TEST_INSPECTION_SCENARIO=deps-constraint-unknown
 run_ok deps constraint-unknown-root
+assert_contains "constraint-virtual>=3: result=Unknown" "$stdout_file"
+assert_contains "Dependency constraint-virtual>=3 is Unknown" "$stdout_file"
 assert_details_parity ok deps constraint-unknown-root
 assert_contains "constraint-virtual>=3: result=Unknown" "$stdout_file"
 assert_contains "Dependency constraint-virtual>=3 is Unknown" "$stdout_file"
@@ -1210,6 +1316,9 @@ export MOGUET_TEST_ALPM_VERCMP_EXPECTED_LHS=2.0-1
 export MOGUET_TEST_ALPM_VERCMP_EXPECTED_RHS=3
 export MOGUET_TEST_ALPM_VERCMP_RESULT=-1
 run_ok plan constraint-unsatisfied-root
+assert_contains "completeness: Incomplete" "$stdout_file"
+assert_contains "Build readiness: Blocked" "$stdout_file"
+assert_contains "constraint-leaf>=3: result=Unsatisfied" "$stdout_file"
 assert_details_parity ok plan constraint-unsatisfied-root
 assert_exact_line "  completeness: Incomplete" "$stdout_file"
 assert_contains "reason: constraint readiness" "$stdout_file"
@@ -1519,13 +1628,36 @@ assert_contains \
 assert_not_contains "split-cli 2.0-1 ->" "$stdout_file"
 assert_no_foreign_update_mutation
 echo "  ok: foreign devel RequiresCheck presentation is localized"
+# Both localized density modes keep typed constraint and relation attention.
+for operation in plan deps; do
+    setup_case "$operation-normal-ja"
+    export MOGUET_TEST_INSPECTION_SCENARIO=plan-density-attention
+    LOCPATH=$locale_root LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 LANGUAGE=ja \
+        run_ok "$operation" plan-density-root
+    assert_exact_line "制約: 33件は充足または制約なし" "$stdout_file"
+    assert_not_contains "結果=制約なし" "$stdout_file"
+    assert_not_contains "Plan targets:" "$stdout_file"
+    if [ "$operation" = plan ]; then
+        assert_exact_line "プラン対象: plan-density-root" "$stdout_file"
+        assert_exact_line "取得/ビルド/インストール: 準備完了" "$stdout_file"
+    fi
+    setup_case "$operation-normal-failure-ja"
+    export MOGUET_TEST_INSPECTION_SCENARIO=plan-metadata-risk-readiness
+    export MOGUET_TEST_PACKAGE_METADATA_INITIALIZE_FAILURE=1
+    LOCPATH=$locale_root LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 LANGUAGE=ja \
+        run_ok "$operation" plan-metadata-risk-root
+    assert_contains "関係を確定できません" "$stdout_file"
+    assert_contains "ビルド/インストールは実行不可です" "$stdout_file"
+    assert_not_contains "relation judgment unavailable" "$stdout_file"
+done
+
 setup_case plan-localized-semantic-parity
 export MOGUET_TEST_INSPECTION_SCENARIO=plan-metadata-risk-readiness
 LOCPATH=$locale_root \
 LANG=en_US.UTF-8 \
 LC_ALL=en_US.UTF-8 \
 LANGUAGE=ja \
-    run_ok plan plan-metadata-risk-root
+    run_ok --details plan plan-metadata-risk-root
 assert_exact_line "プラン状態:" "$stdout_file"
 assert_exact_line "  構築状態: 構築済み" "$stdout_file"
 assert_exact_line "  完全性: 完全" "$stdout_file"
@@ -1549,7 +1681,7 @@ LOCPATH=$locale_root \
 LANG=en_US.UTF-8 \
 LC_ALL=en_US.UTF-8 \
 LANGUAGE=ja \
-    run_ok plan plan-split-child
+    run_ok --details plan plan-split-child
 assert_exact_line "  構築状態: 構築済み" "$stdout_file"
 assert_exact_line "  完全性: 完全" "$stdout_file"
 assert_exact_line "  取得の実行準備: 準備完了" "$stdout_file"
@@ -1568,7 +1700,7 @@ LOCPATH=$locale_root \
 LANG=en_US.UTF-8 \
 LC_ALL=en_US.UTF-8 \
 LANGUAGE=ja \
-    run_ok plan plan-first plan-fail plan-third
+    run_ok --details plan plan-first plan-fail plan-third
 assert_exact_line "  構築状態: 構築済み" "$stdout_file"
 assert_exact_line "  完全性: 不完全" "$stdout_file"
 assert_exact_line "  取得の実行準備: 実行不可" "$stdout_file"
