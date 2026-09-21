@@ -1,7 +1,7 @@
 # Parent-pinned recursive closure authority
 
 Issue #564 Slice 4A implements the object-level acquisition foundation used by
-the SourceReady bootstrap chain. Issue #589 adds root tag authority. This contract does not authorize
+the supported authoritative devel SourceReady chain. Issue #589 adds root tag authority. This contract does not authorize
 closure review acceptance, a makepkg workspace, source-ready S3, completed S4,
 installation, or provenance publication.
 
@@ -214,8 +214,11 @@ confirmation, exact nodes/edges and raw tag identities remain in the same owner.
 This private release uses the existing bounded object cleanup once; refusal is a
 typed terminal materialization failure before makepkg, with no destructor retry.
 An incomplete transfer/proof instead follows the existing failure cleanup path.
-Production activation is limited to the existing typed initial-Missing
-bootstrap intent on exact target-less ordinary Auto `-Syu` / `-Su`.
+Production activation includes typed initial-Missing bootstrap and existing
+ordinary authoritative devel updates selected by `ordinary_devel_package_base`.
+The supported route scope is defined by [normal routes](devel-normal-routes.md)
+and the [execution bridge](reviewed-devel-source-build-execution.md); this does
+not enable the chain for other local, registered or upgrade variants.
 
 ## Phase-point / remaining scope
 

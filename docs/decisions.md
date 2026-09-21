@@ -94,6 +94,27 @@ user intent は、command 名、指定された target と option、元 tool の
 
 Moguet が外部 component を呼び出すための順序、事前条件、停止条件、表示を設計することは orchestration の責務である。ただし、それを理由に各 component の solver、transaction、build、repository operation を独自実装へ置き換えない。
 
+[project stance](project-stance.md)の能力と責任範囲の分離を、phase-point authorityで実現する。
+source / revision / artifact / install identityとprovenanceは、各consumerが値や副作用を採用する
+定義済み境界で証明する。必要なauthorityを必要なphaseで必要な期間だけ保持し、observed mismatch /
+invalid / unknownでは、そのauthorityに依存する処理へ進まずfail closedする。これはcorrectnessの要件である。
+明示承認、destructive-operation containment、user-owned sourceの非破壊と、failure / cancellation /
+partial outcomeのlosslessな保持も維持する。
+
+proofとresourceの寿命は実際のconsumerに結び付ける。独立copyへのtransferとfinal proofが完了し、
+元のphysical backingを使うconsumerがなくなれば、そのbackingを解放できる。一方、後段が必要とする
+semantic acceptance、context、identityのauthorityは必要期間保持する。常時監視はこの受渡しの証明を
+代替せず、review済みbuildを継続的な敵対者として監視する責務も生まない。phase間の任意の同UID改変や
+改変後の復元を網羅するcontinuous attestationを要求しない。新しいprivileged capabilityには固有の
+authoritative boundaryを定め、その境界の偽造や迂回を防ぐ責務をこの非目標で免除しない。
+
+derived stateの不整合検出は自動でも、復旧は対応する別の明示操作とする。任意の手動変更を追跡・修復して
+同じ失敗transactionを続行すると、失敗時に確定したidentity、承認、結果の境界が曖昧になるため、
+自動repair / continuationを既定責務にしない。復旧はMoguet-ownedなdisposable stateへ限定し、
+対象のownershipとcontainmentを証明できなければ削除しない。unknown / external path、user-owned source、
+durable provenance / review stateを万能resetの対象にしない。通常のfresh acquisitionやowned partial stateの
+安全なabort cleanupは、既知不整合のrepairとは区別し、それぞれのcontractへ従う。
+
 <a id="decision-7"></a>
 
 ### 7. 判断ルール
@@ -211,6 +232,32 @@ User intent is inferred from the command name, explicit targets and options, con
 | Moguet | Orchestration, source-build policy, execution order, safety boundaries, diagnostics, and preservation of user intent |
 
 Designing the order, preconditions, stop conditions, and presentation around calls to external components is part of Moguet orchestration. It is not a reason to replace each component's solver, transaction, build, or repository operations with a custom implementation.
+
+Phase-point authority implements the separation of capability and responsibility in the
+[project stance](project-stance.md). Source, revision, artifact and install identity, and provenance,
+must be proven at the defined boundaries where each consumer adopts values or side effects.
+Retain necessary authority only for the phase and duration that need it. Observed mismatch,
+invalidity or unknown state must fail closed before processing that depends on that authority.
+This is a correctness requirement. Explicit approval, destructive-operation containment,
+non-destruction of user-owned sources, and lossless failure, cancellation and partial outcomes remain required.
+
+Tie proof and resource lifetimes to their actual consumers. Once transfer to independent copies and
+final proof complete, physical backing may be released if no consumer still needs it. Semantic
+acceptance, context and identity authority needed downstream must remain alive for their required
+duration. Continuous monitoring neither replaces this hand-off proof nor becomes a responsibility
+to surveil reviewed builds as ongoing adversaries. Continuous attestation covering arbitrary same-UID
+mutation or mutation followed by restoration between phases is not required. Every new privileged
+capability still needs its own authoritative boundary; this non-goal does not excuse forgery or bypass
+of that boundary.
+
+Derived-state inconsistency detection is automatic; recovery belongs to a separate, supported explicit
+operation. Tracking and repairing arbitrary manual changes to continue the same failed transaction
+would blur the established identity, approval and outcome boundaries, so automatic repair and
+continuation are not default responsibilities. Recovery is limited to Moguet-owned disposable state;
+deletion requires proven ownership and containment. Unknown or external paths, user-owned sources,
+and durable provenance or review state are not targets for a universal reset. Normal fresh acquisition
+and safe abort cleanup of owned partial state remain distinct from repairing known inconsistency and
+follow their respective contracts.
 
 <a id="decision-7-en"></a>
 

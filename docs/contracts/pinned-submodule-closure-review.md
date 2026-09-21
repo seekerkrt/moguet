@@ -85,7 +85,11 @@ copied metadata cannot mint another acceptance. This is not continuous attestati
 disposable workspace/cache is not authority, and persistent user cache is untouched.
 
 4B2 connects this chain to native makepkg/common S4 only through the typed
-SourceReady consumer on the exact initial-Missing bootstrap route. Normal
+SourceReady consumer for typed initial-Missing bootstrap and existing ordinary
+authoritative devel updates selected by `ordinary_devel_package_base`.
+[Normal routes](devel-normal-routes.md) and the
+[execution bridge](reviewed-devel-source-build-execution.md) define the supported
+activation scope; other routes do not gain this authority. Normal
 single-root gates remain for inputs without that authority; the S3 recipe
 Gitlink gate remains closed. S5/S6 and provenance schema v1/27 keys are unchanged.
 Slice 5 supplies split group authority. Slice 6 adds the

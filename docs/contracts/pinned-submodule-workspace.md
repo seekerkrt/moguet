@@ -182,8 +182,11 @@ child pinsはwhole owner内のinvocation-local evidenceでありprovenance v1 / 
 
 ## Remaining scope / validation
 
-production activationはexact target-less ordinary `-Syu` / `-Su` Auto + initial ProvenanceMissing + current typed bootstrap intentだけ。
-package名や`-git` suffixでこのbranchを選択しない。通常のvalid-provenance / non-devel経路を変更しない。
+production activationはtyped initial-Missing bootstrapと、`ordinary_devel_package_base` intentで選択された
+既存のordinary authoritative devel更新を含む。どちらも[normal routes](devel-normal-routes.md)と
+[execution bridge](reviewed-devel-source-build-execution.md)の対応範囲内で同じclosed chainを使う。
+package名や`-git` suffixだけでこのbranchを選択せず、既存provenanceをMissingへ戻さない。
+non-devel、local、registered、その他のupgrade variantへactivationを広げない。
 Slice 5はsplit PackageBase groupを、Slice 6は代表3topologyのdeterministic coverageを接続する。
 [fixtureの範囲](../../tests/fixtures/devel-production-topologies.md)を参照する。live Cargo取得、一般sandbox、
 persistent cache manager、continuous監視を今回の対応に含めない。

@@ -14,6 +14,18 @@ release操作は[`development.md`](development.md)を正とする。この文書
 目的はcoverageの削減ではない。変更が壊し得るcontractを先に特定し、そのcontractを
 所有するvalidationで証明するrisk-based validationを正式運用とする。
 
+対象の保証・非保証は[project stance](project-stance.md)と[設計ポリシーの責務境界](decisions.md#decision-6)を
+上位authorityとし、各subsystem contractの具体的なphase-pointへ対応させる。validationは次を証明する。
+
+- 定義済み境界でのidentity / authorityの正しさと、observed mismatch / invalid / unknownのfail-closed。
+- destructive operationのownership / containment、user-owned sourceの非破壊、失敗・取消・partial結果の保全。
+- proof / resourceが実consumerの必要期間を覆うこと。transfer後の物理解放と、後段semantic authorityの保持を区別する。
+- 不整合検出後に暗黙repair / continuationをしないこと。対応する明示復旧も所有・包含を証明できる対象だけに作用すること。
+
+各Sliceへcontinuous hostile mutation immunity、すべてのsame-UID race、観測間の一時改変→復元検出、
+汎用sandbox / network policy / all-descendant mediationの証明を要求しない。
+この非目標を、観測済み不整合の無視やphase-point / privileged boundaryのnegative test省略の根拠にはしない。
+
 ## 前提として維持するmechanism contract
 
 このpolicyはIssue #403の先行Sliceを再設計しない。validation selectionとevidenceの扱いは、
@@ -181,6 +193,12 @@ evidenceがあり、後続deltaがそのevidenceを無効化しないとcontract
 説明できない場合はbroader gateを再実行する。
 
 ### 4. Release candidate
+
+Slice / Issueのfocused evidence、PR / mergeのintegration evidence、final RCのevidenceは段階を分ける。
+Issue branchの`test-host-release` PASSだけで、その後の最終release candidateを承認しない。
+たとえばIssue #575のPR-ready host evidenceはv2.9.0 final RC approvalではない。
+最終candidateの固定、必要laneの実行、結果の収集と承認は、この節に従う別epochの責務である。
+手動運用でもorchestration helperを使う場合でも、同じpolicyを適用する。
 
 release candidateは新しいapproval evidence epochである。development中のfocused resultや、
 過去のPR / merge evidenceをRC approval tokenとしてそのまま再利用しない。次を同じrelease
