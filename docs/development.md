@@ -436,8 +436,8 @@ PKGBUILD build / installを単一のfail-fast recipeから別containerで順に�
 contextでも後続laneを並行開始せず、providerまたはAUR failure後は残りのlaneを開始しない。
 current Arch repository、public AUR、
 container内のactual package transactionを使うため、`make test` / `make release-check`へ
-actual executionを混ぜない。release candidateでは通常のhost / offline validation後に、
-明示的に次を実行し、three live laneの結果を個別に確認する。
+actual executionを混ぜない。final RCでは下記Release flowの`release-validate`がhost / offlineの後に
+このaggregateを呼ぶ。three live laneの詳細は既存runner出力で確認する。単独で調査する場合の入口は次のとおり。
 
     make test-container-live
 
@@ -451,14 +451,22 @@ static `test-live-contract`として確認するが、networkやcontainer runtim
     git pull --ff-only origin develop
     git switch -c release/vX.Y.Z
 
-リリース準備後:
+リリース準備のactual diffと生成済みman等を整合させ、対象candidateを固定する。
+新規fileを含む場合は候補に含めるpathを明示して先にstageし、非ignored untrackedが残らない状態にする。
+trackedのstaged / unstaged変更は許容される。実行中は編集・stage操作や同じbuild treeの別validationを並行しない。
+candidate / hygiene / default profileの詳細は[`validation.md`のRC policy](validation.md#4-release-candidate)を正とする。
 
-    env -u MAKEFLAGS -u MFLAGS make clean
-    env -u MAKEFLAGS -u MFLAGS make -j8 --output-sync=target
-    env -u MAKEFLAGS -u MFLAGS make -j8 --output-sync=target test-host-release
-    env -u MAKEFLAGS -u MFLAGS make test-container
-    env -u MAKEFLAGS -u MFLAGS make test-container-live
-    git diff --check
+    env -u MAKEFLAGS -u MFLAGS make release-validate
+
+このentrypointはclean、production build、host、offline/current Arch、liveまでを実行するため、
+Docker image buildのnetwork利用とcontainer内actual transactionを含む。default環境のsanitationはscriptが所有する。
+summaryとexit statusを確認し、必要なlog pathをcandidate / 時刻 / exact commandとともに記録する。
+INVALIDや取得失敗では停止原因を解消してcandidateを再固定し、新candidateへ古いPASSを転用しない。
+個別targetはdebug / focused確認に利用できるが、それだけで最終RCの完了とはしない。
+
+VALID後もactual release-preparation diffとstatusを確認し、下記のstage / commit、release PR、
+main merge後のtag、release notes抽出・目視確認、GitHub Release、mirror確認、develop回収とcleanupを
+operatorが行う。automated VALIDはこれらの実行許可や完了を意味しない。
 
 ccache / mold parityは必要なreleaseでの追加validationであり、上記default gateの代替にしない。
 それぞれのexact compile / link scopeとclean / incremental条件を`validation.md`に従って記録する。

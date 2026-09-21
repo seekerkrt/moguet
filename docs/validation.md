@@ -238,26 +238,56 @@ Issue branchの`test-host-release` PASSだけで、その後の最終release can
 手動運用でもorchestration helperを使う場合でも、同じpolicyを適用する。
 
 release candidateは新しいapproval evidence epochである。development中のfocused resultや、
-過去のPR / merge evidenceをRC approval tokenとしてそのまま再利用しない。次を同じrelease
-candidate revisionで実行する。
+過去のPR / merge evidenceをRC approval tokenとしてそのまま再利用しない。exact candidate commit、
+またはそのcommitとcontent-identicalになるcandidate treeを固定し、unrelated changeを混ぜずに、
+final RCのautomated validationを次の単一entrypointから開始する。
 
-1. exact candidate commit、またはそのcommitとcontent-identicalになるcandidate treeを固定し、unrelated changeを混ぜない。
-2. optional wrapper / linker overrideのないclean/default host production buildを実行する。
-3. `test-host-release`でfull A–DとGを1回ずつ実行する。
-4. `test-container`でoffline/current Arch Docker Eを実行する。
-5. `test-container-live`でactual provider / AUR / local Fをすべて実行する。
-6. Gのversion、license、packaging metadata / payload、tracked Markdownでrelease metadataの整合を確認する。
-7. `sh scripts/extract-release-notes.sh`のcurrent `VERSION` sectionを確認し、release notes payloadを固定する。
-8. ccache / mold parityがそのreleaseに必要な場合は、default gateの後にexact scopeを記録して追加する。
+    env -u MAKEFLAGS -u MFLAGS make release-validate
 
-default host buildの例は次のとおり。`CCACHE`や`LDFLAGS`等の意図的なoverrideがある場合は
-先に除くか、defaultでないことを明示する。
+`release-validate`はoperator-facing orchestrationであり、新しいproof authorityではない。
+`Makefile`の入口から[`scripts/release-validate.sh`](../scripts/release-validate.sh)を呼び、
+candidate capture / hygiene → clean → default production build → `test-host-release` →
+`test-container` → `test-container-live` → diff hygiene → candidate recheck / hygieneを直列に実行する。
+host A–D + G、offline/current Arch E、actual provider / AUR / local Fの意味と内部順序は、
+それぞれの既存targetが引き続き所有する。Gのversion、license、packaging metadata / payload、
+tracked Markdownの確認も`test-host-release`へ委ねる。individual targetはdebug / focused再実行用に残る。
 
-    env -u MAKEFLAGS -u MFLAGS make clean
-    env -u MAKEFLAGS -u MFLAGS make -j8 --output-sync=target
-    env -u MAKEFLAGS -u MFLAGS make -j8 --output-sync=target test-host-release
-    env -u MAKEFLAGS -u MFLAGS make test-container
-    env -u MAKEFLAGS -u MFLAGS make test-container-live
+candidate identityは、同じinvocationの開始前後でHEAD commit、staged、unstagedの
+Git semantic stateを比較する。stagedは`git diff --cached --binary --full-index`のHEADとの差分、
+unstagedは`git diff --binary --full-index`のindexとの差分を使い、完全に成功したproducer出力だけを
+SHA-256へ落として別成分として保持する。external diff / textconv等を無効にするexact引数はscriptを正とする。
+trackedのuncommitted changeは許容するが、実行中のstage / unstageで成分が変われば同一とは扱わない。
+Git canonicalization上同一の表現差やmtime / inodeを独自のcandidate変更とせず、raw filesystem全体の
+snapshotや一時変更→復元を検出するcontinuous monitorにはしない。
+
+非ignored untracked fileはidentity本体と別のsource hygiene failureである。
+`git ls-files --others --exclude-standard -z`が開始時にnon-emptyならclean以降を開始しない。
+終了時に残っている場合もINVALIDとし、自動stage / deleteはしない。tracked集合外のignored build artifactは
+identity外だが、tracked man等の生成物は比較対象に残る。取得失敗やpartial outputを同一candidateの証拠にしない。
+
+default production profileはoptional wrapper / linker overrideなしとする。scriptは既知のMake flags、
+toolchain / frontend overrideとouter Makeのdefault-options signalをchildへ引き継がず、既存frontendの
+defaultを使う。exact sanitationは実行commandとsummaryへ表示する。無関係なenvironmentまで除去する
+generic clean-environment policyにはしない。diff hygieneは`git diff --check`と
+`git diff --cached --check`を順に実行する。
+
+最初のfailureで後続laneを開始せず、summaryにPASS / FAIL / NOT RUN、直接childのexit status、
+first failureと最後に成功したlaneを残す。expected-negative stdout / stderrをparseして判定せず、
+network / container failureも該当laneのfailureとして記録する。summary / diagnostic / cleanup failureは
+primary failureを上書きしない。GNU Makeが内部toolのstatusを変換するため、summaryのchild statusを
+元Docker / CTestのstatusの完全透過とは扱わない。candidate比較はUNCHANGED / CHANGED / ERROR /
+NOT RECHECKEDとして表示し、HEAD、両diffのbefore / after、UTC時刻とcommand evidenceを残す。
+stdout / stderrはstreamし、必要なlog保存とpathの記録はoperatorが行う。
+
+exit 0かつ`RELEASE CANDIDATE: VALID`は、そのinvocationの同一candidateに対するclean/default、
+A–D + G、E、F、diff hygieneとcandidate unchangedのautomated RC evidenceである。
+release notes payloadの目視確認、optional ccache / mold parity、tag、GitHub Release、merge、mirrorの
+完了や実行許可を意味しない。`sh scripts/extract-release-notes.sh`でcurrent `VERSION` sectionを抽出・確認し、
+payloadを固定する責務はoperatorに残る。必要なparityはdefault gateの後にexact scopeを記録して追加する。
+
+orchestrator自身の`test-release-validate`はtemporary Git repoとfake commandによるdeterministic regressionで、
+`test-repository`を通じてcanonical host gateに含む。そのPASSやIssue integrationのhost PASSを、actual E / Fを
+含むfinal RCのPASSへ読み替えない。final candidateを固定した別RC epochで`release-validate`をfreshに実行する。
 
 `test-host-release`内でGがPASSした後、metadataを変更していなければGを別に再実行しない。
 metadataだけを後から変更した場合は`release-check-exclusive`だけを再実行できる。
