@@ -431,7 +431,14 @@ CliInvocationValidation validate_cli_invocation_contract(
         const auto& relations = contract.form != nullptr
                                     ? contract.form->option_relations
                                     : contract.special_operation->option_relations;
-        if(!relations.contains(cli_authority::OptionId::Details)) {
+        const bool delegated_presentation = contract.is_delegated() &&
+                                            std::any_of(cli_authority::DELEGATED_PRESENTATION_DETAIL_SCOPES.begin(),
+                                                        cli_authority::DELEGATED_PRESENTATION_DETAIL_SCOPES.end(),
+                                                        [&parsed](const auto& scope) {
+                                                            return parsed.operation == scope.operation &&
+                                                                   (!scope.requires_dry_run || parsed.cli_overrides.dry_run);
+                                                        });
+        if(!relations.contains(cli_authority::OptionId::Details) && !delegated_presentation) {
             return invalid_invocation(
                 contract,
                 CliInvocationIssue{

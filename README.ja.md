@@ -483,6 +483,14 @@ construction、completeness、execution readinessを独立して表示します�
 unverifiedな観測はrequired check付きのsuccessとして維持し、`Unknown`を`NoOp`へ書き換えず、
 severity、blocking、exit-status effectも別dimensionとして扱います。
 
+`-Qua`、exact target-less `-Syu` / `-Su`（`--repo`を含む）、`upgrade-aur`、
+`upgrade-all`、`--dry-run -S <pkg>`でも`--details`を指定できます。通常表示は
+最新のAUR targetを集約し、更新候補、AUR以外のforeign package、要確認、ブロッカー、
+部分完了を残します。詳細表示では個別のskip理由と、dry-runの経路、phase、依存authority、
+build、artifact、transactionの情報を確認できます。表示密度はrouting、readiness、実行、
+確認、終了statusを変えません。既存のremote buildと`-S --select`の詳細指定もdry-run表示へ適用します。
+その他のdry-run経路は既存の表示を維持します。
+
 **upgrade commandの選択:** 通常のAUR helper updateにはexact target-less
 `moguet -Syu`を使います。official repository system upgradeを完了した後、installed
 foreign / AUR stateを再評価し、normal AUR updateを実行します。このrouteはsaved

@@ -1209,11 +1209,11 @@ void test_issue_449_non_up_to_date_controls() {
         project_upgrade_all_fixture(aggregate);
     expect(
         non_aur_projection.summary_counts.total == 1 &&
-            non_aur_projection.summary_counts.normal == 1 &&
+            non_aur_projection.summary_counts.normal == 0 &&
             non_aur_projection.summary_counts.attention_required ==
-                0 &&
+                1 &&
             non_aur_projection.summary_counts.not_observed == 1 &&
-            non_aur_projection.attention_items.empty() &&
+            non_aur_projection.attention_items.size() == 1 &&
             non_aur_projection.full_items.size() == 1 &&
             non_aur_projection.full_items.front()
                 .package_state.has_value() &&

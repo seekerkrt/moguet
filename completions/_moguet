@@ -253,14 +253,14 @@ _moguet_collect_candidates() {
             ;;
         upgrade-aur)
             if _moguet_form_prefix_valid upgrade-aur 0; then
-                reply=(--edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild)
+                reply=(--edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --details)
             else
                 reply=()
             fi
             ;;
         upgrade-all)
             if _moguet_form_prefix_valid upgrade-all 0; then
-                reply=(--edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild)
+                reply=(--edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --details)
             else
                 reply=()
             fi
@@ -356,27 +356,27 @@ _moguet_collect_candidates() {
         -Syu)
             if _moguet_has_option_id 12; then
                 if _moguet_form_prefix_valid -Syu 1; then
-                    reply=(--repo --needed --noconfirm --dry-run)
+                    reply=(--repo --needed --noconfirm --dry-run --details)
                 else
                     reply=()
                 fi
             elif _moguet_has_operand -Syu; then
                 reply=(--needed --noconfirm)
             else
-                reply=(--edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --needed --repo)
+                reply=(--edit --noedit --diff --nodiff --noconfirm --dry-run --details --build-mode= --rebuild --cleanbuild --needed --repo)
             fi
             ;;
         -Su)
             if _moguet_has_option_id 12; then
                 if _moguet_form_prefix_valid -Su 1; then
-                    reply=(--repo --needed --noconfirm --dry-run)
+                    reply=(--repo --needed --noconfirm --dry-run --details)
                 else
                     reply=()
                 fi
             elif _moguet_has_operand -Su; then
                 reply=(--needed --noconfirm)
             else
-                reply=(--edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --needed --repo)
+                reply=(--edit --noedit --diff --nodiff --noconfirm --dry-run --details --build-mode= --rebuild --cleanbuild --needed --repo)
             fi
             ;;
         -Ss) reply=(--needed --noconfirm) ;;
@@ -388,6 +388,8 @@ _moguet_collect_candidates() {
         --version) reply=() ;;
         __delegated__) reply=(--needed --noconfirm) ;;
     esac
+    if [[ $operation == -Qua ]] && [[ " ${reply[*]} " != *' --details '* ]]; then reply+=(--details); fi
+    if [[ $operation == -S ]] && _moguet_has_option_id 5 && [[ " ${reply[*]} " != *' --details '* ]]; then reply+=(--details); fi
 }
 
 _moguet_description() {
@@ -431,7 +433,7 @@ _moguet_description() {
         --select) REPLY='Interactively select source-aware package candidates for plain -S' ;;
         --aur) REPLY='Limit supported sync operations to AUR' ;;
         --repo) REPLY='Use only official binary repositories; with -Syu / -Su, run the repository system upgrade only' ;;
-        --details) REPLY='Show detailed diagnostic and provenance information for remote build, plan, deps, and -S --select; presentation only' ;;
+        --details) REPLY='Show detailed diagnostic and provenance information for remote build, plan, deps, -S --select, -Qua, -Syu/-Su, upgrade-aur/all, and --dry-run -S; presentation only' ;;
         --local) REPLY='Use one local PKGBUILD directory as the build root' ;;
         --output-dir=) REPLY='Select an existing export parent for -G' ;;
         --recursive) REPLY='Resolve dependencies recursively' ;;

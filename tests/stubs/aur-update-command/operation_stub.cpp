@@ -58,7 +58,7 @@ bool is_preparation_presentation_scenario() {
 
 bool accepts_update_policy(DevelRequiresCheckPolicy policy) {
     return policy == DevelRequiresCheckPolicy::BlockOperation ||
-           (is_preparation_presentation_scenario() &&
+           ((is_preparation_presentation_scenario() || scenario() == "all-up-to-date") &&
             policy == DevelRequiresCheckPolicy::SkipIndependentTarget);
 }
 
@@ -677,8 +677,9 @@ AurUpdateQueryResult query_installed_aur_updates() {
 
 AurUpdateQueryResult query_aur_updates_for_foreign_inventory(
     ForeignPackageInventory inventory) {
-    if(!is_preparation_presentation_scenario() || inventory.size() != 1 ||
-       inventory.front().name != "preparation-pkg") {
+    const bool no_updates = scenario() == "all-up-to-date";
+    if((!is_preparation_presentation_scenario() && !no_updates) || inventory.size() != 1 ||
+       inventory.front().name != (no_updates ? "up-to-date-pkg" : "preparation-pkg")) {
         throw std::logic_error("Unexpected system AUR preparation fixture inventory.");
     }
     append_event("query post-repository inventory");
@@ -820,16 +821,14 @@ PreparedAurUpdateSourceBuildInvocation::PreparedAurUpdateSourceBuildInvocation(
 }
 
 bool AurUpdateSourceBuildPreparation::is_prepared() const noexcept {
-    return devel_requires_check_policy ==
-               std::optional<DevelRequiresCheckPolicy>{
-                   DevelRequiresCheckPolicy::BlockOperation} &&
+    return devel_requires_check_policy.has_value() &&
+           accepts_update_policy(*devel_requires_check_policy) &&
            issues.empty() && invocation.has_value() && invocation->is_valid();
 }
 
 bool AurUpdateSourceBuildPreparation::is_noop() const noexcept {
-    return devel_requires_check_policy ==
-               std::optional<DevelRequiresCheckPolicy>{
-                   DevelRequiresCheckPolicy::BlockOperation} &&
+    return devel_requires_check_policy.has_value() &&
+           accepts_update_policy(*devel_requires_check_policy) &&
            issues.empty() && !invocation.has_value() &&
            std::none_of(
                affected_update_targets.begin(),
@@ -1677,9 +1676,8 @@ AurUpdateOperationResult reduce_aur_update_operation_result(
 }
 
 bool AurUpdateOperationResult::is_success() const noexcept {
-    return devel_requires_check_policy ==
-               std::optional<DevelRequiresCheckPolicy>{
-                   DevelRequiresCheckPolicy::BlockOperation} &&
+    return devel_requires_check_policy.has_value() &&
+           accepts_update_policy(*devel_requires_check_policy) &&
            (status == AurUpdateOperationStatus::NoUpdates ||
             status == AurUpdateOperationStatus::Completed) &&
            selected_repository_provider_transaction.is_success();

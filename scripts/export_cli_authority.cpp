@@ -518,6 +518,13 @@ int main() {
         std::cout << "OPERATION\t" << token << "\topen\n";
     }
 
+    for(const auto& scope : cli_authority::DELEGATED_PRESENTATION_DETAIL_SCOPES) {
+        std::cout << "PRESENTATION\t" << scope.operation << '\t'
+                  << enum_index(OptionId::Details) << '\t';
+        if(scope.requires_dry_run) std::cout << enum_index(OptionId::DryRun);
+        std::cout << '\n';
+    }
+
     const cli_authority::SpecialOperationSpec& delegated =
         cli_authority::special_operation_spec(
             SpecialOperationId::DelegatedPacmanGrammar);

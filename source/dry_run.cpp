@@ -42,7 +42,8 @@ namespace {
 constexpr int DRY_RUN_BLOCKED_STATUS = 1;
 
 int render_dry_run_projection(
-    const std::unique_ptr<UnifiedPlanProjection>& projection) {
+    const std::unique_ptr<UnifiedPlanProjection>& projection,
+    PresentationDetail detail = PresentationDetail::Detailed) {
     if(projection == nullptr) {
         throw std::logic_error(localization::translate_message(
             "Dry-run projection did not produce an observation."));
@@ -56,7 +57,7 @@ int render_dry_run_projection(
 
     const UnifiedPlanObservation& observation = *result.observation();
     const UnifiedPlanRenderingResult rendered =
-        render_unified_plan_observation(observation);
+        render_unified_plan_observation(observation, detail);
     std::cout << rendered.text;
 
     // Renderer-local completeness never changes execution authority.
@@ -73,14 +74,15 @@ int render_dry_run_projection(
 
 int render_system_aur_update_dry_run_projection(
     const std::unique_ptr<SystemAurUpdateUnifiedPlanProjection>&
-        projection) {
+        projection,
+    PresentationDetail detail) {
     if(projection == nullptr) {
         throw std::logic_error(localization::format_translated_message(
             "System and {} update dry-run projection did not produce an observation.",
             "AUR"));
     }
     const UnifiedPlanRenderingResult rendered =
-        render_system_aur_update_unified_plan(*projection);
+        render_system_aur_update_unified_plan(*projection, detail);
     std::cout << rendered.text;
     return projection->status() ==
                    SystemAurUpdateUnifiedPlanStatus::Ready
@@ -114,7 +116,7 @@ int run_system_aur_update_dry_run(
         observe_system_aur_update_dry_run(
             std::move(request.value()), config);
     const int status = render_system_aur_update_dry_run_projection(
-        project_system_aur_update_unified_plan(observation));
+        project_system_aur_update_unified_plan(observation), config.presentation_detail);
     if(observation.preflight_version_lock_correlation.has_value()) {
         const auto text = format_cross_source_version_lock_cli_presentation(
             *observation.preflight_version_lock_correlation);
@@ -132,11 +134,12 @@ int run_root_selection_dry_run(
         prepare_root_package_install(
             parsed, std::move(invocation), config);
     return std::visit(
-        [](const auto& authority) {
+        [&config](const auto& authority) {
             return render_dry_run_projection(
                 project_root_package_unified_plan(
                     RootPackageUnifiedPlanProjectionInput{
-                        std::cref(authority)}));
+                        std::cref(authority)}),
+                config.presentation_detail);
         },
         preparation);
 }
@@ -156,11 +159,12 @@ int run_sync_dry_run(
     SyncInstallPreparation preparation = prepare_sync_install(
         parsed, system_update, parsed.source_selection, config);
     return std::visit(
-        [](const auto& authority) {
+        [&config, &parsed](const auto& authority) {
             return render_dry_run_projection(
                 project_sync_install_unified_plan(
                     SyncInstallUnifiedPlanProjectionInput{
-                        std::cref(authority)}));
+                        std::cref(authority)}),
+                parsed.operation == "-S" ? config.presentation_detail : PresentationDetail::Detailed);
         },
         preparation);
 }
@@ -184,11 +188,12 @@ int run_remote_build_dry_run(
             invocation.package_name,
             std::move(invocation.source_environment), config);
     return std::visit(
-        [](const auto& authority) {
+        [&config](const auto& authority) {
             return render_dry_run_projection(
                 project_remote_source_build_unified_plan(
                     RemoteSourceBuildUnifiedPlanProjectionInput{
-                        std::cref(authority)}));
+                        std::cref(authority)}),
+                config.presentation_detail);
         },
         preparation);
 }
@@ -277,7 +282,7 @@ int run_upgrade_aur_dry_run(const AppConfig& config) {
             DevelRequiresCheckPolicy::BlockOperation,
             SavedSourcePreferencePolicy::Strict, config, std::nullopt);
     return render_dry_run_projection(
-        project_filtered_aur_update_unified_plan(preparation));
+        project_filtered_aur_update_unified_plan(preparation), config.presentation_detail);
 }
 
 int run_upgrade_all_dry_run(
@@ -299,8 +304,9 @@ int run_upgrade_all_dry_run(
            std::get_if<UpgradeAllOperationResult>(&preparation);
        failure != nullptr) {
         return render_dry_run_projection(project_upgrade_all_unified_plan(
-            UpgradeAllUnifiedPlanProjectionInput{
-                std::cref(*failure)}));
+                                             UpgradeAllUnifiedPlanProjectionInput{
+                                                 std::cref(*failure)}),
+                                         config.presentation_detail);
     }
 
     const PreparedUpgradeAllOperation& prepared =
@@ -317,7 +323,8 @@ int run_upgrade_all_dry_run(
         prepare_upgrade_all_aur_preflight(*snapshot, config);
     const auto registered = observe_registered_aur_devel_updates(authority->system_source());
     return render_dry_run_projection(project_upgrade_all_unified_plan(
-        *authority, aur_preflight, &registered));
+                                         *authority, aur_preflight, &registered),
+                                     config.presentation_detail);
 }
 
 } // namespace

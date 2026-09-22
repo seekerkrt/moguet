@@ -252,14 +252,14 @@ _moguet() {
             ;;
         upgrade-aur)
             if _moguet_form_prefix_valid upgrade-aur 0; then
-                candidates=(--edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild)
+                candidates=(--edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --details)
             else
                 candidates=()
             fi
             ;;
         upgrade-all)
             if _moguet_form_prefix_valid upgrade-all 0; then
-                candidates=(--edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild)
+                candidates=(--edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --details)
             else
                 candidates=()
             fi
@@ -355,27 +355,27 @@ _moguet() {
         -Syu)
             if _moguet_has_option_id 12; then
                 if _moguet_form_prefix_valid -Syu 1; then
-                    candidates=(--repo --needed --noconfirm --dry-run)
+                    candidates=(--repo --needed --noconfirm --dry-run --details)
                 else
                     candidates=()
                 fi
             elif _moguet_has_operand -Syu; then
                 candidates=(--needed --noconfirm)
             else
-                candidates=(--edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --needed --repo)
+                candidates=(--edit --noedit --diff --nodiff --noconfirm --dry-run --details --build-mode= --rebuild --cleanbuild --needed --repo)
             fi
             ;;
         -Su)
             if _moguet_has_option_id 12; then
                 if _moguet_form_prefix_valid -Su 1; then
-                    candidates=(--repo --needed --noconfirm --dry-run)
+                    candidates=(--repo --needed --noconfirm --dry-run --details)
                 else
                     candidates=()
                 fi
             elif _moguet_has_operand -Su; then
                 candidates=(--needed --noconfirm)
             else
-                candidates=(--edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --needed --repo)
+                candidates=(--edit --noedit --diff --nodiff --noconfirm --dry-run --details --build-mode= --rebuild --cleanbuild --needed --repo)
             fi
             ;;
         -Ss) candidates=(--needed --noconfirm) ;;
@@ -389,6 +389,9 @@ _moguet() {
         *) candidates=() ;;
         esac
     fi
+
+    if [[ $operation == -Qua ]] && [[ " ${candidates[*]} " != *' --details '* ]]; then candidates+=(--details); fi
+    if [[ $operation == -S ]] && _moguet_has_option_id 5 && [[ " ${candidates[*]} " != *' --details '* ]]; then candidates+=(--details); fi
 
     filtered=()
     for candidate in "${candidates[@]}"; do

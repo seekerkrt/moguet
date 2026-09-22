@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.8.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-21 10:39+0900\n"
+"POT-Creation-Date: 2026-09-22 11:25+0900\n"
 "PO-Revision-Date: 2026-09-19 17:53+0900\n"
 "Last-Translator: Moguet contributors\n"
 "Language-Team: Japanese\n"
@@ -2108,7 +2108,7 @@ msgstr "{}の更新を外部パッケージ{}個について確認していま�
 #. first package number, last package number, and total package count.
 #, c++-format
 msgid "Fetching {} info for packages {}-{} of {}..."
-msgstr "{} 件中 {}～{} 件目のパッケージについて {} 情報を取得しています..."
+msgstr "{}からパッケージ情報を取得しています（{}～{}件目、全{}件）..."
 
 #. TRANSLATORS: AUR is a runtime project identity.
 #, c++-format
@@ -4731,6 +4731,9 @@ msgstr "  no-opの根拠: {}"
 msgid "  update candidates: {}, blockers: {}, requires-check: {}, failures: {}"
 msgstr "  更新候補: {}件、blocker: {}件、要確認: {}件、失敗: {}件"
 
+msgid "Details:"
+msgstr "詳細:"
+
 #, c++-format
 msgid "package: {}"
 msgstr "パッケージ: {}"
@@ -5891,8 +5894,8 @@ msgstr "詳細な診断情報と由来情報を表示"
 
 #. TRANSLATORS: The placeholders are literal supported CLI forms.
 #, c++-format
-msgid "For remote {}, {}, {}, and {}; changes presentation only, not execution"
-msgstr "リモート{}、{}、{}、{}で使用可能。表示だけを変更し、実行動作は変えません"
+msgid "For remote {}, {}, {}, {}, {}, {}, {}, {}, and {}; changes presentation only, not execution"
+msgstr "リモート{}、{}、{}、{}、{}、{}、{}、{}、{}で使用可能。表示だけを変更し、実行動作は変えません"
 
 msgid "Show this help message and exit"
 msgstr "このヘルプを表示して終了"
@@ -9691,6 +9694,30 @@ msgstr "パッケージ関係ブロッカー: {}"
 
 msgid "Blockers:"
 msgstr "ブロッカー:"
+
+#, c++-format
+msgid "  Checked: {}; update candidates: {}; devel unchanged: {}"
+msgstr "  確認対象: {}件、更新候補: {}件、devel変更なし: {}件"
+
+#, c++-format
+msgid "{} revision difference"
+msgstr "{}リビジョンの差分"
+
+msgid "metadata unavailable"
+msgstr "メタデータを利用できません"
+
+msgid "requires check"
+msgstr "確認が必要"
+
+msgid "inconsistent"
+msgstr "不整合"
+
+msgid "  Repository system upgrade planned."
+msgstr "  リポジトリのシステム更新予定。"
+
+#, c++-format
+msgid "  Build units: {}; required artifacts: {}; transaction intents: {}"
+msgstr "  ビルド単位: {}件、必要アーティファクト: {}件、transaction予定: {}件"
 
 msgid "Unified plan:"
 msgstr "統合プラン:"

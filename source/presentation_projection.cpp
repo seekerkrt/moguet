@@ -975,7 +975,8 @@ bool is_attention_required(const PresentationItem& item) noexcept {
         item.package_state.has_value() &&
         item.package_state->state ==
             PackageStateObservation::Unverified;
-    if(item.is_update_candidate || item.is_blocking ||
+    if(item.aur_normal_skip_reason == AurUpdateExecutionReason::NonAurForeign ||
+       item.is_update_candidate || item.is_blocking ||
        item.requires_check || item.requires_manual_action ||
        item.diagnostic_class.has_value() || !item.plan_reasons.empty() ||
        !item.upgrade_all_reasons.empty() ||
@@ -1122,9 +1123,16 @@ PresentationItem project_aur_update_presentation_item(
     }
     item.package_state = aur_target_observation(result);
     item.aur_normal_skip_reason = aur_target_normal_skip_reason(result);
-    item.is_update_candidate =
-        result.update.classification ==
-        AurUpdateClassification::UpdateAvailable;
+    item.is_update_candidate = aur_update_basis(result.update).has_value();
+    // A skipped target may still need attention (for example an independent
+    // devel check). The retained preflight reasons, not the skip label, own it.
+    item.requires_check = std::any_of(
+        result.preflight_issues.begin(), result.preflight_issues.end(),
+        [](const auto& issue) {
+            return issue.reason != AurUpdateExecutionReason::None &&
+                   issue.reason != AurUpdateExecutionReason::UpToDate &&
+                   issue.reason != AurUpdateExecutionReason::NonAurForeign;
+        });
 
     for(const AurUpdateOperationExecutionContribution& contribution :
         result.execution_contributions) {

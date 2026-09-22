@@ -385,6 +385,12 @@ run_supported() {
     expected_identity=$4
     shift 4
     setup_case "$case_name"
+    # Retain the former full diagnostic assertions on the Detailed surface.
+    for argument in "$@"; do
+        case "$argument" in
+            -S|build|upgrade-aur|upgrade-all) set -- --details "$@"; break ;;
+        esac
+    done
     : > "$command_log"
     start_mutation_sentinel
     if (cd "$case_work_dir" && "$test_binary" "$@") \
@@ -494,7 +500,7 @@ for sync_operation in -Syu -Su; do
     : > "$command_log"
     start_mutation_sentinel
     if (cd "$case_work_dir" &&
-            "$repository_test_binary" --dry-run "$sync_operation") \
+            "$repository_test_binary" --details --dry-run "$sync_operation") \
         </dev/null > "$output_file" 2>&1
     then
         status=0
@@ -528,7 +534,7 @@ for sync_operation in -Syu -Su; do
     : > "$command_log"
     start_mutation_sentinel
     if (cd "$case_work_dir" &&
-            "$repository_test_binary" --dry-run "$sync_operation") \
+            "$repository_test_binary" --details --dry-run "$sync_operation") \
         </dev/null > "$output_file" 2>&1
     then
         status=0
@@ -557,7 +563,7 @@ export MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG
 : > "$command_log"
 start_mutation_sentinel
 if (cd "$case_work_dir" &&
-        "$repository_test_binary" --dry-run --noconfirm -Syu) \
+        "$repository_test_binary" --details --dry-run --noconfirm -Syu) \
     </dev/null > "$output_file" 2>&1
 then
     status=0
@@ -597,7 +603,7 @@ export MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG
 : > "$command_log"
 start_mutation_sentinel
 if (cd "$case_work_dir" &&
-        "$repository_test_binary" --dry-run --noconfirm -Syu) \
+        "$repository_test_binary" --details --dry-run --noconfirm -Syu) \
     </dev/null > "$output_file" 2>&1
 then
     status=0
@@ -626,7 +632,7 @@ export MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG
 : > "$command_log"
 start_mutation_sentinel
 if (cd "$case_work_dir" &&
-        "$repository_test_binary" --dry-run --noconfirm -Syu) \
+        "$repository_test_binary" --details --dry-run --noconfirm -Syu) \
     </dev/null > "$output_file" 2>&1
 then
     status=0
@@ -660,7 +666,7 @@ for sync_operation in -Syu -Su; do
     : > "$command_log"
     start_mutation_sentinel
     if (cd "$case_work_dir" &&
-            "$repository_test_binary" --dry-run "$sync_operation" --repo \
+            "$repository_test_binary" --details --dry-run "$sync_operation" --repo \
                 --config custom.conf) \
         </dev/null > "$output_file" 2>&1
     then
@@ -722,7 +728,7 @@ export MOGUET_TEST_PACMAN_REPO_PACKAGES
 : > "$command_log"
 start_mutation_sentinel
 if (cd "$case_work_dir" &&
-        "$repository_test_binary" --dry-run build repository-root) \
+        "$repository_test_binary" --details --dry-run build repository-root) \
     </dev/null > "$output_file" 2>&1
 then
     status=0
@@ -1028,7 +1034,7 @@ export MOGUET_TEST_VERCMP_OUTPUT
 : > "$command_log"
 start_mutation_sentinel
 if (cd "$case_work_dir" &&
-        "$repository_test_binary" --noconfirm upgrade-aur --dry-run) \
+        "$repository_test_binary" --details --noconfirm upgrade-aur --dry-run) \
     </dev/null > "$output_file" 2>&1
 then
     status=0
@@ -1061,7 +1067,7 @@ export MOGUET_TEST_VERCMP_OUTPUT
 : > "$command_log"
 start_mutation_sentinel
 if (cd "$case_work_dir" &&
-        "$repository_test_binary" --noconfirm upgrade-all --dry-run) \
+        "$repository_test_binary" --details --noconfirm upgrade-all --dry-run) \
     </dev/null > "$output_file" 2>&1
 then
     status=0
@@ -1093,5 +1099,64 @@ run_supported \
 run_supported \
     upgrade-all Ready 0 "     - system upgrade" \
     upgrade-all --dry-run
+
+# Normal and Detailed observe identical state and process calls. Existing
+# Detailed cases above retain the complete route/authority diagnostics.
+for route in '-Syu' '-Su' 'upgrade-aur' 'upgrade-all' '-S --aur clean-root'; do
+    setup_case "compact-$route"
+    set_foreign_inventory 'clean-root 1.0-1 explicit
+non-aur-package 1.0-1 explicit'
+    MOGUET_TEST_VERCMP_OUTPUT=0
+    export MOGUET_TEST_VERCMP_OUTPUT
+    : > "$command_log"
+    start_mutation_sentinel
+    (cd "$case_work_dir" && "$repository_test_binary" --dry-run $route) \
+        </dev/null > "$output_file" 2>&1
+    grep -F 'Blockers:' "$output_file" >/dev/null
+    if grep -E 'Identity:|External owner:|Configured repository order:' "$output_file" >/dev/null; then
+        echo "normal dry-run leaked full details: $route" >&2
+        exit 1
+    fi
+    case "$route" in
+        '-S --aur clean-root') grep -F 'clean-root' "$output_file" >/dev/null ;;
+        *)
+            grep -F 'Checked: 2; update candidates: 0' "$output_file" >/dev/null
+            grep -F 'non-aur-package: non-AUR foreign' "$output_file" >/dev/null
+            ;;
+    esac
+    cp "$command_log" "$case_dir/normal-events"
+    : > "$command_log"
+    (cd "$case_work_dir" && "$repository_test_binary" --details --dry-run $route) \
+        </dev/null > "$output_file" 2>&1
+    grep -F 'Identity:' "$output_file" >/dev/null
+    grep -F 'External owner:' "$output_file" >/dev/null
+    case "$route" in
+        '-S --aur clean-root') ;;
+        *) grep -F 'non-aur-package: non-AUR foreign' "$output_file" >/dev/null ;;
+    esac
+    cmp "$case_dir/normal-events" "$command_log"
+    assert_protected_storage_unchanged
+    assert_read_only_commands
+done
+
+# -Qua progress is presentation-owned; detailed mode does not add queries.
+setup_case compact-foreign-query
+set_foreign_inventory 'clean-root 1.0-1 explicit
+non-aur-package 1.0-1 explicit'
+MOGUET_TEST_VERCMP_OUTPUT=0
+export MOGUET_TEST_VERCMP_OUTPUT
+: > "$command_log"
+(cd "$case_work_dir" && "$repository_test_binary" -Qua) > "$output_file" 2>&1
+if grep -F 'Checking package' "$output_file" >/dev/null; then
+    echo 'normal -Qua leaked per-package progress' >&2
+    exit 1
+fi
+grep -F 'Foreign package not found in AUR: non-aur-package' "$output_file" >/dev/null
+cp "$command_log" "$case_dir/normal-events"
+: > "$command_log"
+(cd "$case_work_dir" && "$repository_test_binary" --details -Qua) > "$output_file" 2>&1
+grep -F 'Checking package 2/2: non-aur-package' "$output_file" >/dev/null
+cmp "$case_dir/normal-events" "$command_log"
+assert_read_only_commands
 
 echo "dry-run command sentinel regression passed"

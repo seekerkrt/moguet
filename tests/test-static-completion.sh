@@ -65,7 +65,7 @@ run_completion moguet upgrade-all --noedit ""
 assert_reply \
     "upgrade-allのoption scopeとconflict" \
     --noedit --diff --nodiff --noconfirm --dry-run --build-mode= \
-    --rebuild --cleanbuild
+    --rebuild --cleanbuild --details
 
 run_completion moguet upgrade-all unexpected-target ""
 assert_reply "targetless operationの不正operand後は候補を提示しない"
@@ -210,13 +210,13 @@ for sync_operation in -Syu -Su; do
     run_completion moguet $sync_operation ""
     assert_reply \
         "$sync_operation Autoはnormal AUR対応optionとRepoOnly escape hatchを提示" \
-        --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= \
+        --edit --noedit --diff --nodiff --noconfirm --dry-run --details --build-mode= \
         --rebuild --cleanbuild --needed --repo
 
     run_completion moguet $sync_operation --repo ""
     assert_reply \
         "$sync_operation RepoOnlyはrepository surfaceだけを提示" \
-        --repo --needed --noconfirm --dry-run
+        --repo --needed --noconfirm --dry-run --details
 
     run_completion moguet $sync_operation package ""
     assert_reply \
@@ -226,6 +226,13 @@ for sync_operation in -Syu -Su; do
     run_completion moguet $sync_operation --a
     assert_reply "$sync_operationはunsupported --aurを提示しない"
 done
+
+run_completion moguet -Qua --det
+assert_reply "foreign updatesはdetailsを提示する" --details
+run_completion moguet -S --dry-run --det
+assert_reply "single-target dry-runはdetailsを提示する" --details
+run_completion moguet -S --select --dry-run --det
+assert_reply "selected dry-runでdetailsを重複提示しない" --details
 
 run_completion moguet -Q ""
 assert_reply "未列挙pacman operationもopen grammarとして扱う" --needed --noconfirm

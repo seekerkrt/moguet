@@ -6,6 +6,7 @@
 #include "filtered_aur_update_operation.hpp"
 #include "localization.hpp"
 #include "logging.hpp"
+#include "presentation_projection.hpp"
 #include "runtime_diagnostic.hpp"
 #include "source_install.hpp"
 
@@ -499,7 +500,7 @@ void print_query_failures(const AurUpdateQueryResult& query_result) {
 
 void print_operation_result(
     const AurUpdateQueryResult& query_result,
-    const AurUpdateOperationResult& result) {
+    const AurUpdateOperationResult& result, PresentationDetail detail) {
     // Child/work-item enumやselected identityのincoherenceは、success summaryを
     // 一行でも出す前にfail-closedにする。
     const AurUpdateCliPresentation execution_presentation =
@@ -511,17 +512,19 @@ void print_operation_result(
               << " " << operation_status_label(result.status)
               << std::endl;
     const auto normal_target = [](const AurUpdateOperationTargetResult& target) {
-        if(target.status == AurUpdateOperationTargetStatus::Updated ||
-           target.status == AurUpdateOperationTargetStatus::NoChange) return true;
-        return target.status == AurUpdateOperationTargetStatus::Skipped &&
-               !target.preflight_issues.empty() &&
-               std::all_of(target.preflight_issues.begin(), target.preflight_issues.end(),
-                           [](const auto& issue) { return is_routine_aur_update_skip(issue.reason); });
+        const auto item = project_aur_update_presentation_item(target);
+        return target.status == AurUpdateOperationTargetStatus::Updated ||
+               target.status == AurUpdateOperationTargetStatus::NoChange ||
+               (target.status == AurUpdateOperationTargetStatus::Skipped &&
+                item.aur_normal_skip_reason == AurUpdateExecutionReason::UpToDate &&
+                !is_attention_required(item));
     };
     // Preserve target order within each group, not execution order as a new
     // authority. Normal facts precede attention; child/artifact detail follows.
     for(const auto& target : result.targets) {
-        if(normal_target(target))
+        if(normal_target(target) &&
+           (detail == PresentationDetail::Detailed ||
+            target.status != AurUpdateOperationTargetStatus::Skipped))
             std::cout << target.update.installed_name << ": "
                       << target_status_label(target, result.status) << std::endl;
     }
@@ -635,15 +638,15 @@ int cmd_upgrade_aur(
 
     // POLICY(#281): upgrade-aur presentationはlegacy reducer resultを正本にし、
     // filtered boundary固有のplanner/mapping detailをcommand outputへ追加しない。
-    present_filtered_aur_update_execution_result(result);
+    present_filtered_aur_update_execution_result(result, config.presentation_detail);
     return result.is_success() ? 0 : 1;
 } catch(const FilteredAurUpdateCancelled& stop) {
-    present_filtered_aur_update_execution_result(stop.result());
+    present_filtered_aur_update_execution_result(stop.result(), config.presentation_detail);
     return 1;
 }
 
 void present_filtered_aur_update_execution_result(
-    const FilteredAurUpdateExecutionResult& result) {
+    const FilteredAurUpdateExecutionResult& result, PresentationDetail detail) {
     print_operation_result(
-        result.query_result, result.reduced_operation_result);
+        result.query_result, result.reduced_operation_result, detail);
 }

@@ -672,14 +672,22 @@ assert_not_contains "  operation outcome: Failed" "$stdout_file"
 setup_case normal-aur-skips aur-skips
 run_status 0 upgrade-all
 assert_exact_line \
-    "  items: 2 total, 2 normal, 0 attention-required" "$stdout_file"
+    "  items: 2 total, 1 normal, 1 attention-required" "$stdout_file"
 assert_not_contains "aur-up-to-date" "$stdout_file"
-assert_not_contains "non-aur-foreign" "$stdout_file"
+assert_exact_line "  - package: non-aur-foreign" "$stdout_file"
+assert_contains "non-AUR foreign" "$stdout_file"
+cp "$command_log" "$case_dir/normal-events"
+: > "$command_log"
+run_status 0 --details upgrade-all
+assert_exact_line "  - package: aur-up-to-date" "$stdout_file"
+assert_contains "up to date" "$stdout_file"
+assert_exact_line "  - package: non-aur-foreign" "$stdout_file"
+cmp "$case_dir/normal-events" "$command_log" || fail_case "details changed operation events"
 
 setup_case many-current-one-attention many-current-one-attention
 run_status 1 upgrade-all
 assert_exact_line \
-    "  items: 51 total, 50 normal, 1 attention-required" "$stdout_file"
+    "  items: 51 total, 49 normal, 2 attention-required" "$stdout_file"
 assert_exact_line "  - package: attention-package" "$stdout_file"
 assert_exact_line "    PackageBase: attention-suite" "$stdout_file"
 assert_exact_line "    diagnostic: Unsupported" "$stdout_file"
