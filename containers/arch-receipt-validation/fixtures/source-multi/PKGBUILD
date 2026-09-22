@@ -10,6 +10,7 @@ arch=('any')
 license=('GPL')
 
 package_moguet-source-receipt-multi-a() {
+    depends=('moguet-source-receipt-multi-b=1-1')
     install -Dm644 /dev/null \
         "$pkgdir/usr/share/moguet-source-receipt/multi-a"
 }

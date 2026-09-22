@@ -551,6 +551,34 @@ meaning.
 .SH OPTIONS
 .\" PUBLIC OPTIONS BEGIN
 .TP
+.B "--details"
+Show detailed diagnostic and provenance information for
+remote
+.BR build ,
+.BR plan ,
+.BR deps ,
+.BR "-S --select" ,
+.BR -Qua ,
+exact target-less
+.BR "-Syu / -Su" ,
+.BR upgrade-aur ,
+.BR upgrade-all ,
+and
+.BR "--dry-run -S" .
+Normal AUR update output aggregates up-to-date targets and keeps attention visible.
+Detailed output retains per-target skips and full dry-run authority information.
+This invocation-only option changes presentation, not execution, dependency
+resolution, selection, or readiness. It does not enable interaction or bypass
+safety checks. During remote source builds, normal output summarizes bulk root
+upstream tag-object fetches by operation and distinct additional object count.
+This option displays the full escaped command instead. Other short, actionable
+commands remain visible in normal output.
+For plan and deps, normal output keeps nonempty dependency information and
+attention-required results, aggregates successful constraints, and suppresses
+repeated identity and empty categories. Details retain all constraint reasons,
+state/readiness, provenance, and relation diagnostics from the same typed result.
+.
+.TP
 .B "-h, --help"
 Show localized help and exit without creating XDG directories.
 .
@@ -740,13 +768,19 @@ Compatibility alias for
 .
 .TP
 .B "--rmdeps"
-Recognize the legacy cleanup request but reject it on separated source-build
-routes before mutation.
-Moguet cannot prove the exact dependency set owned by the invocation and does
-not translate this option to
-.BR "makepkg -r" ,
-.BR "pacman -Rns" ,
-or custom orphan cleanup.
+After a successful remote AUR build and artifact installation, preview newly
+installed build/check dependency candidates and ask [y/N] (default No).
+Only explicit Yes permits fresh identity, reason, policy, HoldPkg and runtime
+consumer checks, then one exact candidate-only removal transaction.
+The user's --noconfirm and non-TTY input never approve cleanup.
+Internal pacman --noconfirm only suppresses its duplicate prompt after approval.
+No/cancel/EOF preserve build success. Blocked/unavailable cleanup or removal
+failure returns status 1 while retaining the successful build/install result;
+nothing to remove or candidates skipped during revalidation return status 0.
+No cleanup runs without this option, after failed build/install, or in dry-run.
+Local/repository source builds, source sync and upgrade routes retain their
+existing rejection boundaries; compatible pacman-only routes consume it as a no-op.
+This is not pacman -Qdt or broad autoremove; no automatic retry or rollback occurs.
 .
 .TP
 .B "--aur"

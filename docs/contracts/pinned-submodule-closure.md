@@ -1,18 +1,51 @@
 # Parent-pinned recursive closure authority
 
 Issue #564 Slice 4A implements the object-level acquisition foundation used by
-the SourceReady bootstrap chain. Issue #589 adds root tag authority. This contract does not authorize
+the supported authoritative devel SourceReady chain. Issue #589 adds root tag authority. This contract does not authorize
 closure review acceptance, a makepkg workspace, source-ready S3, completed S4,
 installation, or provenance publication.
 
 ## Input and revision authority
 
-`acquire_pinned_submodule_closure(EvaluatedDevelSourceSelection)` consumes the
+`acquire_pinned_submodule_closure(EvaluatedDevelSourceSelection, PresentationDetail)` consumes the
 [4A0 evaluated selection](evaluated-devel-source-build-proof.md), retaining its
 recipe context, environment and lineage in a private, move-only
 `InvocationOwnedPinnedSubmoduleClosure`. Raw URL/selector/OID tuples, copied
 `VcsSourceIdentity`, reviewed metadata, completed S4 and decoded provenance
 cannot construct this owner. Its opaque backing has no construction friendship.
+
+`PresentationDetail` is an explicit invocation-local command presentation input.
+It is passed to the root-tag command owner without being retained in the returned
+closure or affecting selection, acquisition, identity, validity or failure policy.
+Issue #595 Slice 2 presents only the root-tag bulk exact-object fetch as an
+operation summary in Normal, counting distinct additional raw objects from the
+same deduplication set that appends fetch operands (excluding the already fetched
+root X). Detailed renders the actual executable and complete argv with
+`shell_words` quoting, including the trusted Git options. Execution remains
+structured; this text does not serialize the environment or directory descriptors.
+Both modes persist that same command in `EXEC`. Logger diagnostic capture retains
+the terminal message and command separately and replays each once. Short commands
+keep their existing presentation. The summary precedes the bulk fetch on failure
+as well as success; typed process failures and cleanup remain unchanged.
+
+Issue #595 Slice 3 fixes this boundary with real bounded-process failure
+regressions (launch, nonzero, timeout, signal, capture overflow and cancellation
+with exit zero; poll I/O failure is injected). Both detail modes preserve the
+original invocation, process outcome, cleanup and exact `EXEC` payload, including
+diagnostic capture/replay. The preceding root observation/fetch still identifies
+the remote and root X in Normal. The broader route currently projects closure
+acquisition failure as `SourceReadyInvalid`; adding its retained typed closure
+detail to the final CLI renderer is a separate, pre-existing limitation.
+
+Command presentation uses Logger's existing diagnostic stream (stdout by default,
+stderr when explicitly routed); errors use stderr. TTY, pipe and individual
+stdout/stderr file redirects do not select a different presentation or `EXEC`
+payload. Existing ANSI prefixes are preserved on redirected output. The focused
+Logger matrix uses actual PTY/pipe/file descriptors and checks failure events,
+capture silence and one-shot replay against the descriptor-backed state log.
+This does not guarantee replay completion after a physical state-log write
+failure or terminal-emulator-specific wrapping. Presentation/log I/O precedes the
+remaining-deadline calculation; it does not extend the acquisition budget.
 
 Only the root uses a remote selector observation: the evaluated default requests
 `HEAD`, while an evaluated explicit branch requests its exact `refs/heads/...`.
@@ -174,9 +207,18 @@ and backing. Recipe acceptance and migration Yes do not authorize this step.
 Binary/large regular blobs do not alone prevent acceptance; invalid identity,
 unsupported topology and resource failures still stop. The
 [workspace consumer](pinned-submodule-workspace.md) retains Accepted whole
-ownership and immutable backing through native makepkg/common S4 (4B2).
-Production activation is limited to the existing typed initial-Missing
-bootstrap intent on exact target-less ordinary Auto `-Syu` / `-Su`.
+semantic ownership through native makepkg/common S4 (4B2). After all local object
+copies, tag projection and the final SourceReady proof succeed, it releases only
+the acquisition repositories and their retained descriptors. Selection/context,
+confirmation, exact nodes/edges and raw tag identities remain in the same owner.
+This private release uses the existing bounded object cleanup once; refusal is a
+typed terminal materialization failure before makepkg, with no destructor retry.
+An incomplete transfer/proof instead follows the existing failure cleanup path.
+Production activation includes typed initial-Missing bootstrap and existing
+ordinary authoritative devel updates selected by `ordinary_devel_package_base`.
+The supported route scope is defined by [normal routes](devel-normal-routes.md)
+and the [execution bridge](reviewed-devel-source-build-execution.md); this does
+not enable the chain for other local, registered or upgrade variants.
 
 ## Phase-point / remaining scope
 

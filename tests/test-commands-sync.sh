@@ -157,6 +157,33 @@ run_status_pty() {
     fi
 }
 
+# These deterministic root fixtures have no timing/path fields in their output.
+assert_details_selection_parity() {
+    parity_status=$1
+    parity_input=$2
+    shift 2
+    cp "$output_file" "$case_dir/normal.output"
+    cp "$command_log" "$case_dir/normal.commands"
+    run_status_pty "$parity_status" "$parity_input" --details "$@"
+    if ! cmp -s "$case_dir/normal.commands" "$command_log"; then
+        echo "Normal/Detailed root selection output or selected route differs: $*" >&2
+        cat "$output_file" "$command_log" >&2
+        exit 1
+    fi
+}
+
+# Strip styles only for semantic assertions; TTY palette is checked separately.
+assert_plain_contains() {
+    python3 - "$output_file" "$1" <<'PYPLAIN'
+from pathlib import Path
+import re
+import sys
+plain = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", Path(sys.argv[1]).read_text())
+if sys.argv[2] not in plain:
+    raise SystemExit("missing compact candidate: " + sys.argv[2])
+PYPLAIN
+}
+
 assert_contains() {
     expected=$1
     file=$2
@@ -790,7 +817,7 @@ assert_cache_entry_absent constraint-block-leaf
 setup_case aur-install-partial-provider-firewall
 run_status_pty 1 '1\n' --noedit --nodiff -S --aur install-partial-root
 assert_contains "source metadata is incomplete" "$output_file"
-assert_not_contains ":: provider dependency=" "$output_file"
+assert_not_contains ":: Choose a provider for " "$output_file"
 assert_no_mutation_events
 assert_event_prefix_absent '^sudo '
 assert_cache_root_absent
@@ -802,7 +829,7 @@ export MOGUET_TEST_ALPM_VERCMP_RESULT=0
 run_status_pty 1 '1\n' --noedit --nodiff -S --aur \
     install-conflict-root-a install-conflict-root-b
 assert_contains "is Conflicting" "$output_file"
-assert_not_contains ":: provider dependency=" "$output_file"
+assert_not_contains ":: Choose a provider for " "$output_file"
 assert_no_mutation_events
 assert_event_prefix_absent '^sudo '
 assert_cache_root_absent
@@ -1450,7 +1477,7 @@ assert_event_before \
 assert_event_pattern '^sudo pacman -U --noconfirm -- .*/system-update-a-1\.0-1-x86_64\.pkg\.tar\.zst$'
 assert_contains "AUR update: completed" "$output_file"
 assert_contains "system-update-a: updated" "$output_file"
-assert_contains "system-current: skipped: up to date" "$output_file"
+assert_not_contains "system-current: skipped: up to date" "$output_file"
 assert_contains "package=system-devel-git" "$output_file"
 assert_output_count 1 \
     "skipped: devel update requires check: suffix candidate only; not automatically updated because authoritative build provenance is unavailable"
@@ -1644,7 +1671,7 @@ setup_case auto-install-dry-run-duplicate-repository-source-correlation
 write_repository_package duplicate-root
 write_source_preference duplicate-root 'CFLAGS=-Oduplicate-root'
 export MOGUET_TEST_PACMAN_REPO_PACKAGES='duplicate-root'
-run_status 0 --dry-run --noedit --nodiff --noconfirm -S duplicate-root duplicate-root
+run_status 0 --details --dry-run --noedit --nodiff --noconfirm -S duplicate-root duplicate-root
 assert_output_count 1 "Request: duplicate-root (invocation index: 0)"
 assert_output_count 1 "Request: duplicate-root (invocation index: 1)"
 assert_output_count 2 "Identity: duplicate-root (PackageBase: duplicate-root; source key: repository:duplicate-root)"
@@ -1727,23 +1754,69 @@ assert_event_absent 'aur info-many system-query-fatal'
 assert_not_contains 'devel tracking baseline is missing' "$output_file"
 
 # P0-8/P0-9: Issue #217 production root search/selection route and phase barrier.
-setup_case select-nontty-gate-before-query
-run_status 1 -S --select select-scope
-assert_contains \
-    "Error: Unavailable: Interactive package selection requires a TTY on standard input." \
-    "$output_file"
-assert_event_prefix_absent '^root search '
-assert_command_log_empty
-assert_state_log_absent
+# Detail mode must not grant interaction on non-TTY input or with --noconfirm.
+for detail_option in '' --details; do
+    setup_case select-nontty-gate-before-query
+    run_status 1 $detail_option -S --select select-scope
+    assert_contains \
+        "Error: Unavailable: Interactive package selection requires a TTY on standard input." \
+        "$output_file"
+    assert_event_prefix_absent '^root search '
+    assert_command_log_empty
+    assert_state_log_absent
 
-setup_case select-noconfirm-gate-before-query
-run_status 1 --noconfirm -S --select select-scope
-assert_contains \
-    "Error: Unavailable: Interactive package selection is not available with --noconfirm." \
-    "$output_file"
-assert_event_prefix_absent '^root search '
-assert_command_log_empty
-assert_state_log_absent
+    setup_case select-noconfirm-gate-before-query
+    run_status 1 $detail_option --noconfirm -S --select select-scope
+    assert_contains \
+        "Error: Unavailable: Interactive package selection is not available with --noconfirm." \
+        "$output_file"
+    assert_event_prefix_absent '^root search '
+    assert_command_log_empty
+    assert_state_log_absent
+done
+
+# A TTY stdin still permits explicit selection with redirected output. Compare
+# execution evidence, leaving normal presentation free to become compact later.
+setup_case select-details-redirected-output
+for detail_option in '' --details; do
+    : > "$command_log"
+    actual_status=0
+    (cd "$case_dir/work" && printf '1-2\n' |
+        python3 "$pty_runner" -- sh -c \
+            'out=$1; shift; exec "$@" >"$out" 2>&1' \
+            sh "$output_file" "$test_binary" $detail_option \
+            -S --select --repo --needed select-repository) || actual_status=$?
+    [ "$actual_status" -eq 0 ] || { echo "redirected selection failed: $actual_status" >&2; exit 1; }
+    assert_event_at 1 "root search repository select-repository"
+    assert_event_at 2 "sudo pacman -S --needed -- core/repo-one extra/repo-two"
+    assert_event_pattern_count 1 '^sudo pacman -S '
+    assert_event_prefix_absent '^(pacman|pacman-conf|git|makepkg|aur) '
+    if [ -z "$detail_option" ]; then
+        cp "$command_log" "$case_dir/normal.commands"
+        cp "$output_file" "$case_dir/normal.output"
+        assert_contains "1) core/repo-one 1.0-1 (@repo-group)" "$output_file"
+        assert_contains "2) extra/repo-two 2.0-1 (@repo-group)" "$output_file"
+        python3 - "$output_file" <<'PYPLAIN'
+from pathlib import Path
+import sys
+rows = [row for row in Path(sys.argv[1]).read_bytes().splitlines() if row[:1].isdigit()]
+assert len(rows) == 2 and all(b"\x1b" not in row for row in rows)
+PYPLAIN
+    else
+        cmp -s "$case_dir/normal.commands" "$command_log" || {
+            echo 'redirected Normal/Detailed selection trace differs' >&2
+            exit 1
+        }
+        python3 - "$case_dir/normal.output" "$output_file" <<'PYANSI'
+from pathlib import Path
+import re
+import sys
+ansi = re.compile(rb"\x1b\[[0-?]*[ -/]*[@-~]")
+if ansi.findall(Path(sys.argv[1]).read_bytes()) != ansi.findall(Path(sys.argv[2]).read_bytes()):
+    raise SystemExit("redirected Normal/Detailed ANSI controls differ")
+PYANSI
+    fi
+done
 
 setup_case select-no-candidates-without-prompt
 run_status_pty 1 '' -S --select select-empty
@@ -1775,6 +1848,18 @@ assert_state_log_absent
 
 setup_case select-presentation-invalid-retry-cancel
 run_status_pty 1 '0\nq\n' -S --select select-presentation
+assert_plain_contains "1) aur/repo-presented 3.0-1 [repository] (@desktop)"
+assert_plain_contains "2) aur/aur-presented 4.0-1"
+assert_plain_contains "   repository presentation fixture"
+assert_plain_contains "   AUR presentation fixture"
+assert_not_contains "PackageBase" "$output_file"
+python3 - "$output_file" <<'PYSTYLE'
+from pathlib import Path
+import sys
+text = Path(sys.argv[1]).read_bytes()
+assert b"1) \x1b[1;35maur\x1b[0m/\x1b[1mrepo-presented\x1b[0m \x1b[1;32m3.0-1\x1b[0m" in text
+PYSTYLE
+assert_details_selection_parity 1 '0\nq\n' -S --select select-presentation
 assert_event_at 1 "root search all select-presentation"
 assert_event_count 1 "root search all select-presentation"
 assert_contains "Package candidates:" "$output_file"
@@ -1790,8 +1875,19 @@ assert_contains "Cancelled: Package selection was cancelled." "$output_file"
 assert_event_prefix_absent '^(sudo|pacman|pacman-conf|git|makepkg|aur) '
 assert_state_log_absent
 
+for cancel_input in '\n' '\004'; do
+    setup_case select-details-no-default
+    run_status_pty 1 "$cancel_input" -S --select select-presentation
+    assert_details_selection_parity 1 "$cancel_input" -S --select select-presentation
+    assert_contains "Cancelled: Package selection was cancelled." "$output_file"
+    assert_event_prefix_absent '^(sudo|pacman|pacman-conf|git|makepkg|aur) '
+    assert_state_log_absent
+done
+
 setup_case select-ambiguous-alternative-retry-cancel
 run_status_pty 1 '1-2\nq\n' -S --select select-alternative-conflict
+assert_plain_contains "2) aur/shared-alternative 4.0-1 (PackageBase: shared-alternative-base)"
+assert_details_selection_parity 1 '1-2\nq\n' -S --select select-alternative-conflict
 assert_event_at 1 "root search all select-alternative-conflict"
 assert_contains \
     "Ambiguous: Package shared-alternative was selected from more than one source; select exactly one source. [package=shared-alternative]" \
@@ -1803,8 +1899,8 @@ assert_state_log_absent
 setup_case select-repository-scope
 run_status_pty 1 'q\n' -S --select --repo select-scope
 assert_event_at 1 "root search repository select-scope"
-assert_contains "source=repository repository=core package=scope-repo" "$output_file"
-assert_not_contains "source=AUR package=scope-aur" "$output_file"
+assert_plain_contains "1) core/scope-repo 1.0-1"
+assert_not_contains "scope-aur" "$output_file"
 assert_contains "Cancelled: Package selection was cancelled." "$output_file"
 assert_event_prefix_absent '^(sudo|pacman|pacman-conf|git|makepkg|aur) '
 assert_state_log_absent
@@ -1812,14 +1908,16 @@ assert_state_log_absent
 setup_case select-aur-scope
 run_status_pty 1 'q\n' -S --select --aur select-scope
 assert_event_at 1 "root search aur select-scope"
-assert_not_contains "source=repository repository=core package=scope-repo" "$output_file"
-assert_contains "source=AUR package=scope-aur PackageBase=scope-aur" "$output_file"
+assert_not_contains "scope-repo" "$output_file"
+assert_plain_contains "1) aur/scope-aur 1.0-1"
+assert_not_contains "PackageBase" "$output_file"
 assert_contains "Cancelled: Package selection was cancelled." "$output_file"
 assert_event_prefix_absent '^(sudo|pacman|pacman-conf|git|makepkg|aur) '
 assert_state_log_absent
 
 setup_case select-repository-range-needed-one-transaction
 run_status_pty 0 '1-2\n' -S --select --repo --needed select-repository
+assert_details_selection_parity 0 '1-2\n' -S --select --repo --needed select-repository
 repository_range_transaction='sudo pacman -S --needed -- core/repo-one extra/repo-two'
 assert_event_at 1 "root search repository select-repository"
 assert_event_at 2 "$repository_range_transaction"
@@ -1829,6 +1927,7 @@ assert_event_prefix_absent '^(pacman|pacman-conf|git|makepkg|aur) '
 
 setup_case select-repository-group-one-transaction
 run_status_pty 0 '@repo-group\n' -S --select --repo select-repository
+assert_details_selection_parity 0 '@repo-group\n' -S --select --repo select-repository
 repository_group_transaction='sudo pacman -S -- core/repo-one extra/repo-two'
 assert_event_at 1 "root search repository select-repository"
 assert_event_at 2 "$repository_group_transaction"

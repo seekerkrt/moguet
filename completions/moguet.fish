@@ -70,6 +70,9 @@ function __moguet_option_id --argument-names word
         case '--repo'
             echo 12
             return 0
+        case '--details'
+            echo 20
+            return 0
         case '--local'
             echo 15
             return 0
@@ -209,8 +212,10 @@ end
 
 function __moguet_operation_allows --argument-names option_id
     set -l operation (__moguet_operation)
+    if test "$operation" = '-Qua'; and test "$option_id" = 20; return 0; end
+    if test "$operation" = '-S'; and test "$option_id" = 20; and __moguet_has_option_id 5; return 0; end
     if test -z "$operation"
-        contains -- $option_id 13 14 0 1 2 3 4 5 6 7 8 9 10 11 12; and return 0; or return 1
+        contains -- $option_id 13 14 0 1 2 3 4 5 6 7 8 9 10 11 12 20; and return 0; or return 1
     end
     switch $operation
         case 'build'
@@ -221,28 +226,28 @@ function __moguet_operation_allows --argument-names option_id
                 contains -- $option_id 0 1 4 5 6 7 8 15; and return 0; or return 1
             else if __moguet_has_operand 'build'
                 __moguet_form_prefix_valid 'build' 0; or return 1
-                contains -- $option_id 0 1 2 3 4 5 6 7 8; and return 0; or return 1
+                contains -- $option_id 0 1 2 3 4 5 6 7 8 20; and return 0; or return 1
             else
-                contains -- $option_id 0 1 2 3 4 5 6 7 8 15; and return 0; or return 1
+                contains -- $option_id 0 1 2 3 4 5 6 7 8 20 15; and return 0; or return 1
             end
         case 'upgrade'
             __moguet_form_prefix_valid 'upgrade' 0; or return 1
             contains -- $option_id 0 1 2 3 4 5 6 7 8; and return 0; or return 1
         case 'upgrade-aur'
             __moguet_form_prefix_valid 'upgrade-aur' 0; or return 1
-            contains -- $option_id 0 1 2 3 4 5 6 7 8; and return 0; or return 1
+            contains -- $option_id 0 1 2 3 4 5 6 7 8 20; and return 0; or return 1
         case 'upgrade-all'
             __moguet_form_prefix_valid 'upgrade-all' 0; or return 1
-            contains -- $option_id 0 1 2 3 4 5 6 7 8; and return 0; or return 1
+            contains -- $option_id 0 1 2 3 4 5 6 7 8 20; and return 0; or return 1
         case 'clean'
             __moguet_form_prefix_valid 'clean' 0; or return 1
             contains -- $option_id 4; and return 0; or return 1
         case 'deps'
             __moguet_form_prefix_valid 'deps' 0; or return 1
-            contains -- $option_id 4 17; and return 0; or return 1
+            contains -- $option_id 4 20 17; and return 0; or return 1
         case 'plan'
             __moguet_form_prefix_valid 'plan' 0; or return 1
-            contains -- $option_id 4; and return 0; or return 1
+            contains -- $option_id 4 20; and return 0; or return 1
         case 'fetch'
             __moguet_form_prefix_valid 'fetch' 0; or return 1
             contains -- $option_id 4 5; and return 0; or return 1
@@ -272,7 +277,7 @@ function __moguet_operation_allows --argument-names option_id
             __moguet_has_option_id 10; and set selected true
             if test $selected = true
                 __moguet_form_prefix_valid '-S' 0; or return 1
-                contains -- $option_id 10 18 0 1 2 3 4 5 6 7 8 11 12; and return 0; or return 1
+                contains -- $option_id 10 18 0 1 2 3 4 5 6 7 8 11 12 20; and return 0; or return 1
             else
                 contains -- $option_id 18 4 10; and return 0; or return 1
             end
@@ -281,22 +286,22 @@ function __moguet_operation_allows --argument-names option_id
             __moguet_has_option_id 12; and set selected true
             if test $selected = true
                 __moguet_form_prefix_valid '-Syu' 1; or return 1
-                contains -- $option_id 12 18 4 5 19; and return 0; or return 1
+                contains -- $option_id 12 18 4 5 20 19; and return 0; or return 1
             else if __moguet_has_operand '-Syu'
                 contains -- $option_id 18 4; and return 0; or return 1
             else
-                contains -- $option_id 0 1 2 3 4 5 6 7 8 18 12 19; and return 0; or return 1
+                contains -- $option_id 0 1 2 3 4 5 20 6 7 8 18 12 19; and return 0; or return 1
             end
         case '-Su'
             set -l selected false
             __moguet_has_option_id 12; and set selected true
             if test $selected = true
                 __moguet_form_prefix_valid '-Su' 1; or return 1
-                contains -- $option_id 12 18 4 5 19; and return 0; or return 1
+                contains -- $option_id 12 18 4 5 20 19; and return 0; or return 1
             else if __moguet_has_operand '-Su'
                 contains -- $option_id 18 4; and return 0; or return 1
             else
-                contains -- $option_id 0 1 2 3 4 5 6 7 8 18 12 19; and return 0; or return 1
+                contains -- $option_id 0 1 2 3 4 5 20 6 7 8 18 12 19; and return 0; or return 1
             end
         case '-Ss'
             contains -- $option_id 18 4; and return 0; or return 1
@@ -381,10 +386,11 @@ complete -c moguet -f -n '__moguet_candidate_available 5' -a '--dry-run' -d 'Obs
 complete -c moguet -f -n '__moguet_candidate_available 6' -a '--build-mode=' -d 'Select the source-build mode'
 complete -c moguet -f -n '__moguet_candidate_available 7' -a '--rebuild' -d 'Compatibility alias for --build-mode=rebuild'
 complete -c moguet -f -n '__moguet_candidate_available 8' -a '--cleanbuild' -d 'Compatibility alias for --build-mode=clean'
-complete -c moguet -f -n '__moguet_candidate_available 9' -a '--rmdeps' -d 'Unsupported for separated source builds; no dependency cleanup is performed'
+complete -c moguet -f -n '__moguet_candidate_available 9' -a '--rmdeps' -d 'Preview newly installed build dependencies after remote AUR build success; remove only with explicit approval'
 complete -c moguet -f -n '__moguet_candidate_available 10' -a '--select' -d 'Interactively select source-aware package candidates for plain -S'
 complete -c moguet -f -n '__moguet_candidate_available 11' -a '--aur' -d 'Limit supported sync operations to AUR'
 complete -c moguet -f -n '__moguet_candidate_available 12' -a '--repo' -d 'Use only official binary repositories; with -Syu / -Su, run the repository system upgrade only'
+complete -c moguet -f -n '__moguet_candidate_available 20' -a '--details' -d 'Show detailed diagnostic and provenance information for remote build, plan, deps, -S --select, -Qua, -Syu/-Su, upgrade-aur/all, and --dry-run -S; presentation only'
 complete -c moguet -f -n '__moguet_candidate_available 15' -a '--local' -d 'Use one local PKGBUILD directory as the build root'
 complete -c moguet -f -n '__moguet_candidate_available 16' -a '--output-dir=' -d 'Select an existing export parent for -G'
 complete -c moguet -f -n '__moguet_candidate_available 17' -a '--recursive' -d 'Resolve dependencies recursively'

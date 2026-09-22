@@ -22,6 +22,8 @@ source/commands_source_maintenance.cpp
 source/commands_sync.cpp
 source/commands_upgrade_all.cpp
 source/dependency_plan.cpp
+source/dependency_cleanup_execution.cpp
+source/dependency_cleanup_interaction.cpp
 source/dependency_plan_model.cpp
 source/dependency_constraint_presentation.cpp
 source/dependency_spec.cpp
@@ -32,6 +34,7 @@ source/interactive_confirmation.cpp
 source/local_source_build_dependency_preparation.cpp
 source/local_source_install.cpp
 source/local_source_metadata_evaluation.cpp
+source/local_source_workspace.cpp
 source/logging.cpp
 source/moguet.cpp
 source/package_base_artifact_install_executor.cpp
@@ -39,6 +42,7 @@ source/package_identifier.cpp
 source/package_metadata.cpp
 source/package_relation_presentation.cpp
 source/pinned_submodule_closure_review.cpp
+source/pinned_submodule_closure.cpp
 source/pkgbuild_export.cpp
 source/process.cpp
 source/provider_selection.cpp

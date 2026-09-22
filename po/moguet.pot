@@ -6,9 +6,9 @@
 #, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: Moguet 2.8.0\n"
+"Project-Id-Version: Moguet 2.9.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-17 09:57+0900\n"
+"POT-Creation-Date: 2026-09-22 12:22+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -951,6 +951,15 @@ msgstr ""
 msgid "transaction failed; package effects unverified"
 msgstr ""
 
+msgid "skipped: devel tracking bootstrap was declined; rerun when ready to review the source"
+msgstr ""
+
+msgid "skipped: devel tracking bootstrap interaction was unavailable; enable interactive source review before retrying"
+msgstr ""
+
+msgid "skipped: source/update observation changed before bootstrap; re-check the current state before retrying"
+msgstr ""
+
 msgid "skipped: devel tracking bootstrap"
 msgstr ""
 
@@ -980,6 +989,140 @@ msgstr ""
 #. TRANSLATORS: The placeholder is a package name.
 #, c++-format
 msgid "  required child: {}"
+msgstr ""
+
+msgid "input validation"
+msgstr ""
+
+msgid "workspace creation"
+msgstr ""
+
+msgid "root source observation"
+msgstr ""
+
+msgid "root source acquisition"
+msgstr ""
+
+msgid "submodule declarations"
+msgstr ""
+
+msgid "submodule acquisition"
+msgstr ""
+
+msgid "object verification"
+msgstr ""
+
+msgid "recursive source traversal"
+msgstr ""
+
+msgid "cleanup"
+msgstr ""
+
+msgid "unknown source acquisition stage"
+msgstr ""
+
+msgid "invalid source selection"
+msgstr ""
+
+msgid "unsupported source transport"
+msgstr ""
+
+msgid "malformed source observation"
+msgstr ""
+
+msgid "submodule declaration mismatch"
+msgstr ""
+
+msgid "malformed submodule declaration"
+msgstr ""
+
+msgid "unsupported submodule update policy"
+msgstr ""
+
+msgid "unsafe source path"
+msgstr ""
+
+msgid "pinned source object unavailable"
+msgstr ""
+
+msgid "unexpected source object type"
+msgstr ""
+
+msgid "source object format mismatch"
+msgstr ""
+
+msgid "malformed source tree"
+msgstr ""
+
+msgid "unsafe source filesystem"
+msgstr ""
+
+msgid "source identity changed"
+msgstr ""
+
+msgid "malformed source repository"
+msgstr ""
+
+msgid "source acquisition resource limit exceeded"
+msgstr ""
+
+msgid "source acquisition cancelled"
+msgstr ""
+
+#, c++-format
+msgid "{} process failed"
+msgstr ""
+
+msgid "source acquisition I/O failure"
+msgstr ""
+
+msgid "source workspace creation failed"
+msgstr ""
+
+msgid "recursive submodule cycle"
+msgstr ""
+
+msgid "unknown source acquisition reason"
+msgstr ""
+
+#. TRANSLATORS: The placeholders are the acquisition stage and failure reason.
+#, c++-format
+msgid "    source closure acquisition failed during {}: {}"
+msgstr ""
+
+#, c++-format
+msgid "    source acquisition errno: {}"
+msgstr ""
+
+#, c++-format
+msgid "    {} process exit code: {}"
+msgstr ""
+
+#, c++-format
+msgid "    {} process terminated by signal: {}"
+msgstr ""
+
+#, c++-format
+msgid "    {} process launch/setup failed (errno {})"
+msgstr ""
+
+#, c++-format
+msgid "    {} process I/O/wait failed (errno {})"
+msgstr ""
+
+#, c++-format
+msgid "    {} process timed out"
+msgstr ""
+
+#, c++-format
+msgid "    {} process output limit exceeded ({} bytes)"
+msgstr ""
+
+#, c++-format
+msgid "    source acquisition cancellation signal: {}"
+msgstr ""
+
+msgid "    source acquisition cleanup incomplete; temporary source data may remain"
 msgstr ""
 
 #. TRANSLATORS: The placeholders are the PackageBase metadata-key
@@ -2193,6 +2336,10 @@ msgid "Unknown operation: {}"
 msgstr ""
 
 #, c++-format
+msgid "Option {} is not supported for operation {}."
+msgstr ""
+
+#, c++-format
 msgid "A {} option is not supported for the combined {} route. Use {} for a repository-only system upgrade with full {} pass-through."
 msgstr ""
 
@@ -2483,7 +2630,7 @@ msgstr ""
 msgid "updated"
 msgstr ""
 
-msgid "no change"
+msgid "no package change"
 msgstr ""
 
 msgid "skipped"
@@ -2560,6 +2707,9 @@ msgstr ""
 msgid "{} update:"
 msgstr ""
 
+msgid "Attention-required details:"
+msgstr ""
+
 #. TRANSLATORS: AUR is a runtime project identity.
 #, c++-format
 msgid "{} update partially completed before failure."
@@ -2568,6 +2718,11 @@ msgstr ""
 #. TRANSLATORS: AUR is a runtime project identity.
 #, c++-format
 msgid "{} update cleanup failed after a package transaction."
+msgstr ""
+
+#. TRANSLATORS: The placeholders are the PackageBase metadata key and identity.
+#, c++-format
+msgid "Source acquisition/review workspace cleanup failed for {} {}; temporary source data may remain."
 msgstr ""
 
 #. TRANSLATORS: AUR is a runtime project identity.
@@ -2773,9 +2928,6 @@ msgstr ""
 msgid "  normal unconstrained dependencies: {}"
 msgstr ""
 
-msgid "Attention-required details:"
-msgstr ""
-
 msgid "<plan-wide>"
 msgstr ""
 
@@ -2834,6 +2986,10 @@ msgid "  - {}: result={}, reason={}"
 msgstr ""
 
 #, c++-format
+msgid "Constraints: {} satisfied or unconstrained"
+msgstr ""
+
+#, c++-format
 msgid "Installed package metadata for {} is unavailable: {}"
 msgstr ""
 
@@ -2885,56 +3041,13 @@ msgstr ""
 msgid "Package relation assessments:"
 msgstr ""
 
-msgid "Ambiguous provided dependencies:"
-msgstr ""
-
-msgid "Split package install targets:"
-msgstr ""
-
-#, c++-format
-msgid "  - {} (base: {})"
-msgstr ""
-
-msgid "Unresolved dependencies:"
-msgstr ""
-
-msgid "Cyclic dependencies:"
-msgstr ""
-
-msgid "Build plan:"
-msgstr ""
-
-#, c++-format
-msgid "     target package: {}"
-msgid_plural "     target packages: {}"
-msgstr[0] ""
-msgstr[1] ""
-
-msgid "Provided dependencies:"
-msgstr ""
-
-msgid " (selected)"
-msgstr ""
-
-msgid "Fetch targets:"
-msgstr ""
-
 msgid "Selected provided dependencies:"
 msgstr ""
 
-#. TRANSLATORS: The first placeholder is the
-#. literal command name "upgrade-all"; the
-#. second is a runtime option token.
-#, c++-format
-msgid "Unsupported {} option: {}"
+msgid "Ambiguous provided dependencies:"
 msgstr ""
 
-#, c++-format
-msgid "Failed to inspect dependencies for {}: {}"
-msgstr ""
-
-#, c++-format
-msgid "{} package not found: {}"
+msgid "Unknown dependencies:"
 msgstr ""
 
 #, c++-format
@@ -2960,7 +3073,68 @@ msgstr ""
 msgid "{} dependencies:"
 msgstr ""
 
-msgid "Unknown dependencies:"
+msgid "Provided dependencies:"
+msgstr ""
+
+msgid "Build plan:"
+msgstr ""
+
+#, c++-format
+msgid "     target package: {}"
+msgid_plural "     target packages: {}"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid " (selected)"
+msgstr ""
+
+msgid "Split package install targets:"
+msgstr ""
+
+#, c++-format
+msgid "  - {} (base: {})"
+msgstr ""
+
+msgid "Unresolved dependencies:"
+msgstr ""
+
+msgid "Cyclic dependencies:"
+msgstr ""
+
+#, c++-format
+msgid "Plan targets: {}"
+msgstr ""
+
+msgid "Fetch/build/install: ready"
+msgstr ""
+
+#, c++-format
+msgid "  {}: {} — {} ({})"
+msgstr ""
+
+msgid "Dependency edges:"
+msgstr ""
+
+#, c++-format
+msgid "  {}: {}"
+msgstr ""
+
+msgid "Fetch targets:"
+msgstr ""
+
+#. TRANSLATORS: The first placeholder is the
+#. literal command name "upgrade-all"; the
+#. second is a runtime option token.
+#, c++-format
+msgid "Unsupported {} option: {}"
+msgstr ""
+
+#, c++-format
+msgid "Failed to inspect dependencies for {}: {}"
+msgstr ""
+
+#, c++-format
+msgid "{} package not found: {}"
 msgstr ""
 
 #, c++-format
@@ -3056,6 +3230,64 @@ msgid "Checking source packages..."
 msgstr ""
 
 msgid "Unknown system/source upgrade event kind."
+msgstr ""
+
+msgid "Not attempted"
+msgstr ""
+
+msgid "Unknown registered source outcome."
+msgstr ""
+
+#, c++-format
+msgid "{} summary:"
+msgstr ""
+
+msgid "Completed"
+msgstr ""
+
+#, c++-format
+msgid "  repository system upgrade: {}"
+msgstr ""
+
+msgid "Changed"
+msgstr ""
+
+msgid "Verified unchanged"
+msgstr ""
+
+msgid "Unverified"
+msgstr ""
+
+msgid "Not observed"
+msgstr ""
+
+#, c++-format
+msgid "  repository package state observation: {}"
+msgstr ""
+
+#, c++-format
+msgid "  registered source: {}"
+msgstr ""
+
+msgid "The system/source upgrade partially completed; completed phases were not rolled back."
+msgstr ""
+
+msgid "Requires check: repository package state could not be verified."
+msgstr ""
+
+msgid "    Skipped: explicit rebuild was not accepted; inspect devel source metadata before rebuilding."
+msgstr ""
+
+msgid "    Skipped: update status is unknown; inspect source metadata before rebuilding."
+msgstr ""
+
+msgid "    Inspect the retained build, install and provenance outcomes before retrying."
+msgstr ""
+
+msgid "    Package state is unverified; inspect installed packages before retrying."
+msgstr ""
+
+msgid "    Cleanup failed after a package transaction; inspect the retained result before retrying."
 msgstr ""
 
 #, c++-format
@@ -3528,6 +3760,12 @@ msgstr ""
 msgid "{} work item has no invocation root ownership: {}"
 msgstr ""
 
+msgid "[repository]"
+msgstr ""
+
+msgid "Package candidates:"
+msgstr ""
+
 msgid "Invalid package selection token."
 msgstr ""
 
@@ -3546,9 +3784,6 @@ msgstr ""
 
 #, c++-format
 msgid "Package {} was selected from more than one source; select exactly one source."
-msgstr ""
-
-msgid "Package candidates:"
 msgstr ""
 
 #, c++-format
@@ -4322,25 +4557,10 @@ msgstr ""
 msgid "Partial failure"
 msgstr ""
 
-msgid "Not attempted"
-msgstr ""
-
 msgid "Inconsistent"
 msgstr ""
 
 msgid "Unknown operation outcome."
-msgstr ""
-
-msgid "Changed"
-msgstr ""
-
-msgid "Verified unchanged"
-msgstr ""
-
-msgid "Unverified"
-msgstr ""
-
-msgid "Not observed"
 msgstr ""
 
 msgid "Unknown package-state observation."
@@ -4500,10 +4720,6 @@ msgid "{} work-item failure"
 msgstr ""
 
 #, c++-format
-msgid "{} summary:"
-msgstr ""
-
-#, c++-format
 msgid "  operation outcome: {}"
 msgstr ""
 
@@ -4521,6 +4737,9 @@ msgstr ""
 
 #, c++-format
 msgid "  update candidates: {}, blockers: {}, requires-check: {}, failures: {}"
+msgstr ""
+
+msgid "Details:"
 msgstr ""
 
 #, c++-format
@@ -4921,6 +5140,77 @@ msgstr ""
 msgid "Provider candidate changed during dependency resolution: {}"
 msgstr ""
 
+msgid "already absent"
+msgstr ""
+
+msgid "identity changed"
+msgstr ""
+
+msgid "install reason changed"
+msgstr ""
+
+msgid "protected"
+msgstr ""
+
+msgid "still required"
+msgstr ""
+
+msgid "current state unknown"
+msgstr ""
+
+msgid "invalid candidate"
+msgstr ""
+
+msgid "cleanup blocked"
+msgstr ""
+
+#, c++-format
+msgid "Dependency cleanup skipped {}: {}."
+msgstr ""
+
+#, c++-format
+msgid "Dependency cleanup removed: {}."
+msgstr ""
+
+msgid "unknown"
+msgstr ""
+
+#, c++-format
+msgid "Build/install succeeded; dependency cleanup removal failed. Attempted: {}. Exit status: {}."
+msgstr ""
+
+msgid "Dependency cleanup: no candidates remain ready for removal."
+msgstr ""
+
+msgid "Build/install succeeded; dependency cleanup blocked by unavailable or unsafe evidence."
+msgstr ""
+
+msgid "Dependency cleanup: nothing to remove."
+msgstr ""
+
+msgid "Dependency cleanup declined; build/install succeeded."
+msgstr ""
+
+msgid "Dependency cleanup cancelled; build/install succeeded."
+msgstr ""
+
+#. TRANSLATORS: The placeholder is the literal --noconfirm option.
+#, c++-format
+msgid "Build/install succeeded; dependency cleanup unavailable: {} does not approve removal."
+msgstr ""
+
+msgid "Build/install succeeded; dependency cleanup unavailable: input is not interactive."
+msgstr ""
+
+msgid "Build/install succeeded; dependency cleanup unavailable: interaction I/O failed."
+msgstr ""
+
+msgid "Assessed build dependencies eligible for cleanup:"
+msgstr ""
+
+msgid "Remove build dependencies?"
+msgstr ""
+
 #, c++-format
 msgid "Selected providers use incompatible identities for package {}: {} and {}."
 msgstr ""
@@ -5083,10 +5373,6 @@ msgid "System/source upgrade preflight has no projection authority."
 msgstr ""
 
 msgid "Upgrade-all preflight has no projection authority."
-msgstr ""
-
-#, c++-format
-msgid "Option {} is not supported for operation {}."
 msgstr ""
 
 msgid "Dry-run route classification returned an unknown operation."
@@ -5412,9 +5698,15 @@ msgid "{} returned invalid local package metadata at line {}."
 msgstr ""
 
 #, c++-format
+msgid "Local source workspace cleanup could not be completed; temporary source data may remain at {}."
+msgstr ""
+
+#, c++-format
 msgid "Warning: {}"
 msgstr ""
 
+#. TRANSLATORS: The placeholder is an exact shell command and must remain
+#. byte-for-byte locale-neutral.
 #, c++-format
 msgid "Running: {}"
 msgstr ""
@@ -5605,6 +5897,14 @@ msgstr ""
 msgid "OPTIONS"
 msgstr ""
 
+msgid "Show detailed diagnostic and provenance information"
+msgstr ""
+
+#. TRANSLATORS: The placeholders are literal supported CLI forms.
+#, c++-format
+msgid "For remote {}, {}, {}, {}, {}, {}, {}, {}, and {}; changes presentation only, not execution"
+msgstr ""
+
 msgid "Show this help message and exit"
 msgstr ""
 
@@ -5683,7 +5983,9 @@ msgstr ""
 msgid "Compatibility alias for {}"
 msgstr ""
 
-msgid "Unsupported for separated source builds; no dependency cleanup is performed"
+#. TRANSLATORS: The placeholder is the literal AUR identity.
+#, c++-format
+msgid "Preview newly installed build dependencies after remote {} build success; remove only with explicit approval"
 msgstr ""
 
 #. TRANSLATORS: -S, -Ss, -Si, and AUR are literal CLI/project identities.
@@ -6214,6 +6516,49 @@ msgid "current or planned"
 msgstr ""
 
 #, c++-format
+msgid "{}: {} -> {}"
+msgstr ""
+
+#, c++-format
+msgid "{}; installed conflict with {}. Build/install is blocked."
+msgstr ""
+
+#, c++-format
+msgid "{}; planned conflict with {}. Build/install is blocked."
+msgstr ""
+
+#, c++-format
+msgid "{}; potential replacement of {}. Review required; no automatic replacement. Build/install is blocked."
+msgstr ""
+
+#, c++-format
+msgid "{}; no matching installed or planned target."
+msgstr ""
+
+#, c++-format
+msgid "version judgment unavailable for {}"
+msgstr ""
+
+#, c++-format
+msgid "version evidence invalid for {}"
+msgstr ""
+
+#, c++-format
+msgid "{}; invalid relation metadata or observation ({}). Build/install is blocked."
+msgstr ""
+
+#, c++-format
+msgid "{}; relation judgment unavailable ({}). Build/install is blocked."
+msgstr ""
+
+#, c++-format
+msgid "{}; assessment incomplete. Build/install is blocked."
+msgstr ""
+
+msgid "Invalid relation metadata or observation."
+msgstr ""
+
+#, c++-format
 msgid "Installed conflict confirmed: declaring package {} declares conflict {} for target component {}; matched installed package {} through {}; build/install is blocked before mutation."
 msgstr ""
 
@@ -6241,9 +6586,6 @@ msgstr ""
 msgid "Declared relation awaiting assessment: declaring package {} declares {} {} for target component {}; current/planned assessment is incomplete, so build/install remains blocked under the fail-closed policy."
 msgstr ""
 
-msgid "Invalid relation metadata or observation."
-msgstr ""
-
 msgid "Exact upstream source snapshot (separate from recipe review)\n"
 msgstr ""
 
@@ -6251,6 +6593,10 @@ msgid "Acceptance authorizes this snapshot as build input; it does not certify s
 msgstr ""
 
 msgid "Use this exact upstream source snapshot as build input?"
+msgstr ""
+
+#, c++-format
+msgid "Fetching root upstream tag objects ({} objects)"
 msgstr ""
 
 #, c++-format
@@ -6566,7 +6912,19 @@ msgstr ""
 msgid "Failed to initialize the {} mask: {}"
 msgstr ""
 
+#, c++-format
+msgid "[provides: {}]"
+msgstr ""
+
+#, c++-format
+msgid "[component: {}]"
+msgstr ""
+
 msgid "Provider selection requires a non-empty dependency name."
+msgstr ""
+
+#, c++-format
+msgid "Choose a provider for {}:"
 msgstr ""
 
 #, c++-format
@@ -7258,7 +7616,12 @@ msgstr ""
 msgid "Processing {}..."
 msgstr ""
 
-msgid "Remote URL mismatch. Re-cloning..."
+#, c++-format
+msgid "Missing {} directory for existing cache checkout {}. Build stopped; cache preserved. Check the configured source and cache before retrying."
+msgstr ""
+
+#, c++-format
+msgid "Remote URL mismatch for existing cache checkout {}. Build stopped; cache preserved. Check the configured source and cache before retrying."
 msgstr ""
 
 msgid "Updating repository..."
@@ -8348,9 +8711,6 @@ msgstr ""
 msgid "provider"
 msgstr ""
 
-msgid "unknown"
-msgstr ""
-
 msgid "A dependency kind is not supported by the renderer."
 msgstr ""
 
@@ -9338,6 +9698,30 @@ msgid "package relation blocker: {}"
 msgstr ""
 
 msgid "Blockers:"
+msgstr ""
+
+#, c++-format
+msgid "  Checked: {}; update candidates: {}; devel unchanged: {}"
+msgstr ""
+
+#, c++-format
+msgid "{} revision difference"
+msgstr ""
+
+msgid "metadata unavailable"
+msgstr ""
+
+msgid "requires check"
+msgstr ""
+
+msgid "inconsistent"
+msgstr ""
+
+msgid "  Repository system upgrade planned."
+msgstr ""
+
+#, c++-format
+msgid "  Build units: {}; required artifacts: {}; transaction intents: {}"
 msgstr ""
 
 msgid "Unified plan:"

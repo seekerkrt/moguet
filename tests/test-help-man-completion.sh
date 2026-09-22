@@ -102,6 +102,21 @@ LANGUAGE=ja \
 cmp -s "$japanese_help" "$japanese_help_short" ||
     fail 'Japanese -h and --help output differ.'
 
+assert_contains '--details' "$english_help"
+assert_contains 'Show detailed diagnostic and provenance information' "$english_help"
+assert_contains 'For remote build, plan, deps, -S --select, -Qua, -Syu / -Su, upgrade-aur, upgrade-all, and --dry-run -S; changes presentation only, not execution' "$english_help"
+assert_contains '--details' "$japanese_help"
+assert_contains '詳細な診断情報と由来情報を表示' "$japanese_help"
+assert_contains 'リモートbuild、plan、deps、-S --select、-Qua、-Syu / -Su、upgrade-aur、upgrade-all、--dry-run -Sで使用可能。表示だけを変更し、実行動作は変えません' "$japanese_help"
+assert_not_contains '--verbose' "$english_help"
+assert_not_contains '--verbose' "$japanese_help"
+assert_contains 'Show detailed diagnostic and provenance information for' "$repo_root/man/moguet.1.in"
+assert_contains 'This invocation-only option changes presentation, not execution, dependency' "$repo_root/man/moguet.1.in"
+assert_contains 'This option displays the full escaped command instead.' "$repo_root/man/moguet.1.in"
+assert_contains 'で詳細な診断情報と由来情報を表示します。' "$repo_root/man/ja/moguet.1.in"
+assert_contains 'このinvocationだけの表示指定であり、実行、依存解決、選択、readinessは変更しません。' "$repo_root/man/ja/moguet.1.in"
+assert_contains 'このoptionでは、代わりにエスケープ済みの完全なコマンドを表示します。' "$repo_root/man/ja/moguet.1.in"
+
 assert_contains \
     'Classify AUR dependencies and show constraint and conflict/replacement assessments' \
     "$english_help"

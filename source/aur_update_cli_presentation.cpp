@@ -610,6 +610,20 @@ std::string child_outcome_label(
     }
     switch(status) {
         case AurUpdateChildExecutionStatus::BootstrapSkipped:
+            // Dependency work skipped with an independent root may have no
+            // decision of its own. Never infer one from prompt text or argv.
+            if(work_item.bootstrap_decision) {
+                switch(work_item.bootstrap_decision->state) {
+                    case AurUpdateBootstrapDecisionState::Declined:
+                        return localization::translate_message("skipped: devel tracking bootstrap was declined; rerun when ready to review the source");
+                    case AurUpdateBootstrapDecisionState::InteractionUnavailable:
+                        return localization::translate_message("skipped: devel tracking bootstrap interaction was unavailable; enable interactive source review before retrying");
+                    case AurUpdateBootstrapDecisionState::ObservationChanged:
+                        return localization::translate_message("skipped: source/update observation changed before bootstrap; re-check the current state before retrying");
+                    case AurUpdateBootstrapDecisionState::Accepted:
+                        break;
+                }
+            }
             return localization::translate_message("skipped: devel tracking bootstrap");
         case AurUpdateChildExecutionStatus::Installed:
             return localization::translate_message("installed / updated");
@@ -670,6 +684,81 @@ bool should_print_failure(AurUpdateWorkItemFailureKind kind) {
         "Unknown {} work-item failure kind.", "AUR"));
 }
 
+std::string closure_acquisition_stage_label(PinnedClosureStage stage) {
+    switch(stage) {
+        case PinnedClosureStage::Input: return localization::translate_message("input validation");
+        case PinnedClosureStage::WorkspaceCreation: return localization::translate_message("workspace creation");
+        case PinnedClosureStage::RootObservation: return localization::translate_message("root source observation");
+        case PinnedClosureStage::RootAcquisition: return localization::translate_message("root source acquisition");
+        case PinnedClosureStage::Declaration: return localization::translate_message("submodule declarations");
+        case PinnedClosureStage::ChildAcquisition: return localization::translate_message("submodule acquisition");
+        case PinnedClosureStage::ObjectProof: return localization::translate_message("object verification");
+        case PinnedClosureStage::RecursiveTraversal: return localization::translate_message("recursive source traversal");
+        case PinnedClosureStage::Cleanup: return localization::translate_message("cleanup");
+    }
+    return localization::translate_message("unknown source acquisition stage");
+}
+
+std::string closure_acquisition_reason_label(PinnedClosureFailureReason reason) {
+    switch(reason) {
+        case PinnedClosureFailureReason::InvalidSelection: return localization::translate_message("invalid source selection");
+        case PinnedClosureFailureReason::UnsupportedTransport: return localization::translate_message("unsupported source transport");
+        case PinnedClosureFailureReason::MalformedObservation: return localization::translate_message("malformed source observation");
+        case PinnedClosureFailureReason::DeclarationMismatch: return localization::translate_message("submodule declaration mismatch");
+        case PinnedClosureFailureReason::MalformedDeclaration: return localization::translate_message("malformed submodule declaration");
+        case PinnedClosureFailureReason::UnsupportedUpdatePolicy: return localization::translate_message("unsupported submodule update policy");
+        case PinnedClosureFailureReason::UnsafePath: return localization::translate_message("unsafe source path");
+        case PinnedClosureFailureReason::PinnedObjectUnavailable: return localization::translate_message("pinned source object unavailable");
+        case PinnedClosureFailureReason::UnexpectedObjectType: return localization::translate_message("unexpected source object type");
+        case PinnedClosureFailureReason::ObjectFormatMismatch: return localization::translate_message("source object format mismatch");
+        case PinnedClosureFailureReason::MalformedTree: return localization::translate_message("malformed source tree");
+        case PinnedClosureFailureReason::UnsafeFilesystem: return localization::translate_message("unsafe source filesystem");
+        case PinnedClosureFailureReason::IdentityChanged: return localization::translate_message("source identity changed");
+        case PinnedClosureFailureReason::MalformedRepository: return localization::translate_message("malformed source repository");
+        case PinnedClosureFailureReason::ResourceLimitExceeded: return localization::translate_message("source acquisition resource limit exceeded");
+        case PinnedClosureFailureReason::Cancelled: return localization::translate_message("source acquisition cancelled");
+        case PinnedClosureFailureReason::GitProcessFailed: return localization::format_translated_message("{} process failed", "Git");
+        case PinnedClosureFailureReason::IoFailure: return localization::translate_message("source acquisition I/O failure");
+        case PinnedClosureFailureReason::CreationFailed: return localization::translate_message("source workspace creation failed");
+        case PinnedClosureFailureReason::RecursiveCycle: return localization::translate_message("recursive submodule cycle");
+    }
+    return localization::translate_message("unknown source acquisition reason");
+}
+
+void append_closure_acquisition_failure(AurUpdateCliPresentation& presentation, const PinnedClosureFailure& failure) {
+    // Diagnostic-only projection: neither process success nor cleanup changes
+    // the original acquisition reason or the enclosing operation disposition.
+    presentation.error_lines.push_back(localization::format_translated_message(
+        // TRANSLATORS: The placeholders are the acquisition stage and failure reason.
+        "    source closure acquisition failed during {}: {}",
+        closure_acquisition_stage_label(failure.stage), closure_acquisition_reason_label(failure.reason)));
+    if(failure.error_number) presentation.error_lines.push_back(localization::format_translated_message(
+        "    source acquisition errno: {}", *failure.error_number));
+    if(failure.process) {
+        const auto& process = *failure.process;
+        presentation.error_lines.push_back(std::visit([](const auto& outcome) -> std::string {
+            using Outcome = std::decay_t<decltype(outcome)>;
+            if constexpr(std::is_same_v<Outcome, BoundedProcessExited>)
+                return localization::format_translated_message("    {} process exit code: {}", "Git", outcome.exit_code);
+            else if constexpr(std::is_same_v<Outcome, BoundedProcessSignaled>)
+                return localization::format_translated_message("    {} process terminated by signal: {}", "Git", outcome.signal_number);
+            else if constexpr(std::is_same_v<Outcome, BoundedProcessLaunchOrSetupFailure>)
+                return localization::format_translated_message("    {} process launch/setup failed (errno {})", "Git", outcome.error_number);
+            else if constexpr(std::is_same_v<Outcome, BoundedProcessIoOrWaitFailure>)
+                return localization::format_translated_message("    {} process I/O/wait failed (errno {})", "Git", outcome.error_number);
+            else if constexpr(std::is_same_v<Outcome, BoundedProcessTimedOut>)
+                return localization::format_translated_message("    {} process timed out", "Git");
+            else
+                return localization::format_translated_message("    {} process output limit exceeded ({} bytes)", "Git", outcome.capture_limit);
+        },
+                                                      process.outcome));
+        if(process.cancellation_signal) presentation.error_lines.push_back(localization::format_translated_message(
+            "    source acquisition cancellation signal: {}", *process.cancellation_signal));
+    }
+    if(!failure.cleanup.succeeded()) presentation.error_lines.push_back(localization::translate_message(
+        "    source acquisition cleanup incomplete; temporary source data may remain"));
+}
+
 void append_work_item_presentation(
     AurUpdateCliPresentation& presentation,
     const AurUpdateWorkItemExecutionResult& work_item) {
@@ -713,6 +802,8 @@ void append_work_item_presentation(
             "  execution failure for {} {}:", "PackageBase",
             work_item.package_base) +
         " " + failure_detail_summary(work_item.failure_kind, &work_item.failure_detail));
+    if(work_item.devel_execution && work_item.devel_execution->closure_failure)
+        append_closure_acquisition_failure(presentation, *work_item.devel_execution->closure_failure);
     if(!work_item.transaction_failure.has_value()) return;
 
     const bool detail_is_transaction = std::holds_alternative<

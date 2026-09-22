@@ -1,5 +1,8 @@
 #include "local_source_workspace.hpp"
 
+#include "localization.hpp"
+#include "logging.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cerrno>
@@ -2039,26 +2042,31 @@ LocalSourceWorkspaceError::LocalSourceWorkspaceError(
 }
 
 LocalSourceWorkspace::LocalSourceWorkspace(
-    std::unique_ptr<DirCleanupGuard> cleanup_guard,
     RetainedTrustedCacheDirectory directory) noexcept
-    : cleanup_guard_(std::move(cleanup_guard)),
-      directory_(std::move(directory)) {
+    : directory_(std::move(directory)) {
 }
 
 LocalSourceWorkspace::LocalSourceWorkspace(
     LocalSourceWorkspace&& other) noexcept
-    : cleanup_guard_(std::move(other.cleanup_guard_)),
-      directory_(std::move(other.directory_)),
+    : directory_(std::move(other.directory_)),
       state_(std::exchange(other.state_, State::MovedFrom)) {
 }
 
 LocalSourceWorkspace::~LocalSourceWorkspace() noexcept {
-    if(state_ != State::Active) return;
-    try {
-        cleanup();
-    } catch(...) {
-        // The retained rollback guard gets one final fail-safe cleanup attempt
-        // after the directory descriptor closes.
+    if(state_ == State::Active) {
+        try {
+            cleanup();
+        } catch(...) {
+            // Destruction reports residue but must not retry a failed attempt.
+        }
+    }
+    if(state_ == State::CleanupAttempted) {
+        Logger::warn_noexcept([this]() {
+            // TRANSLATORS: The placeholder is a display-only source workspace path whose cleanup could not be completed.
+            return localization::format_translated_message(
+                "Local source workspace cleanup could not be completed; temporary source data may remain at {}.",
+                path().string());
+        });
     }
 }
 
@@ -2083,11 +2091,13 @@ void LocalSourceWorkspace::require_unchanged_identity() const {
 
 void LocalSourceWorkspace::cleanup() {
     if(state_ == State::Cleaned) return;
-    if(state_ != State::Active || cleanup_guard_ == nullptr) {
+    if(state_ != State::Active) {
         throw_workspace_failure(
             LocalSourceWorkspaceStage::Cleanup,
             LocalSourceWorkspaceErrorCode::InvalidState);
     }
+    // Record the attempt before any validation or removal can fail.
+    state_ = State::CleanupAttempted;
     try {
         OwnedCleanupRootAuthority cleanup_authority{
             directory_, directory_.path().device(),
@@ -2110,7 +2120,6 @@ void LocalSourceWorkspace::cleanup() {
             LocalSourceWorkspaceStage::Cleanup,
             LocalSourceWorkspaceErrorCode::CleanupFailure);
     }
-    cleanup_guard_->commit();
     state_ = State::Cleaned;
 }
 
@@ -2188,25 +2197,11 @@ LocalSourceWorkspace materialize_local_source_workspace(
         try {
             return retain_trusted_cache_directory(workspace_path);
         } catch(...) {
-            try {
-                remove_trusted_cache_path(workspace_path);
-                cleanup_guard->commit();
-            } catch(...) {
-            }
             throw_workspace_failure(
                 LocalSourceWorkspaceStage::WorkspaceCreation,
                 LocalSourceWorkspaceErrorCode::MetadataFailure);
         }
     }();
-
-    const auto rollback_partial_workspace = [&]() noexcept {
-        try {
-            remove_trusted_cache_path(workspace_path);
-            cleanup_guard->commit();
-        } catch(...) {
-            // The retained guard performs the final fail-safe attempt.
-        }
-    };
 
     try {
         const struct stat source_status = descriptor_status(
@@ -2252,17 +2247,17 @@ LocalSourceWorkspace materialize_local_source_workspace(
         destination.require_unchanged_identity();
         cache_root.require_unchanged_identity();
     } catch(const LocalSourceWorkspaceError&) {
-        rollback_partial_workspace();
         throw;
     } catch(...) {
-        rollback_partial_workspace();
         throw_workspace_failure(
             LocalSourceWorkspaceStage::SourceRevalidation,
             LocalSourceWorkspaceErrorCode::ConcurrentMutation);
     }
 
-    return LocalSourceWorkspace(
-        std::move(cleanup_guard), std::move(destination));
+    // Construction rollback ends here. The noexcept workspace construction
+    // transfers cleanup ownership to the returned object alone.
+    cleanup_guard->commit();
+    return LocalSourceWorkspace(std::move(destination));
 }
 
 #ifdef MOGUET_ENABLE_LOCAL_SOURCE_WORKSPACE_TEST_HOOKS

@@ -277,6 +277,8 @@ void print_semantic_scopes(
                   std::string_view{"dependency-cleanup"}},
         std::pair{cli_authority::OptionSemanticScope::PackageExport,
                   std::string_view{"package-export"}},
+        std::pair{cli_authority::OptionSemanticScope::PresentationDetail,
+                  std::string_view{"presentation-detail"}},
     };
     print_mask_names(scopes, NAMES);
 }
@@ -458,6 +460,7 @@ int main() {
         OptionId::Select,
         OptionId::Aur,
         OptionId::Repo,
+        OptionId::Details,
         OptionId::LocalSource,
         OptionId::PkgbuildOutputDirectory,
         OptionId::Recursive,
@@ -513,6 +516,13 @@ int main() {
         const std::size_t separator = syntax.find(' ');
         const std::string_view token = syntax.substr(0, separator);
         std::cout << "OPERATION\t" << token << "\topen\n";
+    }
+
+    for(const auto& scope : cli_authority::DELEGATED_PRESENTATION_DETAIL_SCOPES) {
+        std::cout << "PRESENTATION\t" << scope.operation << '\t'
+                  << enum_index(OptionId::Details) << '\t';
+        if(scope.requires_dry_run) std::cout << enum_index(OptionId::DryRun);
+        std::cout << '\n';
     }
 
     const cli_authority::SpecialOperationSpec& delegated =

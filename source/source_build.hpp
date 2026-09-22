@@ -62,6 +62,7 @@ struct ReviewedDevelExecutionSnapshot {
     // Diagnostic projection of the same immutable owner, not a new acceptance
     // authority. Keeps pure runner/reducer profiles independent of S4 linkage.
     std::optional<PinnedClosureReviewFailure> closure_review_failure = std::nullopt;
+    std::optional<PinnedClosureFailure> closure_failure = std::nullopt;
     std::optional<ReviewedSourceOperationStop> required_review_decline = std::nullopt;
     std::vector<ArtifactPackageIdentity> selected_artifacts = {};
     std::vector<ArtifactPackageIdentity> unselected_artifacts = {};

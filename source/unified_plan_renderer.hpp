@@ -1,6 +1,7 @@
 #pragma once
 
 #include "unified_plan_observation.hpp"
+#include "presentation_detail.hpp"
 
 #include <cstddef>
 #include <optional>
@@ -51,7 +52,9 @@ struct UnifiedPlanRenderingResult {
 // The renderer observes the existing vector order and typed identities. It
 // does not resolve, sort, rebuild transaction intent, or retain references.
 UnifiedPlanRenderingResult render_unified_plan_observation(
-    const UnifiedPlanObservation& observation);
+    const UnifiedPlanObservation& observation,
+    PresentationDetail detail = PresentationDetail::Detailed);
 
 UnifiedPlanRenderingResult render_system_aur_update_unified_plan(
-    const SystemAurUpdateUnifiedPlanProjection& projection);
+    const SystemAurUpdateUnifiedPlanProjection& projection,
+    PresentationDetail detail = PresentationDetail::Detailed);

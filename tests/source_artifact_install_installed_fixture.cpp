@@ -1,6 +1,7 @@
 #include "app_config.hpp"
 #include "artifact_workspace.hpp"
 #include "build_plan_artifact_target_projection.hpp"
+#include "dependency_cleanup_execution.hpp"
 #include "invocation_owned_cleanup_adapter.hpp"
 #include "package_base_artifact_install_executor.hpp"
 #include "source_artifact_install_trusted_transport.hpp"
@@ -271,12 +272,12 @@ PreparedRemoteSourceBuild cleanup_lifecycle_prepared(
 int run_cleanup_lifecycle_fixture(int argc, char* argv[]) {
     if(argc != 8) {
         std::cerr
-            << "usage: source-artifact-install-installed-fixture --cleanup-lifecycle <positive|later-failed|later-not-attempted> <archive> <package> <PackageBase> <version> <arch>\n";
+            << "usage: source-artifact-install-installed-fixture --cleanup-lifecycle <positive|execute|later-failed|later-not-attempted> <archive> <package> <PackageBase> <version> <arch>\n";
         return 2;
     }
     const std::string scenario_name = argv[2];
     const CleanupLifecycleScenario scenario =
-        scenario_name == "positive"
+        (scenario_name == "positive" || scenario_name == "execute")
             ? CleanupLifecycleScenario::Positive
         : scenario_name == "later-failed"
             ? CleanupLifecycleScenario::LaterFailed
@@ -307,6 +308,40 @@ int run_cleanup_lifecycle_fixture(int argc, char* argv[]) {
         }
         const RemoteAurCleanupCandidateAssessment& assessment =
             result.assessments().front();
+        if(scenario_name == "execute") {
+            // Reuse the live collector result. The container controller changes
+            // policy/consumers after collection, before each explicit approval.
+            const auto preview = make_dependency_cleanup_preview(result);
+            if(preview.state() != DependencyCleanupPreviewState::Ready ||
+               preview.eligible_candidates().size() != 1) {
+                fail("actual cleanup did not produce one approved-universe candidate");
+            }
+            for(const std::string step : {"protected", "still-required", "remove"}) {
+                std::cout << "READY\t" << step << std::endl;
+                const auto interaction = interact_dependency_cleanup(
+                    preview, config, true, std::cin, std::cout);
+                if(interaction.status() != DependencyCleanupInteractionStatus::Approved)
+                    fail("controlled cleanup did not receive explicit approval");
+                const auto execution = execute_dependency_cleanup(interaction);
+                const bool remove = step == "remove";
+                const auto expected = remove                ? DependencyCleanupCandidateRevalidationStatus::Ready
+                                      : step == "protected" ? DependencyCleanupCandidateRevalidationStatus::Protected
+                                                            : DependencyCleanupCandidateRevalidationStatus::StillRequired;
+                if(!execution.revalidation || execution.revalidation->candidates().size() != 1 ||
+                   execution.revalidation->candidates().front().status != expected ||
+                   execution.status != (remove ? DependencyCleanupExecutionStatus::Removed
+                                               : DependencyCleanupExecutionStatus::NoCandidatesReady) ||
+                   execution.attempted.size() != (remove ? 1U : 0U) ||
+                   (remove ? execution.removal_exit_status != 0 : execution.removal_exit_status.has_value())) {
+                    fail("actual cleanup lost fresh protection/consumer/one-shot removal result");
+                }
+                if(remove && execution.attempted.front().expected_installed().name != input.package_name)
+                    fail("actual cleanup expanded the approved operand");
+                std::cout << "EXECUTION\t" << step << "\tPASS" << std::endl;
+            }
+            if(!result.invocation_result().is_success()) fail("cleanup changed build/install result");
+            return 0;
+        }
         std::cout << "LIFECYCLE\t"
                   << (result.completeness() ==
                               CleanupEvidenceCompleteness::Complete

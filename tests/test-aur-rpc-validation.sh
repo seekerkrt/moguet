@@ -769,37 +769,46 @@ assert_contains "provider-one" "$output_file"
 
 setup_case ambiguous-provider
 run_ok plan ambiguous-provider-root
-assert_contains "construction: Constructed" "$output_file"
+# Normal suppresses successful construction, but keeps the target and every
+# incomplete/provider/readiness guard produced from the validated schema.
+assert_contains "Plan targets: ambiguous-provider-root" "$output_file"
+assert_not_contains "construction:" "$output_file"
 assert_contains "completeness: Incomplete" "$output_file"
 assert_contains "provider decision: Ambiguous" "$output_file"
 assert_contains "Fetch readiness: Blocked" "$output_file"
 assert_contains "Build readiness: Blocked" "$output_file"
 assert_contains "Install readiness: Blocked" "$output_file"
 assert_contains "Ambiguous provided dependencies:" "$output_file"
+assert_no_mutation_commands
 
 setup_case cycle
 run_ok plan cycle-root-174
-assert_contains "construction: Constructed" "$output_file"
+assert_contains "Plan targets: cycle-root-174" "$output_file"
 assert_contains "completeness: Incomplete" "$output_file"
 assert_contains "Fetch readiness: Blocked" "$output_file"
 assert_contains "Cyclic dependencies:" "$output_file"
+assert_no_mutation_commands
 
 setup_case unresolved
 run_ok plan unresolved-root-174
-assert_contains "construction: Constructed" "$output_file"
+assert_contains "Plan targets: unresolved-root-174" "$output_file"
 assert_contains "completeness: Incomplete" "$output_file"
 assert_contains "Fetch readiness: Blocked" "$output_file"
 assert_contains "Unresolved dependencies:" "$output_file"
+assert_no_mutation_commands
 
 setup_case split
 run_ok plan valid-split
-assert_contains "Split package install targets:" "$output_file"
-assert_contains "valid-split (base: valid-split-base)" "$output_file"
-assert_contains "construction: Constructed" "$output_file"
-assert_contains "completeness: Complete" "$output_file"
-assert_contains "Fetch readiness: Ready" "$output_file"
-assert_contains "Build readiness: Ready" "$output_file"
+assert_contains "Plan targets: valid-split" "$output_file"
+assert_contains "1. valid-split-base" "$output_file"
+assert_contains "target package: valid-split" "$output_file"
+assert_not_contains "construction:" "$output_file"
+assert_not_contains "completeness:" "$output_file"
+assert_not_contains "Fetch readiness:" "$output_file"
+assert_not_contains "Build readiness:" "$output_file"
 assert_contains "Install readiness: Blocked" "$output_file"
+assert_contains "Use the package-base set lifecycle" "$output_file"
+assert_no_mutation_commands
 
 setup_case normal-fetch
 run_ok fetch valid-root
@@ -859,7 +868,34 @@ assert_no_mutation_commands
 assert_cache_entry_absent upgrade-sequence-a
 assert_cache_entry_absent upgrade-sequence-b
 
-echo "AUR RPC validation integration tests: all checks passed"
 
 # Real runner/filtered/route propagation through a production confirmation.
+# Real Auto dispatch with an empty authoritative foreign inventory. The child
+# has no updates, while repository completion still is not an aggregate NoOp.
+for operation in -Su -Syu; do
+    setup_case "system-no-updates-$operation"
+    export MOGUET_TEST_SUDO_EXIT_CODE=0
+    run_ok "$operation"
+    assert_command "sudo pacman $operation"
+    assert_contains "AUR update: no updates" "$output_file"
+    assert_contains "The repository system upgrade completed." "$output_file"
+    assert_contains "The repository system upgrade and normal AUR update completed." "$output_file"
+    assert_not_contains "No operation needed" "$output_file"
+    assert_not_contains "Attention-required details:" "$output_file"
+    assert_not_contains "makepkg " "$command_log"
+    assert_not_contains "sudo pacman -U" "$command_log"
+    if [ "$operation" = -Su ]; then
+        assert_not_contains "sudo pacman -Syu" "$command_log"
+    fi
+    sed -n '/^The repository system upgrade completed[.]/,$p' "$output_file" > "$tmp_dir/no-updates$operation"
+    if [ ! -s "$tmp_dir/no-updates$operation" ]; then
+        echo "system no-updates presentation was not captured" >&2
+        exit 1
+    fi
+done
+cmp "$tmp_dir/no-updates-Su" "$tmp_dir/no-updates-Syu"
+echo "PASS Su/Syu no-update presentation parity; repository completion is not NoOp"
+
 python3 "$repo_root/tests/test-aur-partial-cancellation.py" "$test_binary"
+
+echo "AUR RPC validation integration tests: all checks passed"

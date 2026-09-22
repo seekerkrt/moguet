@@ -116,6 +116,21 @@ int run_scenario(const std::string& scenario, const AppConfig& config) {
 } // namespace
 
 int main(int argc, char* argv[]) {
+    if(argc >= 2 && std::string(argv[1]) == "remote-rmdeps") {
+        AppConfig config = characterization_config();
+        config.no_confirm = argc > 2 && std::string(argv[2]) == "noconfirm";
+        config.rm_deps = !(argc > 2 && std::string(argv[2]) == "unrequested");
+        try {
+            const auto result = build_source_target("cleanup-root", {}, config);
+            std::cout << "typed-build-success=" << result.build_install.is_success() << '\n';
+            if(result.cleanup_interaction) std::cout << "typed-interaction=" << static_cast<int>(result.cleanup_interaction->status()) << '\n';
+            if(result.cleanup_execution) std::cout << "typed-execution=" << static_cast<int>(result.cleanup_execution->status) << '\n';
+            return result.command_exit_status();
+        } catch(const std::exception& error) {
+            std::cerr << error.what() << '\n';
+            return 1;
+        }
+    }
     if(argc != 2) {
         std::cerr << "Usage: " << argv[0]
                   << " <plan-success|plan-failure|fallback|smart-source|"

@@ -1376,10 +1376,21 @@ SourceBuildCheckoutPreparation prepare_source_build_checkout(
         package_base_lease.emplace(acquire_package_base_lease(pkg_path, true));
     } else {
         WorkDirGuard wd(build_root);
-        bool needs_clone = true;
-
-        if(pkg_path.exists() && pkg_path.is_directory() &&
-           has_safe_persistent_checkout_git_directory(pkg_path)) {
+        if(pkg_path.exists()) {
+            // POLICY(#575): detect pre-existing drift, but leave recovery to
+            // a separate explicit operation. Only missing entries are cloned.
+            if(!pkg_path.is_directory()) {
+                throw TrustedCacheError(TrustedCacheFailure{
+                    TrustedCacheStage::ChildValidation,
+                    TrustedCacheErrorCode::NotDirectory,
+                    std::nullopt});
+            }
+            if(!has_safe_persistent_checkout_git_directory(pkg_path)) {
+                // TRANSLATORS: The placeholders are a literal directory name and a package checkout name.
+                throw std::runtime_error(localization::format_translated_message(
+                    "Missing {} directory for existing cache checkout {}. Build stopped; cache preserved. Check the configured source and cache before retrying.",
+                    ".git", request.checkout_name));
+            }
             require_safe_persistent_checkout_descendants(pkg_path);
             package_base_lease.emplace(acquire_package_base_lease(
                 pkg_path, request.aur_review_identity.has_value()));
@@ -1388,53 +1399,37 @@ SourceBuildCheckoutPreparation prepare_source_build_checkout(
                 std::string current_url =
                     trusted_git_remote_origin_url(pkg_path);
                 if(!remote_url_matches_expected(current_url, request.git_url)) {
-                    Logger::warn(localization::translate_message(
-                        "Remote URL mismatch. Re-cloning..."));
-                } else {
-                    needs_clone = false;
-                    existed_before_update = true;
+                    // TRANSLATORS: The placeholder is a package checkout name.
+                    throw std::runtime_error(localization::format_translated_message(
+                        "Remote URL mismatch for existing cache checkout {}. Build stopped; cache preserved. Check the configured source and cache before retrying.",
+                        request.checkout_name));
+                }
+                existed_before_update = true;
+            }
+
+            Logger::info(localization::translate_message(
+                "Updating repository..."));
+            WorkDirGuard wd_repo(pkg_path);
+            pkg_path = revalidate_trusted_cache_path(
+                pkg_path, CachePathRequirement::ExistingDirectory);
+            require_safe_persistent_checkout_descendants(pkg_path);
+            {
+                ScopedPrivateUmask private_umask;
+                if(trusted_git_fetch_origin(
+                       pkg_path, request.git_url,
+                       package_base_lease.value()) != 0) {
+                    throw std::runtime_error(localization::translate_message(
+                        "Failed to fetch updates."));
                 }
             }
 
-            if(!needs_clone) {
-                Logger::info(localization::translate_message(
-                    "Updating repository..."));
-                WorkDirGuard wd_repo(pkg_path);
-                pkg_path = revalidate_trusted_cache_path(
-                    pkg_path, CachePathRequirement::ExistingDirectory);
-                require_safe_persistent_checkout_descendants(pkg_path);
-                {
-                    ScopedPrivateUmask private_umask;
-                    if(trusted_git_fetch_origin(
-                           pkg_path, request.git_url,
-                           package_base_lease.value()) != 0) {
-                        throw std::runtime_error(localization::translate_message(
-                            "Failed to fetch updates."));
-                    }
-                }
-
-                // fetch中にcheckoutまたはreview対象が差し替えられた場合、
-                // branch検出を含む後続git commandへ進む前にauthorityを失効させる。
-                pkg_path = revalidate_trusted_cache_path(
-                    pkg_path, CachePathRequirement::ExistingDirectory);
-                package_base_lease->require_unchanged_identity();
-                require_safe_persistent_checkout_descendants(pkg_path);
-            }
-        }
-
-        if(needs_clone) {
-            if(pkg_path.exists()) {
-                if(pkg_path.is_directory() &&
-                   !package_base_lease.has_value()) {
-                    package_base_lease.emplace(
-                        acquire_package_base_lease(
-                            pkg_path,
-                            request.aur_review_identity.has_value()));
-                }
-                // POLICY(#175): remote mismatch/non-repository cleanup is limited to the validated cache entry.
-                remove_trusted_cache_path(pkg_path);
-                package_base_lease.reset();
-            }
+            // fetch中にcheckoutまたはreview対象が差し替えられた場合、
+            // branch検出を含む後続git commandへ進む前にauthorityを失効させる。
+            pkg_path = revalidate_trusted_cache_path(
+                pkg_path, CachePathRequirement::ExistingDirectory);
+            package_base_lease->require_unchanged_identity();
+            require_safe_persistent_checkout_descendants(pkg_path);
+        } else {
             pkg_path = create_trusted_cache_directory(
                 build_root, request.checkout_name);
             package_base_lease.emplace(acquire_package_base_lease(
@@ -2123,7 +2118,7 @@ SourceBuildExecutionResult execute_source_build_typed(
     auto& pending = std::get<PreparedSourceBuildNeedsBuild>(preparation);
     if(auto devel = SourceBuildPreparedExecutionAccess::take_devel(pending)) {
         SourceBuildExecutionResult out;
-        out.devel_execution.emplace(execute_normal_reviewed_devel(std::move(*devel)));
+        out.devel_execution.emplace(execute_normal_reviewed_devel(std::move(*devel), config.presentation_detail));
         out.devel_update_query = devel_query;
         out.devel_rebuild_confirmation = devel_confirmation;
         out.status = out.devel_execution->complete ? SourceBuildExecutionStatus::Installed : SourceBuildExecutionStatus::AuthoritativeIncomplete;
@@ -2176,7 +2171,7 @@ execute_prepared_source_build_package_base_typed(
     require_supported_separated_install_options(config.rm_deps);
     require_unclaimed_artifact_pkgdest(request.custom_environment);
     if(auto devel = SourceBuildPreparedExecutionAccess::take_devel(prepared)) {
-        return execute_normal_reviewed_devel(std::move(*devel));
+        return execute_normal_reviewed_devel(std::move(*devel), config.presentation_detail);
     }
     PreparedSourceBuildExecutionCapabilities capabilities =
         SourceBuildPreparedExecutionAccess::consume(

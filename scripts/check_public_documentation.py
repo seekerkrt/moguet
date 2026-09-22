@@ -983,7 +983,7 @@ def check_package_relation_documentation() -> None:
             "transaction authorityはpacman / libalpm",
             "自動削除や自動置換を許可しません",
         ),
-        REPOSITORY_ROOT / "docs/COMPATIBILITY.md": (
+        REPOSITORY_ROOT / "docs/compatibility.md": (
             "metadata observation、typed classification、pre-transaction diagnostic、safety stop",
             "automatic package removal、automatic replacement、automatic conflict resolution",
             "full dependency / conflict solverの置換",
@@ -1081,7 +1081,7 @@ def reviewed_source_documentation_contracts(
             ),
             (),
         ),
-        repository_root / "docs/COMPATIBILITY.md": (
+        repository_root / "docs/compatibility.md": (
             (
                 "previous reviewed revisionからexact targetまで",
                 "AUR Git treeのtracked file全体",
@@ -1223,7 +1223,7 @@ def system_aur_update_documentation_contracts(
             ),
             (),
         ),
-        repository_root / "docs/COMPATIBILITY.md": (
+        repository_root / "docs/compatibility.md": (
             (
                 "Exact target-less `-Syu` / `-Su` compatibility",
                 "fresh installed foreign inventory / exact AUR metadata",
@@ -1467,7 +1467,7 @@ def main() -> int:
     for path in (
         REPOSITORY_ROOT / "README.md",
         REPOSITORY_ROOT / "README.ja.md",
-        REPOSITORY_ROOT / "docs/COMPATIBILITY.md",
+        REPOSITORY_ROOT / "docs/compatibility.md",
     ):
         documented = markdown_canonical_grammar(path)
         if documented != schema.canonical_grammar:

@@ -1318,7 +1318,7 @@ execute_selected_repository_provider_transaction(
         blocked.selected_providers =
             selected_invocation.selected_repository_providers;
         blocked.package_state_change = PackageStateChange::Unknown;
-        // NO_TRANSLATE: trusted cleanup transport has no production CLI caller.
+        // NO_TRANSLATE: internal invariant; the collector always observes its baseline first.
         blocked.diagnostic =
             "Cleanup invocation baseline was not observed before the selected-provider transaction.";
         return SelectedRepositoryProviderTrustedReceiptExecutionResult{
@@ -1526,7 +1526,24 @@ ResolvedSourceBuildIdentity make_repository_source_build_identity(
         ResolvedRepositorySourceBuildIdentity{package}};
 }
 
-bool build_source_target(
+int RemoteSourceBuildResult::command_exit_status() const noexcept {
+    if(!build_install.is_success()) return build_install.command_exit_status();
+    if(cleanup_execution) {
+        return cleanup_execution->status == DependencyCleanupExecutionStatus::RemovalFailed ||
+                       cleanup_execution->status == DependencyCleanupExecutionStatus::Blocked
+                   ? 1
+                   : 0;
+    }
+    if(cleanup_interaction) {
+        return cleanup_interaction->status() == DependencyCleanupInteractionStatus::Blocked ||
+                       cleanup_interaction->status() == DependencyCleanupInteractionStatus::InteractionUnavailable
+                   ? 1
+                   : 0;
+    }
+    return 0;
+}
+
+RemoteSourceBuildResult build_source_target(
     const std::string& package_name,
     const SourceBuildEnvironment& custom_environment,
     const AppConfig& config) {
@@ -1541,24 +1558,41 @@ bool build_source_target(
     }
     PreparedRemoteSourceBuild prepared = std::move(
         std::get<PreparedRemoteSourceBuild>(preparation));
-    if(prepared.source.source_kind() == SourceBuildSourceKind::Aur) {
-        const auto collected = collect_remote_aur_cleanup_candidates(std::move(prepared), config);
-        return collected.invocation_result().is_success();
+    if(!config.rm_deps) {
+        return {execute_prepared_source_build_invocation(
+                    std::move(prepared.invocation), config),
+                std::nullopt, std::nullopt};
     }
-    return execute_prepared_source_build_invocation(
-               std::move(prepared.invocation), config)
-        .is_success();
+    // The remote AUR owner alone consumes --rmdeps. Lower build/install owners
+    // retain their rejection contract and never receive a cleanup request.
+    AppConfig build_config = config;
+    build_config.rm_deps = false;
+    const auto collected = collect_remote_aur_cleanup_candidates(std::move(prepared), build_config);
+    RemoteSourceBuildResult result{collected.invocation_result(), std::nullopt, std::nullopt};
+    if(!result.build_install.is_success()) return result;
+    result.cleanup_interaction.emplace(interact_dependency_cleanup(
+        make_dependency_cleanup_preview(collected), config));
+    if(result.cleanup_interaction->status() == DependencyCleanupInteractionStatus::Approved) {
+        result.cleanup_execution.emplace(execute_dependency_cleanup(*result.cleanup_interaction));
+    }
+    report_dependency_cleanup_result(*result.cleanup_interaction, result.cleanup_execution);
+    return result;
 }
 
 RemoteSourceBuildPreparation prepare_remote_source_build(
     const std::string& package_name,
     const SourceBuildEnvironment& custom_environment,
     const AppConfig& config) {
-    // --rmdepsはAUR/repository probeより前に、invocation optionとして拒否する。
-    require_supported_production_source_build_options(config);
     require_valid_package_name(package_name);
     ResolvedSourceBuildIdentity source =
         resolve_source_build_identity(package_name);
+    // Resolve the exact source before allowing this route-specific request.
+    // Repository builds remain unsupported, before any build/install mutation.
+    if(source.source_kind() != SourceBuildSourceKind::Aur) {
+        require_supported_production_source_build_options(config);
+    }
+    AppConfig build_config = config;
+    build_config.rm_deps = false;
     std::vector<ProductionSourceBuildWorkItem> work_items;
     std::optional<BuildPlan> aur_build_plan;
     ProviderSelectionCallback select_provider =
@@ -1597,7 +1631,7 @@ RemoteSourceBuildPreparation prepare_remote_source_build(
     }
     PreparedProductionSourceBuildInvocation invocation =
         prepare_production_source_build_invocation(
-            std::move(work_items), config);
+            std::move(work_items), build_config);
     return PreparedRemoteSourceBuild{
         std::move(source), std::move(aur_build_plan),
         std::move(invocation)};

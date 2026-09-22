@@ -256,24 +256,52 @@ run_pty() {
 parse_selected_provider_choice() {
     output_file=$1
     candidate_table=$2
-    tr -d '\r' < "$output_file" > "$output_file.normalized"
+    normalized_output=$output_file.normalized
+    python3 - "$output_file" "$normalized_output" <<'PY_NORMALIZE'
+from pathlib import Path
+import re
+import sys
+
+raw = Path(sys.argv[1]).read_bytes()
+Path(sys.argv[2]).write_bytes(
+    re.sub(rb"\x1b\[[0-9;]*m", b"", raw).replace(b"\r", b"")
+)
+PY_NORMALIZE
+
     awk '
 /^[0-9]+\) / {
     number = $1
     sub(/\)$/, "", number)
-    source = package_name = repository = provided = ""
-    for (field_index = 2; field_index <= NF; ++field_index) {
-        split($field_index, field, "=")
-        if (field[1] == "source") source = field[2]
-        else if (field[1] == "package") package_name = field[2]
-        else if (field[1] == "repository") repository = field[2]
-        else if (field[1] == "provided") provided = field[2]
+
+    split($2, identity, "/")
+    repository = identity[1]
+    package_name = identity[2]
+    source = repository == "aur" ? "AUR" : "repository"
+    provided = component = ""
+
+    for (field_index = 4; field_index <= NF; ++field_index) {
+        if ($field_index == "[repository]") source = "repository"
+
+        if ($field_index == "[provides:") {
+            provided = $(field_index + 1)
+            sub(/\]$/, "", provided)
+            sub(/[<>=].*$/, "", provided)
+        }
+
+        if ($field_index == "[component:") {
+            component = $(field_index + 1)
+            sub(/\]$/, "", component)
+        }
     }
-    if (number !~ /^[0-9]+$/ || source == "" || package_name == "" ||
-        repository == "" || provided == "") exit 9
+
+    if (component != "") provided = component
+
+    if (number !~ /^[0-9]+$/ || package_name == "" ||
+        repository == "" || provided == "" || identity[3] != "") exit 9
+
     print number "\t" source "\t" package_name "\t" repository "\t" provided
 }
-' "$output_file.normalized" > "$candidate_table" ||
+' "$normalized_output" > "$candidate_table" ||
         fail 'provider presentation could not be parsed safely'
     python3 - "$candidate_table" "$EXPECTED_PROVIDER_REPOSITORY" \
         "$REQUIRED_MAKE_DEPENDENCY" "$EXPECTED_PROVIDER_PACKAGES" \

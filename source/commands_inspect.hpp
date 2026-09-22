@@ -1,6 +1,7 @@
 #pragma once
 
 #include "dependency_plan.hpp"
+#include "presentation_detail.hpp"
 
 #include <string>
 #include <vector>
@@ -37,4 +38,4 @@ FetchPreparation prepare_fetch_operation(
 
 int cmd_export_pkgbuild_tree(const PkgbuildExportInvocation& invocation);
 int cmd_print_pkgbuild(const PkgbuildExportInvocation& invocation);
-int cmd_query_foreign_updates();
+int cmd_query_foreign_updates(PresentationDetail detail = PresentationDetail::Normal);

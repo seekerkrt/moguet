@@ -10,7 +10,7 @@
 - Prerequisites: [#217](https://github.com/seekerkrt/moguet/issues/217)、[#271](https://github.com/seekerkrt/moguet/issues/271)
 - Related contract: [PackageBase build / required-child selection](packagebase-child-selection.md)
 - Related contract: [Reviewed AUR source state](reviewed-source-state.md)
-- Related upper decisions: [decision 1](../DECISIONS.md#decision-1)、[decision 2](../DECISIONS.md#decision-2)、[decision 3](../DECISIONS.md#decision-3)、[decision 4](../DECISIONS.md#decision-4)、[decision 6](../DECISIONS.md#decision-6)、[decision 7](../DECISIONS.md#decision-7)
+- Related upper decisions: [decision 1](../decisions.md#decision-1)、[decision 2](../decisions.md#decision-2)、[decision 3](../decisions.md#decision-3)、[decision 4](../decisions.md#decision-4)、[decision 6](../decisions.md#decision-6)、[decision 7](../decisions.md#decision-7)
 
 このfoundationはinternal non-breakingであり、public profile / patch command、storage schema、source mutation、source revision queryを有効化しない。既存production modelを置換せず、既存authorityからcommon valueへのread-only projectionだけを提供する。
 
@@ -201,4 +201,4 @@ projectionは既存ownerのauthorityを再実装しない。
 
 ## Compatibility
 
-このfoundation自体はCLI、selection、build、install、update、output、exit status、config、filesystem layoutを変更しない。Issue #411のreviewed-source exact OIDはこのgeneric foundationのrevision projectionを変更しない。利用者向けの要約は[`COMPATIBILITY.md`のcommon identity section](../COMPATIBILITY.md#compat-common-source-identity)を参照する。
+このfoundation自体はCLI、selection、build、install、update、output、exit status、config、filesystem layoutを変更しない。Issue #411のreviewed-source exact OIDはこのgeneric foundationのrevision projectionを変更しない。利用者向けの要約は[`compatibility.md`のcommon identity section](../compatibility.md#compat-common-source-identity)を参照する。

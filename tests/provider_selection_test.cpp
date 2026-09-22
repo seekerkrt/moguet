@@ -1,4 +1,5 @@
 #include "provider_selection.hpp"
+#include "package_text_style.hpp"
 #include "provider_installed_state_presentation.hpp"
 
 #include "stubs/package-metadata/alpm_stub.hpp"
@@ -135,6 +136,107 @@ ProviderCandidatePresenter make_installed_state_presenter(
     return make_provider_installed_state_candidate_presenter(lookup);
 }
 
+void test_presentation_modes_preserve_candidates_and_selection() {
+    const auto candidate_set = installed_state_candidates();
+    for(const bool unknown_state : {false, true}) {
+        for(const std::string& answer : {std::string("1\n"), std::string("0\n2\n"), std::string("q\n"), std::string("\n"), std::string()}) {
+            for(const PresentationDetail detail : {PresentationDetail::Normal, PresentationDetail::Detailed}) {
+                reset_metadata_stubs();
+                if(unknown_state) {
+                    stub::enqueue_captured_command_result(
+                        DATABASE_PATH_COMMAND, CapturedCommandResult{"", 127});
+                } else {
+                    enqueue_valid_database_paths();
+                    stub::enqueue_local_package_query_present(
+                        "repository-provider", "repository-provider", "1.2.3-1", ALPM_PKG_REASON_EXPLICIT);
+                    stub::enqueue_local_package_query_absent("aur-provider");
+                }
+                std::istringstream input(answer);
+                std::ostringstream output;
+                ProviderSelectionSession session(input, output, true);
+                auto presenter = make_provider_installed_state_candidate_presenter_factory()(detail);
+                const auto selected = session.select_provider("virtual-dependency", candidate_set, presenter);
+                if(answer == "0\n2\n" || answer == "1\n") {
+                    expect(selected.has_value() && selected.value() == candidate_set[answer == "1\n" ? 0 : 1],
+                           "detail mode changed selected provider identity or metadata");
+                } else {
+                    expect(!selected.has_value() && session.was_cancelled("virtual-dependency"),
+                           "detail mode changed cancellation semantics");
+                }
+                if(detail == PresentationDetail::Detailed) {
+                    expect(output.str().find(
+                               "1) source=repository package=repository-provider repository=extra "
+                               "provided=virtual-dependency provided-specification=virtual-dependency=1.2 "
+                               "version=1.2.3-1") != std::string::npos,
+                           "detail mode lost repository provider metadata");
+                    expect(output.str().find(
+                               "2) source=AUR package=aur-provider PackageBase=aur-provider-base "
+                               "provided=virtual-dependency provided-specification=virtual-dependency>=2.4 "
+                               "version=2.4.0-1") != std::string::npos,
+                           "detail mode lost AUR provider metadata");
+                    expect(output.str().find("1) source=repository") < output.str().find("2) source=AUR"),
+                           "detail mode reordered provider candidates");
+                } else {
+                    expect(output.str().find("1) extra/repository-provider 1.2.3-1 [provides: virtual-dependency=1.2]") != std::string::npos,
+                           "Normal lost repository identity/version/capability");
+                    expect(output.str().find("2) aur/aur-provider 2.4.0-1 (PackageBase: aur-provider-base) [provides: virtual-dependency>=2.4]") != std::string::npos,
+                           "Normal lost AUR identity/PackageBase/capability");
+                    expect(output.str().find("1) extra/") < output.str().find("2) aur/"), "Normal reordered candidates");
+                    expect(output.str().find("source=") == std::string::npos, "Normal leaked raw candidate fields");
+                }
+                expect(output.str().find('\033') == std::string::npos, "capture contains ANSI");
+                expect(occurrence_count(output.str(), "1) ") == 1 && occurrence_count(output.str(), "2) ") == 1,
+                       "candidate count/numbering changed on retry");
+                expect(output.str().find(unknown_state ? "[installed state unknown]" : "[installed]") != std::string::npos,
+                       "detail mode lost installed state annotation");
+                if(unknown_state) {
+                    expect(occurrence_count(output.str(), "Warning: installed state is unavailable for provider candidates:") == 1,
+                           "detail mode lost or repeated installed state diagnostic");
+                } else {
+                    stub::require_local_package_query_expectations_consumed();
+                }
+            }
+        }
+    }
+}
+
+void test_compact_identity_and_style() {
+    const auto repository = ProvidedDependency::from_repository(
+        "aur", "shared", "cargo", "cargo", "1.0-1");
+    const auto aur = ProvidedDependency::from_aur(
+        "shared", "shared", "cargo", "cargo=2", "2.0-1");
+    std::ostringstream output;
+    const auto presenter = make_default_provider_candidate_presenter();
+    presenter(output, 9, repository);
+    presenter(output, 10, aur);
+    expect(output.str() ==
+               "9) aur/shared 1.0-1 [repository] [provides: cargo]\n"
+               "10) aur/shared 2.0-1 [provides: cargo=2]\n",
+           "compact source collision, equal PackageBase, or capability projection drift");
+    auto split_repository = repository;
+    split_repository.package_base = "toolchain";
+    split_repository.provided_dependency_specification = "different-component=3";
+    std::ostringstream split_output;
+    presenter(split_output, 1, split_repository);
+    expect(split_output.str() ==
+               "1) aur/shared 1.0-1 [repository] (PackageBase: toolchain) [provides: different-component=3] [component: cargo]\n",
+           "repository PackageBase or differing provided component was lost");
+    std::ostringstream detailed_output;
+    make_default_provider_candidate_presenter(PresentationDetail::Detailed)(detailed_output, 1, split_repository);
+    expect(detailed_output.str().find("repository=aur PackageBase=toolchain provided=cargo provided-specification=different-component=3") != std::string::npos,
+           "Detailed lost repository PackageBase or capability metadata");
+    expect(!package_text_style::enabled_for(output), "capture enabled terminal style");
+    std::ostringstream styled;
+    package_text_style::identity(styled, "aur", "shared", true);
+    styled << ' ';
+    package_text_style::version(styled, "2.0-1", true);
+    styled << ' ';
+    package_text_style::installed(styled, "[installed]", true);
+    expect(styled.str() == "\033[1;35maur\033[0m/\033[1mshared\033[0m "
+                           "\033[1;32m2.0-1\033[0m \033[1;36m[installed]\033[0m",
+           "shared search palette changed");
+}
+
 void test_noninteractive_session_does_not_read_or_write() {
     std::istringstream input("2\n");
     std::ostringstream output;
@@ -154,7 +256,8 @@ void test_candidate_metadata_and_exact_number_selection() {
     ProviderSelectionSession session(input, output, true);
 
     std::optional<ProvidedDependency> selected =
-        session.select_provider("virtual-dependency", candidates());
+        session.select_provider("virtual-dependency", candidates(),
+                                make_default_provider_candidate_presenter(PresentationDetail::Detailed));
 
     expect(selected.has_value(), "numbered provider was not selected");
     expect(
@@ -209,21 +312,15 @@ void test_installed_state_presentation_preserves_order_and_explicit_selection() 
     const std::string presentation = output.str();
     expect(
         presentation.find(
-            "1) source=repository package=repository-provider repository=extra "
-            "provided=virtual-dependency "
-            "provided-specification=virtual-dependency=1.2 "
-            "version=1.2.3-1 [installed]") != std::string::npos,
+            "1) extra/repository-provider 1.2.3-1 [provides: virtual-dependency=1.2] [installed]") != std::string::npos,
         "installed repository provider was not annotated");
     expect(
         presentation.find(
-            "2) source=AUR package=aur-provider PackageBase=aur-provider-base "
-            "provided=virtual-dependency "
-            "provided-specification=virtual-dependency>=2.4 "
-            "version=2.4.0-1\n") != std::string::npos,
+            "2) aur/aur-provider 2.4.0-1 (PackageBase: aur-provider-base) [provides: virtual-dependency>=2.4]\n") != std::string::npos,
         "not-installed provider did not preserve its metadata line");
     expect(
-        presentation.find("1) source=repository") <
-            presentation.find("2) source=AUR"),
+        presentation.find("1) extra/") <
+            presentation.find("2) aur/"),
         "installed state changed candidate order or numbering");
     expect(stub::package_query_call_count() == 2, "candidate states were not queried once each");
     stub::require_local_package_query_expectations_consumed();
@@ -646,6 +743,8 @@ void test_no_confirm_production_session_is_noninteractive() {
 
 int main() {
     try {
+        test_compact_identity_and_style();
+        test_presentation_modes_preserve_candidates_and_selection();
         test_noninteractive_session_does_not_read_or_write();
         test_candidate_metadata_and_exact_number_selection();
         test_installed_state_presentation_preserves_order_and_explicit_selection();

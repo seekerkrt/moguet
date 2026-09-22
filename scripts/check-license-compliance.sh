@@ -214,16 +214,16 @@ do
 done
 require_text THIRD_PARTY_NOTICES.md \
     "the current GPL-licensed Moguet development series"
-require_text docs/DECISIONS.md \
+require_text docs/decisions.md \
     'Moguet releaseとjpacker v1.15.0以降は`GPL-3.0-or-later`で提供する。'
-require_text docs/DECISIONS.md \
+require_text docs/decisions.md \
     'Moguet releases and jpacker v1.15.0 or later are distributed under `GPL-3.0-or-later`.'
 
 for current_series_file in \
     README.md \
     README.ja.md \
     THIRD_PARTY_NOTICES.md \
-    docs/DECISIONS.md \
+    docs/decisions.md \
     docs/LICENSING.md
 do
     reject_pattern "$current_series_file" \

@@ -11,6 +11,7 @@ set(MOGUET_CPP_TEST_FIREWALL_DESCRIPTORS "")
 set(MOGUET_CPP_TEST_OBJECT_TARGETS "")
 set(MOGUET_CTEST_RUNTIME_TARGETS "")
 set(MOGUET_CTEST_NAMES "")
+set(MOGUET_FOCUSED_CTEST_NAMES "")
 
 # PkgConfig::ALPM carries both compile usage requirements and the real link.
 # Wrap only the latter so tests such as the root-identity executable can link
@@ -1015,6 +1016,12 @@ function(moguet_add_focused_ctest_alias alias_name)
         USES_TERMINAL
         VERBATIM
     )
+
+    # These are the public frontends' independently declared requirements,
+    # not names discovered from the runtime registration graph. Different
+    # aliases may intentionally require the same test.
+    list(APPEND MOGUET_FOCUSED_CTEST_NAMES ${_moguet_focus_TESTS})
+    set(MOGUET_FOCUSED_CTEST_NAMES ${MOGUET_FOCUSED_CTEST_NAMES} PARENT_SCOPE)
 endfunction()
 
 function(_moguet_assert_exact_inventory label expected_variable actual_variable)
@@ -1122,6 +1129,22 @@ include("${CMAKE_CURRENT_LIST_DIR}/MoguetTestTargets.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/MoguetTestRegistrations.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/MoguetFocusedTests.cmake")
 
+# Every runtime registration must serve an independently declared focused
+# frontend. Keep both the helper ledger and CMake's actual test graph exact;
+# a raw add_test() must not bypass this contract.
+list(REMOVE_DUPLICATES MOGUET_FOCUSED_CTEST_NAMES)
+_moguet_assert_exact_inventory(
+    "CTest registration"
+    MOGUET_FOCUSED_CTEST_NAMES
+    MOGUET_CTEST_NAMES
+)
+get_property(_moguet_registered_ctests DIRECTORY PROPERTY TESTS)
+_moguet_assert_exact_inventory(
+    "CMake test registration"
+    MOGUET_FOCUSED_CTEST_NAMES
+    _moguet_registered_ctests
+)
+
 foreach(
     _moguet_expected_inventory
     IN ITEMS
@@ -1138,6 +1161,8 @@ foreach(
     endif()
 endforeach()
 
+# Counts are display-only projections of the independent expected inventories.
+# Exact membership and uniqueness below remain the configure gate.
 list(LENGTH MOGUET_EXPECTED_CPP_TEST_TARGETS _moguet_expected_target_count)
 list(
     LENGTH
@@ -1154,35 +1179,6 @@ list(
     MOGUET_EXPECTED_CPP_TEST_FIREWALL_DESCRIPTORS
     _moguet_expected_firewall_descriptor_count
 )
-if(NOT _moguet_expected_target_count EQUAL 120)
-    message(
-        FATAL_ERROR
-        "Expected C++ test target inventory must contain 120 entries, got "
-        "${_moguet_expected_target_count}"
-    )
-endif()
-if(NOT _moguet_expected_support_count EQUAL 32)
-    message(
-        FATAL_ERROR
-        "Expected test support/stub inventory must contain 32 entries, got "
-        "${_moguet_expected_support_count}"
-    )
-endif()
-if(NOT _moguet_expected_firewall_count EQUAL 53)
-    message(
-        FATAL_ERROR
-        "Expected link firewall inventory must contain 53 entries, got "
-        "${_moguet_expected_firewall_count}"
-    )
-endif()
-if(NOT _moguet_expected_firewall_descriptor_count EQUAL 53)
-    message(
-        FATAL_ERROR
-        "Expected link firewall descriptor inventory must contain 53 "
-        "entries, got ${_moguet_expected_firewall_descriptor_count}"
-    )
-endif()
-
 _moguet_validate_firewall_descriptor_ledger(
     Expected
     MOGUET_EXPECTED_CPP_TEST_FIREWALL_DESCRIPTORS
@@ -1241,9 +1237,9 @@ list(
 list(LENGTH MOGUET_CTEST_NAMES _moguet_ctest_count)
 message(
     STATUS
-    "Moguet C++ tests: targets=${_moguet_test_target_count}/120, "
-    "support=${_moguet_test_support_count}/32, "
-    "firewalls=${_moguet_test_firewall_count}/53, "
-    "descriptors=${_moguet_test_firewall_descriptor_count}/53, "
+    "Moguet C++ tests: targets=${_moguet_test_target_count}/${_moguet_expected_target_count}, "
+    "support=${_moguet_test_support_count}/${_moguet_expected_support_count}, "
+    "firewalls=${_moguet_test_firewall_count}/${_moguet_expected_firewall_count}, "
+    "descriptors=${_moguet_test_firewall_descriptor_count}/${_moguet_expected_firewall_descriptor_count}, "
     "CTest registrations=${_moguet_ctest_count}"
 )

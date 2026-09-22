@@ -75,6 +75,7 @@ enum class GlobalOptionId {
     Select,
     Aur,
     Repo,
+    Details,
     Count,
 };
 
@@ -99,6 +100,7 @@ inline constexpr std::array<GlobalOptionSpec, static_cast<std::size_t>(GlobalOpt
         {GlobalOptionId::Select, "--select", false},
         {GlobalOptionId::Aur, "--aur", false},
         {GlobalOptionId::Repo, "--repo", false},
+        {GlobalOptionId::Details, "--details", false},
     }};
 
 constexpr const GlobalOptionSpec& global_option_spec(
@@ -273,11 +275,13 @@ enum class OptionId {
     Recursive,
     Needed,
     EndOfOptions,
+    // Preserve existing exported option IDs when adding new globals.
+    Details,
     Count,
 };
 
 static_assert(
-    static_cast<std::size_t>(GlobalOptionId::Count) ==
+    static_cast<std::size_t>(GlobalOptionId::Details) ==
     static_cast<std::size_t>(OptionId::Help));
 static_assert(
     static_cast<std::size_t>(GlobalOptionId::Edit) ==
@@ -308,6 +312,8 @@ static_assert(
         static_cast<std::size_t>(OptionId::Repo));
 
 constexpr OptionId option_id(GlobalOptionId id) noexcept {
+    // New globals need not renumber the existing completion projection.
+    if(id == GlobalOptionId::Details) return OptionId::Details;
     return static_cast<OptionId>(id);
 }
 
@@ -448,6 +454,7 @@ enum class OptionSemanticScope : std::uint32_t {
     ParserBoundary = 1U << 11,
     DependencyCleanup = 1U << 12,
     PackageExport = 1U << 13,
+    PresentationDetail = 1U << 14,
 };
 
 using OptionSemanticScopeMask = std::uint32_t;
@@ -747,6 +754,18 @@ inline constexpr std::array<OptionContract,
          OptionPublicDefinitionRole::SchemaOnly,
          OptionCompletionVisibility::Hidden,
          "cli.lexical.end-of-options"},
+        {OptionId::Details,
+         global_option_spec(GlobalOptionId::Details).token,
+         no_token_aliases(),
+         no_option_value(),
+         OptionOccurrence::RepeatIdempotent,
+         no_option_conflicts(),
+         OptionLexicalPlacement::ParserGlobalNormalPosition,
+         option_scope(OptionSemanticScope::PresentationDetail),
+         GrammarOwnership::MoguetOwned,
+         OptionPublicDefinitionRole::Definition,
+         OptionCompletionVisibility::SuggestedAndDescribed,
+         "cli.presentation.detail"},
     }};
 
 constexpr const OptionContract& option_contract(OptionId id) noexcept {
@@ -989,7 +1008,7 @@ constexpr OptionRelationContract public_syntax_option_relation(
 }
 
 struct OperationOptionRelationSet {
-    std::array<OptionRelationContract, 13> values{};
+    std::array<OptionRelationContract, 14> values{};
     std::size_t count = 0;
 
     constexpr bool contains(OptionId id) const noexcept {
@@ -1015,7 +1034,7 @@ constexpr OperationOptionRelationSet no_operation_option_relations() noexcept {
 template <typename... Ids>
 constexpr OperationOptionRelationSet operation_option_relations(
     Ids... ids) noexcept {
-    static_assert(sizeof...(Ids) <= 13);
+    static_assert(sizeof...(Ids) <= 14);
     OperationOptionRelationSet relations;
     ((relations.values[relations.count++] = relation_contract(ids)), ...);
     return relations;
@@ -1025,6 +1044,14 @@ constexpr OperationOptionRelationSet operation_option_relation(
     OptionId id) noexcept {
     return operation_option_relations(id);
 }
+
+struct DelegatedPresentationDetailScope {
+    std::string_view operation;
+    bool requires_dry_run;
+};
+
+inline constexpr std::array<DelegatedPresentationDetailScope, 2>
+    DELEGATED_PRESENTATION_DETAIL_SCOPES = {{{"-Qua", false}, {"-S", true}}};
 
 struct OperationFormSpec {
     OperationId operation;
@@ -1046,7 +1073,7 @@ inline constexpr std::array<OperationFormSpec, 14> MOGUET_OPERATION_FORMS = {{
          OptionId::Diff, OptionId::NoDiff,
          source_no_confirm_option_relation(), OptionId::DryRun,
          OptionId::BuildMode, OptionId::Rebuild,
-         OptionId::CleanBuild)},
+         OptionId::CleanBuild, OptionId::Details)},
     {OperationId::Build,
      "cli.build.local",
      operand_with_trailing_assignments(OperandKind::Directory),
@@ -1078,7 +1105,7 @@ inline constexpr std::array<OperationFormSpec, 14> MOGUET_OPERATION_FORMS = {{
          OptionId::Diff, OptionId::NoDiff,
          source_no_confirm_option_relation(), OptionId::DryRun,
          OptionId::BuildMode, OptionId::Rebuild,
-         OptionId::CleanBuild)},
+         OptionId::CleanBuild, OptionId::Details)},
     {OperationId::UpgradeAll,
      "cli.upgrade.all",
      no_operands(),
@@ -1088,7 +1115,7 @@ inline constexpr std::array<OperationFormSpec, 14> MOGUET_OPERATION_FORMS = {{
          OptionId::Diff, OptionId::NoDiff,
          source_no_confirm_option_relation(), OptionId::DryRun,
          OptionId::BuildMode, OptionId::Rebuild,
-         OptionId::CleanBuild)},
+         OptionId::CleanBuild, OptionId::Details)},
     {OperationId::Clean,
      "cli.maintenance.clean",
      no_operands(),
@@ -1102,6 +1129,7 @@ inline constexpr std::array<OperationFormSpec, 14> MOGUET_OPERATION_FORMS = {{
      TargetPolicy::OneOrMore,
      operation_option_relations(
          consumed_option_relation(OptionId::NoConfirm),
+         OptionId::Details,
          public_syntax_option_relation(
              OptionId::Recursive,
              OptionPublicSyntax::Optional))},
@@ -1111,7 +1139,8 @@ inline constexpr std::array<OperationFormSpec, 14> MOGUET_OPERATION_FORMS = {{
                       OperandOrderingRule::PreserveInputOrder),
      TargetPolicy::OneOrMore,
      operation_option_relations(
-         consumed_option_relation(OptionId::NoConfirm))},
+         consumed_option_relation(OptionId::NoConfirm),
+         OptionId::Details)},
     {OperationId::Fetch,
      "cli.fetch.sources",
      one_operand_term(OperandKind::Package, 1, UNBOUNDED_OPERAND_COUNT,
@@ -1362,7 +1391,7 @@ inline constexpr std::array<SpecialOperationSpec,
              OptionId::DryRun,
              OptionId::BuildMode, OptionId::Rebuild,
              OptionId::CleanBuild, OptionId::Aur,
-             OptionId::Repo),
+             OptionId::Repo, OptionId::Details),
          "exit.root-selection", "cli.pacman.sync-select"},
         {SpecialOperationId::SystemRepositoryUpdate,
          PACMAN_SYSTEM_UPGRADE_SYNTAX, no_token_aliases(),
@@ -1379,7 +1408,7 @@ inline constexpr std::array<SpecialOperationSpec,
              public_syntax_option_relation(
                  system_aur_needed_option_relation(),
                  OptionPublicSyntax::Optional),
-             pacman_no_confirm_option_relation(), OptionId::DryRun),
+             pacman_no_confirm_option_relation(), OptionId::DryRun, OptionId::Details),
          "exit.delegated-pacman",
          "cli.pacman.system-repository-update",
          DelegatedPacmanTailPolicy::RepositoryOnly},
@@ -1392,7 +1421,7 @@ inline constexpr std::array<SpecialOperationSpec,
          operation_option_relations(
              OptionId::Edit, OptionId::NoEdit,
              OptionId::Diff, OptionId::NoDiff,
-             source_no_confirm_option_relation(), OptionId::DryRun,
+             source_no_confirm_option_relation(), OptionId::DryRun, OptionId::Details,
              OptionId::BuildMode, OptionId::Rebuild,
              OptionId::CleanBuild,
              public_syntax_option_relation(
@@ -1414,7 +1443,7 @@ inline constexpr std::array<SpecialOperationSpec,
              public_syntax_option_relation(
                  system_aur_needed_option_relation(),
                  OptionPublicSyntax::Optional),
-             pacman_no_confirm_option_relation(), OptionId::DryRun),
+             pacman_no_confirm_option_relation(), OptionId::DryRun, OptionId::Details),
          "exit.delegated-pacman",
          "cli.pacman.system-repository-update",
          DelegatedPacmanTailPolicy::RepositoryOnly},
@@ -1427,7 +1456,7 @@ inline constexpr std::array<SpecialOperationSpec,
          operation_option_relations(
              OptionId::Edit, OptionId::NoEdit,
              OptionId::Diff, OptionId::NoDiff,
-             source_no_confirm_option_relation(), OptionId::DryRun,
+             source_no_confirm_option_relation(), OptionId::DryRun, OptionId::Details,
              OptionId::BuildMode, OptionId::Rebuild,
              OptionId::CleanBuild,
              public_syntax_option_relation(

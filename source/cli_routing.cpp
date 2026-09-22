@@ -101,6 +101,7 @@ bool local_source_build_accepts_global_option(
         case cli_authority::GlobalOptionId::Select:
         case cli_authority::GlobalOptionId::Aur:
         case cli_authority::GlobalOptionId::Repo:
+        case cli_authority::GlobalOptionId::Details:
         case cli_authority::GlobalOptionId::Count:
             return false;
     }

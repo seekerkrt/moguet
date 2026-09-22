@@ -8,7 +8,7 @@
 - Related Issues: [#75](https://github.com/seekerkrt/moguet/issues/75)、[#302](https://github.com/seekerkrt/moguet/issues/302)、[#305](https://github.com/seekerkrt/moguet/issues/305)
 - Related PRs: #336（#335 source-preference cutover）、#315〜#318（XDG path / directory safety）
 - Update history: Issue #373で旧decision 12の本文から安定contractへ分離。
-- Related upper decisions: [decision 1](../DECISIONS.md#decision-1)、[decision 2](../DECISIONS.md#decision-2)、[decision 4](../DECISIONS.md#decision-4)、[decision 5](../DECISIONS.md#decision-5)、[decision 6](../DECISIONS.md#decision-6)、[decision 7](../DECISIONS.md#decision-7)
+- Related upper decisions: [decision 1](../decisions.md#decision-1)、[decision 2](../decisions.md#decision-2)、[decision 4](../decisions.md#decision-4)、[decision 5](../decisions.md#decision-5)、[decision 6](../decisions.md#decision-6)、[decision 7](../decisions.md#decision-7)
 
 ## Contract本文（日本語normative source of truth）
 
@@ -59,4 +59,4 @@ v2.0.1でこのauthorityへ揃えることは、v2.0.0で承認済みのuser XDG
 
 ## Compatibility
 
-canonical XDG path、legacy path非参照、sudo境界、directory creation、filesystem safety、migration summaryは、[`COMPATIBILITY.md`のsource-build preference authority section](../COMPATIBILITY.md#compat-source-preference-xdg)を参照する。
+canonical XDG path、legacy path非参照、sudo境界、directory creation、filesystem safety、migration summaryは、[`compatibility.md`のsource-build preference authority section](../compatibility.md#compat-source-preference-xdg)を参照する。

@@ -285,6 +285,52 @@ void test_package_relation_public_diagnostics() {
     expect_no_internal_relation_tokens(
         declared_diagnostic, "declared fallback diagnostic");
 
+    // Both presentations consume the same completed assessment; rendering
+    // must preserve every typed value and retain fail-closed classifications.
+    const std::array assessments = {installed, planned, replacement, no_match,
+                                    unknown, invalid, declared};
+    const std::array<std::string_view, 7> summaries = {
+        "installed conflict with installed-provider",
+        "planned conflict with planned-child (PackageBase: planned-base)",
+        "potential replacement of legacy-provider",
+        "no matching installed or planned target",
+        "relation judgment unavailable (installed: source unavailable)",
+        "invalid relation metadata or observation (root attribution is invalid)",
+        "assessment incomplete"};
+    for(std::size_t index = 0; index < assessments.size(); ++index) {
+        const auto& assessment = assessments[index];
+        const auto before = assessment;
+        const auto normal = package_relation_assessment_summary_display(assessment);
+        const auto detailed = package_relation_assessment_diagnostic_display(assessment);
+        expect(assessment == before, "relation rendering changed typed authority");
+        expect_contains(normal, summaries[index], "compact relation classification");
+        expect_contains(normal, assessment.declaration.raw_specification(), "compact relation target");
+        expect_not_contains(normal, "roots:", "compact provenance suppression");
+        expect_no_internal_relation_tokens(normal, "compact relation summary");
+        expect(normal.size() < detailed.size(), "compact relation is not shorter");
+        if(index == 3) {
+            expect_not_contains(normal, "Build/install is blocked", "no-match summary");
+        } else {
+            expect_contains(normal, "Build/install is blocked", "fail-closed summary");
+        }
+    }
+    expect_contains(package_relation_assessment_summary_display(replacement),
+                    "no automatic replacement", "replacement safety summary");
+
+    for(const auto version_match : {PackageRelationVersionMatchKind::Unavailable,
+                                    PackageRelationVersionMatchKind::Invalid}) {
+        auto version_failure = installed;
+        version_failure.kind = version_match == PackageRelationVersionMatchKind::Invalid
+                                   ? PackageRelationAssessmentKind::Invalid
+                                   : PackageRelationAssessmentKind::Unknown;
+        version_failure.attributed_package_evidence->version_match = version_match;
+        const auto before = version_failure;
+        const auto normal = package_relation_assessment_summary_display(version_failure);
+        expect_contains(normal, version_match == PackageRelationVersionMatchKind::Invalid ? "version evidence invalid for installed-provider" : "version judgment unavailable for installed-provider", "version failure summary");
+        expect_contains(normal, "Build/install is blocked", "version failure blocking");
+        expect(version_failure == before, "version failure rendering changed authority");
+    }
+
     // A valid installed old-self reaches the same complete NoMatch wording;
     // structural invalidity remains a distinct fail-closed diagnostic.
     expect_not_contains(
@@ -387,9 +433,40 @@ void test_rich_cli_option_and_ownership_contract() {
         const OptionContract& rich = option_contract(option_id(legacy.id));
         expect(
             static_cast<std::size_t>(legacy.id) == index &&
-                static_cast<std::size_t>(rich.id) == index &&
+                (legacy.id == GlobalOptionId::Details ||
+                 static_cast<std::size_t>(rich.id) == index) &&
                 rich.canonical_token == legacy.token,
             "Existing global option ID/token order drifted");
+    }
+
+    const GlobalOptionSpec* global = find_moguet_global_option("--details");
+    const OptionContract& details = option_contract(OptionId::Details);
+    expect(
+        global != nullptr && global->id == GlobalOptionId::Details &&
+            option_id(global->id) == OptionId::Details &&
+            !global->accepts_attached_value &&
+            details.canonical_token == "--details" &&
+            details.owner == GrammarOwnership::MoguetOwned &&
+            details.lexical_placement ==
+                OptionLexicalPlacement::ParserGlobalNormalPosition &&
+            details.default_occurrence == OptionOccurrence::RepeatIdempotent &&
+            details.completion_visibility == OptionCompletionVisibility::SuggestedAndDescribed &&
+            details.semantic_scopes == option_scope(OptionSemanticScope::PresentationDetail),
+        "--details must be a Moguet-owned global presentation option");
+    for(const OperationOptionRelationSet* relations : {
+            &operation_form(operation_metadata(OperationId::Build), 0).option_relations,
+            &operation_form(operation_metadata(OperationId::Plan), 0).option_relations,
+            &operation_form(operation_metadata(OperationId::Deps), 0).option_relations,
+            &special_operation_spec(SpecialOperationId::SyncSelect).option_relations}) {
+        const OptionRelationContract* relation = relations->find(OptionId::Details);
+        expect(
+            relation != nullptr &&
+                relation->requirement == OptionRelationRequirement::Optional &&
+                relation->occurrence == OptionOccurrence::RepeatIdempotent &&
+                relation->semantic_effects == option_effect(OptionSemanticEffect::MoguetControl) &&
+                relation->forwarding_targets == option_forwarding_target(OptionForwardingTarget::None) &&
+                relation->forwarding_occurrence == OptionForwardingOccurrence::None,
+            "--details relation must be optional, idempotent and never forwarded");
     }
 
     const OptionContract& recursive = option_contract(OptionId::Recursive);
@@ -1132,11 +1209,11 @@ void test_issue_449_non_up_to_date_controls() {
         project_upgrade_all_fixture(aggregate);
     expect(
         non_aur_projection.summary_counts.total == 1 &&
-            non_aur_projection.summary_counts.normal == 1 &&
+            non_aur_projection.summary_counts.normal == 0 &&
             non_aur_projection.summary_counts.attention_required ==
-                0 &&
+                1 &&
             non_aur_projection.summary_counts.not_observed == 1 &&
-            non_aur_projection.attention_items.empty() &&
+            non_aur_projection.attention_items.size() == 1 &&
             non_aur_projection.full_items.size() == 1 &&
             non_aur_projection.full_items.front()
                 .package_state.has_value() &&

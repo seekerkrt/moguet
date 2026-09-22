@@ -8,7 +8,7 @@
 - Related Issues: [#217](https://github.com/seekerkrt/moguet/issues/217)、[#268](https://github.com/seekerkrt/moguet/issues/268)、[#272](https://github.com/seekerkrt/moguet/issues/272)、[#86](https://github.com/seekerkrt/moguet/issues/86)、[#96](https://github.com/seekerkrt/moguet/issues/96)、[#97](https://github.com/seekerkrt/moguet/issues/97)、[#151](https://github.com/seekerkrt/moguet/issues/151)、[#152](https://github.com/seekerkrt/moguet/issues/152)
 - Related PRs: #368（slice 1）、#369（slice 2）、#370（slice 3）、#371（slice 4）、#374（slice 5）
 - Update history: Issue #373で旧decision 15の本文から安定contractへ分離。Issue #271 Slice 5 / PR #374でproduction CLIへの接続が完了。
-- Related upper decisions: [decision 1](../DECISIONS.md#decision-1)、[decision 2](../DECISIONS.md#decision-2)、[decision 4](../DECISIONS.md#decision-4)、[decision 5](../DECISIONS.md#decision-5)、[decision 6](../DECISIONS.md#decision-6)、[decision 7](../DECISIONS.md#decision-7)
+- Related upper decisions: [decision 1](../decisions.md#decision-1)、[decision 2](../decisions.md#decision-2)、[decision 4](../decisions.md#decision-4)、[decision 5](../decisions.md#decision-5)、[decision 6](../decisions.md#decision-6)、[decision 7](../decisions.md#decision-7)
 
 ## Contract本文（日本語normative source of truth）
 
@@ -62,6 +62,9 @@ local root childrenはExplicit、dependency planが要求するchildrenはDepend
 
 source workspaceのcleanupとartifact workspaceのdiagnostic retentionは別lifecycleである。cleanup failureやpartial completionをprimary build / install failureへflattenせず、completed child、failed target、unattempted targetを区別する。unsafe identity replacementを観測した場合はnamed replacementをcleanupせず、manual inspection用artifactを保持し得る。
 
+source snapshotのmaterialize成功まではconstruction guardがpartial workspaceのrollbackを所有し、成功後はsource workspaceだけがcleanupを所有する。cleanup未試行のままscopeを離れる場合の通常RAII cleanupは維持する。
+source workspaceは所有するcleanup経路で一度だけ削除を試みる。成功時はclean状態となり、後続のdestructorは追加削除しない。安全にcleanupを完了できない場合はtyped failure / refusalを保持して試行済みとし、destructorやmember guardから暗黙に再試行しない。残留し得るworkspace pathを診断に示し、残留を削除済みや操作成功として報告しない。primary build failureとsecondary cleanup failureは両方保持し、build成功後でもsource cleanup failureならinstallへ進まない。user-owned source保護、named lineage / ownership / generationの検証、readonly sourceから作ったcopyの通常cleanupは維持する。
+
 ### Production execution orderとfailure
 
 全plan、metadata evaluation、source identity、artifact identity、static preflightが完了した後のpackage-side実行順は次のとおりである。
@@ -90,4 +93,4 @@ Issue #271 Slice 2〜5でLocalSourceRoot、read-only and evaluated metadata、de
 
 ## Compatibility
 
-正式CLI入口、local root identity、`.SRCINFO` state、PKGBUILD evaluation gate、AUR fallback禁止、source snapshot、artifact、install reason、user-owned tree非変更の要約は、[`COMPATIBILITY.md`のlocal PKGBUILD section](../COMPATIBILITY.md#compat-local-pkgbuild)を参照する。
+正式CLI入口、local root identity、`.SRCINFO` state、PKGBUILD evaluation gate、AUR fallback禁止、source snapshot、artifact、install reason、user-owned tree非変更の要約は、[`compatibility.md`のlocal PKGBUILD section](../compatibility.md#compat-local-pkgbuild)を参照する。

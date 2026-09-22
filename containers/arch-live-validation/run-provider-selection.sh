@@ -411,10 +411,17 @@ parse_candidate_contract() {
     parsed_output=$1
     parsed_table=$2
     normalized_output=$parsed_output.normalized
-    tr -d '\r' < "$parsed_output" > "$normalized_output"
+    # The normal candidate rows share -Ss styling on a PTY.
+    python3 - "$parsed_output" "$normalized_output" <<'PY_NORMALIZE'
+from pathlib import Path
+import re
+import sys
+raw = Path(sys.argv[1]).read_bytes()
+Path(sys.argv[2]).write_bytes(re.sub(rb"\x1b\[[0-9;]*m", b"", raw).replace(b"\r", b""))
+PY_NORMALIZE
 
     dependency_header_count=$(validation_grep_count -F -c \
-        ":: provider dependency=$REQUIRED_MAKE_DEPENDENCY" "$normalized_output")
+        ":: Choose a provider for $REQUIRED_MAKE_DEPENDENCY" "$normalized_output")
     if [ "$dependency_header_count" -ne 1 ]; then
         fail "expected one provider header, observed $dependency_header_count"
     fi
@@ -425,16 +432,26 @@ parse_candidate_contract() {
 /^[0-9]+\) / {
     number = $1
     sub(/\)$/, "", number)
-    source = package_name = repository = provided = ""
-    for (field_index = 2; field_index <= NF; ++field_index) {
-        split($field_index, field, "=")
-        if (field[1] == "source") source = field[2]
-        else if (field[1] == "package") package_name = field[2]
-        else if (field[1] == "repository") repository = field[2]
-        else if (field[1] == "provided") provided = field[2]
+    split($2, identity, "/")
+    repository = identity[1]
+    package_name = identity[2]
+    source = repository == "aur" ? "AUR" : "repository"
+    provided = component = ""
+    for (field_index = 4; field_index <= NF; ++field_index) {
+        if ($field_index == "[repository]") source = "repository"
+        if ($field_index == "[provides:") {
+            provided = $(field_index + 1)
+            sub(/\]$/, "", provided)
+            sub(/[<>=].*$/, "", provided)
+        }
+        if ($field_index == "[component:") {
+            component = $(field_index + 1)
+            sub(/\]$/, "", component)
+        }
     }
-    if (number !~ /^[0-9]+$/ || source == "" || package_name == "" ||
-        repository == "" || provided == "") {
+    if (component != "") provided = component
+    if (number !~ /^[0-9]+$/ || package_name == "" ||
+        repository == "" || provided == "" || identity[3] != "") {
         exit 9
     }
     print number "\t" source "\t" package_name "\t" repository "\t" provided
@@ -445,9 +462,6 @@ parse_candidate_contract() {
     parsed_count=$(wc -l < "$parsed_table")
     if [ "$presented_count" -ne "$parsed_count" ] || [ "$parsed_count" -ne 2 ]; then
         fail "provider drift: expected exactly 2 parseable candidates, observed $presented_count/$parsed_count"
-    fi
-    if grep -F 'source=AUR' "$normalized_output" >/dev/null; then
-        fail 'provider drift: AUR candidate entered the reviewed candidate set'
     fi
     awk -F '\t' '
         { numbers[$1]++ }
@@ -778,7 +792,7 @@ prepare_case non-tty-pipe
 run_non_tty_case "$first_provider_choice" --noedit build --local "$case_source"
 assert_blocked_status
 tr -d '\r' < "$case_output" > "$case_output.normalized"
-assert_not_contains ":: provider dependency=$REQUIRED_MAKE_DEPENDENCY" \
+assert_not_contains ":: Choose a provider for $REQUIRED_MAKE_DEPENDENCY" \
     "$case_output.normalized"
 assert_not_contains 'Select a provider from' "$case_output.normalized"
 assert_ambiguous_diagnostic
@@ -796,7 +810,7 @@ printf '%s\n' "$first_provider_choice" > "$noconfirm_input"
 run_pty_case "$noconfirm_input" --noedit --noconfirm build --local "$case_source"
 assert_blocked_status
 tr -d '\r' < "$case_output" > "$case_output.normalized"
-assert_not_contains ":: provider dependency=$REQUIRED_MAKE_DEPENDENCY" \
+assert_not_contains ":: Choose a provider for $REQUIRED_MAKE_DEPENDENCY" \
     "$case_output.normalized"
 assert_not_contains 'Select a provider from' "$case_output.normalized"
 assert_ambiguous_diagnostic

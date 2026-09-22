@@ -4,9 +4,13 @@ Moguetは、`main` / `develop` / `feature/*` / `fix/*` / `docs/*` / `release/*`�
 
 branch / tag同期のownerはGitHub Actionsのmirror workflowとする。同じrefをGitHubとGitLabへ二重に手動pushせず、GitHubをauthority、GitLabをmirror destinationとして扱う。
 
-バージョン番号の付け方は [VERSIONING.md](VERSIONING.md) を参照する。developmentからrelease
+バージョン番号の付け方は [versioning.md](versioning.md) を参照する。developmentからrelease
 candidateまでのvalidation selection、approval evidence、evidence reuse / invalidation、review closureは
-[VALIDATION.md](VALIDATION.md)をpolicy authorityとする。
+[validation.md](validation.md)をpolicy authorityとする。
+
+能力と責任範囲は[project stance](project-stance.md)、設計上の根拠とauthorityのphase / lifetimeは
+[設計ポリシーの責務境界](decisions.md#decision-6)、具体的な保証は[contract index](contracts/README.md)から確認する。
+変更するcontractを特定したうえで、上記validation policyから段階に応じたevidenceを選ぶ。
 
 ## Branches
 
@@ -67,14 +71,14 @@ Issue ごとの作業ブランチ。
     git pull --ff-only origin develop
     git switch -c feature/issue-XX-topic
 
-実装中は`VALIDATION.md`のrisk classificationに従い、incremental buildとaffected / focused
+実装中は`validation.md`のrisk classificationに従い、incremental buildとaffected / focused
 targetを使う。例:
 
     env -u MAKEFLAGS -u MFLAGS make -j8 --output-sync=target test-<affected-area>
 
 Slice completionでは変更contractのfocused supersetと必要なhost / deterministic regressionを確認する。
 PR / merge approvalのcanonical host gateは次の1回である。同じcandidateの有効なevidenceがある場合は、
-`VALIDATION.md`のinvalidation ruleに従って不要な再実行を避ける。
+`validation.md`のinvalidation ruleに従って不要な再実行を避ける。
 
     env -u MAKEFLAGS -u MFLAGS make -j8 --output-sync=target test-host-release
     git diff --check
@@ -107,8 +111,8 @@ include / link graph、negative compile recipeを所有しない。
 | `build/cmake-production` | `BUILD_TESTING=OFF` | 通常の`make`、install / uninstall、production smoke |
 | `build/cmake-testing` | `BUILD_TESTING=ON` | developer、CTest、host / release validation、focused test |
 
-通常の`make`はproduction treeだけから`moguet`をbuildし、107個のC++ test-ledger executable、
-1個の`EXCLUDE_FROM_ALL` installed transport fixture harness、132件のCTest registrationを不用意にbuildしない。
+通常の`make`はproduction treeだけから`moguet`をbuildし、C++ test executableや
+`EXCLUDE_FROM_ALL` installed transport fixture harnessをbuildせず、CTestも登録しない。
 `make test`はtesting treeをbuildし、CTestを実行してから
 gettext、shell、docs、packaging等のrepository-specific validationを実行する。`make test-<area>`は
 互換entrypointとして残るが、exact target / CTest selectionは
@@ -207,19 +211,21 @@ environment初期化、cache、toolchainに委ねる。CMP0156 / CMP0181のNEW�
 `cmake/MoguetTests.cmake`、`MoguetTestTargets.cmake`、`MoguetTestRegistrations.cmake`が次のfail-closed
 inventoryを所有する。
 
-| Inventory | Expected |
-| --- | ---: |
-| C++ test executables | 116 |
-| installed transport fixture harnesses (`EXCLUDE_FROM_ALL`) | 1 |
-| support / stub translation units | 32 |
-| link firewalls | 50 |
-| firewall descriptors | 50 |
-| CTest registrations | 147 |
+C++ test executable、support / stub source、link firewall、firewall descriptorは、独立した
+expected一覧とactual graphのexact membership / uniquenessをconfigure時に照合する。
+CTest runtime targetとの対応、descriptorのtargetとhash、installed transport fixtureの
+`EXCLUDE_FROM_ALL`も検証する。configure summaryのinventory件数は各一覧から導出する。
+CTest registrationは、`MoguetFocusedTests.cmake`の独立したfrontend要求集合をexpectedとして、
+registration helperの名前集合とCMakeの実test集合をそれぞれexact照合する。全registrationは
+focused frontendから要求され、複数aliasによる同一testの共有は許す。closureの各shardも
+frontend側で明示的に要求し、actual登録から要求集合を生成しない。余剰・欠落の検出は総数に
+依存せず、表示件数はactual集合から導出する。この照合は名前のmembershipを保証し、個々の
+名前とselectorの意味の対応は既存の登録宣言とbehavioral testが所有する。
 
 stub / real implementation exclusion、replacement ABI、ALPM stub、exact source closureをtarget-localに
 維持する。単一production libraryを全testへ無条件linkしない。negative compileはCTest registrationから
 effective CMake compiler / launcher / compile optionを取得し、GNU Make recursive compileへ戻さない。
-Make focused aliasとCMake focused targetは各127件で一致し、missing / unexpectedを0に保つ。
+Makeの互換focused alias一覧とCMakeの実target集合を照合し、重複とmissing / unexpectedを拒否する。
 
 `make test-installed-fixture-compile`は既存のinstalled transport fixture全体をcompile/linkする
 host gateであり、fixtureを実行しない。`make test`のrepository validationにも含め、production headerと
@@ -254,7 +260,7 @@ helper pathだけを使用する。
 `test`はfull host A–Dを所有し、`release-check-exclusive`はversion、license、packaging、tracked
 Markdownのrelease固有4 checkerだけを所有する。`test-host-release`は同じtop-level runで`test`を
 完了してから`release-check-exclusive`を1回実行するため、A–DとGを重複なく構成できる。
-実行段階とevidenceの扱いは[VALIDATION.md](VALIDATION.md)を正とする。
+実行段階とevidenceの扱いは[validation.md](validation.md)を正とする。
 
 既存`release-check`のstandalone互換性は維持し、従来のA–D subset prerequisiteを完了してから同じ
 `release-check-exclusive`へ委譲する。`release-check`単独をfull A–Dへ拡張したものではない。
@@ -389,7 +395,7 @@ contiguous historyを確認する。runnerはcopied source hashesとraw document
 S5-only targetはpublication-noneを引き続き要求する。#475 comparisonは7-B coordinator内だけに接続し、
 7-Dがnormal routeから7-B/7-Cへ接続する。Slice 8の最終契約とmigration判断は
 [devel tracking contract](contracts/devel-tracking.md)、final acceptanceの選択とevidenceは
-[VALIDATION](VALIDATION.md)を参照する。S4/S5/S6のowner contractは変更しない。
+[VALIDATION](validation.md)を参照する。S4/S5/S6のowner contractは変更しない。
 詳細は[`exact-installed-artifact-binding.md`](contracts/exact-installed-artifact-binding.md)を正とする。
 
 S5-Cのsingle-child coreのfinal construction/lineageは`test-installed-devel-source-build-proof`、lossless aggregateとcleanup consequenceは
@@ -430,8 +436,8 @@ PKGBUILD build / installを単一のfail-fast recipeから別containerで順に�
 contextでも後続laneを並行開始せず、providerまたはAUR failure後は残りのlaneを開始しない。
 current Arch repository、public AUR、
 container内のactual package transactionを使うため、`make test` / `make release-check`へ
-actual executionを混ぜない。release candidateでは通常のhost / offline validation後に、
-明示的に次を実行し、three live laneの結果を個別に確認する。
+actual executionを混ぜない。final RCでは下記Release flowの`release-validate`がhost / offlineの後に
+このaggregateを呼ぶ。three live laneの詳細は既存runner出力で確認する。単独で調査する場合の入口は次のとおり。
 
     make test-container-live
 
@@ -445,17 +451,25 @@ static `test-live-contract`として確認するが、networkやcontainer runtim
     git pull --ff-only origin develop
     git switch -c release/vX.Y.Z
 
-リリース準備後:
+リリース準備のactual diffと生成済みman等を整合させ、対象candidateを固定する。
+新規fileを含む場合は候補に含めるpathを明示して先にstageし、非ignored untrackedが残らない状態にする。
+trackedのstaged / unstaged変更は許容される。実行中は編集・stage操作や同じbuild treeの別validationを並行しない。
+candidate / hygiene / default profileの詳細は[`validation.md`のRC policy](validation.md#4-release-candidate)を正とする。
 
-    env -u MAKEFLAGS -u MFLAGS make clean
-    env -u MAKEFLAGS -u MFLAGS make -j8 --output-sync=target
-    env -u MAKEFLAGS -u MFLAGS make -j8 --output-sync=target test-host-release
-    env -u MAKEFLAGS -u MFLAGS make test-container
-    env -u MAKEFLAGS -u MFLAGS make test-container-live
-    git diff --check
+    env -u MAKEFLAGS -u MFLAGS make release-validate
+
+このentrypointはclean、production build、host、offline/current Arch、liveまでを実行するため、
+Docker image buildのnetwork利用とcontainer内actual transactionを含む。default環境のsanitationはscriptが所有する。
+summaryとexit statusを確認し、必要なlog pathをcandidate / 時刻 / exact commandとともに記録する。
+INVALIDや取得失敗では停止原因を解消してcandidateを再固定し、新candidateへ古いPASSを転用しない。
+個別targetはdebug / focused確認に利用できるが、それだけで最終RCの完了とはしない。
+
+VALID後もactual release-preparation diffとstatusを確認し、下記のstage / commit、release PR、
+main merge後のtag、release notes抽出・目視確認、GitHub Release、mirror確認、develop回収とcleanupを
+operatorが行う。automated VALIDはこれらの実行許可や完了を意味しない。
 
 ccache / mold parityは必要なreleaseでの追加validationであり、上記default gateの代替にしない。
-それぞれのexact compile / link scopeとclean / incremental条件を`VALIDATION.md`に従って記録する。
+それぞれのexact compile / link scopeとclean / incremental条件を`validation.md`に従って記録する。
 
     git status --short
 

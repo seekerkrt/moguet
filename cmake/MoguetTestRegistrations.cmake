@@ -114,6 +114,13 @@ moguet_add_ctest(
         --collector-only
 )
 _moguet_add_direct_ctest(cpp.reviewed_source_state reviewed-source-state-test)
+moguet_add_ctest(
+    NAME cpp.dependency_cleanup_interaction
+    TARGETS invocation-owned-cleanup-model-test
+    COMMAND
+        "$<TARGET_FILE:invocation-owned-cleanup-model-test>"
+        --interaction-only
+)
 _moguet_add_direct_ctest(
     cpp.reviewed_source_state_store
     reviewed-source-state-store-test
@@ -912,12 +919,15 @@ moguet_add_ctest(
 )
 set_tests_properties(cpp.devel_tracking_bootstrap PROPERTIES TIMEOUT 480)
 
-moguet_add_ctest(
-    NAME cpp.pinned_submodule_closure
-    TARGETS pinned-submodule-closure-test
-    COMMAND "$<TARGET_FILE:pinned-submodule-closure-test>" --pinned-closure
-)
-set_tests_properties(cpp.pinned_submodule_closure PROPERTIES TIMEOUT 300)
+foreach(_moguet_closure_shard IN ITEMS declarations objects failures tags)
+    moguet_add_ctest(
+        NAME "cpp.pinned_submodule_closure.${_moguet_closure_shard}"
+        TARGETS pinned-submodule-closure-test
+        COMMAND "$<TARGET_FILE:pinned-submodule-closure-test>" --pinned-closure "${_moguet_closure_shard}"
+    )
+    set_tests_properties("cpp.pinned_submodule_closure.${_moguet_closure_shard}" PROPERTIES TIMEOUT 300)
+endforeach()
+unset(_moguet_closure_shard)
 
 # 4B0 foundation only; no production bootstrap/S4 integration is run here.
 moguet_add_ctest(
@@ -936,10 +946,24 @@ moguet_add_ctest(
 set_tests_properties(cpp.pinned_submodule_workspace PROPERTIES TIMEOUT 300)
 
 # 4B2 runs only recursive production integration cases on the existing full
-# bootstrap owner fixture. It does not execute that fixture's 68-case lane.
+# bootstrap owner fixture. It does not execute that fixture's full bootstrap lane.
 moguet_add_ctest(
     NAME cpp.pinned_submodule_s4_integration
     TARGETS devel-tracking-bootstrap-test
     COMMAND python3 "${PROJECT_SOURCE_DIR}/tests/test-devel-tracking-bootstrap.py" "$<TARGET_FILE:devel-tracking-bootstrap-test>" --pinned-s4
 )
 set_tests_properties(cpp.pinned_submodule_s4_integration PROPERTIES TIMEOUT 300)
+
+moguet_add_ctest(
+    NAME cpp.dependency_cleanup_execution
+    TARGETS invocation-owned-cleanup-model-test
+    COMMAND "$<TARGET_FILE:invocation-owned-cleanup-model-test>" --execution-only
+)
+
+moguet_add_ctest(
+    NAME cli.source_build_rmdeps
+    TARGETS moguet-aur-rpc-validation-test moguet-source-install-characterization-test
+    COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test-source-build-rmdeps.py"
+        "$<TARGET_FILE:moguet-aur-rpc-validation-test>"
+        "$<TARGET_FILE:moguet-source-install-characterization-test>"
+)

@@ -98,6 +98,8 @@ CMAKE_FOCUSED_ALIASES := \
 	test-split-devel-artifact-authority \
 	test-evaluated-devel-source-artifact-transport \
 	test-remote-aur-cleanup-collector \
+	test-dependency-cleanup-interaction \
+	test-dependency-cleanup-execution \
 	test-source-artifact-install-trusted-transport \
 	test-reviewed-source-state \
 	test-reviewed-source-state-store \
@@ -164,6 +166,7 @@ CMAKE_FOCUSED_ALIASES := \
 	test-pacman-routing \
 	test-build-cache-symlink \
 	test-source-build \
+	test-source-build-rmdeps \
 	test-source-selection \
 	test-needed-contract \
 	test-pkgbuild-export
@@ -307,6 +310,8 @@ export MOGUET_FRONTEND_USE_DEFAULT_COMPILE_OPTIONS
 	test-cmake-frontend-contract \
 	test-build-authority-closure \
 	test-validation-status \
+	test-release-validate \
+	release-validate \
 	test-format-changed-cpp \
 	test-markdown-links \
 	test-completion-schema \
@@ -328,6 +333,7 @@ export MOGUET_FRONTEND_USE_DEFAULT_COMPILE_OPTIONS
 	test-container-receipt \
 	test-container-cleanup-authority \
 	test-container-source-artifact-receipt \
+	test-container-controlled-aur-lifecycle \
 	test-container-exact-installed-binding \
 	test-container-devel-publication \
 	test-container-installed-binding-characterization
@@ -577,6 +583,13 @@ test-build-authority-closure: cmake-test-configure
 test-validation-status:
 	sh tests/test-validation-status.sh
 
+# Keep this non-recursive: make -n must not start RC validation.
+release-validate:
+	bash scripts/release-validate.sh
+
+test-release-validate:
+	bash tests/test-release-validate.sh
+
 test-format-changed-cpp: \
 	scripts/format-changed-cpp.sh \
 	tests/test-format-changed-cpp.sh \
@@ -696,6 +709,14 @@ test-container-receipt:
 		$(DOCKER) run --rm --network=none \
 			"$(ARCH_RECEIPT_VALIDATION_IMAGE)"
 
+# F-02: two controlled revisions through the installed production CLI. The
+# existing receipt toolchain supplies real makepkg/ALPM/pacman and root helper.
+test-container-controlled-aur-lifecycle:
+	$(DOCKER) build --network=none --tag "$(ARCH_RECEIPT_VALIDATION_IMAGE)" \
+		--file containers/arch-receipt-validation/Dockerfile .
+	$(DOCKER) run --rm --network=none --cap-add=SYS_PTRACE "$(ARCH_RECEIPT_VALIDATION_IMAGE)" \
+		/usr/bin/python3 containers/arch-receipt-validation/run-controlled-aur-lifecycle.py
+
 test-container-source-artifact-receipt:
 	@set -eu; \
 		printf '%s\n' ':: Building source-artifact receipt validation image'; \
@@ -786,6 +807,7 @@ test-repository: \
 	test-cmake-frontend-contract \
 	test-build-authority-closure \
 	test-validation-status \
+	test-release-validate \
 	test-format-changed-cpp \
 	test-markdown-links \
 	test-public-documentation \

@@ -19,6 +19,7 @@ enum class CliInvocationIssueKind {
     ExtraOperand,
     InvalidOperandOrdering,
     InvalidEnvironmentAssignment,
+    UnsupportedPresentationDetail,
 };
 
 struct CliInvocationIssue {
@@ -56,8 +57,8 @@ struct CliInvocationValidation {
 ResolvedCliRuntimeContract resolve_cli_runtime_contract(
     const ParsedCliArguments& parsed);
 
-// Moguet-owned / intercepted grammarだけを閉じて検証し、delegated pacmanの
-// open grammarはそのまま返す。productionとdry-runの共通authority。
+// Moguet-owned / intercepted grammarと--detailsのroute scopeを検証し、
+// delegated pacman自身のopen grammarはそのまま返す。productionとdry-runの共通authority。
 CliInvocationValidation validate_cli_invocation_contract(
     const ParsedCliArguments& parsed);
 

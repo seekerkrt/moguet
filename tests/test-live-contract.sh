@@ -36,8 +36,8 @@ local_archive_validator=$live_root/local-archive-validator.sh
 validation_status_library=$repo_root/scripts/validation-status.sh
 dockerignore_file=$repo_root/.dockerignore
 makefile=$repo_root/Makefile
-development_policy=$repo_root/docs/DEVELOPMENT.md
-validation_policy=$repo_root/docs/VALIDATION.md
+development_policy=$repo_root/docs/development.md
+validation_policy=$repo_root/docs/validation.md
 offline_dockerfile=$repo_root/containers/arch-validation/Dockerfile
 offline_runner=$repo_root/containers/arch-validation/run-tests.sh
 receipt_root=$repo_root/containers/arch-receipt-validation
@@ -516,6 +516,105 @@ assert_contains "$live_dockerfile" 'COPY --chown=moguet-validation:moguet-valida
 assert_contains "$live_dockerfile" 'USER moguet-validation:moguet-validation'
 assert_contains "$live_dockerfile" 'make -j8 --output-sync=target'
 assert_contains "$live_dockerfile" 'CMD ["containers/arch-live-validation/run-provider-selection.sh"]'
+# #435: exercise the real live-lane parser without containers or package work.
+python3 - "$provider_runner" "$validation_status_library" <<'PY_PROVIDER_PRESENTATION'
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+runner = Path(sys.argv[1]).read_text()
+function = runner.split("parse_candidate_contract() {", 1)[1].split("\nassert_same_candidate_presentation()", 1)[0]
+script = """set -eu
+. "$1"
+fail() { echo "$*" >&2; exit 1; }
+REQUIRED_MAKE_DEPENDENCY=cargo
+EXPECTED_PROVIDER_REPOSITORY=extra
+EXPECTED_PROVIDER_PACKAGES=rust,rustup
+first_provider=rust
+second_provider=rustup
+parse_candidate_contract() {""" + function + '\nparse_candidate_contract "$2" "$3"\n'
+plain = ":: Choose a provider for cargo:\n1) extra/rust 1:1.97.1-1 [provides: cargo] [installed]\n2) extra/rustup 1.29.0-2 [provides: cargo]\n"
+styled = plain.replace("extra/rust ", "\x1b[1;35mextra\x1b[0m/\x1b[1mrust\x1b[0m ")
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
+    for label, content, accepted in (
+        ("plain", plain, True), ("styled", styled, True),
+        ("versioned", plain.replace("[provides: cargo]", "[provides: cargo=1.97.1]"), True),
+        ("component", plain.replace("[provides: cargo]", "[provides: other=1] [component: cargo]"), True),
+        ("wrong-source", plain.replace("extra/rust ", "aur/rust "), False),
+        ("wrong-capability", plain.replace("[provides: cargo]", "[provides: other]"), False),
+        ("duplicate-number", plain.replace("2) ", "1) "), False),
+    ):
+        source = root / label
+        source.write_text(content)
+        table = root / (label + ".tsv")
+        result = subprocess.run(["sh", "-c", script, "sh", sys.argv[2], str(source), str(table)], capture_output=True)
+        assert (result.returncode == 0) == accepted, (label, result.stderr)
+        if accepted:
+            assert table.read_text() == "1\trepository\trust\textra\tcargo\n2\trepository\trustup\textra\tcargo\n"
+print("compact provider live parser: plain/style and negative identities passed")
+PY_PROVIDER_PRESENTATION
+
+# Keep the local-install lane parser aligned with compact Normal provider rows.
+python3 - "$local_runner" "$validation_status_library" <<'PY_LOCAL_PROVIDER_PRESENTATION'
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+
+runner = Path(sys.argv[1]).read_text()
+function = (
+    runner.split("parse_selected_provider_choice() {", 1)[1]
+    .split("\nassert_inventory_transition()", 1)[0]
+)
+
+script = """set -eu
+. "$1"
+fail() { echo "$*" >&2; exit 1; }
+EXPECTED_PROVIDER_REPOSITORY=extra
+REQUIRED_MAKE_DEPENDENCY=cargo
+EXPECTED_PROVIDER_PACKAGES=rust,rustup
+LOCAL_INSTALL_PROVIDER=rust
+parse_selected_provider_choice() {""" + function + """
+parse_selected_provider_choice "$2" "$3"
+"""
+
+plain = (
+    ":: Choose a provider for cargo:\n"
+    "1) extra/rust 1:1.98.1-1 [provides: cargo]\n"
+    "2) extra/rustup 1.29.1-1 [provides: cargo]\n"
+)
+
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
+
+    for label, content, accepted in (
+        ("compact", plain, True),
+        ("wrong-source", plain.replace("extra/rust ", "aur/rust "), False),
+    ):
+        source = root / label
+        table = root / (label + ".tsv")
+        source.write_text(content)
+
+        result = subprocess.run(
+            ["sh", "-c", script, "sh", sys.argv[2], str(source), str(table)],
+            capture_output=True,
+        )
+
+        assert (result.returncode == 0) == accepted, (
+            label, result.stdout, result.stderr
+        )
+
+        if accepted:
+            assert result.stdout.decode().strip() == "1"
+            assert table.read_text() == (
+                "1\trepository\trust\textra\tcargo\n"
+                "2\trepository\trustup\textra\tcargo\n"
+            )
+
+print("compact local-provider live parser: regression passed")
+PY_LOCAL_PROVIDER_PRESENTATION
+
 assert_contains "$provider_runner" 'production_moguet=$repo_root/moguet'
 assert_contains "$provider_runner" 'makepkg --printsrcinfo > .SRCINFO'
 assert_contains "$provider_runner" 'cmp -s "$fixture_expected_srcinfo" "$case_source/.SRCINFO"'
@@ -977,7 +1076,8 @@ local_live_target_reference_count=$(validation_grep_count -F -c \
 if [ "$local_live_target_reference_count" -ne 3 ]; then
     fail 'live local target must appear only in .PHONY, its definition, and the aggregate gate'
 fi
-# Only these two runtime commands need cross-UID sealed procfd access.
+# Actual public AUR/local installs need cross-UID sealed procfd access. The
+# networkless controlled lifecycle uses the same helper boundary (checked below).
 for trusted_live_target in "$aur_live_target" "$local_live_target"; do
     printf '%s\n' "$trusted_live_target" | grep -F -- '$(DOCKER) run --rm --cap-add=SYS_PTRACE' >/dev/null ||
         fail 'trusted live run lacks its exact SYS_PTRACE boundary'
@@ -985,8 +1085,8 @@ done
 if printf '%s\n' "$live_target" | grep -F -- '--cap-add' >/dev/null; then
     fail 'provider lane must not gain a capability'
 fi
-[ "$(validation_grep_count -F -c -- '--cap-add' "$makefile")" -eq 2 ] ||
-    fail 'capability must be limited to the two live install runs'
+[ "$(validation_grep_count -F -c -- '--cap-add' "$makefile")" -eq 3 ] ||
+    fail 'capability must be limited to the two live and one controlled install runs'
 for trusted_gateway in "$aur_gateway" "$local_gateway"; do
     assert_contains "$trusted_gateway" 'check-trusted "$source_artifact"'
     assert_contains "$trusted_gateway" 'verify-trusted'
@@ -1226,7 +1326,7 @@ done
 # preserve the same named boundaries enforced above. These assertions do not
 # duplicate the matrix; they prevent documentation from silently promoting a
 # focused or compatibility target to approval authority.
-assert_contains "$development_policy" '[VALIDATION.md](VALIDATION.md)'
+assert_contains "$development_policy" '[validation.md](validation.md)'
 assert_contains "$validation_policy" 'PR / mergeのcanonical host gateは`test-host-release`である。'
 assert_contains "$validation_policy" '`release-check`はstandalone互換targetとして維持するが、full host A–Dのapproval evidenceではない。'
 assert_contains "$validation_policy" '`test-container`はhost A–D / Gを代替せず、`test-live-contract`はactual Fを代替しない。'
@@ -1307,6 +1407,18 @@ printf '%s\n' "$source_receipt_target_body" | grep -F -- \
     'run-installed-source-artifact-receipt.py' >/dev/null ||
     fail 'source-artifact receipt target does not run its owner-specific fixture'
 cleanup_authority_target_body=$(make_target_body test-container-cleanup-authority)
+controlled_aur_target_body=$(make_target_body test-container-controlled-aur-lifecycle)
+printf '%s\n' "$controlled_aur_target_body" | grep -F -- 'build --network=none' >/dev/null ||
+    fail 'controlled AUR lifecycle lost its offline image build'
+printf '%s\n' "$controlled_aur_target_body" | grep -F -- 'run --rm --network=none --cap-add=SYS_PTRACE' >/dev/null ||
+    fail 'controlled AUR lifecycle lost its networkless disposable runtime'
+printf '%s\n' "$controlled_aur_target_body" | grep -F -- '--file containers/arch-receipt-validation/Dockerfile' >/dev/null ||
+    fail 'controlled AUR lifecycle lost its existing receipt toolchain'
+printf '%s\n' "$controlled_aur_target_body" | grep -F -- 'run-controlled-aur-lifecycle.py' >/dev/null ||
+    fail 'controlled AUR lifecycle does not execute its focused runner'
+if printf '%s\n' "$controlled_aur_target_body" | grep -E -- '--mount|--volume| -v ' >/dev/null; then
+    fail 'controlled AUR lifecycle must not mount host state'
+fi
 printf '%s\n' "$cleanup_authority_target_body" | grep -F -- '--network=none' >/dev/null ||
     fail 'cleanup-authority target lost its network-none boundary'
 printf '%s\n' "$cleanup_authority_target_body" | grep -F -- \

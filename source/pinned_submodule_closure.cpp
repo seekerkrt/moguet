@@ -2,6 +2,8 @@
 #include "git_remote_revision_observer.hpp"
 #include "trusted_git_process_policy.hpp"
 #include "logging.hpp"
+#include "localization.hpp"
+#include "shell_words.hpp"
 
 #include <algorithm>
 #include <array>
@@ -26,6 +28,10 @@ using Clock = std::chrono::steady_clock;
 using Stage = PinnedClosureStage;
 using Reason = PinnedClosureFailureReason;
 
+struct RootTagCommandPresentation {
+    PresentationDetail detail;
+    std::size_t additional_objects;
+};
 
 // Post-fetch storage bounds are not hard network or disk quotas.
 constexpr std::size_t MAX_ENTRIES = 262144;
@@ -364,7 +370,7 @@ struct PinnedSubmoduleClosureData {
     std::string leaf;
     Descriptor parent, root;
     struct stat parent_identity{}, root_identity{};
-    bool created = false, closed = false;
+    bool created = false, closed = false, objects_cleanup_attempted = false;
     PinnedClosureCleanupResult cleanup_result;
     std::vector<Repository> repositories;
     std::vector<PinnedSubmoduleNode> nodes;
@@ -467,7 +473,8 @@ struct PinnedSubmoduleClosureData {
         lineage();
     }
     std::string run(Stage stage, std::optional<std::size_t> repository, std::vector<std::string> operation,
-                    std::size_t limit, bool initializing = false) {
+                    std::size_t limit, bool initializing = false,
+                    std::optional<RootTagCommandPresentation> root_tag_presentation = std::nullopt) {
         active = stage;
         notify(stage, root_path);
         check();
@@ -481,6 +488,26 @@ struct PinnedSubmoduleClosureData {
         ExplicitProcessInvocation invocation{"/usr/bin/git", std::move(arguments), environment};
         invocation.working_directory_fd = repository ? repositories.at(*repository).descriptor.get() : root.get();
         invocation.standard_input_fd = input.get();
+        if(root_tag_presentation) {
+            // Project the actual executable/argv, including trusted Git options.
+            // This serialization is diagnostic only; execution stays structured.
+            const auto command = shell_words::quote(invocation.executable) + " " + shell_words::join(invocation.arguments);
+#ifdef MOGUET_ENABLE_PINNED_SUBMODULE_CLOSURE_TEST_HOOKS
+            if(g_hooks.root_tag_command) g_hooks.root_tag_command(root_tag_presentation->detail, command);
+#endif
+            switch(root_tag_presentation->detail) {
+                case PresentationDetail::Normal:
+                    // TRANSLATORS: The placeholder counts distinct additional raw Git objects, not tag names.
+                    Logger::command(command, localization::format_translated_message(
+                                                 "Fetching root upstream tag objects ({} objects)",
+                                                 root_tag_presentation->additional_objects));
+                    break;
+                case PresentationDetail::Detailed:
+                    Logger::raw_cmd(command);
+                    break;
+            }
+        }
+        // Terminal and state-log I/O must consume the acquisition budget too.
         const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - Clock::now());
         if(remaining.count() <= 0) fail(active, Reason::ResourceLimitExceeded);
         const BoundedProcessPolicy policy{remaining, std::chrono::milliseconds(200), limit, true, false};
@@ -572,23 +599,23 @@ struct PinnedSubmoduleClosureData {
             fail(active, Reason::MalformedObservation);
         }
     }
-    void acquire_root_tags(std::size_t index, const std::string& locator, const ReviewedSourceObjectId& root_oid) {
+    void acquire_root_tags(std::size_t index, const std::string& locator, const ReviewedSourceObjectId& root_oid, PresentationDetail presentation_detail) {
         // Fetch only observed raw OIDs, never names. Object-only backing stays
         // ref-free, including for annotated and non-reachable tags.
         std::set<std::string> fetched{root_oid.value()};
         std::vector<std::string> fetch{"fetch", "--no-tags", "--no-recurse-submodules", "--no-auto-maintenance", "--no-write-commit-graph", "--no-write-fetch-head", "--", locator};
-        std::string displayed = "git fetch --no-tags --no-recurse-submodules " + locator;
         for(const auto& tag : root_tags) {
             if(fetched.insert(tag.raw().value()).second) {
                 fetch.push_back(tag.raw().value());
-                displayed += " " + tag.raw().value();
             }
         }
         // One bounded argv (at most root_tags full OIDs) avoids a separate
         // HTTPS negotiation per tag without ever resolving a name again.
         if(fetched.size() > 1) {
-            Logger::raw_cmd(displayed);
-            run(Stage::RootAcquisition, index, std::move(fetch), 65536);
+            // The same insertion decision appends argv and counts objects;
+            // the initial root X is already fetched and is not additional.
+            run(Stage::RootAcquisition, index, std::move(fetch), 65536, false,
+                RootTagCommandPresentation{presentation_detail, fetched.size() - 1});
         }
         std::vector<std::string> proof{"fsck", "--strict", "--no-reflogs", "--no-dangling", root_oid.value()};
         for(const auto& tag : root_tags)
@@ -618,7 +645,7 @@ struct PinnedSubmoduleClosureData {
             }
         }
     }
-    std::size_t acquire(const std::string& locator, const ReviewedSourceObjectId& oid, bool is_root) {
+    std::size_t acquire(const std::string& locator, const ReviewedSourceObjectId& oid, bool is_root, PresentationDetail presentation_detail) {
         active = is_root ? Stage::RootAcquisition : Stage::ChildAcquisition;
         check();
         lineage();
@@ -645,7 +672,7 @@ struct PinnedSubmoduleClosureData {
         // fsck validates raw hashes and connectivity including tree/blob backing;
         // parent gitlinks deliberately do not claim child object availability.
         run(Stage::ObjectProof, index, {"fsck", "--strict", "--no-reflogs", "--no-dangling", oid.value()}, 65536);
-        if(is_root) acquire_root_tags(index, locator, oid);
+        if(is_root) acquire_root_tags(index, locator, oid, presentation_detail);
         return index;
     }
     std::string blob(std::size_t repository, const ReviewedSourceFileVersion& entry, std::size_t limit) {
@@ -657,13 +684,13 @@ struct PinnedSubmoduleClosureData {
         return bytes;
     }
     void traverse(const std::string& locator, const ReviewedSourceObjectId& oid, std::optional<std::size_t> parent_edge,
-                  std::size_t depth, std::set<std::pair<std::string, std::string>>& ancestry) {
+                  std::size_t depth, std::set<std::pair<std::string, std::string>>& ancestry, PresentationDetail presentation_detail) {
         active = Stage::RecursiveTraversal;
         check();
         if(depth > limits.depth) fail(active, Reason::ResourceLimitExceeded);
         const auto key = std::make_pair(locator, oid.value());
         if(!ancestry.insert(key).second) fail(active, Reason::RecursiveCycle);
-        const auto index = acquire(locator, oid, !parent_edge);
+        const auto index = acquire(locator, oid, !parent_edge, presentation_detail);
         auto raw = run(Stage::ObjectProof, index, {"cat-file", "commit", oid.value()}, 1024 * 1024);
         const auto newline = raw.find('\n');
         if(newline != 5 + oid.value().size() || !raw.starts_with("tree ")) fail(active, Reason::UnexpectedObjectType);
@@ -704,13 +731,15 @@ struct PinnedSubmoduleClosureData {
             const auto edge = edges.size();
             const auto child = nodes.size();
             edges.push_back({index, child, declaration.name, declaration.path, declaration.locator, pin});
-            traverse(declaration.locator, pin, edge, depth + 1, ancestry);
+            traverse(declaration.locator, pin, edge, depth + 1, ancestry, presentation_detail);
         }
         ancestry.erase(key);
     }
-    PinnedClosureCleanupResult cleanup() noexcept {
-        if(closed) return cleanup_result;
-        closed = true;
+    void cleanup_objects() noexcept {
+        if(objects_cleanup_attempted) return;
+        // Physical release is terminal even on refusal. Semantic selection and
+        // Accepted lineage remain live until the enclosing owner is cleaned.
+        objects_cleanup_attempted = true;
         if(created) try {
                 active = Stage::Cleanup;
                 notify(active, root_path);
@@ -746,11 +775,31 @@ struct PinnedSubmoduleClosureData {
             } catch(...) {
                 cleanup_result.objects = PinnedClosureCleanupFailure{Reason::IoFailure, std::nullopt};
             }
+        repositories.clear();
+        root = Descriptor();
+        parent = Descriptor();
+    }
+    PinnedClosureCleanupResult cleanup() noexcept {
+        if(closed) return cleanup_result;
+        closed = true;
+        cleanup_objects();
         const auto selected = selection.cleanup();
         if(const auto* failure = std::get_if<InvocationOwnedSourceBuildContextFailure>(&selected)) cleanup_result.selection = *failure;
         return cleanup_result;
     }
 };
+
+std::optional<PinnedClosureFailure> PinnedSubmoduleWorkspaceAuthority::release_acquisition_backing(
+    InvocationOwnedPinnedSubmoduleClosure& closure) {
+    if(!closure.valid()) return PinnedClosureFailure{Stage::Input, Reason::InvalidSelection};
+    auto& data = *closure.data_;
+    data.cleanup_objects();
+    if(!data.cleanup_result.objects) return std::nullopt;
+    PinnedClosureFailure failure{Stage::Cleanup, data.cleanup_result.objects->reason, data.cleanup_result.objects->error_number};
+    failure.cleanup = data.cleanup_result;
+    failure.abandoned_root = data.root_path;
+    return failure;
+}
 
 std::optional<PinnedClosureFailure> PinnedSubmoduleWorkspaceAuthority::clone_objects(
     const InvocationOwnedPinnedSubmoduleClosure& closure, std::size_t node,
@@ -854,7 +903,7 @@ std::variant<std::string, PinnedClosureFailure> InvocationOwnedPinnedSubmoduleCl
         return failure;
     }
 }
-PinnedSubmoduleClosureResult acquire_pinned_submodule_closure(EvaluatedDevelSourceSelection selection) {
+PinnedSubmoduleClosureResult acquire_pinned_submodule_closure(EvaluatedDevelSourceSelection selection, PresentationDetail presentation_detail) {
     std::unique_ptr<PinnedSubmoduleClosureData> data;
     PinnedClosureFailure failure{Stage::Input, Reason::InvalidSelection};
     try {
@@ -867,7 +916,7 @@ PinnedSubmoduleClosureResult acquire_pinned_submodule_closure(EvaluatedDevelSour
         data->create();
         const auto oid = data->observe();
         std::set<std::pair<std::string, std::string>> ancestry;
-        data->traverse(data->selection.git_source().source_location(), oid, std::nullopt, 0, ancestry);
+        data->traverse(data->selection.git_source().source_location(), oid, std::nullopt, 0, ancestry, presentation_detail);
         data->inspect();
         data->check();
         return InvocationOwnedPinnedSubmoduleClosure(std::move(data));

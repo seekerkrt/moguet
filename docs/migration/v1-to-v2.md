@@ -197,7 +197,7 @@ Map only understood jpacker v1 keys:
 | `NODIFF=false` | Omit the key or use `review.diff = "prompt"` |
 | `EDITOR=...` | Do not copy to TOML; set `VISUAL`, then `EDITOR`, in the user's environment |
 | `LOGFILE=...` | No v2.0.0 config key; use the fixed XDG state log |
-| `RMDEPS=true` | Do not migrate; separated source-build dependency cleanup remains unsupported |
+| `RMDEPS=true` | Do not migrate; v2 has no persistent `RMDEPS` config key. Dependency cleanup is an explicit per-invocation `--rmdeps` request, currently supported only for remote AUR builds. |
 
 The editor resolution order is `VISUAL -> EDITOR -> nano`. The default log is:
 
@@ -419,4 +419,4 @@ state or `/etc/jpacker` data.
 
 For the current source contracts, see [README.md](../../README.md),
 [README.ja.md](../../README.ja.md), and
-[COMPATIBILITY.md](https://github.com/seekerkrt/moguet/blob/develop/docs/COMPATIBILITY.md).
+[compatibility.md](https://github.com/seekerkrt/moguet/blob/develop/docs/compatibility.md).

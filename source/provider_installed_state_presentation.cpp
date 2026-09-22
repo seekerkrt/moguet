@@ -1,6 +1,7 @@
 #include "provider_installed_state_presentation.hpp"
 
 #include "localization.hpp"
+#include "package_text_style.hpp"
 
 #include <memory>
 #include <ostream>
@@ -30,21 +31,25 @@ bool is_session_level_failure(PackageMetadataErrorCode code) {
 class ProviderInstalledStateCandidatePresenter final {
 public:
     explicit ProviderInstalledStateCandidatePresenter(
-        ProviderInstalledStateLookup& lookup)
-        : lookup_(lookup) {
+        ProviderInstalledStateLookup& lookup, PresentationDetail detail)
+        : lookup_(lookup), detail_(detail) {
     }
 
     void present(
         std::ostream& output, std::size_t index,
         const ProvidedDependency& candidate) {
-        present_provider_candidate_metadata(output, index, candidate);
+        present_provider_candidate_metadata(output, index, candidate, detail_);
 
         ProviderInstalledStateObservation observation =
             lookup_.query(candidate.package_name);
         const PackageMetadataFailure* failure = nullptr;
         switch(observation.state()) {
             case ProviderInstalledState::Installed:
-                output << ' ' << localization::translate_message("[installed]");
+                output << ' ';
+                package_text_style::installed(
+                    output, localization::translate_message("[installed]"),
+                    detail_ == PresentationDetail::Normal &&
+                        package_text_style::enabled_for(output));
                 break;
             case ProviderInstalledState::NotInstalled:
                 break;
@@ -94,6 +99,7 @@ private:
     }
 
     ProviderInstalledStateLookup& lookup_;
+    PresentationDetail detail_;
     bool session_failure_reported_ = false;
     std::set<std::string> reported_package_failures_;
 };
@@ -101,24 +107,31 @@ private:
 } // namespace
 
 ProviderCandidatePresenter make_provider_installed_state_candidate_presenter(
-    ProviderInstalledStateLookup& lookup) {
-    auto presenter = std::make_shared<ProviderInstalledStateCandidatePresenter>(
-        lookup);
-    return [presenter = std::move(presenter)](
-               std::ostream& output, std::size_t index,
-               const ProvidedDependency& candidate) {
-        presenter->present(output, index, candidate);
-    };
+    ProviderInstalledStateLookup& lookup, PresentationDetail detail) {
+    // Detail belongs to the phase-local presenter, never the lookup/session.
+    switch(detail) {
+        case PresentationDetail::Normal:
+        case PresentationDetail::Detailed: {
+            auto presenter = std::make_shared<ProviderInstalledStateCandidatePresenter>(
+                lookup, detail);
+            return [presenter = std::move(presenter)](
+                       std::ostream& output, std::size_t index,
+                       const ProvidedDependency& candidate) {
+                presenter->present(output, index, candidate);
+            };
+        }
+    }
+    throw std::logic_error("Unknown provider presentation detail.");
 }
 
 ProviderCandidatePresenterFactory
 make_provider_installed_state_candidate_presenter_factory() {
-    return [] {
+    return [](PresentationDetail detail) {
         // POLICY(#388): lookupはselection sessionではなく、このcallback phaseの
         // presentation seamが所有する。queryは候補listを実際に表示するまで行わない。
         auto lookup = std::make_shared<ProviderInstalledStateLookup>();
         ProviderCandidatePresenter presenter =
-            make_provider_installed_state_candidate_presenter(*lookup);
+            make_provider_installed_state_candidate_presenter(*lookup, detail);
         return [lookup = std::move(lookup), presenter = std::move(presenter)](
                    std::ostream& output, std::size_t index,
                    const ProvidedDependency& candidate) {

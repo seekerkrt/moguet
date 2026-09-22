@@ -495,6 +495,32 @@ allowlistではありません。repository-only
 .na
 .\" PUBLIC OPTIONS BEGIN
 .TP
+.B "--details"
+リモートの
+.BR build 、
+.BR plan 、
+.BR deps 、
+.BR "-S --select" 、
+.BR -Qua 、
+exact target-lessの
+.BR "-Syu / -Su" 、
+.BR upgrade-aur 、
+.BR upgrade-all 、
+.B --dry-run -S
+で詳細な診断情報と由来情報を表示します。
+通常のAUR更新表示は最新targetを集約し、要確認情報を残します。
+詳細表示では個別のskip理由とdry-runのauthority情報を確認できます。
+このinvocationだけの表示指定であり、実行、依存解決、選択、readinessは変更しません。
+対話を有効にしたり、安全確認を省略したりするoptionではありません。
+リモートsource build中、通常表示ではルート上流タグの一括オブジェクト取得を
+操作内容と追加取得する重複なしのオブジェクト数で要約します。
+このoptionでは、代わりにエスケープ済みの完全なコマンドを表示します。
+その他の短く判断に役立つコマンドは通常表示でも表示します。
+plan/depsの通常表示は非emptyな依存情報と要確認の結果を残し、正常な制約を件数へ集約し、
+重複identityと空categoryを省略します。詳細表示では同じtyped結果から全制約の理由、
+state/readiness、由来情報、relation診断を確認できます。
+.
+.TP
 .B "-h, --help"
 localized helpを表示し、XDG directoryを作成せず終了します。
 .
@@ -672,12 +698,17 @@ built-in defaultは
 .
 .TP
 .B "--rmdeps"
-legacy cleanup requestとして認識しますが、separated source-build routeではmutation前に
-拒否します。
-Moguetはinvocationが所有するexact dependency setを証明できないため、
-.BR "makepkg -r" 、
-.BR "pacman -Rns" 、
-custom orphan cleanupへ変換しません。
+remote AUR buildとartifact install成功後、今回新たに導入されたbuild/check dependency候補を
+previewし、[y/N]（default No）で確認します。
+explicit Yes後にidentity、reason、policy、HoldPkg、runtime consumerをfreshに再確認し、
+残るexact candidateだけを1 transactionで削除します。
+user --noconfirmとnon-TTYはcleanupを承認しません。
+internal pacman --noconfirmは明示承認後の重複prompt抑止だけです。
+No/cancel/EOFはbuild成功を維持します。Blocked/unavailable/removal failureは
+build/install成功を独立保持してexit 1、候補なしや再検証後のskipはexit 0です。
+未指定、build/install失敗、dry-runではcleanupしません。
+local/repository source build、source sync、upgrade系の既存reject、pacman-only compatible routeのno-opを維持します。
+pacman -Qdtやbroad autoremoveではなく、自動retry/rollbackを行いません。
 .
 .TP
 .B "--aur"

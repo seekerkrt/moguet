@@ -213,6 +213,9 @@ int main(int argc, char* argv[]) {
                      "Checking {} updates for {} foreign packages...",
                      std::string_view("AUR"), 7)
               << '\n';
+    std::cout << "aur_batch="
+              << localization::format_translated_message("Fetching {} info for packages {}-{} of {}...", "AUR", 1, 31, 31)
+              << '\n';
     std::cout << "owner_upgrade="
               << localization::format_translated_message(
                      "excluded from {} update: {}",

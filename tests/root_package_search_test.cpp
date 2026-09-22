@@ -1,8 +1,12 @@
 #include "root_package_search.hpp"
+#include "root_package_selection.hpp"
+#include "root_package_route_projection.hpp"
 
 #include "stubs/root-package-search/search_stub.hpp"
 
+#include <algorithm>
 #include <iostream>
+#include <sstream>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -391,10 +395,200 @@ void test_compatible_aur_duplicates_merge_owned_metadata() {
         "AUR owned duplicate metadata differs");
 }
 
+RootPackageSearchSnapshot search_fixture(
+    const std::string& query,
+    RepositoryPackageSearchSnapshot repository,
+    std::vector<AurPackageInfo> aur) {
+    stub::reset();
+    stub::enqueue_repository_result(std::move(repository));
+    stub::enqueue_aur_result(std::move(aur));
+    auto snapshot = require_snapshot(
+        search_root_package_candidates(query, RootPackageSearchScope::All),
+        "ranking fixture");
+    expect(stub::repository_queries() == std::vector<std::string>{query} &&
+               stub::aur_queries() == std::vector<std::string>{query},
+           "ranking changed the query or added provider calls");
+    return snapshot;
+}
+
+void test_match_quality_large_fixture_and_membership_parity() {
+    RepositoryPackageSearchSnapshot repository{
+        {"testing", "core"},
+        {repository_match("core", "chrome", "1"),
+         repository_match("testing", "chrome", "2"),
+         repository_match("core", "chromedriver", "3"),
+         repository_match("core", "a-description", "4", "Chrome browser integration"),
+         repository_match("core", "a-native-only", "5")}};
+    std::vector<AurPackageInfo> aur{
+        aur_package("chrome", "chrome-base", "6"),
+        aur_package("google-chrome", "google-chrome", "7"),
+        aur_package("achrome", "achrome", "8"),
+        aur_package("a-base-child", "chrome", "9"),
+        aur_package("b-base-child", "chrome", "10"),
+        aur_package("a-base-substring", "xchromey", "11"),
+        aur_package("z-description", "z-description", "12", "Chrome browser integration")};
+    for(int index = 0; index < 96; ++index) {
+        aur.push_back(aur_package("a-description-" + std::to_string(index),
+                                  "description-suite", "1", "Chrome integration"));
+    }
+    // A compatible repeated identity must still merge before ranking.
+    aur.push_back(aur_package("google-chrome", "google-chrome", {}, "Browser"));
+    const auto canonical = search_fixture("unmatched-query", repository, aur);
+    const auto ranked = search_fixture("chrome", repository, aur);
+    expect(canonical.candidates.size() == repository.matches.size() + aur.size() - 1 &&
+               ranked.candidates.size() == canonical.candidates.size(),
+           "ranking changed the deduplicated candidate count");
+    expect(std::is_permutation(canonical.candidates.begin(), canonical.candidates.end(),
+                               ranked.candidates.begin(), ranked.candidates.end()),
+           "ranking changed identities, metadata, or membership");
+    expect(ranked.repository_order == canonical.repository_order,
+           "ranking changed configured repository authority");
+    const std::vector<std::string> leading_names{
+        "chrome", "chrome", "chrome", "chromedriver", "google-chrome",
+        "achrome", "a-base-child", "a-base-substring", "b-base-child"};
+    for(std::size_t index = 0; index < leading_names.size(); ++index) {
+        expect(ranked.candidates[index].candidate.package_name() == leading_names[index],
+               "semantic match-quality precedence differs at " + std::to_string(index));
+    }
+    expect(require_repository_identity(ranked.candidates[0], "exact testing").repository_name == "testing" &&
+               require_repository_identity(ranked.candidates[1], "exact core").repository_name == "core" &&
+               require_aur_identity(ranked.candidates[2], "exact AUR").package_base == "chrome-base",
+           "same-quality canonical source tie-break drifted");
+    for(std::size_t index = 0; index < 3; ++index) {
+        const auto result = parse_root_package_selection(std::to_string(index + 1), ranked);
+        const auto* selection = std::get_if<RootPackageSelection>(&result);
+        expect(selection != nullptr && selection->targets().front().identity() ==
+                                           ranked.candidates[index].candidate.identity(),
+               "same-name selection lost the displayed source identity");
+    }
+    expect(std::holds_alternative<InvalidRootPackageSelection>(
+               parse_root_package_selection("1-3", ranked)),
+           "ranking bypassed the same-name alternative source guard");
+    std::vector<RootPackageSearchCandidate> canonical_other;
+    for(const auto& entry : canonical.candidates) {
+        const auto& name = entry.candidate.package_name();
+        if(name.starts_with("a-description") || name == "a-native-only" || name == "z-description") {
+            canonical_other.push_back(entry);
+        }
+    }
+    expect(std::equal(canonical_other.begin(), canonical_other.end(),
+                      ranked.candidates.begin() + leading_names.size(), ranked.candidates.end()),
+           "description/native-only ties no longer use canonical order");
+    expect(canonical.candidates.front().candidate.package_name() == "a-base-child" &&
+               canonical.candidates != ranked.candidates,
+           "fixture did not demonstrate canonical-to-quality reordering");
+    std::reverse(repository.matches.begin(), repository.matches.end());
+    std::reverse(aur.begin(), aur.end());
+    expect(search_fixture("chrome", repository, aur) == ranked,
+           "ranking depends on native result order");
+    expect(search_fixture("ChRoMe", repository, aur) == ranked,
+           "ASCII case-insensitive identity quality differs");
+    const auto child = search_fixture("b-base-child", repository, aur);
+    expect(child.candidates.front().candidate.package_name() == "b-base-child" &&
+               require_aur_identity(child.candidates.front(), "exact child").package_base == "chrome",
+           "exact child was flattened to PackageBase identity");
+}
+
+void test_literal_query_and_package_boundaries() {
+    RepositoryPackageSearchSnapshot repository{{"core"}, {}};
+    std::vector<AurPackageInfo> aur;
+    const std::vector<std::string> strong_names{
+        "chrome-tool", "x+chrome", "x-chrome", "x.chrome", "x@chrome", "x_chrome",
+        "xchrome-chrome"};
+    aur.push_back(aur_package("achrome", "achrome"));
+    for(const auto& name : strong_names)
+        aur.push_back(aur_package(name, name));
+    const auto ranked = search_fixture("chrome", repository, aur);
+    for(std::size_t index = 0; index < strong_names.size(); ++index) {
+        expect(ranked.candidates[index].candidate.package_name() == strong_names[index],
+               "prefix/punctuation boundary precedence differs");
+    }
+    expect(ranked.candidates.back().candidate.package_name() == "achrome",
+           "interior substring was treated as a boundary");
+    const auto canonical = search_fixture("unmatched-query", repository, aur);
+    for(const std::string query : {" chrome ", "chrome tool", "^chrome", "", "CHRÖME"}) {
+        expect(search_fixture(query, repository, aur) == canonical,
+               "ranking trimmed, tokenized, interpreted regex, or Unicode-folded query");
+    }
+    const auto mixed_case = search_fixture(
+        "chrome", repository,
+        {aur_package("chrome", "chrome"), aur_package("Chrome", "Chrome"),
+         aur_package("a-child", "CHROME"), aur_package("a-other", "a-other")});
+    expect(mixed_case.candidates[0].candidate.package_name() == "Chrome" &&
+               mixed_case.candidates[1].candidate.package_name() == "chrome" &&
+               mixed_case.candidates[2].candidate.package_name() == "a-child",
+           "identity folding changed stored spelling or bytewise tie-break");
+    const auto literal = search_fixture("x.chrome", repository, aur);
+    expect(literal.candidates.front().candidate.package_name() == "x.chrome",
+           "package punctuation was interpreted as regex");
+}
+
+void test_ranked_snapshot_selection_retry_cancel_and_route_mapping() {
+    const auto snapshot = search_fixture(
+        "chrome",
+        RepositoryPackageSearchSnapshot{
+            {"extra"},
+            {repository_match("extra", "a-tool", "1", "Chrome integration",
+                              RepositoryPackageSearchMatchKind::ExactGroup, "chrome"),
+             repository_match("extra", "chrome", "2")}},
+        {aur_package("google-chrome", "browser-suite", "3")});
+    expect(snapshot.candidates[0].candidate.package_name() == "chrome" &&
+               snapshot.candidates[1].candidate.package_name() == "google-chrome" &&
+               snapshot.candidates[2].candidate.package_name() == "a-tool" &&
+               snapshot.candidates[2].selectable_group_names == std::vector<std::string>{"chrome"},
+           "ranking lost group metadata or expected displayed order");
+    std::istringstream input("0\n3 1 2\n");
+    int presentations = 0;
+    int invalid_attempts = 0;
+    RootPackageSelectionSession session(
+        input,
+        [&](const RootPackageSelectionInteractionEvent& event, const RootPackageSearchSnapshot& displayed) {
+            expect(displayed == snapshot, "retry changed the displayed snapshot");
+            if(std::holds_alternative<PresentRootPackageSelectionCandidates>(event)) ++presentations;
+            if(std::holds_alternative<InvalidRootPackageSelectionAttempt>(event)) ++invalid_attempts;
+        },
+        RootPackageSelectionInputGate::Interactive);
+    const auto result = session.select(snapshot);
+    const auto* selection = std::get_if<RootPackageSelection>(&result);
+    expect(selection != nullptr && presentations == 1 && invalid_attempts == 1,
+           "ranked selection/retry session differs");
+    expect(selection->targets().size() == snapshot.candidates.size(), "selected count differs");
+    for(std::size_t index = 0; index < snapshot.candidates.size(); ++index) {
+        expect(selection->targets()[index].identity() == snapshot.candidates[index].candidate.identity(),
+               "display number no longer maps to typed selected identity");
+        const auto single_result = parse_root_package_selection(std::to_string(index + 1), snapshot);
+        const auto* single = std::get_if<RootPackageSelection>(&single_result);
+        expect(single != nullptr && single->targets().size() == 1 &&
+                   single->targets().front().identity() == snapshot.candidates[index].candidate.identity(),
+               "individual displayed number maps to a stale index");
+    }
+    const auto routing = project_root_package_routing(*selection);
+    expect(routing.is_valid(), "ranked route projection failed");
+    const auto& repositories = routing.projection()->repository_targets();
+    const auto& aur = routing.projection()->aur_targets();
+    expect(repositories.size() == 2 && repositories[0].exact_package_target() == "extra/chrome" &&
+               repositories[0].selection_index() == 0 && repositories[1].exact_package_target() == "extra/a-tool" &&
+               repositories[1].selection_index() == 2 && aur.size() == 1 && aur[0].selection_index() == 1 &&
+               aur[0].identity() == AurRootPackageIdentity{"google-chrome", "browser-suite"},
+           "ranked selection projected a different source or execution target");
+    const auto group = parse_root_package_selection("@chrome", snapshot);
+    expect(std::get<RootPackageSelection>(group).targets().front().package_name() == "a-tool",
+           "group selector retained a pre-ranking index");
+    for(const std::string text : {"\n", "q\n", "quit\n", "cancel\n", ""}) {
+        std::istringstream cancel_input(text);
+        RootPackageSelectionSession cancel(cancel_input, {}, RootPackageSelectionInputGate::Interactive);
+        expect(std::holds_alternative<CancelledRootPackageSelection>(cancel.select(snapshot)),
+               "ranking changed cancellation or EOF semantics");
+    }
+}
+
 } // namespace
 
 int main() {
     try {
+        test_match_quality_large_fixture_and_membership_parity();
+        test_literal_query_and_package_boundaries();
+        test_ranked_snapshot_selection_retry_cancel_and_route_mapping();
         test_source_scope_queries_only_enabled_adapters();
         test_source_failure_never_publishes_partial_snapshot();
         test_merge_sort_and_source_identity_contract();

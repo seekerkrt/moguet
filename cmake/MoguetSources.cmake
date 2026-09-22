@@ -48,6 +48,8 @@ set(MOGUET_PRODUCTION_SOURCES
     source/devel_package_assessment.cpp
     source/reviewed_devel_source_build_execution.cpp
     source/dependency_constraint.cpp
+    source/dependency_cleanup_execution.cpp
+    source/dependency_cleanup_interaction.cpp
     source/dependency_constraint_presentation.cpp
     source/dependency_plan.cpp
     source/dependency_plan_model.cpp

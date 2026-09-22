@@ -3,16 +3,65 @@
 ## 位置づけ
 
 この文書は、development、logical Slice completion、PR / merge、release candidateの各段階で、
-必要なvalidation、approval evidence、evidenceの再利用と無効化、reviewの終了条件を定める
+validationの追加判断、必要な実行とapproval evidence、evidenceの再利用と無効化、reviewの終了条件を定める
 policy authorityである。
 
 C++ build / install graphは`CMakeLists.txt`と`cmake/`、C++ test registration / executionはCTest、
 repository validation targetの実際のprerequisiteとrecipeは`Makefile`と`scripts/`、branch / PR /
-release操作は[`DEVELOPMENT.md`](DEVELOPMENT.md)を正とする。この文書は、それらの実行段階と証拠の
-十分性を所有する。記載と実装がdriftした場合は、対象を十分に見なして続行せず、両者を揃える。
+release操作は[`development.md`](development.md)を正とする。この文書は、validationの追加判断、実行段階と
+証拠の十分性を所有する。記載と実装がdriftした場合は、対象を十分に見なして続行せず、両者を揃える。
 
 目的はcoverageの削減ではない。変更が壊し得るcontractを先に特定し、そのcontractを
 所有するvalidationで証明するrisk-based validationを正式運用とする。
+
+対象の保証・非保証は[project stance](project-stance.md)と[設計ポリシーの責務境界](decisions.md#decision-6)を
+上位authorityとし、各subsystem contractの具体的なphase-pointへ対応させる。validationは次を証明する。
+
+- 定義済み境界でのidentity / authorityの正しさと、observed mismatch / invalid / unknownのfail-closed。
+- destructive operationのownership / containment、user-owned sourceの非破壊、失敗・取消・partial結果の保全。
+- proof / resourceが実consumerの必要期間を覆うこと。transfer後の物理解放と、後段semantic authorityの保持を区別する。
+- 不整合検出後に暗黙repair / continuationをしないこと。対応する明示復旧も所有・包含を証明できる対象だけに作用すること。
+
+各Sliceへcontinuous hostile mutation immunity、すべてのsame-UID race、観測間の一時改変→復元検出、
+汎用sandbox / network policy / all-descendant mediationの証明を要求しない。
+この非目標を、観測済み不整合の無視やphase-point / privileged boundaryのnegative test省略の根拠にはしない。
+
+## Validationを追加する前の判断
+
+新しいtest / fixture / checker / ledgerを追加する前に、守るcontract、元bug / requirementと、
+既存validationが同じcontract / failure classをどこまで証明しているかを確認する。
+findingが出るたびに専用testを1本増やすことを既定にしない。
+
+- 既存fixture / regressionで同じfailure classを再現できる場合は、その最小拡張を優先する。
+  同じcontractのために別の独立fixtureを増やさない。
+- 既存testが同じcontract / failure classを十分強く証明している場合は、新testを追加しない。
+  変更には必ず新testが必要、というruleにはしない。
+- actual production behaviorに接続する新しいfailure classには、最小のregressionを追加する。
+  可能ならuser-visible / production-connectedな証拠を、単なるsynthetic internal misuseより優先する。
+
+synthetic internal-only test、friend一覧やprivate implementation detailだけを固定するtest、
+manual total ledger、同じmembershipのduplicate ledger、fixtureを守るためだけのcheckerや
+checkerを守るためだけのcheckerは、独立したcontract / failure class / authority boundaryを守る
+必要性を説明できない限り増やさない。validationを守るためのvalidationを再帰的に増設しない。
+これはsynthetic / internal-only validationの一律禁止でも、production-connected testがあれば
+component testをすべて不要とする方針でもない。
+
+この追加判断は、必要なnegative testや次の重要contractの検証を弱める根拠にはしない。
+
+- source / revision / artifact / install / provenanceの相関、phase-point correctness。
+- destructive operationのownership / containmentとfail-closed、cancellation / partial outcome、
+  compatibility / migration、production-connected regressions。
+- privileged / private authorityの不正なconstructionとcross-context misuseの禁止。negative compileが守る
+  raw / historicalからのlive authority mint禁止、whole-owner / copy / borrow制約、権限のないconsumerによる
+  private construction禁止等は独立したcompile-time contractであり、internal-onlyに見えることだけを理由に削除しない。
+
+追加時にはruntime、fixture / setup、maintenance、manual synchronizationのcostとparallelismへの
+影響も考慮し、同じcontractの検証強度を維持できる、より小さく理解可能なvalidationを選ぶ。
+速度のためにcoverageを落とさない。実行対象と時期は以下のvalidation matrix、evidence reuse /
+invalidationとreview closureに従う。
+
+この節はhuman / agent review policyである。このpolicy自体を検証するための専用checker、shell test、
+CMake oracle、count ledgerは追加しない。
 
 ## 前提として維持するmechanism contract
 
@@ -44,6 +93,7 @@ release操作は[`DEVELOPMENT.md`](DEVELOPMENT.md)を正とする。この文書
 | F: actual provider / AUR / local | `test-container-live` | provider→AUR→localの独立containerを直列・fail-fast実行 |
 | security-specific installed ALPM receipt | `test-container-receipt` | networkなしのinstalled root helper、transaction-local hook、actual isolated Install / Upgrade / failure |
 | source-artifact installed receipt | `test-container-source-artifact-receipt` | production transport、write-sealed bytes、root-owned staging、fixed `pacman -U`、actual observation / causal evidenceとInstall / Upgrade / reinstall / downgrade / skip / failure |
+| controlled AUR lifecycle | `test-container-controlled-aur-lifecycle` | receipt image内のproduction CLIで、loopback canonical HTTPSの固定2-package graphを2revision実行する。fresh RPC / source、AUR dependency-first native build、actual install / upgrade、reason保持を確認。repo dependencyはimage内の既存Explicit packageで分類・充足・reason保持を確認し、新規repo installやpublic AUR dogfood、final RC Fの代用にしない |
 | installed binding feasibility | `test-container-installed-binding-characterization` | networkless anonymous volume上のephemeral pacman rootでInstall / Upgrade / skip / same-version reinstallとopaque local DB record generationをcharacterizeする。production publicationへは接続しない |
 | exact receipt / fresh installed binding | `test-container-exact-installed-binding` | actual Slice 4 proofとinstalled root helper、別purposeのInstall/Upgrade receipt、Post anchor、new ALPM session、raw MTREE、AT_EMPTY_PATH generation、通常userのlive mintとS5-C final proof、publicationなしをanonymous volume DBで確認。Install/Upgrade/reinstall/downgradeを実行し、host DBは共有しない |
 | devel provenance store foundation | `test-xdg-generation-store` / `test-devel-build-provenance-store` | production-disconnectedなimmutable-generation/CAS機械層と、別XDG namespaceのstrict provenance codec/storeを確認する |
@@ -112,7 +162,7 @@ host suiteの並列安全性はtestの隔離とproduction registrationを根拠�
 `cpp.invocation_owned_source_build_context`は失敗時にproduction parentへfallbackしなかったことを
 証明するため、`/tmp/moguet-source-build-context-*`全体のinventoryも前後比較する。
 他のcontext生成testがこのnamespaceを変えるので、この1登録だけ`RUN_SERIAL=TRUE`とする。
-他の152登録にはserial指定なし。`RESOURCE_LOCK`、`PROCESSORS` overrideもなし（既定1 slot）。
+他の登録にはserial指定なし。`RESOURCE_LOCK`、`PROCESSORS` overrideもなし（既定1 slot）。
 既存TIMEOUTと全test/assertionを維持する。
 将来共有write resourceや内部CPU並列処理を追加する場合は、fixture隔離または該当testだけの
 CTest native `RESOURCE_LOCK` / `PROCESSORS`等で宣言する。同一build treeに対する別のCTestや
@@ -182,31 +232,67 @@ evidenceがあり、後続deltaがそのevidenceを無効化しないとcontract
 
 ### 4. Release candidate
 
+Slice / Issueのfocused evidence、PR / mergeのintegration evidence、final RCのevidenceは段階を分ける。
+Issue branchの`test-host-release` PASSだけで、その後の最終release candidateを承認しない。
+たとえばIssue #575のPR-ready host evidenceはv2.9.0 final RC approvalではない。
+最終candidateの固定、必要laneの実行、結果の収集と承認は、この節に従う別epochの責務である。
+手動運用でもorchestration helperを使う場合でも、同じpolicyを適用する。
+
 release candidateは新しいapproval evidence epochである。development中のfocused resultや、
-過去のPR / merge evidenceをRC approval tokenとしてそのまま再利用しない。次を同じrelease
-candidate revisionで実行する。
+過去のPR / merge evidenceをRC approval tokenとしてそのまま再利用しない。exact candidate commit、
+またはそのcommitとcontent-identicalになるcandidate treeを固定し、unrelated changeを混ぜずに、
+final RCのautomated validationを次の単一entrypointから開始する。
 
-1. exact candidate commit、またはそのcommitとcontent-identicalになるcandidate treeを固定し、unrelated changeを混ぜない。
-2. optional wrapper / linker overrideのないclean/default host production buildを実行する。
-3. `test-host-release`でfull A–DとGを1回ずつ実行する。
-4. `test-container`でoffline/current Arch Docker Eを実行する。
-5. `test-container-live`でactual provider / AUR / local Fをすべて実行する。
-6. Gのversion、license、packaging metadata / payload、tracked Markdownでrelease metadataの整合を確認する。
-7. `sh scripts/extract-release-notes.sh`のcurrent `VERSION` sectionを確認し、release notes payloadを固定する。
-8. ccache / mold parityがそのreleaseに必要な場合は、default gateの後にexact scopeを記録して追加する。
+    env -u MAKEFLAGS -u MFLAGS make release-validate
 
-default host buildの例は次のとおり。`CCACHE`や`LDFLAGS`等の意図的なoverrideがある場合は
-先に除くか、defaultでないことを明示する。
+`release-validate`はoperator-facing orchestrationであり、新しいproof authorityではない。
+`Makefile`の入口から[`scripts/release-validate.sh`](../scripts/release-validate.sh)を呼び、
+candidate capture / hygiene → clean → default production build → `test-host-release` →
+`test-container` → `test-container-live` → diff hygiene → candidate recheck / hygieneを直列に実行する。
+host A–D + G、offline/current Arch E、actual provider / AUR / local Fの意味と内部順序は、
+それぞれの既存targetが引き続き所有する。Gのversion、license、packaging metadata / payload、
+tracked Markdownの確認も`test-host-release`へ委ねる。individual targetはdebug / focused再実行用に残る。
 
-    env -u MAKEFLAGS -u MFLAGS make clean
-    env -u MAKEFLAGS -u MFLAGS make -j8 --output-sync=target
-    env -u MAKEFLAGS -u MFLAGS make -j8 --output-sync=target test-host-release
-    env -u MAKEFLAGS -u MFLAGS make test-container
-    env -u MAKEFLAGS -u MFLAGS make test-container-live
+candidate identityは、同じinvocationの開始前後でHEAD commit、staged、unstagedの
+Git semantic stateを比較する。stagedは`git diff --cached --binary --full-index`のHEADとの差分、
+unstagedは`git diff --binary --full-index`のindexとの差分を使い、完全に成功したproducer出力だけを
+SHA-256へ落として別成分として保持する。external diff / textconv等を無効にするexact引数はscriptを正とする。
+trackedのuncommitted changeは許容するが、実行中のstage / unstageで成分が変われば同一とは扱わない。
+Git canonicalization上同一の表現差やmtime / inodeを独自のcandidate変更とせず、raw filesystem全体の
+snapshotや一時変更→復元を検出するcontinuous monitorにはしない。
+
+非ignored untracked fileはidentity本体と別のsource hygiene failureである。
+`git ls-files --others --exclude-standard -z`が開始時にnon-emptyならclean以降を開始しない。
+終了時に残っている場合もINVALIDとし、自動stage / deleteはしない。tracked集合外のignored build artifactは
+identity外だが、tracked man等の生成物は比較対象に残る。取得失敗やpartial outputを同一candidateの証拠にしない。
+
+default production profileはoptional wrapper / linker overrideなしとする。scriptは既知のMake flags、
+toolchain / frontend overrideとouter Makeのdefault-options signalをchildへ引き継がず、既存frontendの
+defaultを使う。exact sanitationは実行commandとsummaryへ表示する。無関係なenvironmentまで除去する
+generic clean-environment policyにはしない。diff hygieneは`git diff --check`と
+`git diff --cached --check`を順に実行する。
+
+最初のfailureで後続laneを開始せず、summaryにPASS / FAIL / NOT RUN、直接childのexit status、
+first failureと最後に成功したlaneを残す。expected-negative stdout / stderrをparseして判定せず、
+network / container failureも該当laneのfailureとして記録する。summary / diagnostic / cleanup failureは
+primary failureを上書きしない。GNU Makeが内部toolのstatusを変換するため、summaryのchild statusを
+元Docker / CTestのstatusの完全透過とは扱わない。candidate比較はUNCHANGED / CHANGED / ERROR /
+NOT RECHECKEDとして表示し、HEAD、両diffのbefore / after、UTC時刻とcommand evidenceを残す。
+stdout / stderrはstreamし、必要なlog保存とpathの記録はoperatorが行う。
+
+exit 0かつ`RELEASE CANDIDATE: VALID`は、そのinvocationの同一candidateに対するclean/default、
+A–D + G、E、F、diff hygieneとcandidate unchangedのautomated RC evidenceである。
+release notes payloadの目視確認、optional ccache / mold parity、tag、GitHub Release、merge、mirrorの
+完了や実行許可を意味しない。`sh scripts/extract-release-notes.sh`でcurrent `VERSION` sectionを抽出・確認し、
+payloadを固定する責務はoperatorに残る。必要なparityはdefault gateの後にexact scopeを記録して追加する。
+
+orchestrator自身の`test-release-validate`はtemporary Git repoとfake commandによるdeterministic regressionで、
+`test-repository`を通じてcanonical host gateに含む。そのPASSやIssue integrationのhost PASSを、actual E / Fを
+含むfinal RCのPASSへ読み替えない。final candidateを固定した別RC epochで`release-validate`をfreshに実行する。
 
 `test-host-release`内でGがPASSした後、metadataを変更していなければGを別に再実行しない。
 metadataだけを後から変更した場合は`release-check-exclusive`だけを再実行できる。
-Release公開時の`RELEASE_NOTES.md`からのpayload抽出と目視確認は`DEVELOPMENT.md`のrelease flowを維持する。
+Release公開時の`RELEASE_NOTES.md`からのpayload抽出と目視確認は`development.md`のrelease flowを維持する。
 
 ## Contract-based risk classification
 

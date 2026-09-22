@@ -79,7 +79,10 @@ selectionの明示cleanupは成功・失敗ともownerを消費する。破棄�
 empty `PKGDEST`を再証明できなければrootを保持する。cleanup failureをdestructorが再試行しない。
 Slice 4Aの[trusted root freeze / exact acquisition / pinned closure foundation](pinned-submodule-closure.md)は
 このselectionをconsumeする専用ownerである。4B0の[別途明示closure review](pinned-submodule-closure-review.md)と
-4B1の[SourceReady workspace](pinned-submodule-workspace.md)を経て、4B2はinitial Missing bootstrapだけをcommon S4へ接続する。
+4B1の[SourceReady workspace](pinned-submodule-workspace.md)を経て、4B2はtyped initial-Missing bootstrapと
+`ordinary_devel_package_base`で選択された既存のordinary authoritative devel更新をcommon S4へ接続する。
+対応範囲は[normal routes](devel-normal-routes.md)と[execution bridge](reviewed-devel-source-build-execution.md)を正とし、
+他のsource / routeにこのauthorityを与えない。
 
 `resume_evaluated_devel_source(SourceReadyPinnedSubmoduleWorkspace)`はwhole ownerをconsumeし、private bridgeから
 同じselectionのexecution stateを一度だけ借用する。初回評価、closure取得、review、materialization、remote observationを
@@ -191,7 +194,7 @@ ctimeをmetadata/hash/MTREE読取の後にも再証明する。libalpm metadata�
 - evaluated source projection
 - `ActualBuiltGitRevision`
 - complete declared child set D、およびactual outputs Bの各retained descriptor、`PackageChildIdentity`、`BuiltPackageArtifactEvidence`
-- SourceReady inputではaccepted closure/child pins/backingを含むwhole owner（invocation内だけのseparate evidence）
+- SourceReady inputではaccepted closure/child pinsと独立copy済みworkspace/mirrorを含むwhole owner（invocation内だけのseparate evidence）。元のacquisition backingはSourceReady final proof後に解放済み
 
 artifact pathはdiagnostic/presentation valueでありauthorityではない。proof破棄または明示cleanupまでcontextと
 artifactを保持する。S5-Aの`EvaluatedDevelSourceArtifactTransport`はproof全体をmoveでconsumeし、
@@ -207,7 +210,8 @@ Slice 4 producer自身はinstall/publicationを呼ばず、後続phaseのowner�
 SourceReady inputのlocal adapter / prepared / post-build failureは`NativePreparationFailed` /
 `PreparedClosureDrift` / `PostBuildClosureDrift`と元の`PinnedWorkspaceFailure`を保持する。
 makepkg failure、process outcome、parent cancellationは既存分類を維持する。失敗cleanupはworkspace ownership確認→
-4A objects→selection/contextの順で、一度だけ行う。primary failureとworkspace/object/context cleanupを分離し、
+4A object cleanup consequence→selection/contextの順で扱う。SourceReady final proof後に試行済みの
+4A物理cleanupは記録済み結果を使い、再試行しない。primary failureとworkspace/object/context cleanupを分離し、
 成功proofの明示cleanupにも`pinned_workspace_cleanup()`で詳細を保持する。通常のpackage-build開始後のrefusalは維持する。
 
 phase、reason、existing parser/context/process/revision causeをtyped failureとして保持する。失敗時はcontextの

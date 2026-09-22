@@ -204,10 +204,33 @@ assert_cache_absent
 setup_case all-up-to-date all-up-to-date
 run_status 0 upgrade-aur
 assert_exact_line "AUR update: no updates" "$stdout_file"
-assert_exact_line "up-to-date-pkg: skipped: up to date" "$stdout_file"
+assert_not_contains "up-to-date-pkg: skipped: up to date" "$stdout_file"
 assert_not_contains "fixture" "$stderr_file"
 assert_exact_line "reduce execution=no" "$command_log"
 assert_no_external_mutation
+
+setup_case all-up-to-date-details all-up-to-date
+run_status 0 --details upgrade-aur
+assert_exact_line "up-to-date-pkg: skipped: up to date" "$stdout_file"
+assert_exact_line "reduce execution=no" "$command_log"
+assert_no_external_mutation
+
+# The same no-update operation has identical execution evidence in both modes.
+for operation in -Syu -Su; do
+    setup_case "compact-system-$operation" all-up-to-date
+    export MOGUET_TEST_PACMAN_CONF_REPOSITORY_LIST=core
+    export MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE=$case_dir/foreign-packages
+    printf '%s\n' 'up-to-date-pkg 1.0-1 explicit' > "$MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE"
+    export MOGUET_TEST_SUDO_EXIT_CODE=0
+    run_status 0 "$operation"
+    assert_exact_line "AUR update: no updates" "$stdout_file"
+    assert_not_contains "up-to-date-pkg: skipped: up to date" "$stdout_file"
+    cp "$command_log" "$case_dir/normal-events"
+    : > "$command_log"
+    run_status 0 --details "$operation"
+    assert_exact_line "up-to-date-pkg: skipped: up to date" "$stdout_file"
+    cmp "$case_dir/normal-events" "$command_log" || fail_case "details changed execution events"
+done
 
 setup_case non-aur-foreign non-aur-foreign
 run_status 0 upgrade-aur
@@ -428,6 +451,9 @@ assert_exact_line "warning-pkg: updated" "$stdout_file"
 assert_contains \
     "  preparation warning: warning-pkg: fixture source preference warning" \
     "$stdout_file"
+warning_line=$(grep -F "preparation warning: warning-pkg: fixture source preference warning" "$stdout_file")
+assert_line_before "AUR update: completed" "Attention-required details:" "$stdout_file"
+assert_line_before "Attention-required details:" "$warning_line" "$stdout_file"
 assert_not_contains "fixture source preference warning" "$stderr_file"
 assert_exact_line "reduce execution=yes" "$command_log"
 assert_no_real_package_command
@@ -467,7 +493,7 @@ assert_not_contains "pacman upgrade-aur" "$command_log"
 setup_case all-no-change all-no-change
 run_status 0 upgrade-aur
 assert_exact_line "AUR update: completed" "$stdout_file"
-assert_exact_line "no-change-pkg: no change" "$stdout_file"
+assert_exact_line "no-change-pkg: no package change" "$stdout_file"
 assert_exact_line \
     "Reviewed-source outcome for PackageBase no-change-pkg: exact upstream commit 2222222222222222222222222222222222222222 was already reviewed; no review prompt or state rewrite occurred." \
     "$stdout_file"
@@ -480,7 +506,7 @@ setup_case updated-no-change-mixed updated-no-change-mixed
 run_status 0 upgrade-aur
 assert_exact_line "AUR update: completed" "$stdout_file"
 assert_exact_line "zeta-pkg: updated" "$stdout_file"
-assert_exact_line "alpha-pkg: no change" "$stdout_file"
+assert_exact_line "alpha-pkg: no package change" "$stdout_file"
 assert_contains \
     "Reviewed-source outcome for PackageBase zeta-pkg: update review accepted" \
     "$stdout_file"
@@ -488,7 +514,7 @@ assert_exact_line \
     "Reviewed-source outcome for PackageBase alpha-pkg: --nodiff skipped review acceptance; this invocation has compatibility-only source authority, and reviewed state was not advanced." \
     "$stdout_file"
 assert_line_before \
-    "zeta-pkg: updated" "alpha-pkg: no change" "$stdout_file"
+    "zeta-pkg: updated" "alpha-pkg: no package change" "$stdout_file"
 assert_line_before \
     "Reviewed-source outcome for PackageBase zeta-pkg: update review accepted for exact upstream commit 2222222222222222222222222222222222222222." \
     "Reviewed-source outcome for PackageBase alpha-pkg: --nodiff skipped review acceptance; this invocation has compatibility-only source authority, and reviewed state was not advanced." \
@@ -689,6 +715,9 @@ assert_contains \
 assert_contains \
     "AUR update cleanup failed after a package transaction." "$stdout_file"
 
+assert_line_before "AUR update: stopped after cleanup failure" "Attention-required details:" "$stdout_file"
+assert_line_before "Attention-required details:" "updated-cleanup-pkg: updated, but cleanup failed" "$stdout_file"
+
 setup_case no-change-cleanup-failure no-change-cleanup-failure
 run_status 1 upgrade-aur
 assert_exact_line \
@@ -708,6 +737,8 @@ run_status 1 upgrade-aur
 assert_exact_line \
     "AUR update: stopped after work-item failure" "$stdout_file"
 assert_exact_line "first-pkg: updated" "$stdout_file"
+assert_line_before "AUR update: stopped after work-item failure" "first-pkg: updated" "$stdout_file"
+assert_line_before "first-pkg: updated" "Attention-required details:" "$stdout_file"
 assert_exact_line \
     "failed-pkg: failed: build or install failure" "$stdout_file"
 assert_exact_line \
@@ -902,6 +933,45 @@ run_status 0 -Syu --repo
 assert_exact_line "sudo pacman -Syu" "$command_log"
 assert_pipeline_absent
 
+# Unaffected routes retain their existing option rejection.
+for operation in upgrade; do
+    setup_case "details-unsupported-$operation" no-installed-foreign
+    run_status 1 --details "$operation"
+    assert_contains "--details" "$stderr_file"
+    assert_pipeline_absent
+    assert_no_external_mutation
+done
+
+# Confirmation classification controls presentation severity, never the exit.
+for confirmation_case in declined cancelled eof noninteractive noconfirm input-failure; do
+    setup_case "syu-confirmation-$confirmation_case" no-installed-foreign
+    export MOGUET_TEST_SYSTEM_AUR_PRESENTATION_CASE="confirmation-$confirmation_case"
+    run_status 1 -Syu
+    case "$confirmation_case" in
+        declined) classification=Declined; channel=$stdout_file; other=$stderr_file ;;
+        cancelled|eof) classification=Cancelled; channel=$stdout_file; other=$stderr_file ;;
+        noninteractive|noconfirm) classification=Unavailable; channel=$stderr_file; other=$stdout_file ;;
+        input-failure) classification='Input failure'; channel=$stderr_file; other=$stdout_file ;;
+    esac
+    case "$confirmation_case" in
+        declined) reason='The required confirmation was declined.' ;;
+        cancelled) reason='The current operation was cancelled at an interactive confirmation.' ;;
+        eof) reason='The current operation was cancelled because interactive input ended.' ;;
+        noninteractive) reason='The required confirmation is unavailable because standard input is non-interactive.' ;;
+        noconfirm) reason='The required confirmation is unavailable while --noconfirm is set.' ;;
+        input-failure) reason='Failed to read the interactive confirmation input.' ;;
+    esac
+    assert_output_count 1 "$reason" "$channel"
+    assert_not_contains "$reason" "$other"
+    assert_contains "$classification:" "$channel"
+    assert_output_count 1 "Coordinated cross-source transition stopped during confirmation." "$channel"
+    assert_not_contains "Coordinated cross-source transition stopped" "$other"
+    assert_not_contains "$classification:" "$other"
+    assert_not_contains "The repository system upgrade completed." "$stdout_file"
+    assert_pipeline_absent
+    assert_no_external_mutation
+done
+
 setup_case syu-inconsistent-presentation no-installed-foreign
 export MOGUET_TEST_SYSTEM_AUR_PRESENTATION_CASE=inconsistent
 run_status 1 -Syu
@@ -1088,7 +1158,7 @@ assert_not_contains "git " "$command_log"
 assert_not_contains "sudo pacman -U" "$command_log"
 assert_cache_absent
 
-if [ "$case_count" -ne 96 ]; then
+if [ "$case_count" -ne 106 ]; then
     fail_case "internal test case count changed: $case_count"
 fi
 echo "AUR update command integration tests passed ($case_count cases)."

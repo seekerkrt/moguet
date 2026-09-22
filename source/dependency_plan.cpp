@@ -295,7 +295,7 @@ RepositoryExactPackage repository_candidate(
                                      : present.package_name,
         present.package_base,
         observed_version,
-        present.provides};
+        present.provides, present.architecture};
 }
 
 AurResolvedDependencyCandidate aur_candidate(

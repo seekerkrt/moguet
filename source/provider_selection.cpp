@@ -2,6 +2,7 @@
 
 #include "dependency_spec.hpp"
 #include "localization.hpp"
+#include "package_text_style.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -65,6 +66,9 @@ void present_candidate_metadata(
         output << "source=repository"
                << " package=" << candidate.package_name
                << " repository=" << repository->repository_name;
+        if(!candidate.package_base.empty() && candidate.package_base != candidate.package_name) {
+            output << " PackageBase=" << candidate.package_base;
+        }
     } else {
         output << "source=AUR"
                << " package=" << candidate.package_name
@@ -77,11 +81,35 @@ void present_candidate_metadata(
            << " version=" << metadata_value(candidate.package_version);
 }
 
-void present_default_candidate(
+void present_compact_candidate(
     std::ostream& output, std::size_t index,
     const ProvidedDependency& candidate) {
-    present_candidate_metadata(output, index, candidate);
-    output << '\n';
+    const bool styled = package_text_style::enabled_for(output);
+    const auto* repository = std::get_if<RepositoryProviderOrigin>(&candidate.origin);
+    output << index << ") ";
+    package_text_style::identity(
+        output, repository ? repository->repository_name : "aur",
+        candidate.package_name, styled);
+    output << ' ';
+    package_text_style::version(output, metadata_value(candidate.package_version), styled);
+    if(repository != nullptr && repository->repository_name == "aur") {
+        output << ' ' << localization::translate_message("[repository]");
+    }
+    if(!candidate.package_base.empty() && candidate.package_base != candidate.package_name) {
+        // NO_TRANSLATE: PackageBase is the canonical package build identity term.
+        output << " (PackageBase: " << metadata_value(candidate.package_base) << ')';
+    }
+    // The shared presenter does not own the prompt's dependency context.
+    // Keep one capability annotation so versioned or differing capabilities
+    // remain comparable, without repeating component + identical specification.
+    const std::string capability = candidate.provided_dependency_specification.empty()
+                                       ? metadata_value(candidate.provided_dependency_name)
+                                       : candidate.provided_dependency_specification;
+    output << ' ' << localization::format_translated_message("[provides: {}]", capability);
+    if(!candidate.provided_dependency_name.empty() &&
+       dependency_package_name(capability) != candidate.provided_dependency_name) {
+        output << ' ' << localization::format_translated_message("[component: {}]", candidate.provided_dependency_name);
+    }
 }
 
 std::optional<std::size_t> parse_candidate_number(
@@ -99,14 +127,28 @@ std::optional<std::size_t> parse_candidate_number(
 
 } // namespace
 
-ProviderCandidatePresenter make_default_provider_candidate_presenter() {
-    return present_default_candidate;
+ProviderCandidatePresenter make_default_provider_candidate_presenter(
+    PresentationDetail detail) {
+    switch(detail) {
+        case PresentationDetail::Normal:
+        case PresentationDetail::Detailed:
+            return [detail](std::ostream& output, std::size_t index,
+                            const ProvidedDependency& candidate) {
+                present_provider_candidate_metadata(output, index, candidate, detail);
+                output << '\n';
+            };
+    }
+    throw std::logic_error("Unknown provider presentation detail.");
 }
 
 void present_provider_candidate_metadata(
     std::ostream& output, std::size_t index,
-    const ProvidedDependency& candidate) {
-    present_candidate_metadata(output, index, candidate);
+    const ProvidedDependency& candidate, PresentationDetail detail) {
+    if(detail == PresentationDetail::Normal) {
+        present_compact_candidate(output, index, candidate);
+    } else {
+        present_candidate_metadata(output, index, candidate);
+    }
 }
 
 ProviderSelectionConflict::ProviderSelectionConflict(
@@ -166,7 +208,7 @@ std::optional<ProvidedDependency> ProviderSelectionSession::select_provider(
     // NO_TRANSLATE: The ":: " framing, numeric range, and response tokens are
     // fixed provider-selection UI syntax. The complete prompt sentences are
     // translated below.
-    *output_ << ":: provider dependency=" << dependency_name << '\n';
+    *output_ << ":: " << localization::format_translated_message("Choose a provider for {}:", dependency_name) << '\n';
     for(std::size_t index = 0; index < candidates.size(); ++index) {
         present_candidate(*output_, index + 1, candidates[index]);
     }

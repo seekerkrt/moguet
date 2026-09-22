@@ -2707,10 +2707,43 @@ void test_repository_session_move_assignment_does_not_double_release() {
     expect(stub::release_count_for_handle(1) == 1, "sync old handle was double released");
 }
 
+void test_fresh_hold_package_patterns() {
+    constexpr const char* command = "pacman-conf HoldPkg 2>/dev/null";
+    stub::reset_process_stub();
+    stub::enqueue_captured_command_result(command, {{}, 0});
+    stub::enqueue_captured_command_result(command, {"linux\npacman\nglibc\nlinux-*\n*-lts\npkg?\n[ab]*\n[[:digit:]]*\nlinux\n", 0});
+    auto result = query_configured_hold_package_patterns();
+    expect(std::holds_alternative<ConfiguredHoldPackagePatterns>(result) &&
+               std::get<ConfiguredHoldPackagePatterns>(result).patterns.empty(),
+           "successful empty HoldPkg became failure");
+    result = query_configured_hold_package_patterns();
+    expect(std::holds_alternative<ConfiguredHoldPackagePatterns>(result) &&
+               std::get<ConfiguredHoldPackagePatterns>(result).patterns == std::vector<std::string>{
+                                                                               "linux", "pacman", "glibc", "linux-*", "*-lts", "pkg?", "[ab]*", "[[:digit:]]*", "linux"},
+           "fresh HoldPkg lost effective patterns/order or reused empty query");
+    expect(stub::captured_commands() == std::vector<std::string>{command, command}, "HoldPkg used unexpected config authority or cached read");
+    for(const auto& output : std::vector<std::string>{"linux", "\n", "linux\n\n", "linux glibc\n", " linux\n", "linux\tglibc\n",
+                                                      "HoldPkg = linux\n", "linux\r\n", std::string("linux\0lts\n", 10), std::string("linux\x7f\n")}) {
+        stub::enqueue_captured_command_result(command, {output, 0});
+        result = query_configured_hold_package_patterns();
+        const auto* failure = std::get_if<PackageMetadataFailure>(&result);
+        expect(failure && failure->code == PackageMetadataErrorCode::ConfigurationMalformed,
+               "malformed HoldPkg became successful or empty protection");
+    }
+    for(const auto& capture : std::vector<CapturedCommandResult>{{{}, 1}, {"linux\n", 1}, {{}, 0, true}}) {
+        stub::enqueue_captured_command_result(command, capture);
+        result = query_configured_hold_package_patterns();
+        const auto* failure = std::get_if<PackageMetadataFailure>(&result);
+        expect(failure && failure->code == PackageMetadataErrorCode::ConfigurationUnavailable,
+               "failed/truncated HoldPkg became successful empty protection");
+    }
+}
+
 } // namespace
 
 int main() {
     try {
+        test_fresh_hold_package_patterns();
         test_pacman_conf_path_parse_success();
         test_pacman_conf_command_failure();
         test_root_dir_missing();

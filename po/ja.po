@@ -1,9 +1,9 @@
 msgid ""
 msgstr ""
-"Project-Id-Version: Moguet 2.8.0\n"
+"Project-Id-Version: Moguet 2.9.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-17 09:57+0900\n"
-"PO-Revision-Date: 2026-09-09 16:53+0900\n"
+"POT-Creation-Date: 2026-09-22 11:25+0900\n"
+"PO-Revision-Date: 2026-09-19 17:53+0900\n"
 "Last-Translator: Moguet contributors\n"
 "Language-Team: Japanese\n"
 "Language: ja\n"
@@ -945,6 +945,15 @@ msgstr "トランザクション結果は不明です。インストールされ
 msgid "transaction failed; package effects unverified"
 msgstr "トランザクションは失敗しました。パッケージへの影響は未検証です"
 
+msgid "skipped: devel tracking bootstrap was declined; rerun when ready to review the source"
+msgstr "スキップ: 開発版追跡の初期登録が辞退されました。ソースをレビューできるときに再実行してください"
+
+msgid "skipped: devel tracking bootstrap interaction was unavailable; enable interactive source review before retrying"
+msgstr "スキップ: 開発版追跡の初期登録に必要な対話を利用できませんでした。再試行前に対話形式のソースレビューを有効にしてください"
+
+msgid "skipped: source/update observation changed before bootstrap; re-check the current state before retrying"
+msgstr "スキップ: 初期登録前にソース・更新の観測が変わりました。再試行前に現在の状態を確認し直してください"
+
 msgid "skipped: devel tracking bootstrap"
 msgstr "スキップ: devel追跡の初期化"
 
@@ -975,6 +984,140 @@ msgstr "  必要な子パッケージ: {} -> {} {}"
 #, c++-format
 msgid "  required child: {}"
 msgstr "  必要な子パッケージ: {}"
+
+msgid "input validation"
+msgstr "入力の検証"
+
+msgid "workspace creation"
+msgstr "作業領域の作成"
+
+msgid "root source observation"
+msgstr "ルートソースの観測"
+
+msgid "root source acquisition"
+msgstr "ルートソースの取得"
+
+msgid "submodule declarations"
+msgstr "サブモジュール宣言"
+
+msgid "submodule acquisition"
+msgstr "サブモジュールの取得"
+
+msgid "object verification"
+msgstr "オブジェクトの検証"
+
+msgid "recursive source traversal"
+msgstr "ソースの再帰探索"
+
+msgid "cleanup"
+msgstr "クリーンアップ"
+
+msgid "unknown source acquisition stage"
+msgstr "不明なソース取得段階"
+
+msgid "invalid source selection"
+msgstr "ソース選択が無効です"
+
+msgid "unsupported source transport"
+msgstr "ソース取得方式が未対応です"
+
+msgid "malformed source observation"
+msgstr "ソース観測結果が不正です"
+
+msgid "submodule declaration mismatch"
+msgstr "サブモジュール宣言が一致しません"
+
+msgid "malformed submodule declaration"
+msgstr "サブモジュール宣言が不正です"
+
+msgid "unsupported submodule update policy"
+msgstr "サブモジュール更新方針が未対応です"
+
+msgid "unsafe source path"
+msgstr "ソースパスが安全ではありません"
+
+msgid "pinned source object unavailable"
+msgstr "固定されたソースオブジェクトを取得できません"
+
+msgid "unexpected source object type"
+msgstr "ソースオブジェクトの種類が想定と異なります"
+
+msgid "source object format mismatch"
+msgstr "ソースオブジェクト形式が一致しません"
+
+msgid "malformed source tree"
+msgstr "ソースツリーが不正です"
+
+msgid "unsafe source filesystem"
+msgstr "ソースのファイルシステムが安全ではありません"
+
+msgid "source identity changed"
+msgstr "ソースの識別情報が変化しました"
+
+msgid "malformed source repository"
+msgstr "ソースリポジトリが不正です"
+
+msgid "source acquisition resource limit exceeded"
+msgstr "ソース取得のリソース上限を超えました"
+
+msgid "source acquisition cancelled"
+msgstr "ソース取得がキャンセルされました"
+
+#, c++-format
+msgid "{} process failed"
+msgstr "{}プロセスが失敗しました"
+
+msgid "source acquisition I/O failure"
+msgstr "ソース取得の入出力に失敗しました"
+
+msgid "source workspace creation failed"
+msgstr "ソース作業領域を作成できませんでした"
+
+msgid "recursive submodule cycle"
+msgstr "サブモジュールの再帰的な循環があります"
+
+msgid "unknown source acquisition reason"
+msgstr "不明なソース取得理由"
+
+#. TRANSLATORS: The placeholders are the acquisition stage and failure reason.
+#, c++-format
+msgid "    source closure acquisition failed during {}: {}"
+msgstr "    ソースクロージャーの取得に失敗しました（{}）: {}"
+
+#, c++-format
+msgid "    source acquisition errno: {}"
+msgstr "    ソース取得のerrno: {}"
+
+#, c++-format
+msgid "    {} process exit code: {}"
+msgstr "    {}プロセスの終了コード: {}"
+
+#, c++-format
+msgid "    {} process terminated by signal: {}"
+msgstr "    {}プロセスを終了したシグナル: {}"
+
+#, c++-format
+msgid "    {} process launch/setup failed (errno {})"
+msgstr "    {}プロセスの起動・準備に失敗しました（errno {}）"
+
+#, c++-format
+msgid "    {} process I/O/wait failed (errno {})"
+msgstr "    {}プロセスの入出力・待機に失敗しました（errno {}）"
+
+#, c++-format
+msgid "    {} process timed out"
+msgstr "    {}プロセスがタイムアウトしました"
+
+#, c++-format
+msgid "    {} process output limit exceeded ({} bytes)"
+msgstr "    {}プロセスの出力上限を超えました（{} バイト）"
+
+#, c++-format
+msgid "    source acquisition cancellation signal: {}"
+msgstr "    ソース取得をキャンセルしたシグナル: {}"
+
+msgid "    source acquisition cleanup incomplete; temporary source data may remain"
+msgstr "    ソース取得後のクリーンアップが未完了です。一時ソースデータが残っている可能性があります"
 
 #. TRANSLATORS: The placeholders are the PackageBase metadata-key
 #. identity and a package-base identity.
@@ -1965,7 +2108,7 @@ msgstr "{}の更新を外部パッケージ{}個について確認していま�
 #. first package number, last package number, and total package count.
 #, c++-format
 msgid "Fetching {} info for packages {}-{} of {}..."
-msgstr "{} 件中 {}～{} 件目のパッケージについて {} 情報を取得しています..."
+msgstr "{}からパッケージ情報を取得しています（{}～{}件目、全{}件）..."
 
 #. TRANSLATORS: AUR is a runtime project identity.
 #, c++-format
@@ -2184,6 +2327,10 @@ msgstr "不正な環境変数代入です: {}"
 #, c++-format
 msgid "Unknown operation: {}"
 msgstr "不明な操作です: {}"
+
+#, c++-format
+msgid "Option {} is not supported for operation {}."
+msgstr "option {} はoperation {} ではサポートされていません。"
 
 #, c++-format
 msgid "A {} option is not supported for the combined {} route. Use {} for a repository-only system upgrade with full {} pass-through."
@@ -2476,8 +2623,8 @@ msgstr "devel追跡の基準情報を作成しました"
 msgid "updated"
 msgstr "更新済み"
 
-msgid "no change"
-msgstr "変更なし"
+msgid "no package change"
+msgstr "パッケージの変更なし"
 
 msgid "skipped"
 msgstr "スキップ"
@@ -2553,6 +2700,9 @@ msgstr "{}更新の問い合わせが{}に対して失敗しました: {}"
 msgid "{} update:"
 msgstr "{}更新:"
 
+msgid "Attention-required details:"
+msgstr "確認が必要な詳細:"
+
 #. TRANSLATORS: AUR is a runtime project identity.
 #, c++-format
 msgid "{} update partially completed before failure."
@@ -2562,6 +2712,11 @@ msgstr "{}更新は失敗前に一部完了しました。"
 #, c++-format
 msgid "{} update cleanup failed after a package transaction."
 msgstr "{}更新ではパッケージ処理後の後処理に失敗しました。"
+
+#. TRANSLATORS: The placeholders are the PackageBase metadata key and identity.
+#, c++-format
+msgid "Source acquisition/review workspace cleanup failed for {} {}; temporary source data may remain."
+msgstr "{} {} のソース取得・レビュー用作業領域の後処理に失敗しました。一時ソースデータが残っている可能性があります。"
 
 #. TRANSLATORS: AUR is a runtime project identity.
 #, c++-format
@@ -2766,9 +2921,6 @@ msgstr "  項目: 全{}件、通常{}件、要確認{}件"
 msgid "  normal unconstrained dependencies: {}"
 msgstr "  通常の制約なし依存関係: {}"
 
-msgid "Attention-required details:"
-msgstr "確認が必要な詳細:"
-
 msgid "<plan-wide>"
 msgstr "<プラン全体>"
 
@@ -2827,6 +2979,10 @@ msgid "  - {}: result={}, reason={}"
 msgstr "  - {}: 結果={}, 理由={}"
 
 #, c++-format
+msgid "Constraints: {} satisfied or unconstrained"
+msgstr "制約: {}件は充足または制約なし"
+
+#, c++-format
 msgid "Installed package metadata for {} is unavailable: {}"
 msgstr "インストール済みパッケージ{}のメタデータを利用できません: {}"
 
@@ -2878,56 +3034,14 @@ msgstr "    置換: {}"
 msgid "Package relation assessments:"
 msgstr "パッケージ関係の判定:"
 
-msgid "Ambiguous provided dependencies:"
-msgstr "プロバイダーを一意に決定できない依存関係:"
-
-msgid "Split package install targets:"
-msgstr "分割パッケージのインストール対象:"
-
-#, c++-format
-msgid "  - {} (base: {})"
-msgstr "  - {}（ベース: {}）"
-
-msgid "Unresolved dependencies:"
-msgstr "未解決の依存関係:"
-
-msgid "Cyclic dependencies:"
-msgstr "循環している依存関係:"
-
-msgid "Build plan:"
-msgstr "ビルド計画:"
-
-#, c++-format
-msgid "     target package: {}"
-msgid_plural "     target packages: {}"
-msgstr[0] "     対象パッケージ: {}"
-
-msgid "Provided dependencies:"
-msgstr "提供された依存関係:"
-
-msgid " (selected)"
-msgstr " （選択済み）"
-
-msgid "Fetch targets:"
-msgstr "取得対象:"
-
 msgid "Selected provided dependencies:"
 msgstr "選択済みの提供依存関係:"
 
-#. TRANSLATORS: The first placeholder is the
-#. literal command name "upgrade-all"; the
-#. second is a runtime option token.
-#, c++-format
-msgid "Unsupported {} option: {}"
-msgstr "{}で未対応のオプションです: {}"
+msgid "Ambiguous provided dependencies:"
+msgstr "プロバイダーを一意に決定できない依存関係:"
 
-#, c++-format
-msgid "Failed to inspect dependencies for {}: {}"
-msgstr "{}の依存関係を調査できませんでした: {}"
-
-#, c++-format
-msgid "{} package not found: {}"
-msgstr "{}にパッケージが見つかりません: {}"
+msgid "Unknown dependencies:"
+msgstr "不明な依存関係:"
 
 #, c++-format
 msgid "Package         : {}"
@@ -2952,8 +3066,68 @@ msgstr "公式{}依存関係:"
 msgid "{} dependencies:"
 msgstr "{}依存関係:"
 
-msgid "Unknown dependencies:"
-msgstr "不明な依存関係:"
+msgid "Provided dependencies:"
+msgstr "提供された依存関係:"
+
+msgid "Build plan:"
+msgstr "ビルド計画:"
+
+#, c++-format
+msgid "     target package: {}"
+msgid_plural "     target packages: {}"
+msgstr[0] "     対象パッケージ: {}"
+
+msgid " (selected)"
+msgstr " （選択済み）"
+
+msgid "Split package install targets:"
+msgstr "分割パッケージのインストール対象:"
+
+#, c++-format
+msgid "  - {} (base: {})"
+msgstr "  - {}（ベース: {}）"
+
+msgid "Unresolved dependencies:"
+msgstr "未解決の依存関係:"
+
+msgid "Cyclic dependencies:"
+msgstr "循環している依存関係:"
+
+#, c++-format
+msgid "Plan targets: {}"
+msgstr "プラン対象: {}"
+
+msgid "Fetch/build/install: ready"
+msgstr "取得/ビルド/インストール: 準備完了"
+
+#, c++-format
+msgid "  {}: {} — {} ({})"
+msgstr "  {}: {} — {}（{}）"
+
+msgid "Dependency edges:"
+msgstr "依存関係の内訳:"
+
+#, c++-format
+msgid "  {}: {}"
+msgstr "  {}: {}"
+
+msgid "Fetch targets:"
+msgstr "取得対象:"
+
+#. TRANSLATORS: The first placeholder is the
+#. literal command name "upgrade-all"; the
+#. second is a runtime option token.
+#, c++-format
+msgid "Unsupported {} option: {}"
+msgstr "{}で未対応のオプションです: {}"
+
+#, c++-format
+msgid "Failed to inspect dependencies for {}: {}"
+msgstr "{}の依存関係を調査できませんでした: {}"
+
+#, c++-format
+msgid "{} package not found: {}"
+msgstr "{}にパッケージが見つかりません: {}"
 
 #, c++-format
 msgid "Failed to plan build order for {}: {}"
@@ -3049,6 +3223,64 @@ msgstr "ソースパッケージを確認しています..."
 
 msgid "Unknown system/source upgrade event kind."
 msgstr "不明なシステム/ソース更新イベント種別です。"
+
+msgid "Not attempted"
+msgstr "未試行"
+
+msgid "Unknown registered source outcome."
+msgstr "登録済みソースの結果が不明です。"
+
+#, c++-format
+msgid "{} summary:"
+msgstr "{}の概要:"
+
+msgid "Completed"
+msgstr "完了"
+
+#, c++-format
+msgid "  repository system upgrade: {}"
+msgstr "  リポジトリのシステム更新: {}"
+
+msgid "Changed"
+msgstr "変更あり"
+
+msgid "Verified unchanged"
+msgstr "変更なしを確認"
+
+msgid "Unverified"
+msgstr "未検証"
+
+msgid "Not observed"
+msgstr "未観測"
+
+#, c++-format
+msgid "  repository package state observation: {}"
+msgstr "  リポジトリパッケージ状態の観測: {}"
+
+#, c++-format
+msgid "  registered source: {}"
+msgstr "  登録済みソース: {}"
+
+msgid "The system/source upgrade partially completed; completed phases were not rolled back."
+msgstr "システム・ソース更新は一部完了しました。完了した段階はロールバックされていません。"
+
+msgid "Requires check: repository package state could not be verified."
+msgstr "要確認: リポジトリパッケージの状態を検証できませんでした。"
+
+msgid "    Skipped: explicit rebuild was not accepted; inspect devel source metadata before rebuilding."
+msgstr "    スキップ: 明示的な再ビルドが承認されませんでした。再ビルド前に開発版ソースのメタデータを確認してください。"
+
+msgid "    Skipped: update status is unknown; inspect source metadata before rebuilding."
+msgstr "    スキップ: 更新状態が不明です。再ビルド前にソースのメタデータを確認してください。"
+
+msgid "    Inspect the retained build, install and provenance outcomes before retrying."
+msgstr "    再試行前に、保持されたビルド・インストール・来歴の各結果を確認してください。"
+
+msgid "    Package state is unverified; inspect installed packages before retrying."
+msgstr "    パッケージ状態は未検証です。再試行前にインストール済みパッケージを確認してください。"
+
+msgid "    Cleanup failed after a package transaction; inspect the retained result before retrying."
+msgstr "    パッケージ処理後の後処理に失敗しました。再試行前に保持された結果を確認してください。"
 
 #, c++-format
 msgid "  required child: {} -> {} {} (explicit): installed"
@@ -3520,6 +3752,12 @@ msgstr "無効な{}パッケージ対象です: {}"
 msgid "{} work item has no invocation root ownership: {}"
 msgstr "{}の作業項目に呼び出しルートの所有関係がありません: {}"
 
+msgid "[repository]"
+msgstr "[リポジトリ]"
+
+msgid "Package candidates:"
+msgstr "パッケージ候補:"
+
 msgid "Invalid package selection token."
 msgstr "パッケージ選択トークンが無効です。"
 
@@ -3539,9 +3777,6 @@ msgstr "パッケージ選択の取り消しトークンは選択指定と同時
 #, c++-format
 msgid "Package {} was selected from more than one source; select exactly one source."
 msgstr "パッケージ {} が複数のソースから選択されています。ソースをちょうど1つ選択してください。"
-
-msgid "Package candidates:"
-msgstr "パッケージ候補:"
 
 #, c++-format
 msgid "Select package numbers, ascending ranges, or displayed {}; press {} or enter {} to cancel:"
@@ -4314,26 +4549,11 @@ msgstr "操作不要"
 msgid "Partial failure"
 msgstr "部分的失敗"
 
-msgid "Not attempted"
-msgstr "未試行"
-
 msgid "Inconsistent"
 msgstr "不整合"
 
 msgid "Unknown operation outcome."
 msgstr "操作結果が不明です。"
-
-msgid "Changed"
-msgstr "変更あり"
-
-msgid "Verified unchanged"
-msgstr "変更なしを確認"
-
-msgid "Unverified"
-msgstr "未検証"
-
-msgid "Not observed"
-msgstr "未観測"
 
 msgid "Unknown package-state observation."
 msgstr "パッケージ状態の観測が不明です。"
@@ -4492,10 +4712,6 @@ msgid "{} work-item failure"
 msgstr "{}作業項目の失敗"
 
 #, c++-format
-msgid "{} summary:"
-msgstr "{}の概要:"
-
-#, c++-format
 msgid "  operation outcome: {}"
 msgstr "  操作結果: {}"
 
@@ -4514,6 +4730,9 @@ msgstr "  no-opの根拠: {}"
 #, c++-format
 msgid "  update candidates: {}, blockers: {}, requires-check: {}, failures: {}"
 msgstr "  更新候補: {}件、blocker: {}件、要確認: {}件、失敗: {}件"
+
+msgid "Details:"
+msgstr "詳細:"
 
 #, c++-format
 msgid "package: {}"
@@ -4913,6 +5132,77 @@ msgstr "以前に選択したプロバイダーは、依存関係 {} の候補�
 msgid "Provider candidate changed during dependency resolution: {}"
 msgstr "依存関係の解決中にプロバイダー候補が変更されました: {}"
 
+msgid "already absent"
+msgstr "すでに存在しません"
+
+msgid "identity changed"
+msgstr "パッケージ識別情報が変わりました"
+
+msgid "install reason changed"
+msgstr "インストール理由が変わりました"
+
+msgid "protected"
+msgstr "保護対象です"
+
+msgid "still required"
+msgstr "引き続き必要です"
+
+msgid "current state unknown"
+msgstr "現在の状態を確認できません"
+
+msgid "invalid candidate"
+msgstr "無効な候補です"
+
+msgid "cleanup blocked"
+msgstr "クリーンアップを実行できません"
+
+#, c++-format
+msgid "Dependency cleanup skipped {}: {}."
+msgstr "依存パッケージのクリーンアップをスキップしました: {}（{}）。"
+
+#, c++-format
+msgid "Dependency cleanup removed: {}."
+msgstr "依存パッケージのクリーンアップで削除しました: {}。"
+
+msgid "unknown"
+msgstr "不明"
+
+#, c++-format
+msgid "Build/install succeeded; dependency cleanup removal failed. Attempted: {}. Exit status: {}."
+msgstr "ビルド/インストールは成功しましたが、依存パッケージの削除に失敗しました。試行対象: {}。終了ステータス: {}。"
+
+msgid "Dependency cleanup: no candidates remain ready for removal."
+msgstr "依存パッケージのクリーンアップ: 再検証後に削除できる候補はありません。"
+
+msgid "Build/install succeeded; dependency cleanup blocked by unavailable or unsafe evidence."
+msgstr "ビルド/インストールは成功しましたが、必要な情報の不足または安全性の確認不成立により依存パッケージのクリーンアップを実行できません。"
+
+msgid "Dependency cleanup: nothing to remove."
+msgstr "依存パッケージのクリーンアップ: 削除する候補はありません。"
+
+msgid "Dependency cleanup declined; build/install succeeded."
+msgstr "依存パッケージのクリーンアップは承認されませんでした。ビルド/インストールは成功しています。"
+
+msgid "Dependency cleanup cancelled; build/install succeeded."
+msgstr "依存パッケージのクリーンアップをキャンセルしました。ビルド/インストールは成功しています。"
+
+#. TRANSLATORS: The placeholder is the literal --noconfirm option.
+#, c++-format
+msgid "Build/install succeeded; dependency cleanup unavailable: {} does not approve removal."
+msgstr "ビルド/インストールは成功しましたが、依存パッケージのクリーンアップは実行できません: {}は削除の承認になりません。"
+
+msgid "Build/install succeeded; dependency cleanup unavailable: input is not interactive."
+msgstr "ビルド/インストールは成功しましたが、依存パッケージのクリーンアップは実行できません: 入力が対話形式ではありません。"
+
+msgid "Build/install succeeded; dependency cleanup unavailable: interaction I/O failed."
+msgstr "ビルド/インストールは成功しましたが、依存パッケージのクリーンアップは実行できません: 対話の入出力に失敗しました。"
+
+msgid "Assessed build dependencies eligible for cleanup:"
+msgstr "判定済みのビルド依存パッケージのうち、クリーンアップ可能な候補:"
+
+msgid "Remove build dependencies?"
+msgstr "ビルド依存パッケージを削除しますか?"
+
 #, c++-format
 msgid "Selected providers use incompatible identities for package {}: {} and {}."
 msgstr "選択したプロバイダーがパッケージ {} に互換性のない識別情報を使用しています: {} と {}。"
@@ -5076,10 +5366,6 @@ msgstr "システム/ソース更新の事前検査に投影authorityがあり�
 
 msgid "Upgrade-all preflight has no projection authority."
 msgstr "upgrade-allの事前検査に投影authorityがありません。"
-
-#, c++-format
-msgid "Option {} is not supported for operation {}."
-msgstr "option {} はoperation {} ではサポートされていません。"
 
 msgid "Dry-run route classification returned an unknown operation."
 msgstr "dry-runの経路分類が不明なoperationを返しました。"
@@ -5404,9 +5690,15 @@ msgid "{} returned invalid local package metadata at line {}."
 msgstr "{}が{}行目で不正なローカルパッケージメタデータを返しました。"
 
 #, c++-format
+msgid "Local source workspace cleanup could not be completed; temporary source data may remain at {}."
+msgstr "ローカルソース作業領域のクリーンアップを完了できませんでした。{} に一時ソースデータが残っている可能性があります。"
+
+#, c++-format
 msgid "Warning: {}"
 msgstr "警告: {}"
 
+#. TRANSLATORS: The placeholder is an exact shell command and must remain
+#. byte-for-byte locale-neutral.
 #, c++-format
 msgid "Running: {}"
 msgstr "実行中: {}"
@@ -5597,6 +5889,14 @@ msgstr "{}および外部パッケージの更新を確認"
 msgid "OPTIONS"
 msgstr "オプション"
 
+msgid "Show detailed diagnostic and provenance information"
+msgstr "詳細な診断情報と由来情報を表示"
+
+#. TRANSLATORS: The placeholders are literal supported CLI forms.
+#, c++-format
+msgid "For remote {}, {}, {}, {}, {}, {}, {}, {}, and {}; changes presentation only, not execution"
+msgstr "リモート{}、{}、{}、{}、{}、{}、{}、{}、{}で使用可能。表示だけを変更し、実行動作は変えません"
+
 msgid "Show this help message and exit"
 msgstr "このヘルプを表示して終了"
 
@@ -5675,8 +5975,10 @@ msgstr "ソースビルドモードを選択"
 msgid "Compatibility alias for {}"
 msgstr "{}との互換性を保つための別名"
 
-msgid "Unsupported for separated source builds; no dependency cleanup is performed"
-msgstr "分離されたソースビルドでは未対応です。依存パッケージは削除しません"
+#. TRANSLATORS: The placeholder is the literal AUR identity.
+#, c++-format
+msgid "Preview newly installed build dependencies after remote {} build success; remove only with explicit approval"
+msgstr "remote {}ビルド成功後に新規のビルド依存候補を表示し、明示承認された場合だけ削除"
 
 #. TRANSLATORS: -S, -Ss, -Si, and AUR are literal CLI/project identities.
 #, c++-format
@@ -6206,6 +6508,49 @@ msgid "current or planned"
 msgstr "現在または計画中"
 
 #, c++-format
+msgid "{}: {} -> {}"
+msgstr "{}: {} -> {}"
+
+#, c++-format
+msgid "{}; installed conflict with {}. Build/install is blocked."
+msgstr "{}; インストール済みの{}と競合。ビルド/インストールは実行不可です。"
+
+#, c++-format
+msgid "{}; planned conflict with {}. Build/install is blocked."
+msgstr "{}; 計画中の{}と競合。ビルド/インストールは実行不可です。"
+
+#, c++-format
+msgid "{}; potential replacement of {}. Review required; no automatic replacement. Build/install is blocked."
+msgstr "{}; {}の置換候補。確認が必要で、自動置換は行いません。ビルド/インストールは実行不可です。"
+
+#, c++-format
+msgid "{}; no matching installed or planned target."
+msgstr "{}; インストール済み/計画中の一致対象なし。"
+
+#, c++-format
+msgid "version judgment unavailable for {}"
+msgstr "{}のバージョン判定を利用できません"
+
+#, c++-format
+msgid "version evidence invalid for {}"
+msgstr "{}のバージョン根拠が不正です"
+
+#, c++-format
+msgid "{}; invalid relation metadata or observation ({}). Build/install is blocked."
+msgstr "{}; 関係メタデータまたは観測が不正です（{}）。ビルド/インストールは実行不可です。"
+
+#, c++-format
+msgid "{}; relation judgment unavailable ({}). Build/install is blocked."
+msgstr "{}; 関係を確定できません（{}）。ビルド/インストールは実行不可です。"
+
+#, c++-format
+msgid "{}; assessment incomplete. Build/install is blocked."
+msgstr "{}; 判定が未完了です。ビルド/インストールは実行不可です。"
+
+msgid "Invalid relation metadata or observation."
+msgstr "関係メタデータまたは観測が不正です。"
+
+#, c++-format
 msgid "Installed conflict confirmed: declaring package {} declares conflict {} for target component {}; matched installed package {} through {}; build/install is blocked before mutation."
 msgstr "インストール済みパッケージとの競合を確認: 宣言元パッケージ{}は競合 {} を宣言（対象コンポーネント: {}）; インストール済みパッケージ{}が{}として一致; ビルド/インストールは変更前に停止します。"
 
@@ -6233,9 +6578,6 @@ msgstr "関係メタデータまたは観測が不正です: 宣言元パッケ�
 msgid "Declared relation awaiting assessment: declaring package {} declares {} {} for target component {}; current/planned assessment is incomplete, so build/install remains blocked under the fail-closed policy."
 msgstr "宣言済み関係の判定待ち: 宣言元パッケージ{}は{} {} を宣言（対象コンポーネント: {}）; 現在/計画中の判定が未完了のため、安全側にビルド/インストールを停止します。"
 
-msgid "Invalid relation metadata or observation."
-msgstr "関係メタデータまたは観測が不正です。"
-
 msgid "Exact upstream source snapshot (separate from recipe review)\n"
 msgstr "固定された上流ソースのスナップショット（レシピのレビューとは別です）\n"
 
@@ -6244,6 +6586,10 @@ msgstr "この承認はスナップショットをビルド入力として使う
 
 msgid "Use this exact upstream source snapshot as build input?"
 msgstr "この固定された上流ソースのスナップショットをビルド入力として使用しますか？"
+
+#, c++-format
+msgid "Fetching root upstream tag objects ({} objects)"
+msgstr "ルート上流タグのオブジェクトを取得しています ({} objects)"
 
 #, c++-format
 msgid "Invalid {} target for operation {}: {}"
@@ -6558,8 +6904,20 @@ msgstr "無視するシグナルの動作設定を初期化できませんでし
 msgid "Failed to initialize the {} mask: {}"
 msgstr "{} マスクを初期化できませんでした: {}"
 
+#, c++-format
+msgid "[provides: {}]"
+msgstr "[提供: {}]"
+
+#, c++-format
+msgid "[component: {}]"
+msgstr "[コンポーネント: {}]"
+
 msgid "Provider selection requires a non-empty dependency name."
 msgstr "プロバイダー選択には空でない依存関係名が必要です。"
+
+#, c++-format
+msgid "Choose a provider for {}:"
+msgstr "{} を提供するパッケージを選択してください:"
 
 #, c++-format
 msgid "Select a provider from [{}], or press {} / enter {} to cancel:"
@@ -7253,8 +7611,13 @@ msgstr "{} に対する信頼できるインストール済みパッケージの
 msgid "Processing {}..."
 msgstr "{} を処理しています..."
 
-msgid "Remote URL mismatch. Re-cloning..."
-msgstr "リモート URL が一致しません。clone し直します..."
+#, c++-format
+msgid "Missing {} directory for existing cache checkout {}. Build stopped; cache preserved. Check the configured source and cache before retrying."
+msgstr "{} ディレクトリが既存のキャッシュ checkout {} にありません。ビルドを停止し、キャッシュを保持しました。再試行する前に、設定されたソースとキャッシュを確認してください。"
+
+#, c++-format
+msgid "Remote URL mismatch for existing cache checkout {}. Build stopped; cache preserved. Check the configured source and cache before retrying."
+msgstr "既存のキャッシュ checkout {} のリモート URL が一致しません。ビルドを停止し、キャッシュを保持しました。再試行する前に、設定されたソースとキャッシュを確認してください。"
 
 msgid "Updating repository..."
 msgstr "リポジトリを更新しています..."
@@ -8343,9 +8706,6 @@ msgstr "システム/ソース: {}"
 msgid "provider"
 msgstr "プロバイダー"
 
-msgid "unknown"
-msgstr "不明"
-
 msgid "A dependency kind is not supported by the renderer."
 msgstr "依存関係の種別はレンダラーでサポートされていません。"
 
@@ -9335,6 +9695,30 @@ msgstr "パッケージ関係ブロッカー: {}"
 msgid "Blockers:"
 msgstr "ブロッカー:"
 
+#, c++-format
+msgid "  Checked: {}; update candidates: {}; devel unchanged: {}"
+msgstr "  確認対象: {}件、更新候補: {}件、devel変更なし: {}件"
+
+#, c++-format
+msgid "{} revision difference"
+msgstr "{}リビジョンの差分"
+
+msgid "metadata unavailable"
+msgstr "メタデータを利用できません"
+
+msgid "requires check"
+msgstr "確認が必要"
+
+msgid "inconsistent"
+msgstr "不整合"
+
+msgid "  Repository system upgrade planned."
+msgstr "  リポジトリのシステム更新予定。"
+
+#, c++-format
+msgid "  Build units: {}; required artifacts: {}; transaction intents: {}"
+msgstr "  ビルド単位: {}件、必要アーティファクト: {}件、transaction予定: {}件"
+
 msgid "Unified plan:"
 msgstr "統合プラン:"
 
@@ -9612,6 +9996,15 @@ msgstr "{}のデフォルト状態ログを段階{}で安全に使用できま�
 msgid "Unknown state log error code."
 msgstr "不明な状態ログエラーコードです。"
 
+#~ msgid "Remote URL mismatch. Re-cloning..."
+#~ msgstr "リモート URL が一致しません。clone し直します..."
+
+#~ msgid "no change"
+#~ msgstr "変更なし"
+
+#~ msgid "Unsupported for separated source builds; no dependency cleanup is performed"
+#~ msgstr "分離されたソースビルドでは未対応です。依存パッケージは削除しません"
+
 #~ msgid "No coordinated transition is executed or prompted here; the existing repository transaction policy is unchanged."
 #~ msgstr "ここでは連携遷移の実行や確認入力は行いません。既存のリポジトリトランザクション方針を維持します。"
 
@@ -9760,9 +10153,6 @@ msgstr "不明な状態ログエラーコードです。"
 #~ msgid "Interactive package selection has an unknown input gate."
 #~ msgstr "対話形式のパッケージ選択の入力ゲートが不明です。"
 
-#~ msgid "no package state change"
-#~ msgstr "パッケージ状態の変更なし"
-
 #~ msgid "package state changed"
 #~ msgstr "パッケージ状態が変更されました"
 
@@ -9804,10 +10194,6 @@ msgstr "不明な状態ログエラーコードです。"
 #~ msgstr "<不明な設定>"
 
 #, c++-format
-#~ msgid "registered source: {}: {}"
-#~ msgstr "登録済みソース: {}: {}"
-
-#, c++-format
 #~ msgid "The {} phase is {} without a typed reason."
 #~ msgstr "{}段階は型付きの理由がないまま{}になっています。"
 
@@ -9824,9 +10210,6 @@ msgstr "不明な状態ログエラーコードです。"
 
 #~ msgid "some phases were not attempted"
 #~ msgstr "未試行の段階があります"
-
-#~ msgid "cleanup failure occurred"
-#~ msgstr "後処理に失敗しました"
 
 #, c++-format
 #~ msgid "duplicate {} targets excluded"

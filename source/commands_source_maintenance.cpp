@@ -12,6 +12,7 @@
 #include "local_source_metadata_evaluation.hpp"
 #include "localization.hpp"
 #include "logging.hpp"
+#include "operation_state_model.hpp"
 #include "runtime_diagnostic.hpp"
 #include "package_metadata.hpp"
 #include "package_identifier.hpp"
@@ -182,6 +183,114 @@ void present_system_source_upgrade_event(
     }
     throw std::logic_error(localization::translate_message(
         "Unknown system/source upgrade event kind."));
+}
+
+std::string registered_source_outcome_label(const RegisteredSourceUpgradeResult& source) {
+    switch(source.status) {
+        case RegisteredSourceUpgradeStatus::Updated:
+            return localization::translate_message("updated");
+        case RegisteredSourceUpgradeStatus::NoChange:
+            return localization::translate_message("no package change");
+        case RegisteredSourceUpgradeStatus::Failed:
+            return diagnostic_class_label(DiagnosticClass::ExecutionFailure);
+        case RegisteredSourceUpgradeStatus::UpdatedCleanupFailed:
+            return localization::translate_message("updated, but cleanup failed");
+        case RegisteredSourceUpgradeStatus::NoChangeCleanupFailed:
+            return localization::translate_message("no package change, but cleanup failed");
+        case RegisteredSourceUpgradeStatus::NotAttempted:
+            return localization::translate_message("Not attempted");
+        case RegisteredSourceUpgradeStatus::Unsupported:
+            return diagnostic_class_label(DiagnosticClass::Unsupported);
+        case RegisteredSourceUpgradeStatus::Incomplete:
+            return diagnostic_class_label(DiagnosticClass::RequiresCheck);
+    }
+    throw std::logic_error(localization::translate_message("Unknown registered source outcome."));
+}
+
+std::string registered_source_result_identity(
+    const SystemSourceUpgradeResult& result, const RegisteredSourceUpgradeResult& source) {
+    DiagnosticIdentity identity;
+    identity.requested_package = source.preference_package_name;
+    identity.package_base = source.resolved_package_base;
+    for(const auto& preference : result.prepared_snapshot.registered_sources) {
+        if(preference.original_preference_index != source.original_preference_index) continue;
+        if(preference.source_kind == SourceBuildSourceKind::Aur)
+            identity.source_kind = DiagnosticSourceKind::Aur;
+        else if(preference.source_kind == SourceBuildSourceKind::Repository)
+            identity.source_kind = DiagnosticSourceKind::RepositorySource;
+        if(!identity.package_base) identity.package_base = preference.resolved_package_base;
+        if(preference.repository_identity)
+            identity.repository = preference.repository_identity->exact_package().repository_name;
+        break;
+    }
+    return diagnostic_identity_suffix(identity);
+}
+
+void present_system_source_upgrade_result(const SystemSourceUpgradeResult& result) {
+    // This is a result-only view: confirmation exceptions never reach it. Do
+    // not use presentation completeness or is_success() as the legacy exit rule.
+    std::cout << localization::format_translated_message("{} summary:", "upgrade") << std::endl;
+    std::string system_status = localization::translate_message("Not attempted");
+    switch(result.system.status) {
+        case SystemUpgradePhaseStatus::Completed: system_status = localization::translate_message("Completed"); break;
+        case SystemUpgradePhaseStatus::Failed: system_status = localization::translate_message("Failed"); break;
+        case SystemUpgradePhaseStatus::NotAttempted: break;
+    }
+    std::cout << localization::format_translated_message(
+                     "  repository system upgrade: {}", system_status)
+              << std::endl;
+    // Unattempted phases carry a default NoChange, not an observation.
+    const auto observation = project_package_state_observation(
+        result.system.status == SystemUpgradePhaseStatus::NotAttempted
+            ? PackageStateChange::Unknown
+            : result.system.package_state_change,
+        result.system.status == SystemUpgradePhaseStatus::NotAttempted
+            ? ObservationReason::PhaseNotAttempted
+            : ObservationReason::ObservationNotPrepared);
+    std::string state;
+    switch(observation.state) {
+        case PackageStateObservation::Changed: state = localization::translate_message("Changed"); break;
+        case PackageStateObservation::VerifiedUnchanged: state = localization::translate_message("Verified unchanged"); break;
+        case PackageStateObservation::Unverified: state = localization::translate_message("Unverified"); break;
+        case PackageStateObservation::NotObserved: state = localization::translate_message("Not observed"); break;
+    }
+    std::cout << localization::format_translated_message("  repository package state observation: {}", state) << std::endl;
+    const auto normal = [](const RegisteredSourceUpgradeResult& source) {
+        return source.status == RegisteredSourceUpgradeStatus::Updated ||
+               source.status == RegisteredSourceUpgradeStatus::NoChange;
+    };
+    for(const auto& source : result.registered_source_results) {
+        if(normal(source))
+            std::cout << localization::format_translated_message("  registered source: {}", registered_source_outcome_label(source))
+                      << registered_source_result_identity(result, source) << std::endl;
+    }
+    const bool has_attention = result.has_partial_completion() ||
+                               observation.state == PackageStateObservation::Unverified ||
+                               std::any_of(result.registered_source_results.begin(), result.registered_source_results.end(),
+                                           [&normal](const auto& source) { return !normal(source); });
+    if(!has_attention) return;
+    std::cout << localization::translate_message("Attention-required details:") << std::endl;
+    if(result.has_partial_completion())
+        std::cout << localization::translate_message("The system/source upgrade partially completed; completed phases were not rolled back.") << std::endl;
+    if(observation.state == PackageStateObservation::Unverified)
+        std::cout << localization::translate_message("Requires check: repository package state could not be verified.") << std::endl;
+    for(const auto& source : result.registered_source_results) {
+        if(normal(source)) continue;
+        std::cout << localization::format_translated_message("  registered source: {}", registered_source_outcome_label(source))
+                  << registered_source_result_identity(result, source) << std::endl;
+        if(source.failure_kind == RegisteredSourceUpgradeFailureKind::DevelRequiresCheckSkipped)
+            std::cout << localization::translate_message("    Skipped: explicit rebuild was not accepted; inspect devel source metadata before rebuilding.") << std::endl;
+        else if(source.failure_kind == RegisteredSourceUpgradeFailureKind::UpdateStatusUnknownSkipped)
+            std::cout << localization::translate_message("    Skipped: update status is unknown; inspect source metadata before rebuilding.") << std::endl;
+        else if(source.status == RegisteredSourceUpgradeStatus::Incomplete)
+            std::cout << localization::translate_message("    Inspect the retained build, install and provenance outcomes before retrying.") << std::endl;
+        if(source.package_state_change == PackageStateChange::Unknown &&
+           source.status != RegisteredSourceUpgradeStatus::NotAttempted)
+            std::cout << localization::translate_message("    Package state is unverified; inspect installed packages before retrying.") << std::endl;
+        if(source.status == RegisteredSourceUpgradeStatus::UpdatedCleanupFailed ||
+           source.status == RegisteredSourceUpgradeStatus::NoChangeCleanupFailed)
+            std::cout << localization::translate_message("    Cleanup failed after a package transaction; inspect the retained result before retrying.") << std::endl;
+    }
 }
 
 bool should_present_registered_package_base_result(
@@ -915,9 +1024,10 @@ int cmd_build(
     }
 
     try {
-        if(!build_source_target(
-               invocation.package_name,
-               invocation.source_environment, config)) return 1;
+        return build_source_target(
+                   invocation.package_name,
+                   invocation.source_environment, config)
+            .command_exit_status();
     } catch(const ProductionSourceBuildInvocationError& error) {
         Logger::error(
             format_production_source_build_invocation_failure(error));
@@ -1431,6 +1541,7 @@ int cmd_upgrade(const AppConfig& config) {
             config, present_system_source_upgrade_event);
     if(const auto* blocked =
            std::get_if<SystemSourceUpgradeResult>(&preparation)) {
+        present_system_source_upgrade_result(*blocked);
         throw_system_source_upgrade_failure(*blocked);
     }
 
@@ -1441,6 +1552,7 @@ int cmd_upgrade(const AppConfig& config) {
                     preparation)),
             config,
             present_system_source_upgrade_event);
+    present_system_source_upgrade_result(result);
     present_registered_reviewed_source_outcomes(result);
     present_registered_package_base_results(result);
     if(result.status != SystemSourceUpgradeStatus::Completed) {

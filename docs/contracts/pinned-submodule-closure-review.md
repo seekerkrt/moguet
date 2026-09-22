@@ -78,12 +78,18 @@ stays live until explicit cleanup or destruction, using the same no-retry policy
 
 The [4B1 workspace producer](pinned-submodule-workspace.md) consumes Accepted
 whole ownership into a move-only SourceReady owner, using fresh local derived
-Git state and phase-point proof. The immutable 4A backing and same selection
-lineage survive. This is not continuous attestation; disposable workspace/cache
-is not authority, and persistent user cache is untouched.
+Git state and phase-point proof. The immutable 4A backing survives through the
+complete transfer and final SourceReady proof, then only its physical resources
+are released. The same selection/context and closed Accepted lineage survive;
+copied metadata cannot mint another acceptance. This is not continuous attestation;
+disposable workspace/cache is not authority, and persistent user cache is untouched.
 
 4B2 connects this chain to native makepkg/common S4 only through the typed
-SourceReady consumer on the exact initial-Missing bootstrap route. Normal
+SourceReady consumer for typed initial-Missing bootstrap and existing ordinary
+authoritative devel updates selected by `ordinary_devel_package_base`.
+[Normal routes](devel-normal-routes.md) and the
+[execution bridge](reviewed-devel-source-build-execution.md) define the supported
+activation scope; other routes do not gain this authority. Normal
 single-root gates remain for inputs without that authority; the S3 recipe
 Gitlink gate remains closed. S5/S6 and provenance schema v1/27 keys are unchanged.
 Slice 5 supplies split group authority. Slice 6 adds the

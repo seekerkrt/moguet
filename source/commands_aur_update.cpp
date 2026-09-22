@@ -6,9 +6,11 @@
 #include "filtered_aur_update_operation.hpp"
 #include "localization.hpp"
 #include "logging.hpp"
+#include "presentation_projection.hpp"
 #include "runtime_diagnostic.hpp"
 #include "source_install.hpp"
 
+#include <algorithm>
 #include <iostream>
 #include <optional>
 #include <stdexcept>
@@ -289,7 +291,7 @@ std::string target_status_label(
             if(has_aur_update_bootstrap_intent(target.update)) return localization::translate_message("devel tracking baseline established");
             return localization::translate_message("updated");
         case AurUpdateOperationTargetStatus::NoChange:
-            return localization::translate_message("no change");
+            return localization::translate_message("no package change");
         case AurUpdateOperationTargetStatus::Skipped:
             return localization::translate_message("skipped") + ": " +
                    target_reason_label(target);
@@ -498,7 +500,7 @@ void print_query_failures(const AurUpdateQueryResult& query_result) {
 
 void print_operation_result(
     const AurUpdateQueryResult& query_result,
-    const AurUpdateOperationResult& result) {
+    const AurUpdateOperationResult& result, PresentationDetail detail) {
     // Child/work-item enumやselected identityのincoherenceは、success summaryを
     // 一行でも出す前にfail-closedにする。
     const AurUpdateCliPresentation execution_presentation =
@@ -509,7 +511,30 @@ void print_operation_result(
                      "{} update:", "AUR")
               << " " << operation_status_label(result.status)
               << std::endl;
+    const auto normal_target = [](const AurUpdateOperationTargetResult& target) {
+        const auto item = project_aur_update_presentation_item(target);
+        return target.status == AurUpdateOperationTargetStatus::Updated ||
+               target.status == AurUpdateOperationTargetStatus::NoChange ||
+               (target.status == AurUpdateOperationTargetStatus::Skipped &&
+                item.aur_normal_skip_reason == AurUpdateExecutionReason::UpToDate &&
+                !is_attention_required(item));
+    };
+    // Preserve target order within each group, not execution order as a new
+    // authority. Normal facts precede attention; child/artifact detail follows.
     for(const auto& target : result.targets) {
+        if(normal_target(target) &&
+           (detail == PresentationDetail::Detailed ||
+            target.status != AurUpdateOperationTargetStatus::Skipped))
+            std::cout << target.update.installed_name << ": "
+                      << target_status_label(target, result.status) << std::endl;
+    }
+    if(!result.is_success() || !result.preparation_warnings.empty() ||
+       !query_result.recoverable_failures.empty() ||
+       std::any_of(result.targets.begin(), result.targets.end(),
+                   [&normal_target](const auto& target) { return !normal_target(target); }))
+        std::cout << localization::translate_message("Attention-required details:") << std::endl;
+    for(const auto& target : result.targets) {
+        if(normal_target(target)) continue;
         if(const AurUpdateExecutionIssue* attention =
                independent_requires_check_attention_issue(result, target);
            attention != nullptr) {
@@ -521,17 +546,6 @@ void print_operation_result(
                   << target_status_label(target, result.status)
                   << std::endl;
     }
-    for(const std::string& line : execution_presentation.summary_lines) {
-        std::cout << line << std::endl;
-    }
-
-    print_preflight_issues(result);
-    print_preparation_details(result);
-    for(const std::string& line : execution_presentation.error_lines) {
-        Logger::error(line);
-    }
-    print_reduction_issues(result);
-
     if(result.has_partial_completion() &&
        result.status != AurUpdateOperationStatus::StoppedOnWorkItemCancellation) {
         std::cout << localization::format_translated_message(
@@ -540,12 +554,41 @@ void print_operation_result(
                          "AUR")
                   << std::endl;
     }
-    if(result.has_cleanup_failure()) {
+    // has_cleanup_failure() also includes acquisition/review workspace cleanup.
+    // A completed transaction elsewhere does not prove the failed cleanup was
+    // post-transaction; use only the affected work item's typed outcome.
+    const auto post_transaction_cleanup = [](AurUpdateWorkItemExecutionStatus status) {
+        return status == AurUpdateWorkItemExecutionStatus::UpdatedCleanupFailed ||
+               status == AurUpdateWorkItemExecutionStatus::NoChangeCleanupFailed;
+    };
+    const bool has_transaction_cleanup =
+        std::any_of(result.execution_work_items.begin(), result.execution_work_items.end(),
+                    [&post_transaction_cleanup](const auto& item) { return post_transaction_cleanup(item.status); }) ||
+        std::any_of(result.targets.begin(), result.targets.end(), [&post_transaction_cleanup](const auto& target) {
+            return target.status == AurUpdateOperationTargetStatus::UpdatedCleanupFailed ||
+                   target.status == AurUpdateOperationTargetStatus::NoChangeCleanupFailed ||
+                   std::any_of(target.execution_contributions.begin(), target.execution_contributions.end(),
+                               [&post_transaction_cleanup](const auto& contribution) { return post_transaction_cleanup(contribution.status); });
+        });
+    if(has_transaction_cleanup) {
         std::cout << localization::format_translated_message(
                          // TRANSLATORS: AUR is a runtime project identity.
                          "{} update cleanup failed after a package transaction.",
                          "AUR")
                   << std::endl;
+    }
+    for(const auto& item : result.execution_work_items) {
+        const bool acquisition_cleanup = item.recipe_acquisition_failure && item.recipe_acquisition_failure->cleanup;
+        const bool review_cleanup = item.devel_execution && item.devel_execution->closure_review_failure &&
+                                    (item.devel_execution->closure_review_failure->reason == PinnedClosureReviewFailureReason::Cancelled ||
+                                     item.devel_execution->closure_review_failure->reason == PinnedClosureReviewFailureReason::Declined) &&
+                                    !item.devel_execution->closure_review_failure->cleanup.succeeded();
+        if(acquisition_cleanup || review_cleanup)
+            std::cout << localization::format_translated_message(
+                             // TRANSLATORS: The placeholders are the PackageBase metadata key and identity.
+                             "Source acquisition/review workspace cleanup failed for {} {}; temporary source data may remain.",
+                             "PackageBase", terminal_safe_runtime_diagnostic_detail(item.package_base))
+                      << std::endl;
     }
     if(result.has_not_attempted_targets()) {
         std::cout << localization::format_translated_message(
@@ -555,12 +598,21 @@ void print_operation_result(
                   << std::endl;
     }
 
+    print_preflight_issues(result);
+    print_preparation_details(result);
+    print_reduction_issues(result);
     print_query_failures(query_result);
     if(!query_result.recoverable_failures.empty() && result.is_success()) {
         Logger::error(localization::format_translated_message(
             // TRANSLATORS: AUR is a runtime project identity.
             "{} update completed, but query failures were reported.",
             "AUR"));
+    }
+    for(const std::string& line : execution_presentation.summary_lines) {
+        std::cout << line << std::endl;
+    }
+    for(const std::string& line : execution_presentation.error_lines) {
+        Logger::error(line);
     }
 }
 
@@ -586,15 +638,15 @@ int cmd_upgrade_aur(
 
     // POLICY(#281): upgrade-aur presentationはlegacy reducer resultを正本にし、
     // filtered boundary固有のplanner/mapping detailをcommand outputへ追加しない。
-    present_filtered_aur_update_execution_result(result);
+    present_filtered_aur_update_execution_result(result, config.presentation_detail);
     return result.is_success() ? 0 : 1;
 } catch(const FilteredAurUpdateCancelled& stop) {
-    present_filtered_aur_update_execution_result(stop.result());
+    present_filtered_aur_update_execution_result(stop.result(), config.presentation_detail);
     return 1;
 }
 
 void present_filtered_aur_update_execution_result(
-    const FilteredAurUpdateExecutionResult& result) {
+    const FilteredAurUpdateExecutionResult& result, PresentationDetail detail) {
     print_operation_result(
-        result.query_result, result.reduced_operation_result);
+        result.query_result, result.reduced_operation_result, detail);
 }

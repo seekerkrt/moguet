@@ -933,9 +933,18 @@ void test_getrandom_token_generation() {
 
 } // namespace
 
+namespace {
+std::size_t g_observed_process_calls = 0;
+}
+
+std::size_t cleanup_test_observed_process_calls() {
+    return g_observed_process_calls;
+}
+
 CapturedCommandResult capture_explicit_process_output_raw(
     const ExplicitProcessInvocation& invocation,
     bool suppress_standard_error) {
+    ++g_observed_process_calls;
     expect(
         !suppress_standard_error && !expected_processes.empty() &&
             expected_processes.front().kind ==
@@ -953,6 +962,7 @@ int run_explicit_process(
     const ExplicitProcessInvocation& invocation,
     bool suppress_standard_output,
     bool suppress_standard_error) {
+    ++g_observed_process_calls;
     expect(
         !suppress_standard_output && !suppress_standard_error &&
             !expected_processes.empty() &&
@@ -976,6 +986,7 @@ ExplicitProcessExecutionResult run_explicit_process_with_outcome(
     const ExplicitProcessInvocation& invocation,
     bool suppress_standard_output,
     bool suppress_standard_error) noexcept {
+    ++g_observed_process_calls;
     try {
         expect(
             !suppress_standard_output && !suppress_standard_error &&

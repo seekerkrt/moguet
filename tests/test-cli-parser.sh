@@ -350,6 +350,8 @@ assert_dry_run_rendered dry-run-after-operation \
     fetch clean-root --dry-run
 assert_dry_run_rendered dry-run-duplicate \
     --dry-run build clean-root --dry-run
+assert_dry_run_rendered remote-build-details \
+    --details build --details clean-root --dry-run --details
 assert_dry_run_rendered dry-run-sync-system-update \
     -Syu --dry-run
 
@@ -593,7 +595,7 @@ assert_contains "list-src" "$output_file"
 assert_contains "del-src <pkg>..." "$output_file"
 assert_contains "revert <pkg>..." "$output_file"
 assert_contains \
-    "Unsupported for separated source builds; no dependency cleanup is performed" \
+    "Preview newly installed build dependencies after remote AUR build success; remove only with explicit approval" \
     "$output_file"
 assert_pre_log_exit
 
@@ -601,6 +603,60 @@ setup_case version-operation
 run_ok --version
 assert_contains "Moguet v" "$output_file"
 assert_pre_log_exit
+
+# Issue #439 F-01: exercise the production entry before config/XDG/Logger.
+for info_option in --help -h --version -V; do
+    case "$info_option" in
+        --help|-h) canonical_info=--help; info_marker=USAGE ;;
+        --version|-V) canonical_info=--version; info_marker='Moguet v' ;;
+    esac
+    setup_case "details-info-$info_option"
+    # A relative config root would fail if runtime config resolution ran.
+    export XDG_CONFIG_HOME=relative-info-config
+    run_ok "$info_option"
+    assert_contains "$info_marker" "$output_file"
+    assert_pre_log_exit
+    run_ok --noedit "$info_option"
+    assert_contains "$info_marker" "$output_file"
+    assert_pre_log_exit
+
+    for placement in before after; do
+        case "$placement" in
+            before) run_fail --details "$info_option" ;;
+            after) run_fail "$info_option" --details ;;
+        esac
+        assert_contains \
+            "Option --details is not supported for operation $canonical_info." \
+            "$output_file"
+        assert_not_contains "$info_marker" "$output_file"
+        assert_pre_log_exit
+    done
+
+    # Literal option values and opaque operands are not details occurrences.
+    run_ok "$info_option" -- --details
+    assert_contains "$info_marker" "$output_file"
+    assert_pre_log_exit
+    for value_option in --config --root -b -r; do
+        run_ok "$info_option" "$value_option" --details
+        assert_contains "$info_marker" "$output_file"
+        assert_pre_log_exit
+    done
+    run_ok "$info_option" --config=--details
+    assert_contains "$info_marker" "$output_file"
+    assert_pre_log_exit
+
+    # A consumed value does not hide a later actual details occurrence.
+    run_fail "$info_option" --config -- --details
+    assert_contains \
+        "Option --details is not supported for operation $canonical_info." \
+        "$output_file"
+    assert_pre_log_exit
+    run_fail --details "$info_option" -- --details
+    assert_contains \
+        "Option --details is not supported for operation $canonical_info." \
+        "$output_file"
+    assert_pre_log_exit
+done
 
 setup_case unknown-custom-operation
 run_fail unknown-operation
@@ -652,7 +708,18 @@ assert_contains "conflict-only" "$output_file"
 
 setup_case multi-target-plan
 run_ok plan clean-root conflict-only
+assert_contains "Plan targets: clean-root, conflict-only" "$output_file"
+assert_contains "Fetch/build/install: ready" "$output_file"
+assert_not_contains "Plan state:" "$output_file"
+assert_not_contains "construction:" "$output_file"
+
+# --details changes presentation density while preserving multi-target routing.
+run_ok --details plan clean-root conflict-only
 assert_contains "Plan state:" "$output_file"
+assert_contains "construction: Constructed" "$output_file"
+assert_contains "Fetch readiness: Ready" "$output_file"
+assert_contains "Build readiness: Ready" "$output_file"
+assert_contains "Install readiness: Ready" "$output_file"
 assert_contains "clean-root" "$output_file"
 assert_contains "conflict-only" "$output_file"
 

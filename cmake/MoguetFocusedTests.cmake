@@ -68,7 +68,6 @@ foreach(_moguet_direct_focus IN ITEMS
     invocation-owned-cleanup-model
     invocation-owned-recipe-acquisition
     invocation-owned-source-build-context
-    pinned-submodule-closure
     pinned-submodule-closure-review
     pinned-submodule-workspace
     pinned-submodule-s4-integration
@@ -133,6 +132,18 @@ foreach(_moguet_direct_focus IN ITEMS
     )
 endforeach()
 
+# The public frontend requires every semantic shard independently of the
+# actual registrations. Discovering these names from MOGUET_CTEST_NAMES would
+# silently accept a missing or extra shard sharing the same runtime target.
+moguet_add_focused_ctest_alias(
+    test-pinned-submodule-closure
+    TESTS
+        cpp.pinned_submodule_closure.declarations
+        cpp.pinned_submodule_closure.objects
+        cpp.pinned_submodule_closure.failures
+        cpp.pinned_submodule_closure.tags
+)
+
 moguet_add_focused_ctest_alias(
     test-git-remote-revision-observer
     TESTS
@@ -142,6 +153,10 @@ moguet_add_focused_ctest_alias(
 moguet_add_focused_ctest_alias(
     test-remote-aur-cleanup-collector
     TESTS cpp.remote_aur_cleanup_collector
+)
+moguet_add_focused_ctest_alias(
+    test-dependency-cleanup-interaction
+    TESTS cpp.dependency_cleanup_interaction
 )
 
 moguet_add_focused_ctest_alias(
@@ -296,3 +311,10 @@ moguet_add_focused_ctest_alias(
     TESTS cpp.split_devel_artifact_authority
     TARGETS evaluated-devel-source-build-test
 )
+
+moguet_add_focused_ctest_alias(
+    test-dependency-cleanup-execution
+    TESTS cpp.dependency_cleanup_execution
+)
+
+moguet_add_focused_ctest_alias(test-source-build-rmdeps TESTS cli.source_build_rmdeps)

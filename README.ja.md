@@ -5,10 +5,12 @@
 <!-- parity:overview -->
 ## 概要
 
-Moguetは、検証済みsource buildとpackageごとのbuild preferenceを提供する、
-Arch Linux向けのpacman-first AUR helperです。package transactionは`pacman`、
-package buildは`makepkg`、repository取得は`git`へ委ね、Moguetはplan、review、
-artifact validationと各tool間の安全な引き渡しを担います。
+Moguetは、Arch Linuxで日常的なAUR利用を扱うpacman-first AUR helperです。
+検索、依存関係の解決、取得、review、build、install、updateをworkflowとして組み立て、
+必要に応じてpackageごとのsource-build preferenceも扱います。package transactionは
+`pacman`、PKGBUILDの評価とbuildは`makepkg`、Git objectとtransportは`git`へ委ねます。
+Moguetはlibalpmからpackage metadataとrelationshipをread-onlyで取得し、各toolの間で
+対象、実行順序、review、validationを組み立てます。
 
 MoguetはArch Linux、pacman、AURの公式projectではありません。独立したpackage
 manager、既存AUR helperの完全なclone、pacmanやmakepkgの契約を置き換えるtoolでも
@@ -30,6 +32,13 @@ variableは`MOGUET_*` prefixを使います。
 Moguetはproject固有の造語です。正式なproject表記は **Moguet**、正式な読みは
 **モグエット** です。
 
+Moguetは、作者自身のArch LinuxやAURへの興味と学習から始まり、AIを活用した開発も取り入れながら育ててきた個人projectです。現在も開発を通じて成長を続けています。
+v2では日常利用できることを目指し、correctnessとregression preventionを重視して
+保守的に設計してきました。automated regression、controlled integration、container検証、
+実packageのdogfoodで根拠を積み重ねていますが、bug-freeやupstream codeの安全性を
+保証するものではありません。検証の考え方は[validation policy](https://github.com/seekerkrt/moguet/blob/develop/docs/validation.md)を
+参照してください。
+
 <!-- parity:status -->
 ## Project status
 
@@ -44,37 +53,39 @@ Moguet v2.0.1は、採用済みXDG storage契約のうちsource-preference部分
 preferenceは実行user自身のXDG config contextだけを使い、公開済みv2.0.0のtag、Release、
 release noteは歴史的記録のまま変更しません。
 
-Moguet v2.8.0は最新の機能追加・correctness releaseです。通常のsystem + AUR更新と、
-代表的な実packageでのdevel移行・追跡の主要部分を完成させ、対応するsubmodule構成や
-Git tag依存buildでのexact source処理を強化しました。guard付きのrepo/AUR exact-version
-移行に加え、永続状態、resource管理、diagnosticの問題も修正しています。
-対応範囲と利用者から見える変更の全体は
-[v2.8.0 release](https://github.com/seekerkrt/moguet/releases/tag/v2.8.0)を参照してください。
+Moguet v2.9.0はv2.x seriesで予定している最後のMINOR releaseです。ordinary AUR helperの
+土台を完成させ、対応するremote AUR build routeでの限定的なdependency cleanup、
+Normal / Detailed presentationのcompact化、responsibility boundaryの簡素化、
+final RC validation workflowの整備をまとめています。対応範囲と利用者から見える変更の全体は
+[v2.9.0 release](https://github.com/seekerkrt/moguet/releases/tag/v2.9.0)を参照してください。
 
 canonical repository identityはGitHub上のMoguetで、GitLab mirrorを持ちます。Moguet
 packageは`jpacker` command aliasを提供しません。AUR publicationは将来の別判断であり、
 この文書はAUR endpointが存在すると断定しません。
 
-Moguet v2.xは公開済みで利用できますが、完成済みの一般向けAUR helperではなく、
-development-phaseのproductのままです。basicなpacman wrapper、AUR source build、
-update、package別のsource-build preferenceは現在すでに動作しますが、AUR support全体と
-edge case対応は段階的に実装中で、UXも成熟途上です。Moguetはfull dependency solverや
-provider / conflictの自動解決を再実装せずpacman-firstを維持し、既存AUR helperと同等の
-自動解決能力・完成度を約束しません。unsupportedまたはambiguousなcaseは、推測せず
-fail-closedで停止します。v2.xは、Moguetのsource-aware入口、安全境界、検証基盤を
-築く公開開発期です。v3.0.0は、Moguet固有のbuild-profileとPKGBUILD差分workflowが揃う
-地点であり、projectは内部的にこれをMoguetの本格的な正式就役と位置付けています。詳細な
-計画はrelease roadmap（[issue #344](https://github.com/seekerkrt/moguet/issues/344)）
-を参照してください。
+現在のv2実装は、文書化したrouteごとの制限の範囲で、ordinary split package、provider選択、
+repositoryとAURを組み合わせた依存関係を含む、日常的なAUR利用の主要workflowに対応しています。
+[v2 support audit](https://github.com/seekerkrt/moguet/issues/606#issuecomment-5769277841)で
+新しいv2 blockerは見つかりませんでした。全AUR packageや全dependency topologyへの
+対応を約束するものではなく、対応済みの範囲、明示的な制限、意図したrejectを区別します。
+
+v2.9.0で予定していたv2 minor seriesを閉じます。将来のprofile / patch workflowは
+完成したv2 release boundaryではなくv3 planningで改めて検討します。原則とv2/v3境界は
+[project stance](https://github.com/seekerkrt/moguet/blob/develop/docs/project-stance.md)を参照してください。
+
+他のAUR helperではそのまま進む操作でも、Moguetでは追加の確認や選択を求める場合が
+あります。また、安全に処理を継続できると判断できない場合は、警告や理由を表示したうえで
+停止することがあります。reviewとprovenanceは判断と実際のbuild/installの対応を保つための
+もので、upstream codeやpackageの安全性そのものを保証しません。
 
 <!-- parity:safety -->
 ## 設計と安全境界
 
 - `moguet`は通常ユーザーで実行します。system package transactionが必要な操作だけ
   `sudo pacman`を呼び、AUR sourceの取得・review・buildをrootでは実行しません。
-- package database stateとpackage transactionのauthorityは`pacman` / libalpmです。
-  package buildは`makepkg`、AUR repository取得は`git`が所有し、Moguetはこれらを
-  再実装しません。
+- package transactionは`pacman`が所有し、Moguetのlibalpm利用はpackage metadataと
+  relationshipのread-only取得に限ります。PKGBUILDの評価とpackage buildは`makepkg`、
+  AUR repository取得は`git`が所有し、Moguetはこれらを再実装しません。
 - `deps`と`plan`は調査・表示だけを行い、clone、build、installしません。`fetch`は
   未取得repositoryをcloneし、既存cloneでは`git fetch origin`だけを実行します。
   pull、merge、reset、working tree更新、build、installは行いません。
@@ -195,9 +206,9 @@ fail-closedで停止します。v2.xは、Moguetのsource-aware入口、安全�
   `upgrade-all`、non-ready planは既存経路を維持します。
 
 詳細なcompatibility / routing契約は
-[docs/COMPATIBILITY.md](https://github.com/seekerkrt/moguet/blob/develop/docs/COMPATIBILITY.md)、
+[docs/compatibility.md](https://github.com/seekerkrt/moguet/blob/develop/docs/compatibility.md)、
 採用済み設計判断は
-[docs/DECISIONS.md](https://github.com/seekerkrt/moguet/blob/develop/docs/DECISIONS.md)を
+[docs/decisions.md](https://github.com/seekerkrt/moguet/blob/develop/docs/decisions.md)を
 参照してください。
 
 <!-- parity:installation -->
@@ -265,15 +276,24 @@ current development packageはprivate implementation helper
 stateを分離したpackage-owned root transaction authorityで、public commandではありません。`PATH`外で
 man pageを持たず、executable、state root、destination pathを引数に取らず、source / build treeのhelperで
 置き換えてはなりません。source-artifact helperはwrite-sealedなvalidated artifact bytesだけをprivateな
-root-owned transaction stateへstageしてからfixed `pacman -U`へ渡します。current public source-buildの
-`--rmdeps`は引き続きunsupported / fail-closedであり、どちらのhelperのinstallもdependency cleanupを
-有効化しません。
+root-owned transaction stateへstageしてからfixed `pacman -U`へ渡します。
 
-current development treeは、これらowner-specific helperを単一のclosed remote AUR lifecycle内部で使い、
-internal cleanup-candidate assessmentを構築します。full invocationとcurrent metadata / policy observationが
-成功し、exactにcorrelateされたactual dependency `Install`だけがinternal `Eligible`へ到達できます。
-このassessmentはpublic preview、prompt、removalへ接続せず、makepkg sync dependencyのownershipも
-独立した未解決authorityのままです。
+remote AUR packageには、`moguet build <package> --rmdeps`でdependency install前のcleanup baselineを
+開始できます。build全体とartifact installの成功後に限り、今回新規に導入されたbuild/check dependencyの
+判定済み候補を表示し、`Remove build dependencies? [y/N]`（default No）で確認します。
+explicit Yes後にもidentity、install reason、policy、HoldPkg、runtime dependencyをfreshに再確認し、
+残るexact candidateだけを1回の`pacman -R --noconfirm --` transactionへ渡します。
+このinternal optionは承認後のpacman重複prompt抑止であり、user `--noconfirm`はcleanup approvalではありません。
+non-TTYも削除を承認しません。No / cancel / EOFは完了済みinstallをそのまま保持します。
+`pacman -Qdt`やbroad autoremoveではありません。
+
+cleanup resultはbuild/install resultと独立しています。候補なし、decline、cancel、再検証で全候補skipは成功扱いです。
+blocked/unavailableやremoval failureはcommand status 1になりますが、install成功を保持して別に報告します。
+削除失敗時はattempted setと既知のexit statusを表示し、実際の削除成否を推測したりretryしたりしません。
+`--rmdeps`未指定の通常buildではcleanup flowもcleanup messageも起動しません。dry-runもcleanupしません。
+local/repository source build、`-S --aur`、upgrade系は既存のreject boundaryを維持し、
+pacman-only compatible routeでは`--rmdeps`を消費してno-opにします。
+詳細は[cleanup contract](docs/contracts/source-build-rmdeps.md)を参照してください。
 
 v2.0.0のpackage名と唯一のexecutableは`moguet`で、`/usr/bin/jpacker`をinstall
 しません。payloadはjpacker v1.16.0 packageと重複しないため、metadataには
@@ -447,12 +467,27 @@ freshなinstalled-foreign inventory、AUR metadata、plan、provider decision、
 取り直します。`moguet --dry-run -Syu --repo`はrepository intentだけを表示し、AURや
 source-build preferenceへqueryしません。
 
+`plan`と`deps`は通常、対象と要確認の結果を簡潔に示します。`deps`は非emptyな依存一覧を残し、
+空categoryとpackage名に等しいPackageBaseを省略します。正常な制約は件数へ集約し、
+未充足・不明・不正な結果は個別に残します。`moguet --details plan <pkg>` /
+`moguet --details deps <pkg>`でstate/readiness、由来情報、relation診断、全制約の理由と
+既存の空category一覧を確認できます。両modeは同じtyped結果を使い、provider選択、readiness、
+終了statusを変えません。[plan/deps表示policy](https://github.com/seekerkrt/moguet/blob/develop/docs/compatibility.md#compat-plan-deps-presentation)を参照してください。
+
 human-readable diagnosticはtyped stateのprojectionであり、classificationを決める
 authorityではありません。英日ともnormal summary、attention-required detail、route-owned
 necessary detailの順を保ちます。operation outcomeとpackage state observationを分け、plan
 construction、completeness、execution readinessを独立して表示します。successfulだが
 unverifiedな観測はrequired check付きのsuccessとして維持し、`Unknown`を`NoOp`へ書き換えず、
 severity、blocking、exit-status effectも別dimensionとして扱います。
+
+`-Qua`、exact target-less `-Syu` / `-Su`（`--repo`を含む）、`upgrade-aur`、
+`upgrade-all`、`--dry-run -S <pkg>`でも`--details`を指定できます。通常表示は
+最新のAUR targetを集約し、更新候補、AUR以外のforeign package、要確認、ブロッカー、
+部分完了を残します。詳細表示では個別のskip理由と、dry-runの経路、phase、依存authority、
+build、artifact、transactionの情報を確認できます。表示密度はrouting、readiness、実行、
+確認、終了statusを変えません。既存のremote buildと`-S --select`の詳細指定もdry-run表示へ適用します。
+その他のdry-run経路は既存の表示を維持します。
 
 **upgrade commandの選択:** 通常のAUR helper updateにはexact target-less
 `moguet -Syu`を使います。official repository system upgradeを完了した後、installed
@@ -822,11 +857,11 @@ canonical development repositoryは
 [非公開で報告してください](https://github.com/seekerkrt/moguet/security/advisories/new)。
 
 active integration branchは`develop`、stable releaseは`main`です。
-[docs/DEVELOPMENT.md](https://github.com/seekerkrt/moguet/blob/develop/docs/DEVELOPMENT.md)、
-[docs/VERSIONING.md](https://github.com/seekerkrt/moguet/blob/develop/docs/VERSIONING.md)を
-参照してください。Moguet v2.xではAUR helper
-機能を段階的に追加し、高度なruntime-aware completionと将来のbuild profile systemは
-別作業として扱います。
+[docs/development.md](https://github.com/seekerkrt/moguet/blob/develop/docs/development.md)、
+[docs/versioning.md](https://github.com/seekerkrt/moguet/blob/develop/docs/versioning.md)を
+参照してください。高度なruntime-aware completionやprofile / patch workflowなどの
+将来候補は[release roadmap](https://github.com/seekerkrt/moguet/issues/344)で扱い、
+v2.9.0 final gate後に再査定します。
 
 <!-- parity:license -->
 ## License

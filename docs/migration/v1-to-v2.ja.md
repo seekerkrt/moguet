@@ -183,7 +183,7 @@ mode = "normal"
 | `NODIFF=false` | keyを省略、または`review.diff = "prompt"` |
 | `EDITOR=...` | TOMLへcopyせず、user environmentの`VISUAL`、次に`EDITOR`を設定 |
 | `LOGFILE=...` | v2.0.0 config keyなし。固定XDG state logを使用 |
-| `RMDEPS=true` | 移行しない。separated source-build dependency cleanupはunsupported |
+| `RMDEPS=true` | 移行しない。v2には永続的な`RMDEPS` config keyはない。dependency cleanupはinvocationごとに明示する`--rmdeps` requestであり、現在はremote AUR buildだけをsupportする。 |
 
 editor解決順は`VISUAL -> EDITOR -> nano`です。default logは次です。
 
@@ -389,5 +389,5 @@ SSHを使うcloneでは、代わりに`git@github.com:seekerkrt/moguet.git`と
 
 現在のsource contractは[README.md](../../README.md)、
 [README.ja.md](../../README.ja.md)、
-[COMPATIBILITY.md](https://github.com/seekerkrt/moguet/blob/develop/docs/COMPATIBILITY.md)を
+[compatibility.md](https://github.com/seekerkrt/moguet/blob/develop/docs/compatibility.md)を
 参照してください。

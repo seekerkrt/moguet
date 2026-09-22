@@ -1254,10 +1254,13 @@ bool direct_edge_identity_shape_is_complete(
             } else if constexpr(std::is_same_v<
                                     Candidate,
                                     RepositoryExactPackage>) {
+                // Repository edges conventionally omit the source-build base
+                // field. The typed exact repository observation owns PackageBase;
+                // if a caller also supplied the redundant field it must agree.
                 return edge.kind == DependencyKind::Repo &&
-                       edge.resolved_package_base ==
-                           std::optional<std::string>{
-                               candidate.package_base} &&
+                       is_valid_package_name(candidate.package_base) &&
+                       (!edge.resolved_package_base.has_value() ||
+                        edge.resolved_package_base == candidate.package_base) &&
                        edge.resolved_package_name.value() ==
                            candidate.package_name &&
                        requirement->package_name() == candidate.package_name;
@@ -2491,7 +2494,7 @@ CleanupInvocationEvidence aggregate_remote_aur_cleanup_invocation_evidence(
     const CleanupInvocationLifecycleEvidence& lifecycle,
     const CleanupBaselineSnapshotObservation& baseline_observation,
     const CleanupCurrentInstalledObservation& current_observation,
-    const CleanupPolicyObservation& policy_observation,
+    const std::optional<CleanupPolicyObservation>& policy_observation,
     std::vector<CleanupSourceArtifactCorrelationEvidence>
         source_artifact_evidence,
     std::vector<CleanupSelectedProviderCorrelationEvidence>
@@ -2517,12 +2520,7 @@ CleanupInvocationEvidence aggregate_remote_aur_cleanup_invocation_evidence(
        current_observation.authority() != session.authority() ||
        current_observation.phase() !=
            CleanupObservationPhase::AfterFullSupportedInvocationSuccess ||
-       policy_observation.authority() != session.authority() ||
-       policy_observation.phase() !=
-           CleanupObservationPhase::AfterFullSupportedInvocationSuccess ||
        current_observation.completed_transaction_count() !=
-           transaction_token_inventory.size() ||
-       policy_observation.completed_transaction_count() !=
            transaction_token_inventory.size() ||
        std::any_of(
            transaction_token_inventory.begin(),
@@ -2535,6 +2533,16 @@ CleanupInvocationEvidence aggregate_remote_aur_cleanup_invocation_evidence(
     if(!snapshot_succeeded(baseline_observation.snapshot()) ||
        !snapshot_succeeded(current_observation.snapshot())) {
         add_unique_typed_issue(issues, Issue::PhaseObservationMissing);
+    }
+    if(policy_observation.has_value()) {
+        if(policy_observation->authority() != session.authority() ||
+           policy_observation->phase() != CleanupObservationPhase::AfterFullSupportedInvocationSuccess ||
+           policy_observation->completed_transaction_count() != transaction_token_inventory.size()) {
+            add_unique_typed_issue(issues, Issue::PhaseObservationMismatch);
+        }
+        if(project_cleanup_policy_protection(policy_observation->evidence()) == CleanupPolicyProtection::Unknown) {
+            add_unique_typed_issue(issues, Issue::PolicyObservationIncomplete);
+        }
     }
 
     if(prepared.source.source_kind() != SourceBuildSourceKind::Aur ||
@@ -2696,9 +2704,25 @@ CleanupInvocationEvidence aggregate_remote_aur_cleanup_invocation_evidence(
             }
         }
 
-        if(plan->dependency_edges.empty()) {
+        if(policy_observation.has_value() && plan->dependency_edges.empty()) {
             add_unique_typed_issue(
                 issues, Issue::DependencyEdgeInventoryEmpty);
+        }
+        if(!policy_observation.has_value()) {
+            // Empty edge inventories are valid only when no planned build/check
+            // role has lost its edge. Match typed identity and role, not counts.
+            for(const auto& target : plan->package_targets) {
+                for(const auto role : target.roles) {
+                    if(!is_build_or_check_role(role)) continue;
+                    const bool covered = std::any_of(plan->dependency_edges.begin(), plan->dependency_edges.end(),
+                                                     [&](const auto& edge) {
+                                                         return edge.role == role && edge.resolved_candidate.has_value() &&
+                                                                resolved_candidate_package_name(*edge.resolved_candidate) == target.package_name &&
+                                                                resolved_candidate_package_base(*edge.resolved_candidate) == target.package_base;
+                                                     });
+                    if(!covered) add_unique_typed_issue(issues, Issue::DependencyEdgeAttributionMismatch);
+                }
+            }
         }
         for(std::size_t edge_index = 0;
             edge_index < plan->dependency_edges.size(); ++edge_index) {
@@ -2721,6 +2745,16 @@ CleanupInvocationEvidence aggregate_remote_aur_cleanup_invocation_evidence(
                     edge.requirement.value(), edge.dependency_spec) &&
                 edge.resolved_candidate.has_value() &&
                 successful_constraint_evaluation(edge);
+            if(!policy_observation.has_value()) {
+                const auto* parent = find_unique_package_target(*plan, edge.parent_package_name, edge.parent_package_base);
+                if(parent == nullptr || parent->roots.empty() ||
+                   !project_requiring_package(edge, package_bases).has_value() ||
+                   std::any_of(parent->roots.begin(), parent->roots.end(), [&](const auto& root) {
+                       return std::find(roots.begin(), roots.end(), root) == roots.end();
+                   })) {
+                    add_unique_typed_issue(issues, Issue::CorrelationIncomplete);
+                }
+            }
             if(common_shape_is_valid) {
                 switch(edge.kind) {
                     case DependencyKind::Installed:
@@ -2732,9 +2766,15 @@ CleanupInvocationEvidence aggregate_remote_aur_cleanup_invocation_evidence(
                         break;
                     case DependencyKind::Repo:
                         if(direct_edge_identity_shape_is_complete(edge)) {
-                            classification.classification =
-                                CleanupDependencyEdgeClassificationKind::
-                                    UnsupportedOrUnowned;
+                            const auto& repository = std::get<RepositoryExactPackage>(
+                                                         edge.resolved_candidate.value())
+                                                         .repository;
+                            if(plan->configured_repository_order.has_value() &&
+                               repository.configured_order < plan->configured_repository_order->size() &&
+                               (*plan->configured_repository_order)[repository.configured_order] == repository.repository_name) {
+                                classification.classification =
+                                    CleanupDependencyEdgeClassificationKind::SupportedPlannedDependency;
+                            }
                         }
                         break;
                     case DependencyKind::Aur:
@@ -2742,7 +2782,7 @@ CleanupInvocationEvidence aggregate_remote_aur_cleanup_invocation_evidence(
                             if(is_build_or_check_role(edge.role)) {
                                 classification.classification =
                                     CleanupDependencyEdgeClassificationKind::
-                                        SupportedOwnerSpecificReceipt;
+                                        SupportedPlannedDependency;
                                 classification.owner =
                                     InvocationDependencyTransactionOwner::
                                         SourceArtifactInstall;
@@ -2750,6 +2790,9 @@ CleanupInvocationEvidence aggregate_remote_aur_cleanup_invocation_evidence(
                                 classification.classification =
                                     CleanupDependencyEdgeClassificationKind::
                                         AuthoritativelyPreExistingOrIrrelevant;
+                                if(!policy_observation.has_value()) {
+                                    classification.owner = InvocationDependencyTransactionOwner::SourceArtifactInstall;
+                                }
                             }
                         }
                         break;
@@ -2757,7 +2800,7 @@ CleanupInvocationEvidence aggregate_remote_aur_cleanup_invocation_evidence(
                         if(direct_edge_identity_shape_is_complete(edge)) {
                             classification.classification =
                                 CleanupDependencyEdgeClassificationKind::
-                                    UnsupportedOrUnowned;
+                                    Unsupported;
                         }
                         break;
                     case DependencyKind::Provided:
@@ -2771,19 +2814,19 @@ CleanupInvocationEvidence aggregate_remote_aur_cleanup_invocation_evidence(
                                    ProviderResolutionKind::UserSelected) {
                                     classification.classification =
                                         CleanupDependencyEdgeClassificationKind::
-                                            SupportedOwnerSpecificReceipt;
+                                            SupportedPlannedDependency;
                                     classification.owner =
                                         InvocationDependencyTransactionOwner::
                                             SelectedRepositoryProvider;
                                 } else {
                                     classification.classification =
                                         CleanupDependencyEdgeClassificationKind::
-                                            UnsupportedOrUnowned;
+                                            SupportedPlannedDependency;
                                 }
                             } else if(is_build_or_check_role(edge.role)) {
                                 classification.classification =
                                     CleanupDependencyEdgeClassificationKind::
-                                        SupportedOwnerSpecificReceipt;
+                                        SupportedPlannedDependency;
                                 classification.owner =
                                     InvocationDependencyTransactionOwner::
                                         SourceArtifactInstall;
@@ -2791,6 +2834,9 @@ CleanupInvocationEvidence aggregate_remote_aur_cleanup_invocation_evidence(
                                 classification.classification =
                                     CleanupDependencyEdgeClassificationKind::
                                         AuthoritativelyPreExistingOrIrrelevant;
+                                if(!policy_observation.has_value()) {
+                                    classification.owner = InvocationDependencyTransactionOwner::SourceArtifactInstall;
+                                }
                             }
                         }
                         break;
@@ -2800,9 +2846,7 @@ CleanupInvocationEvidence aggregate_remote_aur_cleanup_invocation_evidence(
                 }
             }
 
-            if(classification.classification ==
-               CleanupDependencyEdgeClassificationKind::
-                   SupportedOwnerSpecificReceipt) {
+            if(classification.owner.has_value()) {
                 const bool is_selected_provider =
                     classification.owner ==
                     InvocationDependencyTransactionOwner::
@@ -2845,6 +2889,14 @@ CleanupInvocationEvidence aggregate_remote_aur_cleanup_invocation_evidence(
                 } else {
                     classification.work_item_index = work_item_index;
                     if(is_selected_provider) {
+                        const auto& work_item = prepared.invocation.work_items[work_item_index.value()];
+                        const auto& provider = edge.resolved_provider.value();
+                        if(std::count(work_item.selected_repository_providers.begin(),
+                                      work_item.selected_repository_providers.end(), provider) != 1 ||
+                           std::count(prepared.invocation.selected_repository_providers.begin(),
+                                      prepared.invocation.selected_repository_providers.end(), provider) != 1) {
+                            add_unique_typed_issue(issues, Issue::DependencyEdgeAttributionMismatch);
+                        }
                         expected_provider_edges.insert(edge_index);
                     } else {
                         expected_source_edges.insert(edge_index);
@@ -2852,19 +2904,55 @@ CleanupInvocationEvidence aggregate_remote_aur_cleanup_invocation_evidence(
                 }
             }
 
+            if(classification.classification == CleanupDependencyEdgeClassificationKind::SupportedPlannedDependency ||
+               (!policy_observation.has_value() && edge.kind != DependencyKind::Installed &&
+                classification.classification == CleanupDependencyEdgeClassificationKind::AuthoritativelyPreExistingOrIrrelevant)) {
+                // Receipt coverage is separate from exact plan/consumer coverage.
+                // The existing projection checks every edge for this identity,
+                // including runtime roles and all requiring PackageBases.
+                const auto projection = project_invocation_owned_cleanup_candidate(
+                    baseline_observation.snapshot(), current_observation.snapshot(),
+                    *plan, edge.resolved_candidate.value(), lifecycle);
+                const auto* correlated = std::get_if<InvocationOwnedCleanupCandidateProjectionSuccess>(&projection);
+                const PlannedPackageTarget* parent = find_unique_package_target(
+                    *plan, edge.parent_package_name, edge.parent_package_base);
+                if(correlated == nullptr || correlated->candidate.correlation_coverage != CleanupCorrelationCoverage::Complete || parent == nullptr ||
+                   std::any_of(parent->roots.begin(), parent->roots.end(),
+                               [&roots](const RootTargetIdentity& root) {
+                                   return std::find(roots.begin(), roots.end(), root) == roots.end();
+                               })) {
+                    add_unique_typed_issue(issues, Issue::CorrelationIncomplete);
+                }
+                if(!classification.owner.has_value()) {
+                    // makepkg repository dependencies belong to the consuming
+                    // work item, not to a source-artifact install work item.
+                    for(std::size_t index = 0; index < work_items.size(); ++index) {
+                        if(work_items[index].package_base.package_base() == edge.parent_package_base) {
+                            if(classification.work_item_index.has_value()) {
+                                classification.classification = CleanupDependencyEdgeClassificationKind::InvalidOrUnknown;
+                                break;
+                            }
+                            classification.work_item_index = index;
+                        }
+                    }
+                    if(!classification.work_item_index.has_value()) {
+                        classification.classification = CleanupDependencyEdgeClassificationKind::InvalidOrUnknown;
+                        add_unique_typed_issue(issues, Issue::DependencyEdgeAttributionMismatch);
+                    }
+                }
+            }
+
             switch(classification.classification) {
                 case CleanupDependencyEdgeClassificationKind::
-                    SupportedOwnerSpecificReceipt:
+                    SupportedPlannedDependency:
                 case CleanupDependencyEdgeClassificationKind::
                     AuthoritativelyPreExistingOrIrrelevant:
                     break;
                 case CleanupDependencyEdgeClassificationKind::
-                    UnsupportedOrUnowned:
+                    Unsupported:
                     add_unique_typed_issue(
                         issues,
-                        Issue::DependencyEdgeUnsupportedOrUnowned);
-                    add_unique_typed_issue(
-                        issues, Issue::MakepkgSyncDependenciesUnowned);
+                        Issue::DependencyEdgeUnsupported);
                     break;
                 case CleanupDependencyEdgeClassificationKind::
                     InvalidOrUnknown:
@@ -2879,8 +2967,10 @@ CleanupInvocationEvidence aggregate_remote_aur_cleanup_invocation_evidence(
             add_unique_typed_issue(
                 issues, Issue::DependencyEdgeAttributionMismatch);
         }
-        if(expected_source_edges.empty() &&
-           expected_provider_edges.empty()) {
+        if(policy_observation.has_value() && std::none_of(edge_classifications.begin(), edge_classifications.end(),
+                                                          [](const CleanupDependencyEdgeClassification& edge) {
+                                                              return edge.classification == CleanupDependencyEdgeClassificationKind::SupportedPlannedDependency;
+                                                          })) {
             add_unique_typed_issue(
                 issues, Issue::CleanupRelevantEdgeInventoryEmpty);
         }
@@ -3035,13 +3125,6 @@ CleanupInvocationEvidence aggregate_remote_aur_cleanup_invocation_evidence(
                 issues, Issue::UncorrelatedActualInstall);
         }
     }
-    for(const std::size_t edge_index : expected_source_edges) {
-        if(observed_source_edges.find(edge_index) ==
-           observed_source_edges.end()) {
-            add_unique_typed_issue(
-                issues, Issue::SourceArtifactCorrelationMissing);
-        }
-    }
     for(const std::size_t edge_index : observed_source_edges) {
         if(expected_source_edges.find(edge_index) ==
            expected_source_edges.end()) {
@@ -3164,17 +3247,9 @@ CleanupInvocationEvidence aggregate_remote_aur_cleanup_invocation_evidence(
                 issues, Issue::UncorrelatedActualInstall);
         }
     }
-    if(!expected_provider_edges.empty() &&
-       selected_provider_evidence.size() != 1) {
+    if(selected_provider_evidence.size() > 1) {
         add_unique_typed_issue(
             issues, Issue::SelectedProviderCorrelationUnexpected);
-    }
-    for(const std::size_t edge_index : expected_provider_edges) {
-        if(observed_provider_edges.find(edge_index) ==
-           observed_provider_edges.end()) {
-            add_unique_typed_issue(
-                issues, Issue::SelectedProviderCorrelationMissing);
-        }
     }
     for(const std::size_t edge_index : observed_provider_edges) {
         if(expected_provider_edges.find(edge_index) ==
@@ -3191,10 +3266,11 @@ CleanupInvocationEvidence aggregate_remote_aur_cleanup_invocation_evidence(
             add_unique_typed_issue(
                 issues, Issue::TransactionTokenDuplicate);
         }
+        // A completed registered transaction need not supply causal evidence.
+        // If evidence is present, its work-item inventory must still agree.
         if(observed_transaction_tokens.find(entry.transaction_token) ==
            observed_transaction_tokens.end()) {
-            add_unique_typed_issue(
-                issues, Issue::TransactionTokenInventoryUnexpected);
+            continue;
         }
         std::set<std::size_t> evidence_work_items;
         for(const CleanupSourceArtifactCorrelationEvidence& evidence :
@@ -3821,28 +3897,17 @@ project_invocation_owned_cleanup_candidate(
     CleanupCurrentPackageEvidence current =
         project_cleanup_current_package_evidence(
             current_snapshot, package_name);
-    // Legacy lifecycle/provider success evidence remains intentionally inert.
-    static_cast<void>(lifecycle);
+    // A legacy provider success record cannot mint causal ownership.
     static_cast<void>(provider_transactions);
-    // POLICY(#485): raw generic ledger values are factual records only. A
-    // production-positive owner-specific capability is intentionally not yet
-    // connected to this broader route/candidate adapter.
+    // This observational projection never invents causal ownership.
     const CleanupCausalOwnership causal = CleanupCausalOwnership::Unknown;
-    if(causal == CleanupCausalOwnership::Unknown) {
-        add_issue(
-            issues,
-            CleanupLifecycleProjectionIssueKind::
-                CausalOwnershipUnavailable,
-            std::nullopt, package_name);
-    }
 
     const CleanupSharedRequirementState shared =
         project_shared_requirement(
             plan, relevant_edge_indices, observed_roles, coverage,
             lifecycle, prepared_projection.complete);
-    // Slice 3 completes the standalone factual query and pure policy reducer,
-    // but this broader production candidate lifecycle remains intentionally
-    // unconnected until route/correlation authority is closed in Slice 4.
+    // The collector supplies its separately observed policy and ordinary
+    // aggregate. A standalone correlation projection has no policy authority.
     const CleanupPolicyProtection policy =
         CleanupPolicyProtection::Unknown;
     add_issue(

@@ -5,11 +5,13 @@
 <!-- parity:overview -->
 ## Overview
 
-Moguet is a pacman-first AUR helper for Arch Linux with verified source
-builds and per-package build preferences. It keeps package transactions with
-`pacman`, package builds with `makepkg`, and repository transport with `git`,
-while Moguet owns planning, review, artifact validation, and the safe hand-off
-between those tools.
+Moguet is a pacman-first AUR helper for everyday use on Arch Linux. It brings
+search, dependency resolution, retrieval, review, build, install, and update
+together as a workflow, with per-package source-build preferences where needed.
+Package transactions stay with `pacman`, PKGBUILD evaluation and builds with
+`makepkg`, and Git objects and transport with `git`. Moguet uses libalpm for
+read-only package metadata and relationships, and coordinates the targets,
+execution order, review, and validation between those tools.
 
 Moguet is not an official Arch Linux, pacman, or AUR project. It is not an
 independent package manager, a complete clone of another AUR helper, or a
@@ -33,6 +35,15 @@ authoritative decision.
 Moguet is a project-specific coined name. Its formal project spelling is
 **Moguet**, and its formal Japanese reading is **モグエット**.
 
+Moguet began as a personal project driven by the author's interest in and
+learning about Arch Linux and the AUR. It has grown through continued
+development and experimentation, including AI-assisted development, and
+continues to evolve. Practical everyday use is the aim of v2, with correctness
+and regression prevention guiding its conservative design. Automated regression
+tests, controlled integration, container validation, and real-package dogfood
+provide evidence for that work; they do not promise bug-free software or certify
+upstream code as safe. See the [validation policy](https://github.com/seekerkrt/moguet/blob/develop/docs/validation.md).
+
 <!-- parity:status -->
 ## Project status
 
@@ -49,12 +60,11 @@ a new storage direction: source-build preferences now use only the executing
 user's XDG config context, while the published v2.0.0 tag, Release, and release
 notes remain historical records.
 
-Moguet v2.8.0 is the latest feature and correctness release. It completes major
-parts of ordinary system + AUR updates and devel package migration/tracking for
-representative real packages, strengthens exact Git source handling for supported
-submodule and tag-dependent builds, and adds guarded repo/AUR exact-version
-transitions. It also fixes persistent-state, resource, and diagnostic issues.
-See the [v2.8.0 release](https://github.com/seekerkrt/moguet/releases/tag/v2.8.0)
+Moguet v2.9.0 is the final planned MINOR release in the v2.x series. It completes
+the ordinary AUR-helper foundation with bounded dependency cleanup for the
+supported remote-AUR build route, more compact Normal/Detailed presentation,
+simpler responsibility boundaries, and a dedicated final-RC validation workflow.
+See the [v2.9.0 release](https://github.com/seekerkrt/moguet/releases/tag/v2.9.0)
 for the supported scope and complete user-visible changes.
 
 The canonical repository identity is Moguet on GitHub, with a GitLab mirror.
@@ -62,22 +72,24 @@ The Moguet package does not provide a `jpacker` command alias. AUR publication
 is a separate future decision; this document does not claim that an AUR
 endpoint exists.
 
-Moguet v2.x is published and usable, but it remains a development-phase
-product rather than a finished, general-purpose AUR helper. Basic pacman
-wrapping, AUR source builds, updates, and per-package source-build
-preferences already work today, while the wider AUR-support surface and
-edge-case coverage are still being implemented incrementally and the UX is
-still maturing. Moguet remains pacman-first rather than reimplementing a full
-dependency solver or automatic provider/conflict resolution, and does not
-promise the same automatic-resolution completeness as established AUR
-helpers: unsupported or ambiguous cases stop fail-closed instead of guessing.
-v2.x is the public development period that
-builds Moguet's source-aware entry points, safety boundaries, and validation
-infrastructure; v3.0.0 is the point where Moguet-specific build-profile and
-PKGBUILD-diff workflows come together, which the project treats internally
-as Moguet's full commissioning. See the release roadmap
-([issue #344](https://github.com/seekerkrt/moguet/issues/344)) for the
-detailed plan.
+The current v2 implementation covers the main everyday AUR workflows, including
+ordinary split packages, provider selection, and combined repository/AUR
+dependencies within the documented route limits. The
+[v2 support audit](https://github.com/seekerkrt/moguet/issues/606#issuecomment-5769277841)
+found no new v2 blocker. This is not a promise to handle every AUR package or
+dependency topology: supported cases, explicit limitations, and intentional
+rejections remain distinct.
+
+v2.9.0 closes the planned v2 minor series. Future profile and patch workflows
+belong to v3 planning rather than the completed v2 release boundary. See the
+[project stance](https://github.com/seekerkrt/moguet/blob/develop/docs/project-stance.md)
+for the principles and v2/v3 boundary.
+
+An operation that proceeds directly in another AUR helper may require an
+additional confirmation or selection in Moguet. If Moguet cannot establish
+that processing can safely continue, it may display a warning or reason and
+stop. Review and provenance preserve decisions and their connection to the
+actual build/install; neither guarantees the safety of upstream code or packages.
 
 <!-- parity:safety -->
 ## Design and safety boundaries
@@ -85,9 +97,10 @@ detailed plan.
 - Run `moguet` as a normal user. It invokes `sudo pacman` only for operations
   that require a system package transaction; AUR source retrieval, review, and
   builds do not run as root.
-- `pacman` and libalpm remain the authorities for package database state and
-  package transactions. `makepkg` builds packages, and `git` retrieves AUR
-  repositories. Moguet does not reimplement those tools.
+- `pacman` owns package transactions; Moguet's libalpm use is limited to
+  read-only package metadata and relationships. `makepkg` evaluates PKGBUILDs
+  and builds packages, and `git` retrieves AUR repositories. Moguet does not
+  reimplement those tools.
 - `deps` and `plan` only inspect and present information. They do not clone,
   build, or install. `fetch` clones missing repositories or runs only
   `git fetch origin` for an existing clone; it does not pull, merge, reset,
@@ -234,9 +247,9 @@ detailed plan.
   completed repository transaction is not rolled back.
 
 The detailed compatibility and routing contract is in
-[docs/COMPATIBILITY.md](https://github.com/seekerkrt/moguet/blob/develop/docs/COMPATIBILITY.md),
+[docs/compatibility.md](https://github.com/seekerkrt/moguet/blob/develop/docs/compatibility.md),
 and adopted design decisions are recorded in
-[docs/DECISIONS.md](https://github.com/seekerkrt/moguet/blob/develop/docs/DECISIONS.md).
+[docs/decisions.md](https://github.com/seekerkrt/moguet/blob/develop/docs/decisions.md).
 
 <!-- parity:installation -->
 ## Installation
@@ -314,16 +327,28 @@ outside `PATH`, have no man pages, do not accept an executable, state root, or
 destination path, and must never be replaced by a helper from a source or
 build tree. The source-artifact helper stages only write-sealed validated
 artifact bytes into its private root-owned transaction state before a fixed
-`pacman -U` hand-off. The current public source-build `--rmdeps` route remains
-unsupported and fail-closed; installing either helper does not enable
-dependency cleanup.
+`pacman -U` hand-off.
 
-The current development tree uses those owner-specific helpers inside one
-closed remote-AUR lifecycle to build an internal cleanup-candidate assessment.
-Only an exact, correlated actual dependency `Install` can become internally
-eligible after the full invocation and current metadata/policy observations
-succeed. This assessment has no public preview, prompt, or removal connection;
-makepkg sync-dependency ownership remains a separate unresolved authority.
+For remote AUR packages, `moguet build <package> --rmdeps` starts a cleanup
+baseline before dependency installation. Only after the complete build and
+artifact installation succeed does it preview the assessed, newly installed
+build/check dependencies and ask `Remove build dependencies? [y/N]` (default No).
+Explicit Yes is followed by fresh identity, install reason, policy, HoldPkg and
+runtime dependency checks. Only the remaining exact candidates enter one
+`pacman -R --noconfirm --` transaction. This internal option suppresses a duplicate
+pacman prompt after approval; the user's `--noconfirm` does not approve cleanup.
+Non-TTY input also cannot approve removal. No / cancel / EOF leave the completed
+installation intact. This is not `pacman -Qdt` or broad autoremove.
+
+Cleanup results are separate from build/install results. Nothing to remove,
+decline, cancellation and candidates skipped after revalidation return success;
+blocked/unavailable cleanup or removal failure returns command status 1 while
+preserving and reporting the successful installation. Failures show the attempted
+set and known exit status without claiming which packages were removed or retrying.
+Ordinary builds without `--rmdeps` start no cleanup flow or cleanup messages.
+Dry-run performs no cleanup. Local/repository source builds, `-S --aur`, and upgrade
+routes retain their existing rejection boundaries; compatible pacman-only routes
+consume `--rmdeps` as a no-op. See the [cleanup contract](docs/contracts/source-build-rmdeps.md).
 
 The v2.0.0 package and its only executable are named `moguet`; it does not
 install `/usr/bin/jpacker`. Its payload is disjoint from the jpacker v1.16.0
@@ -366,9 +391,9 @@ makepkg -si
 system with `pacman -U` in the same step. This differs from `make` and
 `./moguet --help` above, which only build and inspect the development tree
 in place and install nothing. The `PKGBUILD` is the canonical production
-CMake build/install consumer and configures `BUILD_TESTING=OFF`; the 115
-developer C++ test-ledger executables, one `EXCLUDE_FROM_ALL` installed
-transport fixture harness, and 146 CTest registrations remain in host, CI,
+CMake build/install consumer and configures `BUILD_TESTING=OFF`;
+developer C++ test executables, the `EXCLUDE_FROM_ALL` installed
+transport fixture harness, and CTest registrations remain in host, CI,
 and release validation. This `PKGBUILD` is a repository-provided
 packaging path, not an AUR submission; Moguet still has no published AUR
 page.
@@ -508,6 +533,16 @@ succeeds it obtains a fresh installed-foreign inventory, AUR metadata, plan,
 provider decisions, and preflight. `moguet --dry-run -Syu --repo` shows only
 the repository intent and does not query AUR or source-build preferences.
 
+`plan` and `deps` normally show a compact result with attention before routine
+inventory. `deps` retains nonempty dependency lists; empty categories and a
+PackageBase identical to the package name are omitted. Successful constraints
+are counted together, while unsatisfied, unknown, and invalid results remain
+visible. Use `moguet --details plan <pkg>` or `moguet --details deps <pkg>` for
+full state/readiness, provenance, relation diagnostics, all constraint reasons,
+and the existing empty-category inventory. Both modes use the same typed result
+and preserve provider choices, readiness, and exit status. See the
+[plan/deps presentation policy](https://github.com/seekerkrt/moguet/blob/develop/docs/compatibility.md#compat-plan-deps-presentation).
+
 Human-readable diagnostics are projections of typed state, never the authority
 used to classify it. English and Japanese keep the same hierarchy: a normal
 summary first, attention-required details next, and route-owned necessary
@@ -516,6 +551,16 @@ plan construction, completeness, and execution readiness are reported
 independently. A successful but unverified observation remains successful with
 the required check, `Unknown` is not rewritten as `NoOp`, and severity,
 blocking, and exit-status effect remain separate dimensions.
+
+`-Qua`, exact target-less `-Syu` / `-Su` (including `--repo`), `upgrade-aur`,
+`upgrade-all`, and `--dry-run -S <pkg>` also accept `--details`. Normal output
+aggregates up-to-date AUR targets and keeps update candidates, non-AUR foreign
+packages, required checks, blockers and partial outcomes visible. Detailed output
+retains per-target skips and the full dry-run route, phase, dependency authority,
+build, artifact and transaction information. Display density does not change
+routing, readiness, execution, confirmation or exit status. The existing remote
+build and `-S --select` detail option also applies to their dry-run output. Other
+dry-run routes keep their existing presentation.
 
 **Choosing an upgrade command:** Use exact target-less `moguet -Syu` for the
 ordinary AUR-helper update: it completes the official repository system
@@ -952,12 +997,12 @@ Discussions or Issues; follow
 
 The active integration branch is `develop`; stable releases are on `main`.
 See
-[docs/DEVELOPMENT.md](https://github.com/seekerkrt/moguet/blob/develop/docs/DEVELOPMENT.md),
+[docs/development.md](https://github.com/seekerkrt/moguet/blob/develop/docs/development.md),
 and
-[docs/VERSIONING.md](https://github.com/seekerkrt/moguet/blob/develop/docs/VERSIONING.md).
-Moguet v2.x will add AUR-helper
-capabilities incrementally; advanced runtime-aware completion and the later
-build-profile system are separate work.
+[docs/versioning.md](https://github.com/seekerkrt/moguet/blob/develop/docs/versioning.md).
+Future candidates, including advanced runtime-aware completion and profile/patch
+workflows, are tracked in the [release roadmap](https://github.com/seekerkrt/moguet/issues/344)
+and remain subject to reassessment after the v2.9.0 final gate.
 
 <!-- parity:license -->
 ## License

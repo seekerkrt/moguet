@@ -12,6 +12,7 @@
 #include "logging.hpp"
 #include "package_identifier.hpp"
 #include "package_metadata.hpp"
+#include "package_text_style.hpp"
 #include "process.hpp"
 #include "repository_query.hpp"
 #include "root_package_route_projection.hpp"
@@ -111,13 +112,15 @@ bool search_aur(
             const std::string& name = info.Name;
             // NO_TRANSLATE(Issue #308): "aur/" is the stable repository
             // namespace prefix; name and version are package identities.
-            std::cout << "\033[1;35maur\033[0m/\033[1m" << name << "\033[0m \033[1;32m"
-                      << info.Version << "\033[0m";
+            // Preserve -Ss output policy while sharing its semantic palette.
+            package_text_style::identity(std::cout, "aur", name, true);
+            std::cout << ' ';
+            package_text_style::version(std::cout, info.Version, true);
             if(installed_foreign_packages.has_value() &&
                installed_foreign_packages->contains(name)) {
-                std::cout << " \033[1;36m"
-                          << localization::translate_message("[installed]")
-                          << "\033[0m";
+                std::cout << ' ';
+                package_text_style::installed(
+                    std::cout, localization::translate_message("[installed]"), true);
             }
             if(info.OutOfDate.has_value()) {
                 std::cout << " \033[1;31m"
@@ -438,41 +441,83 @@ std::string root_package_presentation_value(
 void present_root_package_candidate(
     std::ostream& output,
     std::size_t index,
-    const RootPackageSearchCandidate& candidate) {
-    // NO_TRANSLATE: source/repository/package/PackageBase/version/groups are
-    // stable machine-readable candidate field labels.
+    const RootPackageSearchCandidate& candidate,
+    PresentationDetail detail) {
+    // NO_TRANSLATE: Detailed retains fixed metadata labels; Normal uses
+    // source namespaces, PackageBase, and @group as package-domain syntax.
     output << index << ") ";
-    if(const auto* repository =
-           std::get_if<RepositoryRootPackageIdentity>(
+    if(detail == PresentationDetail::Normal) {
+        const bool styled = package_text_style::enabled_for(output);
+        const auto* repository = std::get_if<RepositoryRootPackageIdentity>(
+            &candidate.candidate.identity());
+        package_text_style::identity(
+            output, repository ? repository->repository_name : "aur",
+            candidate.candidate.package_name(), styled);
+        output << ' ';
+        package_text_style::version(
+            output, root_package_presentation_value(candidate.candidate.presentation().version), styled);
+        // A configured repository may itself be named aur. Keep source kind
+        // observable even when its namespace spelling matches the AUR label.
+        if(repository != nullptr && repository->repository_name == "aur") {
+            output << ' ' << localization::translate_message("[repository]");
+        }
+        if(const auto* aur = std::get_if<AurRootPackageIdentity>(
                &candidate.candidate.identity());
-       repository != nullptr) {
-        output << "source=repository"
-               << " repository=" << repository->repository_name
-               << " package=" << repository->package_name;
+           aur != nullptr && aur->package_base != aur->package_name) {
+            output << " (PackageBase: " << aur->package_base << ')';
+        }
     } else {
-        const auto& aur = std::get<AurRootPackageIdentity>(
-            candidate.candidate.identity());
-        output << "source=AUR"
-               << " package=" << aur.package_name
-               << " PackageBase=" << aur.package_base;
+        if(const auto* repository =
+               std::get_if<RepositoryRootPackageIdentity>(
+                   &candidate.candidate.identity());
+           repository != nullptr) {
+            output << "source=repository"
+                   << " repository=" << repository->repository_name
+                   << " package=" << repository->package_name;
+        } else {
+            const auto& aur = std::get<AurRootPackageIdentity>(
+                candidate.candidate.identity());
+            output << "source=AUR"
+                   << " package=" << aur.package_name
+                   << " PackageBase=" << aur.package_base;
+        }
+        output << " version="
+               << root_package_presentation_value(
+                      candidate.candidate.presentation().version);
     }
-    output << " version="
-           << root_package_presentation_value(
-                  candidate.candidate.presentation().version);
     if(!candidate.selectable_group_names.empty()) {
-        output << " groups=";
+        output << (detail == PresentationDetail::Detailed ? " groups=" : " (");
         for(std::size_t group_index = 0;
             group_index < candidate.selectable_group_names.size();
             ++group_index) {
             if(group_index > 0) output << ',';
             output << '@' << candidate.selectable_group_names[group_index];
         }
+        if(detail == PresentationDetail::Normal) output << ')';
     }
     output << '\n';
     if(candidate.candidate.presentation().description.has_value()) {
-        output << "    "
+        output << (detail == PresentationDetail::Normal
+                       ? std::string(std::to_string(index).size() + 2, ' ')
+                       : "    ")
                << candidate.candidate.presentation().description.value()
                << '\n';
+    }
+}
+
+void present_root_package_candidates(
+    const RootPackageSearchSnapshot& snapshot, PresentationDetail detail) {
+    switch(detail) {
+        case PresentationDetail::Normal:
+        case PresentationDetail::Detailed:
+            std::cout << ":: "
+                      << localization::translate_message("Package candidates:")
+                      << '\n';
+            for(std::size_t index = 0; index < snapshot.candidates.size(); ++index) {
+                present_root_package_candidate(
+                    std::cout, index + 1, snapshot.candidates[index], detail);
+            }
+            return;
     }
 }
 
@@ -526,20 +571,12 @@ std::string root_package_selection_issue_message(
 }
 
 RootPackageSelectionInteractionCallback
-root_package_selection_interaction() {
-    return [](const RootPackageSelectionInteractionEvent& event,
-              const RootPackageSearchSnapshot& snapshot) {
+root_package_selection_interaction(PresentationDetail detail) {
+    return [detail](const RootPackageSelectionInteractionEvent& event,
+                    const RootPackageSearchSnapshot& snapshot) {
         if(std::holds_alternative<
                PresentRootPackageSelectionCandidates>(event)) {
-            std::cout << ":: "
-                      << localization::translate_message(
-                             "Package candidates:")
-                      << '\n';
-            for(std::size_t index = 0; index < snapshot.candidates.size();
-                ++index) {
-                present_root_package_candidate(
-                    std::cout, index + 1, snapshot.candidates[index]);
-            }
+            present_root_package_candidates(snapshot, detail);
             return;
         }
         if(std::holds_alternative<PromptForRootPackageSelection>(event)) {
@@ -742,7 +779,7 @@ RootPackageInstallPreparation prepare_root_package_install(
     };
     RootPackageSelectionSession selection_session =
         make_root_package_selection_session(
-            root_package_selection_interaction(),
+            root_package_selection_interaction(config.presentation_detail),
             config.no_confirm);
     if(invocation.query.empty()) {
         const std::string diagnostic = localization::translate_message(
@@ -1892,16 +1929,23 @@ std::string cross_source_stopped_phase(CrossSourceExecutionPhase phase) {
     return localization::translate_message("unknown phase");
 }
 
-void present_cross_source_transition(const CrossSourceTransitionExecutionResult& result) {
-    if(result.aur_result) present_filtered_aur_update_execution_result(*result.aur_result);
+void present_cross_source_transition(const CrossSourceTransitionExecutionResult& result, PresentationDetail detail) {
+    if(result.aur_result) present_filtered_aur_update_execution_result(*result.aur_result, detail);
     if(result.is_success()) {
         std::cout << localization::translate_message("Coordinated cross-source transition completed; exact versions, runtime requirement and install reason verified.") << std::endl;
         return;
     }
-    if(result.confirmation_result && !std::holds_alternative<ConfirmationAccepted>(*result.confirmation_result))
-        Logger::warn(confirmation_stop_diagnostic(*result.confirmation_result));
-    Logger::error(localization::format_translated_message(
-        "Coordinated cross-source transition stopped during {}.", cross_source_stopped_phase(result.stopped_phase)));
+    const std::string stopped_message = localization::format_translated_message(
+        "Coordinated cross-source transition stopped during {}.", cross_source_stopped_phase(result.stopped_phase));
+    if(result.confirmation_result && !std::holds_alternative<ConfirmationAccepted>(*result.confirmation_result)) {
+        const auto diagnostic = project_confirmation_diagnostic(
+            *result.confirmation_result, DiagnosticOperation::PacmanDelegation,
+            DiagnosticPhase::Preflight, {});
+        report_runtime_diagnostic(diagnostic, confirmation_stop_diagnostic(*result.confirmation_result));
+        report_runtime_diagnostic(RuntimeDiagnosticPresentation{diagnostic.severity, stopped_message});
+    } else {
+        Logger::error(stopped_message);
+    }
     if(result.metadata_failure) {
         DiagnosticIdentity identity;
         identity.source_kind = DiagnosticSourceKind::Pacman;
@@ -1931,11 +1975,11 @@ void present_cross_source_transition(const CrossSourceTransitionExecutionResult&
 } // namespace
 
 void present_system_aur_update_operation_result(
-    SystemAurUpdateOperationResult result) {
+    SystemAurUpdateOperationResult result, PresentationDetail detail) {
     const SystemAurUpdateOperationResult authority =
         reduce_system_aur_update_result(std::move(result));
     if(authority.coordinated_transition) {
-        present_cross_source_transition(*authority.coordinated_transition);
+        present_cross_source_transition(*authority.coordinated_transition, detail);
         return;
     }
 
@@ -2010,9 +2054,11 @@ void present_system_aur_update_operation_result(
             return;
     }
 
+    if(authority.status != SystemAurUpdateOperationStatus::Completed)
+        report_system_aur_partial_failure(authority);
     if(authority.aur.operation_result.has_value()) {
         present_filtered_aur_update_execution_result(
-            authority.aur.operation_result.value());
+            authority.aur.operation_result.value(), detail);
     }
 
     if(authority.status == SystemAurUpdateOperationStatus::Completed) {
@@ -2023,7 +2069,6 @@ void present_system_aur_update_operation_result(
                   << std::endl;
         return;
     }
-    report_system_aur_partial_failure(authority);
 }
 
 int cmd_system_aur_update(
@@ -2041,7 +2086,7 @@ int cmd_system_aur_update(
                 }
             });
     const bool is_success = result.is_success();
-    present_system_aur_update_operation_result(std::move(result));
+    present_system_aur_update_operation_result(std::move(result), config.presentation_detail);
     return is_success ? 0 : 1;
 }
 
@@ -2123,6 +2168,38 @@ CrossSourceVersionLockCorrelationResult system_aur_version_lock_correlation_for_
 
 int run_system_aur_update_presentation_test(
     const std::string& test_case) {
+    if(test_case.starts_with("confirmation-")) {
+        const auto correlation = system_aur_version_lock_correlation_for_test("version-lock-compatible");
+        CrossSourceTransitionExecutionResult transition{CrossSourceCoordinatedTransitionPlan{
+            .basis = CrossSourceVersionLockObservationBasis::BeforeRepositoryMutation,
+            .observation_completeness = CrossSourceVersionLockObservationStatus::Complete,
+            .correlation = correlation.assessments.front(),
+            .observation_issues = {},
+            .installed_snapshot = std::nullopt,
+            .installed_foreign = std::nullopt,
+            .removal_safety = {},
+            .phases = {},
+        }};
+        transition.confirmation = CrossSourceExecutionPhaseStatus::Failed;
+        transition.stopped_phase = CrossSourceExecutionPhase::Confirmation;
+        if(test_case == "confirmation-declined")
+            transition.confirmation_result = ConfirmationDeclined{ConfirmationDecisionOrigin::ExplicitToken};
+        else if(test_case == "confirmation-cancelled")
+            transition.confirmation_result = ConfirmationCancelled{ConfirmationCancellationReason::ExplicitToken};
+        else if(test_case == "confirmation-eof")
+            transition.confirmation_result = ConfirmationCancelled{ConfirmationCancellationReason::EndOfInput};
+        else if(test_case == "confirmation-noninteractive")
+            transition.confirmation_result = ConfirmationUnavailable{ConfirmationUnavailableReason::NonInteractiveInput};
+        else if(test_case == "confirmation-noconfirm")
+            transition.confirmation_result = ConfirmationUnavailable{ConfirmationUnavailableReason::NoConfirm};
+        else if(test_case == "confirmation-input-failure")
+            transition.confirmation_result = ConfirmationInputFailure{};
+        else
+            throw std::logic_error("Unknown confirmation presentation test case.");
+        SystemAurUpdateOperationResult result;
+        result.coordinated_transition.emplace(std::move(transition));
+        return present_system_aur_test_result(std::move(result));
+    }
     if(test_case.starts_with("preflight-version-lock-")) {
         auto correlation = system_aur_version_lock_correlation_for_test(test_case.substr(10));
         correlation.basis = CrossSourceVersionLockObservationBasis::BeforeRepositoryMutation;

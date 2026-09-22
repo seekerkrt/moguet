@@ -9,3 +9,7 @@
 // readiness.
 std::string package_relation_assessment_diagnostic_display(
     const PackageRelationAssessment& assessment);
+
+// Compact result summary; the same assessment remains the diagnostic authority.
+std::string package_relation_assessment_summary_display(
+    const PackageRelationAssessment& assessment);

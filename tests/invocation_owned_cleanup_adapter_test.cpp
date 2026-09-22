@@ -108,6 +108,14 @@ CleanupPolicyProtectionEvidence base_policy_evidence() {
         {}};
 }
 
+CleanupPolicyProtectionEvidence observed_unprotected_policy_evidence() {
+    auto evidence = base_policy_evidence();
+    evidence.installed_base_devel = meta_policy_authority(
+        CleanupPolicyAuthorityKind::InstalledBaseDevelMetaPackage,
+        CleanupPolicyCandidateEvaluation::NotProtected);
+    return evidence;
+}
+
 bool has_reason(
     const CleanupClassificationResult& result,
     CleanupClassificationReason reason) {
@@ -805,7 +813,7 @@ CleanupInvocationEvidence aggregate_plan_without_correlations(
             session, absent_snapshot());
     const CleanupPolicyObservation policy =
         make_cleanup_policy_observation_for_test(
-            session, base_policy_evidence());
+            session, observed_unprotected_policy_evidence());
     const CleanupInvocationLifecycleEvidence lifecycle =
         CleanupInvocationLifecycleEvidence::after_successful_invocation(
             session, result);
@@ -992,7 +1000,7 @@ void test_authoritative_install_receipt_projects_only_causal_dimension() {
     expect(
         projection.candidate.causal_ownership ==
                 CleanupCausalOwnership::Unknown &&
-            has_issue(
+            !has_issue(
                 projection,
                 CleanupLifecycleProjectionIssueKind::
                     CausalOwnershipUnavailable),
@@ -1005,7 +1013,7 @@ void test_authoritative_install_receipt_projects_only_causal_dimension() {
                 CleanupPolicyProtection::Unknown &&
             classified.classification() ==
                 CleanupClassification::Unknown &&
-            has_reason(
+            !has_reason(
                 classified,
                 CleanupClassificationReason::
                     CausalOwnershipUnknown) &&
@@ -1061,7 +1069,7 @@ void test_upgrade_and_external_install_race_do_not_project_ownership() {
     expect(
         projection.candidate.causal_ownership ==
                 CleanupCausalOwnership::Unknown &&
-            has_issue(
+            !has_issue(
                 projection,
                 CleanupLifecycleProjectionIssueKind::
                     CausalOwnershipUnavailable),
@@ -1650,9 +1658,9 @@ void test_version_mismatch_and_unknown_policy_fail_closed() {
         "unknown policy authority permitted Eligible");
 }
 
-// LANDMINE(#404): every observational/planning success below is still not a
-// package-level causal transaction proof.
-void test_newly_observed_dependency_with_success_is_never_eligible() {
+// POLICY(#486): the legacy adapter still lacks policy authority. Relaxing
+// strict causal proof must not hide that independent safety requirement.
+void test_newly_observed_dependency_with_unknown_policy_is_not_eligible() {
     BuildPlan plan = basic_plan();
     CleanupInvocationSession session = CleanupInvocationSession::begin(
         prepared_remote_aur_build(plan));
@@ -1689,13 +1697,17 @@ void test_newly_observed_dependency_with_success_is_never_eligible() {
     expect(
         projection.candidate.causal_ownership ==
                 CleanupCausalOwnership::Unknown &&
-            classified.classification() !=
-                CleanupClassification::Eligible &&
-            has_reason(
+            projection.candidate.policy_protection ==
+                CleanupPolicyProtection::Unknown &&
+            classified.classification() ==
+                CleanupClassification::Unknown &&
+            !has_reason(
                 classified,
                 CleanupClassificationReason::
-                    CausalOwnershipUnknown),
-        "pre absent + post Dependency + verified plan + success became Eligible");
+                    CausalOwnershipUnknown) &&
+            has_reason(classified,
+                       CleanupClassificationReason::PolicyProtectionUnknown),
+        "pre absent + post Dependency + verified plan + success bypassed unknown policy");
 }
 
 void test_source_artifact_exact_build_plan_correlation_matrix() {
@@ -1897,7 +1909,7 @@ void test_selected_repository_provider_closed_correlation_matrix() {
                 InstalledPackageReason::Dependency, "rust"));
     const CleanupPolicyObservation policy =
         make_cleanup_policy_observation_for_test(
-            session, base_policy_evidence());
+            session, observed_unprotected_policy_evidence());
     const SelectedRepositoryProviderTrustedExecutionEvidence execution =
         selected_provider_execution(
             session, plan, invocation);
@@ -2230,7 +2242,7 @@ void test_remote_aur_invocation_route_and_evidence_completeness() {
                 InstalledPackageReason::Dependency, "build-tools"));
     const CleanupPolicyObservation policy =
         make_cleanup_policy_observation_for_test(
-            session, base_policy_evidence());
+            session, observed_unprotected_policy_evidence());
     CleanupInvocationLifecycleEvidence lifecycle =
         CleanupInvocationLifecycleEvidence::after_successful_invocation(
             session, result);
@@ -2271,19 +2283,56 @@ void test_remote_aur_invocation_route_and_evidence_completeness() {
         "complete remote AUR invocation did not retain closed route evidence; issues=" +
             complete_issue_codes);
 
-    CleanupInvocationEvidence incomplete =
+    CleanupInvocationEvidence receipt_independent =
         aggregate_remote_aur_cleanup_invocation_evidence(
             session, lifecycle, baseline, current, policy, {}, {});
     expect(
-        incomplete.route_authority() ==
-                CleanupRouteAuthority::Unknown &&
-            incomplete.completeness() !=
-                CleanupEvidenceCompleteness::Complete &&
-            has_invocation_issue(
-                incomplete,
-                CleanupInvocationEvidenceIssueKind::
-                    SourceArtifactCorrelationMissing),
-        "incomplete remote evidence became Complete");
+        receipt_independent.route_authority() == CleanupRouteAuthority::Complete &&
+            receipt_independent.completeness() == CleanupEvidenceCompleteness::Complete &&
+            receipt_independent.source_artifact_evidence().empty() &&
+            project_shared_requirement(receipt_independent, candidate) ==
+                CleanupSharedRequirementState::NoLongerRequired,
+        "missing receipt correlation blocked complete ordinary consumer evidence");
+}
+
+void test_receipt_independent_shared_lifetime() {
+    BuildPlan plan = cargo_provider_plan(2);
+    auto prepared = prepared_remote_aur_build(plan);
+    const auto invocation = prepared.invocation;
+    auto partial = result_after_work_item(invocation, 0);
+    auto complete = successful_result(invocation);
+    auto session = CleanupInvocationSession::begin(std::move(prepared));
+    const auto baseline = make_cleanup_baseline_observation_for_test(session, absent_snapshot());
+    const auto current = make_cleanup_current_observation_for_test(session,
+                                                                   present_snapshot("rust", "1.90.0-1", InstalledPackageReason::Dependency, "rust"));
+    const auto policy = make_cleanup_policy_observation_for_test(session, observed_unprotected_policy_evidence());
+    const auto partial_lifecycle = CleanupInvocationLifecycleEvidence::after_work_item(session, partial, 0);
+    auto candidate = require_projection(project_invocation_owned_cleanup_candidate(
+                                            baseline.snapshot(), current.snapshot(), plan, plan.dependency_edges.front().resolved_candidate.value(),
+                                            partial_lifecycle),
+                                        "shared repository candidate")
+                         .candidate;
+    const auto partial_aggregate = aggregate_remote_aur_cleanup_invocation_evidence(
+        session, partial_lifecycle, baseline, current, policy, {}, {});
+    candidate.shared_requirement = project_shared_requirement(partial_aggregate, candidate.package);
+    expect(candidate.causal_ownership == CleanupCausalOwnership::Unknown &&
+               partial_aggregate.transaction_token_inventory().empty() &&
+               candidate.shared_requirement == CleanupSharedRequirementState::StillRequired &&
+               classify_invocation_owned_cleanup(candidate).classification() == CleanupClassification::Protected,
+           "receipt-independent later consumer lost protection");
+
+    const auto complete_lifecycle = CleanupInvocationLifecycleEvidence::after_successful_invocation(session, complete);
+    const auto aggregate = aggregate_remote_aur_cleanup_invocation_evidence(
+        session, complete_lifecycle, baseline, current, policy, {}, {});
+    expect(aggregate.completeness() == CleanupEvidenceCompleteness::Complete &&
+               project_shared_requirement(aggregate, candidate.package) == CleanupSharedRequirementState::NoLongerRequired,
+           "complete receipt-independent consumers were not released");
+    const auto unknown_policy = make_cleanup_policy_observation_for_test(session, base_policy_evidence());
+    const auto incomplete = aggregate_remote_aur_cleanup_invocation_evidence(
+        session, complete_lifecycle, baseline, current, unknown_policy, {}, {});
+    expect(incomplete.completeness() == CleanupEvidenceCompleteness::Incomplete &&
+               has_invocation_issue(incomplete, CleanupInvocationEvidenceIssueKind::PolicyObservationIncomplete),
+           "unknown policy promoted the ordinary aggregate");
 }
 
 void test_repository_provider_unknown_architecture_fails_closed() {
@@ -2319,7 +2368,7 @@ void test_repository_provider_unknown_architecture_fails_closed() {
                 InstalledPackageReason::Dependency, "rust"));
     const CleanupPolicyObservation policy =
         make_cleanup_policy_observation_for_test(
-            session, base_policy_evidence());
+            session, observed_unprotected_policy_evidence());
     const CleanupInvocationLifecycleEvidence lifecycle =
         CleanupInvocationLifecycleEvidence::after_successful_invocation(
             session, result);
@@ -2366,7 +2415,7 @@ void test_invocation_wide_shared_lifetime_matrix() {
                 InstalledPackageReason::Dependency, "build-tools"));
     const CleanupPolicyObservation multi_policy =
         make_cleanup_policy_observation_for_test(
-            multi_session, base_policy_evidence());
+            multi_session, observed_unprotected_policy_evidence());
     CleanupInvocationLifecycleEvidence after_first_lifecycle =
         CleanupInvocationLifecycleEvidence::after_work_item(
             multi_session, after_first_root, 1);
@@ -2418,7 +2467,7 @@ void test_invocation_wide_shared_lifetime_matrix() {
                 InstalledPackageReason::Dependency, "rust"));
     const CleanupPolicyObservation provider_policy =
         make_cleanup_policy_observation_for_test(
-            provider_session, base_policy_evidence());
+            provider_session, observed_unprotected_policy_evidence());
     CleanupInvocationLifecycleEvidence provider_lifecycle =
         CleanupInvocationLifecycleEvidence::after_work_item(
             provider_session, provider_partial, 0);
@@ -2467,7 +2516,7 @@ void test_invocation_wide_shared_lifetime_matrix() {
                 InstalledPackageReason::Dependency, "build-tools"));
     const CleanupPolicyObservation runtime_policy =
         make_cleanup_policy_observation_for_test(
-            runtime_session, base_policy_evidence());
+            runtime_session, observed_unprotected_policy_evidence());
     CleanupInvocationLifecycleEvidence runtime_lifecycle =
         CleanupInvocationLifecycleEvidence::after_successful_invocation(
             runtime_session, runtime_result);
@@ -2512,7 +2561,7 @@ void test_invocation_wide_shared_lifetime_matrix() {
                 InstalledPackageReason::Dependency, "build-tools"));
     const CleanupPolicyObservation root_policy =
         make_cleanup_policy_observation_for_test(
-            root_session, base_policy_evidence());
+            root_session, observed_unprotected_policy_evidence());
     CleanupInvocationLifecycleEvidence root_lifecycle =
         CleanupInvocationLifecycleEvidence::after_successful_invocation(
             root_session, root_result);
@@ -2557,7 +2606,7 @@ void test_invocation_wide_shared_lifetime_matrix() {
                 InstalledPackageReason::Dependency, "build-tools"));
     const CleanupPolicyObservation failed_policy =
         make_cleanup_policy_observation_for_test(
-            failed_session, base_policy_evidence());
+            failed_session, observed_unprotected_policy_evidence());
     CleanupInvocationLifecycleEvidence failed_lifecycle =
         CleanupInvocationLifecycleEvidence::after_invocation_completion(
             failed_session, failed_result);
@@ -2630,7 +2679,7 @@ void test_session_replay_token_and_phase_firewalls() {
                 InstalledPackageReason::Dependency, "build-tools"));
     const CleanupPolicyObservation policy_a =
         make_cleanup_policy_observation_for_test(
-            session_a, base_policy_evidence());
+            session_a, observed_unprotected_policy_evidence());
     const CleanupInvocationLifecycleEvidence lifecycle_a =
         CleanupInvocationLifecycleEvidence::after_successful_invocation(
             session_a, result_a);
@@ -2670,7 +2719,7 @@ void test_session_replay_token_and_phase_firewalls() {
                 InstalledPackageReason::Dependency, "build-tools"));
     const CleanupPolicyObservation policy_b =
         make_cleanup_policy_observation_for_test(
-            session_b, base_policy_evidence());
+            session_b, observed_unprotected_policy_evidence());
     const CleanupInvocationLifecycleEvidence lifecycle_b =
         CleanupInvocationLifecycleEvidence::after_successful_invocation(
             session_b, result_b);
@@ -2783,7 +2832,7 @@ void test_session_replay_token_and_phase_firewalls() {
             reattributed_session, absent_snapshot());
     const CleanupPolicyObservation reattributed_policy =
         make_cleanup_policy_observation_for_test(
-            reattributed_session, base_policy_evidence());
+            reattributed_session, observed_unprotected_policy_evidence());
     const CleanupInvocationLifecycleEvidence reattributed_lifecycle =
         CleanupInvocationLifecycleEvidence::after_successful_invocation(
             reattributed_session, reattributed_result);
@@ -2820,7 +2869,7 @@ void test_session_replay_token_and_phase_firewalls() {
             foreign_session, absent_snapshot());
     const CleanupPolicyObservation foreign_policy =
         make_cleanup_policy_observation_for_test(
-            foreign_session, base_policy_evidence());
+            foreign_session, observed_unprotected_policy_evidence());
     const CleanupInvocationLifecycleEvidence foreign_lifecycle =
         CleanupInvocationLifecycleEvidence::after_successful_invocation(
             foreign_session, foreign_result);
@@ -2864,7 +2913,7 @@ void test_session_replay_token_and_phase_firewalls() {
             wrong_owner_session, absent_snapshot());
     const CleanupPolicyObservation wrong_owner_policy =
         make_cleanup_policy_observation_for_test(
-            wrong_owner_session, base_policy_evidence());
+            wrong_owner_session, observed_unprotected_policy_evidence());
     const CleanupInvocationLifecycleEvidence wrong_owner_lifecycle =
         CleanupInvocationLifecycleEvidence::after_successful_invocation(
             wrong_owner_session, wrong_owner_result);
@@ -3380,11 +3429,12 @@ void run_invocation_owned_cleanup_adapter_tests() {
     test_local_remote_dependency_subset_is_not_complete_authority();
     test_metadata_and_source_failures_remain_typed_unknown_evidence();
     test_version_mismatch_and_unknown_policy_fail_closed();
-    test_newly_observed_dependency_with_success_is_never_eligible();
+    test_newly_observed_dependency_with_unknown_policy_is_not_eligible();
     test_source_artifact_exact_build_plan_correlation_matrix();
     test_selected_repository_provider_closed_correlation_matrix();
     test_remote_aur_invocation_route_and_evidence_completeness();
     test_repository_provider_unknown_architecture_fails_closed();
+    test_receipt_independent_shared_lifetime();
     test_invocation_wide_shared_lifetime_matrix();
     test_session_replay_token_and_phase_firewalls();
     test_exhaustive_edge_and_vacuous_completeness_matrix();

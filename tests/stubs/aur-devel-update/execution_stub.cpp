@@ -13,7 +13,7 @@ ReviewedProductionSourceExecution select_normal_reviewed_source_execution(const 
     if(intent && (intent->request.authoritative_devel_update || intent->request.devel_tracking_bootstrap)) throw std::logic_error("Legacy fixture received authoritative execution intent.");
     return make_reviewed_production_artifact_source_tree(checkout, std::move(pin), outcome, abnormal);
 }
-ReviewedDevelExecutionSnapshot execute_normal_reviewed_devel(PreparedReviewedDevelSourceBuildExecution) {
+ReviewedDevelExecutionSnapshot execute_normal_reviewed_devel(PreparedReviewedDevelSourceBuildExecution, PresentationDetail) {
     throw std::logic_error("Legacy fixture entered authoritative execution.");
 }
 

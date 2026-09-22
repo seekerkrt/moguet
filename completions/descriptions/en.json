@@ -23,6 +23,7 @@
     "-Qua": "Check AUR and foreign-package updates"
   },
   "options": {
+    "--details": "Show detailed diagnostic and provenance information for remote build, plan, deps, -S --select, -Qua, -Syu/-Su, upgrade-aur/all, and --dry-run -S; presentation only",
     "-h": "Show the help message and exit",
     "--help": "Show the help message and exit",
     "-V": "Show version information and exit",
@@ -36,7 +37,7 @@
     "--build-mode": "Select the source-build mode",
     "--rebuild": "Compatibility alias for --build-mode=rebuild",
     "--cleanbuild": "Compatibility alias for --build-mode=clean",
-    "--rmdeps": "Unsupported for separated source builds; no dependency cleanup is performed",
+    "--rmdeps": "Preview newly installed build dependencies after remote AUR build success; remove only with explicit approval",
     "--local": "Use one local PKGBUILD directory as the build root",
     "--output-dir": "Select an existing export parent for -G",
     "--select": "Interactively select source-aware package candidates for plain -S",

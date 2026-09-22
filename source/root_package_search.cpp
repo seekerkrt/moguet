@@ -37,6 +37,101 @@ bool bytewise_less(const std::string& lhs, const std::string& rhs) noexcept {
     return compare_bytewise(lhs, rhs) < 0;
 }
 
+// Match quality is presentation ordering only; providers still own membership.
+enum class RootPackageMatchQuality {
+    ExactPackageName,
+    StrongPackageName,
+    PackageNameSubstring,
+    PackageBaseMatch,
+    Other
+};
+
+std::string ascii_lower(std::string_view value) {
+    std::string lowered(value);
+    for(char& character : lowered) {
+        if(character >= 'A' && character <= 'Z') {
+            character = static_cast<char>(character - 'A' + 'a');
+        }
+    }
+    return lowered;
+}
+
+RootPackageMatchQuality root_package_match_quality(
+    const RootPackageCandidate& candidate,
+    const std::string& query) {
+    // Use the provider query literally: no regex, trimming, or tokenization.
+    // Empty queries must not promote every identity via find("").
+    if(query.empty()) return RootPackageMatchQuality::Other;
+    const std::string name = ascii_lower(candidate.package_name());
+    if(name == query) return RootPackageMatchQuality::ExactPackageName;
+    const std::size_t first_match = name.find(query);
+    if(first_match != std::string::npos) {
+        for(std::size_t match = first_match; match != std::string::npos;
+            match = name.find(query, match + 1)) {
+            if(match == 0 ||
+               std::string_view("-_.+@").find(name[match - 1]) !=
+                   std::string_view::npos) {
+                return RootPackageMatchQuality::StrongPackageName;
+            }
+        }
+        return RootPackageMatchQuality::PackageNameSubstring;
+    }
+    if(const auto* aur = std::get_if<AurRootPackageIdentity>(&candidate.identity());
+       aur != nullptr && ascii_lower(aur->package_base).find(query) != std::string::npos) {
+        return RootPackageMatchQuality::PackageBaseMatch;
+    }
+    // Description, regex, group, and other native matches remain candidates.
+    return RootPackageMatchQuality::Other;
+}
+
+bool canonical_root_package_less(
+    const RootPackageCandidate& lhs,
+    const RootPackageCandidate& rhs,
+    const std::map<std::string, std::size_t>& repository_ranks) {
+    int package_comparison = compare_bytewise(
+        lhs.package_name(),
+        rhs.package_name());
+    if(package_comparison != 0) return package_comparison < 0;
+
+    if(lhs.source_kind() != rhs.source_kind()) {
+        return lhs.source_kind() ==
+               RootPackageSourceKind::Repository;
+    }
+
+    if(lhs.source_kind() ==
+       RootPackageSourceKind::Repository) {
+        const auto& lhs_identity =
+            std::get<RepositoryRootPackageIdentity>(
+                lhs.identity());
+        const auto& rhs_identity =
+            std::get<RepositoryRootPackageIdentity>(
+                rhs.identity());
+        const std::size_t lhs_rank =
+            repository_ranks.at(lhs_identity.repository_name);
+        const std::size_t rhs_rank =
+            repository_ranks.at(rhs_identity.repository_name);
+        if(lhs_rank != rhs_rank) return lhs_rank < rhs_rank;
+        return bytewise_less(
+            lhs_identity.repository_name,
+            rhs_identity.repository_name);
+    }
+
+    const auto& lhs_identity =
+        std::get<AurRootPackageIdentity>(
+            lhs.identity());
+    const auto& rhs_identity =
+        std::get<AurRootPackageIdentity>(
+            rhs.identity());
+    return bytewise_less(
+        lhs_identity.package_base,
+        rhs_identity.package_base);
+}
+
+struct RankedRootPackageSearchCandidate {
+    RootPackageSearchCandidate entry;
+    RootPackageMatchQuality quality;
+};
+
 bool is_safe_group_selector_name(const std::string& group_name) {
     return is_valid_package_name(group_name);
 }
@@ -215,49 +310,26 @@ RootPackageSearchResult aggregate_root_package_search(
             entry.selectable_group_names.end(), bytewise_less);
     }
 
+    // Classify each fully merged candidate once; never use native result order
+    // as a tie-break or change source policy to improve a match's rank.
+    const std::string ranking_query = ascii_lower(query);
+    std::vector<RankedRootPackageSearchCandidate> ranked;
+    ranked.reserve(aggregated.size());
+    for(auto& entry : aggregated) {
+        const RootPackageMatchQuality quality =
+            root_package_match_quality(entry.candidate, ranking_query);
+        ranked.push_back({std::move(entry), quality});
+    }
     std::sort(
-        aggregated.begin(), aggregated.end(),
-        [&repository_ranks](
-            const RootPackageSearchCandidate& lhs,
-            const RootPackageSearchCandidate& rhs) {
-            int package_comparison = compare_bytewise(
-                lhs.candidate.package_name(),
-                rhs.candidate.package_name());
-            if(package_comparison != 0) return package_comparison < 0;
-
-            if(lhs.candidate.source_kind() != rhs.candidate.source_kind()) {
-                return lhs.candidate.source_kind() ==
-                       RootPackageSourceKind::Repository;
-            }
-
-            if(lhs.candidate.source_kind() ==
-               RootPackageSourceKind::Repository) {
-                const auto& lhs_identity =
-                    std::get<RepositoryRootPackageIdentity>(
-                        lhs.candidate.identity());
-                const auto& rhs_identity =
-                    std::get<RepositoryRootPackageIdentity>(
-                        rhs.candidate.identity());
-                const std::size_t lhs_rank =
-                    repository_ranks.at(lhs_identity.repository_name);
-                const std::size_t rhs_rank =
-                    repository_ranks.at(rhs_identity.repository_name);
-                if(lhs_rank != rhs_rank) return lhs_rank < rhs_rank;
-                return bytewise_less(
-                    lhs_identity.repository_name,
-                    rhs_identity.repository_name);
-            }
-
-            const auto& lhs_identity =
-                std::get<AurRootPackageIdentity>(
-                    lhs.candidate.identity());
-            const auto& rhs_identity =
-                std::get<AurRootPackageIdentity>(
-                    rhs.candidate.identity());
-            return bytewise_less(
-                lhs_identity.package_base,
-                rhs_identity.package_base);
+        ranked.begin(), ranked.end(),
+        [&repository_ranks](const auto& lhs, const auto& rhs) {
+            if(lhs.quality != rhs.quality) return lhs.quality < rhs.quality;
+            return canonical_root_package_less(
+                lhs.entry.candidate, rhs.entry.candidate, repository_ranks);
         });
+    for(std::size_t index = 0; index < ranked.size(); ++index) {
+        aggregated[index] = std::move(ranked[index].entry);
+    }
 
     std::optional<std::vector<std::string>> configured_repository_order;
     if(repository_snapshot.has_value()) {

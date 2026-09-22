@@ -65,6 +65,7 @@ USER root:root
 # production transport itself still supplies fixed helper/pacman argv.
 RUN printf '%s\n' \
         'moguet-validation ALL=(root) NOPASSWD: /usr/libexec/moguet/moguet-source-artifact-install-helper *, /usr/bin/pacman -U *' \
+        'moguet-validation ALL=(root) NOPASSWD: /usr/bin/pacman -R --noconfirm -- moguet-receipt-dependency' \
         > /etc/sudoers.d/moguet-source-artifact-receipt \
     && chmod 0440 /etc/sudoers.d/moguet-source-artifact-receipt \
     && visudo -cf /etc/sudoers.d/moguet-source-artifact-receipt

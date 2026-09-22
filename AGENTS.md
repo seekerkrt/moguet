@@ -5,7 +5,7 @@
 この文書は、Moguet repositoryで作業するときの入口・SSOT地図・固有の作業境界を定める。
 言語非依存の共通契約はCodexのグローバル`AGENTS.md`、C/C++共通規約は`cpp-conventions` Skillを基準とし、ここでは再掲しない。
 
-Moguet固有の指示、`docs/CODING_CONVENTIONS.md`、実際のbuild設定が共通規約と矛盾する場合は、より具体的なrepository側の契約を優先する。
+Moguet固有の指示、`docs/coding-conventions.md`、実際のbuild設定が共通規約と矛盾する場合は、より具体的なrepository側の契約を優先する。
 
 ## Repository概要と優先事項
 
@@ -21,14 +21,14 @@ Moguetは、pacman、makepkg、AUR、gitの既存契約を尊重しながらArch
 ## 最初に読む文書
 
 - `README.md`: 現行CLIと利用者向け契約
-- `docs/DECISIONS.md`: transaction、ownership、主要な設計判断
-- `docs/PROJECT_STANCE.md`: projectの立場と非目標
-- `docs/COMPATIBILITY.md`: 互換性境界
-- `docs/DEVELOPMENT.md`: branch、PR、mirror、release運用
-- `docs/VALIDATION.md`: 段階別validation、approval evidence、再利用 / 無効化、review closure
-- `docs/VERSIONING.md`: version policy
+- `docs/decisions.md`: transaction、ownership、主要な設計判断
+- `docs/project-stance.md`: projectの立場と非目標
+- `docs/compatibility.md`: 互換性境界
+- `docs/development.md`: branch、PR、mirror、release運用
+- `docs/validation.md`: 段階別validation、approval evidence、再利用 / 無効化、review closure
+- `docs/versioning.md`: version policy
 - `docs/LICENSING.md`: dependencyと配布物のlicense契約
-- `docs/CODING_CONVENTIONS.md`: Moguet固有のC++追加・上書き規約
+- `docs/coding-conventions.md`: Moguet固有のC++追加・上書き規約
 
 設計判断の詳細をこの文書やコーディング規約へ複製しない。変更対象に対応する正式文書を正とする。
 
@@ -44,7 +44,7 @@ Moguetは、pacman、makepkg、AUR、gitの既存契約を尊重しながらArch
 
 ## Skill routing
 
-- C/C++の生成・編集・レビューでは`cpp-conventions`を使い、続けて`docs/CODING_CONVENTIONS.md`を必ず読む。
+- C/C++の生成・編集・レビューでは`cpp-conventions`を使い、続けて`docs/coding-conventions.md`を必ず読む。
 - read-onlyの責務監査、unused判定、docs整合確認では`audit`を使う。
 - 非自明な変更後のbuild / test / CLI確認では`verify`を使う。
 - commit前の差分整理では`commit-prep`、GitHub操作では`github`を使う。
@@ -59,13 +59,14 @@ Moguetは、pacman、makepkg、AUR、gitの既存契約を尊重しながらArch
 - `make release-check`: standalone互換target。full host A–Dではない
 - `make test-container`: offline/current Arch Docker E
 - `make test-container-live`: actual provider / AUR / local F
+- `make release-validate`: final RCのhost / offline/current Arch / live validationをcandidate identity付きで直列実行するoperator入口。policyは`docs/validation.md`
 - `git diff --check`: docs-onlyを含む差分の基本確認
 
-C++の生成・編集後は、`docs/CODING_CONVENTIONS.md`のchanged-file workflowを正とし、通常のvalidation前に
+C++の生成・編集後は、`docs/coding-conventions.md`のchanged-file workflowを正とし、通常のvalidation前に
 `scripts/format-changed-cpp.sh --write`、続けて`--check`を実行する。対象検出の失敗をrepository-wide
 formatへfallbackせず、untrackedまたは今回と無関係なC++を暗黙に整形しない。
 
-実行段階、approvalへ十分なevidence、再実行が必要な変更は`docs/VALIDATION.md`を正とする。
+実行段階、approvalへ十分なevidence、再実行が必要な変更は`docs/validation.md`を正とする。
 CLI出力や終了codeを変えた場合は対象commandを直接確認する。pacman、makepkg、sudo、system package databaseへ影響する確認は通常testと同列に実行せず、対象と副作用を明示した依頼に基づいて行う。
 
 ## Branch・remote・mirror
@@ -73,7 +74,7 @@ CLI出力や終了codeを変えた場合は対象commandを直接確認する。
 - GitHubの`origin`がcanonical、GitLabの`gitlab`がbackup mirrorである。
 - `main`は最新安定版、`develop`は次releaseのintegration branchである。
 - 通常の`feature/*`、`fix/*`、`docs/*`は`develop`から派生し、PRも`develop`をtargetとする。
-- release branch、main反映、tag、GitHub Release、mirror更新の手順は`docs/DEVELOPMENT.md`を正とする。
+- release branch、main反映、tag、GitHub Release、mirror更新の手順は`docs/development.md`を正とする。
 - Issue、PR、commit messageは日本語を主文とする。release noteはtracked `RELEASE_NOTES.md`でEnglish / Japanese sectionを同期する。
 
 ## Repository固有の慎重領域

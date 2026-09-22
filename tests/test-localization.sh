@@ -266,6 +266,7 @@ assert_remaining_scope_english() {
     assert_line 'owner_inspect=Recursive dependency tree:' "$output_file"
     assert_line 'owner_sync=Repository      : aur' "$output_file"
     assert_line 'owner_aur=Checking AUR updates for 7 foreign packages...' "$output_file"
+    assert_line 'aur_batch=Fetching AUR info for packages 1-31 of 31...' "$output_file"
     assert_line 'owner_upgrade=excluded from AUR update: {package-name}' "$output_file"
     assert_line 'relation_installed=Installed conflict confirmed: declaring package declaring-a declares conflict legacy-a>=2 for target component legacy-a; matched installed package installed-a through provided-a=3; build/install is blocked before mutation.' "$output_file"
     assert_line 'relation_planned=Planned-target conflict confirmed: declaring package declaring-p declares conflict planned-api for target component planned-api; matched planned package planned-child through exact-planned; build/install is blocked before mutation.' "$output_file"
@@ -287,6 +288,7 @@ assert_remaining_scope_japanese() {
     assert_line 'owner_inspect=再帰的な依存関係ツリー:' "$output_file"
     assert_line 'owner_sync=リポジトリ        : aur' "$output_file"
     assert_line 'owner_aur=AURの更新を外部パッケージ7個について確認しています...' "$output_file"
+    assert_line 'aur_batch=AURからパッケージ情報を取得しています（1～31件目、全31件）...' "$output_file"
     assert_line 'owner_upgrade=AUR更新から除外: {package-name}' "$output_file"
     assert_line 'relation_installed=インストール済みパッケージとの競合を確認: 宣言元パッケージdeclaring-aは競合 legacy-a>=2 を宣言（対象コンポーネント: legacy-a）; インストール済みパッケージinstalled-aがprovided-a=3として一致; ビルド/インストールは変更前に停止します。' "$output_file"
     assert_line 'relation_planned=計画中の対象との競合を確認: 宣言元パッケージdeclaring-pは競合 planned-api を宣言（対象コンポーネント: planned-api）; 計画中のパッケージplanned-childがexact-plannedとして一致; ビルド/インストールは変更前に停止します。' "$output_file"
@@ -537,5 +539,39 @@ if "$msgfmt_command" --check --check-format --check-domain \
         "$invalid_format_po" > "$invalid_log" 2>&1; then
     fail 'msgfmt accepted a catalog with mismatched C++ format placeholders.'
 fi
+
+
+# #607: normal update outcomes, attention, and bootstrap actions must survive
+# compilation into the Japanese catalog (including fuzzy exclusion behavior).
+python3 - "$catalog_dir" <<'PY_CATALOG'
+import gettext
+import sys
+from pathlib import Path
+with (Path(sys.argv[1]) / "ja/LC_MESSAGES/moguet.mo").open("rb") as stream:
+    catalog = gettext.GNUTranslations(stream)
+expected = {
+    "[repository]": "[リポジトリ]",
+    "[provides: {}]": "[提供: {}]",
+    "[component: {}]": "[コンポーネント: {}]",
+    "Choose a provider for {}:": "{} を提供するパッケージを選択してください:",
+    "skipped: devel tracking bootstrap was declined; rerun when ready to review the source": "スキップ: 開発版追跡の初期登録が辞退されました。ソースをレビューできるときに再実行してください",
+    "skipped: devel tracking bootstrap interaction was unavailable; enable interactive source review before retrying": "スキップ: 開発版追跡の初期登録に必要な対話を利用できませんでした。再試行前に対話形式のソースレビューを有効にしてください",
+    "skipped: source/update observation changed before bootstrap; re-check the current state before retrying": "スキップ: 初期登録前にソース・更新の観測が変わりました。再試行前に現在の状態を確認し直してください",
+    "Completed": "完了",
+    "no package change": "パッケージの変更なし",
+    "Requires check": "確認が必要",
+    "Partial failure": "部分的失敗",
+    "Not attempted": "未試行",
+    "Attention-required details:": "確認が必要な詳細:",
+    "The system/source upgrade partially completed; completed phases were not rolled back.": "システム・ソース更新は一部完了しました。完了した段階はロールバックされていません。",
+    "{} update cleanup failed after a package transaction.": "{}更新ではパッケージ処理後の後処理に失敗しました。",
+    "Source acquisition/review workspace cleanup failed for {} {}; temporary source data may remain.": "{} {} のソース取得・レビュー用作業領域の後処理に失敗しました。一時ソースデータが残っている可能性があります。"
+}
+for message, translated in expected.items():
+    actual = catalog.gettext(message)
+    if actual != translated:
+        raise SystemExit(f"update catalog semantic mismatch: {message!r}: {actual!r}")
+print("update presentation EN/JA compiled-catalog parity passed")
+PY_CATALOG
 
 printf 'localization-test: all checks passed\n'

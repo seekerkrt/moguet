@@ -81,6 +81,19 @@ struct PackageMetadataFailure {
     std::string diagnostic;
 };
 
+struct ConfiguredHoldPackagePatterns {
+    std::vector<std::string> patterns;
+};
+
+using ConfiguredHoldPackagePatternsResult =
+    std::variant<ConfiguredHoldPackagePatterns, PackageMetadataFailure>;
+
+// Fresh effective default pacman configuration, including Include processing.
+// Matches the configuration authority of fixed pacman commands without
+// --config/root/sysroot overrides. Success may contain zero patterns; query or
+// serialization failure is never represented as an empty successful policy.
+ConfiguredHoldPackagePatternsResult query_configured_hold_package_patterns();
+
 // Cleanup policy metadata remains factual evidence until the pure policy
 // reducer projects it to CleanupPolicyProtection.  Completeness is explicit
 // so a failed/partial inventory cannot be represented as a negative match.
@@ -412,6 +425,13 @@ public:
 
     InstalledPackageRuntimeDependencyMetadataInventoryResult
     snapshot_installed_package_runtime_dependency_metadata() const;
+
+    // Read-only reverse requirement observation in this session's local DB.
+    // Includes every installed consumer satisfied by the exact candidate,
+    // including versioned Provides. Alternative providers do not erase a
+    // match. Failure is never an empty (unrequired) consumer inventory.
+    std::variant<std::vector<std::string>, PackageMetadataFailure>
+    query_installed_runtime_consumers(const std::string& candidate_name) const;
 
 private:
     struct Impl;

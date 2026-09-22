@@ -727,13 +727,54 @@ void run_cleanup_policy_contradiction_fixture_test() {
         "contradictory configured meta inventories were not retained");
 }
 
+void run_runtime_consumers_fixture_test() {
+    TemporaryDirectory fixture;
+    const auto database = fixture.path() / "database";
+    create_local_database(database, {FixturePackageMetadata{"candidate", "2-1", {"virtual-tool=3", "unversioned-tool"}},
+                                     FixturePackageMetadata{"direct", "1-1", {}, {}, {"candidate>=2"}},
+                                     FixturePackageMetadata{"version-mismatch", "1-1", {}, {}, {"candidate>=9"}},
+                                     FixturePackageMetadata{"provider", "1-1", {}, {}, {"virtual-tool=3"}},
+                                     FixturePackageMetadata{"provider-mismatch", "1-1", {}, {}, {"virtual-tool>=4"}},
+                                     FixturePackageMetadata{"unversioned", "1-1", {}, {}, {"unversioned-tool"}},
+                                     FixturePackageMetadata{"unversioned-mismatch", "1-1", {}, {}, {"unversioned-tool>=1"}},
+                                     FixturePackageMetadata{"alternative", "1-1", {"virtual-tool=3"}},
+                                     FixturePackageMetadata{"independent"}});
+    auto session = PackageMetadataSession::open({"/", database});
+    const auto result = session.query_installed_runtime_consumers("candidate");
+    const auto* consumers = std::get_if<std::vector<std::string>>(&result);
+    expect(consumers != nullptr, "real libalpm runtime consumer observation failed");
+    auto sorted = *consumers;
+    std::sort(sorted.begin(), sorted.end());
+    expect(sorted == std::vector<std::string>{"direct", "provider", "unversioned"},
+           "runtime consumers lost libalpm version/Provides semantics or used alternative-provider inference");
+    const auto independent = session.query_installed_runtime_consumers("independent");
+    expect(std::holds_alternative<std::vector<std::string>>(independent) &&
+               std::get<std::vector<std::string>>(independent).empty(),
+           "independent package acquired consumers");
+    expect(std::holds_alternative<PackageMetadataFailure>(session.query_installed_runtime_consumers("absent")),
+           "absent candidate became an authoritative empty consumer inventory");
+    auto moved = std::move(session);
+    expect(std::holds_alternative<PackageMetadataFailure>(session.query_installed_runtime_consumers("candidate")),
+           "closed session became an authoritative empty consumer inventory");
+}
+
+void run_hold_package_configuration_smoke_test() {
+    // No assertions about the host's configured values; only the real
+    // pacman-conf/default configuration serialization boundary is exercised.
+    const auto result = query_configured_hold_package_patterns();
+    expect(std::holds_alternative<ConfiguredHoldPackagePatterns>(result),
+           "fresh host HoldPkg configuration observation failed");
+}
+
 } // namespace
 
 int main() {
     try {
         test_raw_capture_preserves_boundary_whitespace();
+        run_hold_package_configuration_smoke_test();
         run_pacman_metadata_smoke_test();
         run_installed_identity_fixture_test();
+        run_runtime_consumers_fixture_test();
         run_repository_metadata_smoke_test();
         run_current_arch_base_devel_policy_smoke_test();
         run_foreign_package_inventory_compatibility_test();

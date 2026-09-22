@@ -1472,8 +1472,6 @@ void ArtifactWorkspace::cleanup() {
     CleanupEntryPlan cleanup_plan = preflight_directory_contents_at(
         directory_descriptor_, canonical_path_, workspace_status,
         device_);
-    require_unchanged_identity();
-    require_cleanup_plan_unchanged(cleanup_plan);
     notify_artifact_workspace_cleanup_pre_delete_for_test(canonical_path_);
     require_unchanged_identity();
     require_cleanup_plan_unchanged(cleanup_plan);

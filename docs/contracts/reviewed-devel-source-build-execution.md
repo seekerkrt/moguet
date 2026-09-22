@@ -26,6 +26,21 @@ provider/dependency/conflict/source-preferenceの準備は既存normal callerの
 7-B assessmentやplanning remote OIDをexecution inputにしない。
 Git UpdateAvailableをpackage version constraint成立の根拠にしない。
 
+## Invocation-local command presentation
+
+Issue #595 Slice 1は既存`PresentationDetail`を、normal source-build callerの
+`AppConfig.presentation_detail`から`execute_normal_reviewed_devel`、
+`execute_reviewed_devel_source_build`、`acquire_pinned_submodule_closure`、root-tag command ownerへ
+明示引数で渡す。同期実行中だけのpresentation dependencyであり、ordinary intent、prepared authority、
+execution result、returned closure、source/tag/snapshot identityやpersistent provenanceには保存しない。
+modeはexecution choice、validity、argv、timeout、failure分類を決定しない。
+
+CLI relationの追加はremote `build --details`だけとし、local buildやplain/delegated pacman route等の
+既存rejectを維持する。Slice 2のroot-tag一括fetchだけはNormalでoperationと追加object数を表示し、
+Detailedとstate-log `EXEC`にはactual executable / argvのescaped表現を渡す。
+terminal表示とexact command recordの分離・件数authorityは
+[closure contract](pinned-submodule-closure.md#input-and-revision-authority)を正とする。
+
 ## Initial subset / intent policy
 
 authoritative preparationはvalid typed pinと同じcheckout identity、AUR source/base、required childを照合する。

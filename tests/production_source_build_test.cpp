@@ -3980,6 +3980,55 @@ PreparedProductionSourceBuildInvocation prepare_cache_failure_invocation(
     return invocation;
 }
 
+void test_existing_cache_inconsistency_stops_invocation() {
+    for(const bool missing_git_directory : {false, true}) {
+        TemporaryProductionEnvironment environment;
+        AppConfig config = noninteractive_config();
+        std::vector<ProductionSourceBuildWorkItem> work_items;
+        work_items.push_back(make_registered_repository_package_base_work_item(
+            "inconsistent-cache", "inconsistent-cache-child"));
+        work_items.push_back(make_registered_repository_package_base_work_item(
+            "cache-not-started", "cache-not-started-child"));
+        ProductionScenario scenario =
+            make_execution_scenario(environment, work_items, config);
+        const fs::path checkout = scenario.units.front().checkout_path;
+        write_file(checkout / "sentinel", "pre-existing cache contents\n");
+        if(missing_git_directory) {
+            fs::remove(checkout / ".git");
+        }
+        PreparedProductionSourceBuildInvocation invocation =
+            prepare_cache_failure_invocation(std::move(work_items), scenario);
+        if(!missing_git_directory) {
+            process_stub::expect_capture_command(
+                GIT_REMOTE_COMMAND,
+                CapturedCommandResult{"https://example.invalid/wrong.git\n", 0});
+        }
+        const CacheTreeSnapshot before = environment.cache_tree_snapshot();
+        const ProductionSourceBuildInvocationError failure =
+            expect_invocation_error(
+                [&]() { execute_invocation(invocation, scenario); },
+                "pre-existing cache inconsistency",
+                missing_git_directory
+                    ? "Missing .git directory for existing cache checkout inconsistent-cache."
+                    : "Remote URL mismatch for existing cache checkout inconsistent-cache.");
+        expect(
+            failure.failed_work_item_index() == 0 &&
+                failure.result().work_items.size() == 2 &&
+                failure.result().work_items[0].status ==
+                    ProductionSourceBuildWorkItemStatus::Failed &&
+                failure.result().work_items[1].status ==
+                    ProductionSourceBuildWorkItemStatus::NotAttempted,
+            "Cache inconsistency lost typed failure or executed the suffix");
+        expect(
+            environment.cache_tree_snapshot() == before &&
+                scenario.workspace_paths.empty() &&
+                scenario.install_attempt_order.empty() &&
+                process_stub::run_command_call_count() == 0,
+            "Cache inconsistency repaired the cache or reached build/install");
+        require_scenario_complete(scenario, 0, "cache inconsistency");
+    }
+}
+
 void test_singular_cache_failure_preserves_trusted_type() {
     TemporaryProductionEnvironment environment;
     AppConfig config = noninteractive_config();
@@ -6158,6 +6207,7 @@ int main() {
             // ordinary collaborative umask would make a legacy mkdir 0775.
             ScopedUmask scoped_umask(0002);
             test_unsafe_existing_cache_root_stops_before_checkout_mutation();
+            test_existing_cache_inconsistency_stops_invocation();
             test_singular_cache_failure_preserves_trusted_type();
             test_selected_repository_provider_cache_failure_precedes_transaction();
             test_package_base_cache_failures_preserve_trusted_type();

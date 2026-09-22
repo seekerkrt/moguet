@@ -386,13 +386,58 @@ classificationは、installed packageとのconfirmed conflict、planned target�
 
 Moguetが所有するのはmetadata observation、typed classification、pre-transaction diagnostic、safety stopまでである。automatic package removal、automatic replacement、automatic conflict resolution、replacement targetやproviderのimplicit selection、full dependency / conflict solverの置換、libalpm transaction prepare / commitは行わない。`pacman` / libalpmが最終transaction authorityであり、Moguetのpreflight successはtransaction successを意味しない。`--noconfirm`もrelation guardをbypassせず、自動削除・自動置換を許可しない。
 
+## AUR update / dry-runのNormalとDetailed表示
+
+`-Qua`、exact target-less `-Syu` / `-Su`（`--repo`を含む）、`upgrade-aur`、
+`upgrade-all`、`--dry-run -S <pkg>`でも`--details`を指定できます。通常表示は
+最新のAUR targetを集約し、更新候補、AUR以外のforeign package、要確認、ブロッカー、
+部分完了を残します。詳細表示では個別のskip理由と、dry-runの経路、phase、依存authority、
+build、artifact、transactionの情報を確認できます。表示密度はrouting、readiness、実行、
+確認、終了statusを変えません。既存のremote buildと`-S --select`の詳細指定もdry-run表示へ適用します。
+その他のdry-run経路は既存の表示を維持します。
+
+詳細は既存typed結果から直接投影し、通常表示の文字列から再構成しない。通常表示でも
+metadata failure、devel Git revision差、RequiresCheck、provider ambiguity、relation blocker、
+取消、cleanup failure、未実行target、必要なfreshness警告を保持する。
+
+<a id="compat-plan-deps-presentation"></a>
+
+## plan / depsのNormalとDetailed表示
+
+`plan` / `deps`は同じ`BuildPlan`、typed dependency edge、`ConstraintEvaluation`、relation assessmentを
+表示する。既存の`PresentationDetail::Normal` / `Detailed`だけで表示密度を選び、`--details`は
+新しい解決、provider choice、constraint評価、readiness判定を開始する指定ではない。
+
+Normalは対象と実行準備を短く示し、attentionを通常の一覧より先に置く。`plan`は入力target、
+非Readyのcapability、Incomplete / Unknown、失敗、providerの未決定/取消/利用不可を保持する。
+全capabilityがReadyの場合だけ取得/ビルド/インストールの準備完了を1行にまとめる。
+依存関係の内訳は観測済みedgeのkind別件数であり、unique package数やinstall件数ではない。
+PackageBase単位のbuild順とselected providerの結果も保持する。`deps`は非emptyな依存categoryの
+package一覧を残し、空categoryとpackage名に等しいPackageBaseを省略する。異なるPackageBaseは残す。
+
+constraintはtyped `Satisfied` / `Unconstrained`だけを件数へ集約し、`Unsatisfied` / `Unknown` /
+`Invalid` / `Conflicting`は個別の結果と理由を保持する。raw constraintの再parseやversion比較を
+rendererへ追加しない。relationは宣言元と宣言内容を保った短文にし、installed conflict、planned
+conflict、要確認のpotential replacement、complete no-match、Unknown、Invalid、未評価を区別する。
+Unknown / Invalid / 未評価とblocking relationの実行不可を省略せず、replacementを自動置換の許可にしない。
+
+Detailedは既存のstate / completeness /各capability readiness、work item counts、attention理由、
+source / root attribution、target component、full relation diagnostic、全constraint評価とreason、
+空categoryを含む既存inventory、PackageBaseを保持する。通常表示で抑えた成功constraintも全件表示する。
+solver、execution eligibility/order、confirmation/cancellation、inspectionの終了codeは両modeで同じである。
+TTY / redirected出力で密度policyを切り替えず、既存Loggerと出力channelを維持する。
+
+provider候補一覧・prompt・候補のPackageBase/provides・TTY stylingは#435のinteractive selection owner、
+root search/rankingは#436のownerである。ここで扱うのは選択後のprovider結果summaryだけであり、
+候補rendererを再設計しない。既存のpackage size表示・取得経路は次節の契約を維持する。
+
 <a id="compat-plan-size"></a>
 
 ## Planのofficial package size summary
 
 `plan <pkg>...`で表示するofficial repository dependencyのpackage sizeはpresentation metadataであり、BuildPlanのgraph safety、AUR build unitのsize、dependency resolution、provider selection、transactionを変更しない。configured repository orderとread-only sync metadataをauthorityとし、package absence、query failure、malformed metadata、configuration failure、0 bytesを区別する。size metadataが取得できなくても、既存のplan本文を表示できる場合はgraph statusやexit codeを不必要に変えない。
 
-dependency edgeはmetadata trust boundaryで構成したtyped requirement、installed / configured repository / AUR / local / providerのsource-aware candidate、`ConstraintEvaluation`を保持し、production downstreamでraw constraintを再parseしない。`deps`は`Satisfied` / `Unconstrained`を通常表示し、`Unsatisfied` / `Unknown`をresult / reason付きwarningとして継続する。`plan`は同じ2状態をincompleteとする。`Invalid` / `Conflicting`はread-only plan constructionでもfail-closedとする。`fetch`、build、install、upgrade、local buildは`Unsatisfied` / `Unknown`を含め、成功を証明できないconstraint resultをclone、fetch、source mutation、build、sudo、pacman、transaction開始前に拒否する。preflight successはtransaction successを意味しない。
+dependency edgeはmetadata trust boundaryで構成したtyped requirement、installed / configured repository / AUR / local / providerのsource-aware candidate、`ConstraintEvaluation`を保持し、production downstreamでraw constraintを再parseしない。`deps`は`Satisfied` / `Unconstrained`を通常表示では件数へ集約し、`Unsatisfied` / `Unknown`をresult / reason付きwarningとして継続する。`plan`は同じ2状態をincompleteとする。`Invalid` / `Conflicting`はread-only plan constructionでもfail-closedとする。`fetch`、build、install、upgrade、local buildは`Unsatisfied` / `Unknown`を含め、成功を証明できないconstraint resultをclone、fetch、source mutation、build、sudo、pacman、transaction開始前に拒否する。preflight successはtransaction successを意味しない。
 
 <a id="compat-aur-status"></a>
 
@@ -420,7 +465,7 @@ PackageBaseはclone / fetch / build repositoryの単位であり、package name�
 | reviewed AUR source state | AUR PackageBaseごとにexplicit accept済みexact revisionを保持し、previous reviewed revisionからexact targetまでをreviewする。skipではstateを進めず、accepted targetだけをpinned build authorityにする | [reviewed AUR source state](contracts/reviewed-source-state.md) |
 | trusted Git remote revision observer | authority-approved sourceだけを受けるHTTPS Git read-only observer foundation。default HEAD / exact branchとstrict SHA-1 / SHA-256 resultに限定し、7-B coordinatorだけがproduction comparisonに使用 | [trusted Git remote revision observer](contracts/git-remote-revision-observer.md) |
 | PackageBase / child selection | PackageBase単位でbuildするが、installするのはsource-build upper projectionが要求しmetadata identityで選択したchildだけ。sibling / debugは暗黙installしない | [PackageBase / required-child selection](contracts/packagebase-child-selection.md) |
-| separated source-build `--rmdeps` | source-buildではownershipを証明できないためmutation前に拒否。pacman-onlyではMoguetが消費するが作用させず、pacmanへ転送しない | [source-build `--rmdeps`](contracts/source-build-rmdeps.md) |
+| separated source-build `--rmdeps` | remote AUR buildだけ明示承認・fresh再検証後のexact cleanupをsupport。他のsource routeは拒否。pacman-onlyではMoguetが消費するが作用させず、pacmanへ転送しない | [source-build `--rmdeps`](contracts/source-build-rmdeps.md) |
 | XDG cache cutover | trusted root、filesystem identity、symlink、root escape、legacy cache非変更を守る。implementation moduleは固定しない | [XDG cache safety](contracts/xdg-cache-safety.md) |
 | source-build preference | `${XDG_CONFIG_HOME:-$HOME/.config}/moguet/source-build.d/`をreader / writer共通のauthorityとする。legacy storeへfallbackしない | [source-build preference XDG authority](contracts/source-build-preference-xdg.md) |
 | interactive confirmation | `[Y/n]` / `[y/N]` / `[y/n]`、fixed yes / no / cancel token、non-TTY / `--noconfirm` gate、Declined / Cancelled / failure、route-owned exit、non-rollbackを統一する | [interactive confirmation](contracts/interactive-confirmation.md) |
@@ -521,43 +566,39 @@ selected childだけがinstall input、install reason、installed / skipped-as-n
 
 ## `--rmdeps` compatibility
 
-`--rmdeps`はpacman optionではなく、makepkg由来のMoguet global optionである。separated source-buildでは、今回のinvocationが導入したdependency集合をMoguetがauthoritativeに所有できないため、意味のあるcleanup要求をsilent ignoreせず、mutation前にfail closedする。current build-only commandは概ね`makepkg -sc`であり、`-s`によるdependency installが発生し得る。pre/post installed package差分だけではmakepkg内部または並行するtransaction、invocation外のinstall / reason変更を安全に区別できず、新しく観測された`NewlyObserved` packageを`InvocationOwned`へ昇格できない。
+`--rmdeps`はMoguet-owned global optionであり、pacmanへforwardしない。
+remote `build <AUR package> --rmdeps`に限り、build前baselineから今回のbuild / check dependency候補を収集し、
+root artifact installを含むfull success後にexact previewとexplicit `[y/N]`（default No）を提示する。
+Yes後もfresh identity / reason / policy / HoldPkg / runtime consumer revalidationを通し、safe Ready subsetだけを
+1回の`pacman -R --noconfirm --`へ渡す。内部`--noconfirm`は二重prompt抑止であり、user optionの自動承認ではない。
+pre-existing / Explicit / Unknown / protected / still-requiredを削除せず、`-Qdt`やbroad autoremoveを行わない。
 
-source-build routeでは`makepkg -r`、`pacman -Rns`、`pacman -Qdt`、独自orphan cleanup、automatic rollbackへ変換しない。`--noconfirm`でも拒否を突破しない。
-
-current internal treeには、validated source artifact bytesをwrite-sealed snapshotからroot-owned stagingへ移し、
-actual `pacman -U`のInstall-only receiptを取得する`SourceArtifactInstall`専用transportがある。Issue #485 Slice 5は、
-trusted executor-issued selected-provider evidence、non-reconstructible invocation session、owner/work-item別token inventory、
-全BuildPlan edgeのexhaustive classification、nonempty completeness、exact current PackageBase / architecture、
-phase-bound baseline/current/policyを、remote AUR専用の単一closed production collector内部でfinal candidate assessmentまで
-一方向に接続した。candidate originはowner-specific actual selected `Install`だけであり、solver-introduced package、
-snapshot差分、orphan state、makepkg syncdepsはcandidate化しない。authoritative installed fixtureはcompleteな1 candidateだけが
-`Eligible`へ到達することと、各authorityを崩したnegativeがnon-Eligibleであることを確認する。
-
-このinternal completionはpublic `--rmdeps` supportではない。assessmentをpreview、prompt、confirmation、removeへ
-公開せず、public source-buildは引き続きexternal mutation前に`--rmdeps`を拒否する。makepkg syncdeps authorityは
-Issue #484 / #501、mutation直前revalidationとremovalは#486の独立scopeであり、Issue #485だけでcleanup executionをGOにしない。
-
-pacman-only routeでは、Moguetがmakepkg dependency installation lifecycleを実行しない。そのためcleanup対象となるinvocation-owned dependency集合自体が発生せず、Moguetはoptionを消費するが作用させず、pacmanへ転送しない。このno-opはsource-build routeで意味のあるcleanupを黙って無視することとは異なる。pacman-onlyでは安全に作用させるcleanup lifecycleが存在しないからである。decision 1の「黙って無視せず、意味を安全に維持できない場合は停止する」とも矛盾しない。
+未指定の通常buildではcleanup専用のbaseline / candidate / interaction / query / removalを起動しない。
+NoCandidates / Declined / Cancelled / NoCandidatesReadyはbuild成功とexit 0を保持する。
+Blocked / InteractionUnavailable / RemovalFailedはbuild成功をtyped resultに保持したままcommand exit 1。
+user `--noconfirm`とnon-TTYはInteractionUnavailableとなりremove 0。`--dry-run`もcleanup mutation 0。
 
 | Route | `--rmdeps` contract |
 | --- | --- |
-| 明示的なAUR / source-build install、`build` | source resolutionより前、またはroute probe後でcheckout mutation、workspace、makepkg、metadata query、pacman / sudoより前に拒否 |
-| local `build --local` | local root inspectionより前にoperation-local parserで拒否 |
-| singular / PackageBase separated lifecycle | workspace / process / metadata / transactionより前に拒否。既存preflight orderを維持 |
-| `upgrade-aur` | update query、default log / cache初期化より前に拒否。target 0件でもno-op成功へ変換しない |
-| `upgrade-all` | log / cache、source preparation、system upgrade、foreign inventory、AUR queryより前に拒否 |
-| registered `upgrade`にvalid source targetがある | source preparation、source mutation、system mutationより前に拒否 |
-| registered `upgrade`にsource targetがなくpacman-onlyへ縮退 | Moguetが消費するが作用させず、system `pacman -Syu`へ転送しない |
-| その他のpacman-only route | Moguetが消費するが作用させず、pacmanへ転送しない |
+| remote `build <AUR package>` | 明示要求時だけ上記cleanupをsupport |
+| repository `build <package>` | exact source解決後、build/install mutation前にreject |
+| local `build --local` | local root inspection前のrejectを維持 |
+| source sync / `-S --aur` / separated lower lifecycle | 既存preflight rejectを維持 |
+| `upgrade-aur` / `upgrade-all` | query / mutation前のrejectを維持 |
+| registered `upgrade`にvalid source targetあり | source / system mutation前にreject |
+| registered `upgrade`にsource targetなし、その他pacman-only compatible route | consumeしてno-op、pacmanへforwardしない |
 
-`--rmdeps`のauthority、source-build fail-closed、pacman-only no-opの理由は[専用contract](contracts/source-build-rmdeps.md)を正本とする。
+詳細なauthority、失敗時のresult / reportingは[専用contract](contracts/source-build-rmdeps.md)を正本とする。
 
 <a id="compat-xdg-cache-safety"></a>
 
 ## XDG cache compatibility
 
 cacheのdestructive operationはtrusted root内へ限定し、symlink / root escapeをfollowせず、identity replacement、ownership不明、preflight不足をfail closedとする。cache cleanupは全targetのpreflight前に開始しない。legacy cacheを自動read / migrate / modify / deleteしない。Git executionも親processの危険なroutingやconfig environmentを暗黙継承しない。
+
+source-buildは既存cacheのremote不一致、directoryでないentry、`.git`欠落を検出すると、entryを保持して
+non-zeroで停止する。自動削除・recloneで同じ操作を続けない。正常な既存cacheの更新、欠落時のfresh clone、
+今回新規作成したentryの取得失敗時の安全なrollbackは維持する。
 
 このsectionはuser-visibleな安全要約であり、filesystem identity、rollback、implementation proportionalityの正本は[XDG cache safety contract](contracts/xdg-cache-safety.md)である。
 
@@ -676,7 +717,7 @@ pacmanへ直接委譲する経路では、Moguetが明示的に消費しないpa
 - `--nodiff`: reviewed source changeのreview / acceptance導線を省略し、reviewed stateを進めない。
 - `--rebuild`: build-only makepkgの`-f`へ変換する。
 - `--cleanbuild`: build-only makepkgの`-C`へ変換する。
-- `--rmdeps`: source-buildでは下記contractに従い拒否し、pacman-onlyでは消費する。
+- `--rmdeps`: remote AUR buildだけ明示cleanupをsupportし、他source routeは拒否、pacman-onlyでは消費してno-op。
 - `--aur` / `--repo`: Moguetのsource selectorであり、pacman / makepkgへ渡さない。
 - `--output-dir=DIR`: `-G`だけが消費するoperation-local export parentであり、configやpacman / makepkgへ渡さない。
 
@@ -714,7 +755,7 @@ RepoOnly `-Syu --repo`ではcompatible pacman pass-throughの一部としてrepo
 
 ## Out of scope
 
-この方針はpacman完全互換、provider choiceの永続化、arbitrary multiple-outputの全自動install、debug package default install、conflicts / replacesの自動解決、dependency solver強化、pacman database write、package verificationの独自再実装を宣言しない。詳細なproduction safety contractは[`docs/contracts/`](contracts/README.md)と[`DECISIONS.md`](DECISIONS.md)へ分離している。
+この方針はpacman完全互換、provider choiceの永続化、arbitrary multiple-outputの全自動install、debug package default install、conflicts / replacesの自動解決、dependency solver強化、pacman database write、package verificationの独自再実装を宣言しない。詳細なproduction safety contractは[`docs/contracts/`](contracts/README.md)と[`decisions.md`](decisions.md)へ分離している。
 
 ## Authoritative devel update routes (#476 Slice 7-D)
 

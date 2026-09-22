@@ -66,9 +66,9 @@ ReviewedProductionSourceExecution select_normal_reviewed_source_execution(
     return prepare_reviewed_production_source_execution(authoritative ? ReviewedProductionExecutionChoice::AuthoritativeDevel : ReviewedProductionExecutionChoice::Legacy,
                                                         checkout, std::move(pin), outcome, abnormal, *intent, acquisition);
 }
-ReviewedDevelExecutionSnapshot execute_normal_reviewed_devel(PreparedReviewedDevelSourceBuildExecution prepared) {
+ReviewedDevelExecutionSnapshot execute_normal_reviewed_devel(PreparedReviewedDevelSourceBuildExecution prepared, PresentationDetail presentation_detail) {
     auto storage = std::make_shared<std::optional<ReviewedDevelSourceBuildExecutionResult>>();
-    auto executed = execute_reviewed_devel_source_build(std::move(prepared));
+    auto executed = execute_reviewed_devel_source_build(std::move(prepared), presentation_detail);
     if(!executed) throw std::logic_error("Reviewed devel prepared execution is inactive.");
     storage->emplace(std::move(*executed));
     ReviewedDevelExecutionSnapshot out;
@@ -87,6 +87,7 @@ ReviewedDevelExecutionSnapshot execute_normal_reviewed_devel(PreparedReviewedDev
     }
     try {
         if(const auto* failure = result.recipe_acquisition_failure()) out.recipe_acquisition_failure = *failure;
+        if(const auto* failure = result.closure_failure()) out.closure_failure = *failure;
         if(const auto* failure = result.closure_review_failure()) {
             out.closure_review_failure = *failure;
             if(failure->reason == PinnedClosureReviewFailureReason::Declined)

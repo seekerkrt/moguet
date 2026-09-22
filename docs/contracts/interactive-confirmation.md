@@ -7,7 +7,7 @@
 - Origin Issue: [#431](https://github.com/seekerkrt/moguet/issues/431)
 - Related Issues: [#134](https://github.com/seekerkrt/moguet/issues/134)、[#151](https://github.com/seekerkrt/moguet/issues/151)、[#217](https://github.com/seekerkrt/moguet/issues/217)、[#272](https://github.com/seekerkrt/moguet/issues/272)
 - Update history: Issue #431で重複していたboolean confirmation helperを共通化し、Declined / Cancelled / Unavailable / InputFailureを区別するpublic contractとして追加。
-- Related upper decisions: [decision 1](../DECISIONS.md#decision-1)、[decision 2](../DECISIONS.md#decision-2)、[decision 3](../DECISIONS.md#decision-3)、[decision 5](../DECISIONS.md#decision-5)、[decision 7](../DECISIONS.md#decision-7)
+- Related upper decisions: [decision 1](../decisions.md#decision-1)、[decision 2](../decisions.md#decision-2)、[decision 3](../decisions.md#decision-3)、[decision 5](../decisions.md#decision-5)、[decision 7](../decisions.md#decision-7)
 
 ## Contract本文（日本語normative source of truth）
 
@@ -92,4 +92,4 @@ diagnosticは先行phaseが完了済みであり得ることを隠さない。cr
 
 ## Compatibility
 
-suffix、fixed token、non-TTY / `--noconfirm`、outcome、exit status、side-effect境界の利用者向け要約は、[`COMPATIBILITY.md`のinteractive confirmation section](../COMPATIBILITY.md#compat-interactive-confirmation)を参照する。
+suffix、fixed token、non-TTY / `--noconfirm`、outcome、exit status、side-effect境界の利用者向け要約は、[`compatibility.md`のinteractive confirmation section](../compatibility.md#compat-interactive-confirmation)を参照する。

@@ -158,7 +158,21 @@ assert_no_relation_mutation() {
     fi
 }
 
-run_ok "$tmp_dir/conflict-plan.out" plan conflict-only
+# Normal keeps relation identity and blocking truth; --details owns raw
+# metadata, source/root attribution, and component-level diagnostic evidence.
+run_ok "$tmp_dir/conflict-plan-normal.out" plan conflict-only
+assert_contains "Plan targets: conflict-only" "$tmp_dir/conflict-plan-normal.out"
+assert_contains "conflict: conflict-only -> conflict-old; installed conflict with conflict-old" \
+    "$tmp_dir/conflict-plan-normal.out"
+assert_contains "conflict: conflict-only -> conflict-git; no matching installed or planned target" \
+    "$tmp_dir/conflict-plan-normal.out"
+assert_contains "Build/install is blocked." "$tmp_dir/conflict-plan-normal.out"
+assert_contains "Build readiness: Requires check" "$tmp_dir/conflict-plan-normal.out"
+assert_contains "Install readiness: Requires check" "$tmp_dir/conflict-plan-normal.out"
+assert_not_contains "Plan state:" "$tmp_dir/conflict-plan-normal.out"
+assert_not_contains "target component" "$tmp_dir/conflict-plan-normal.out"
+assert_no_relation_mutation
+run_ok "$tmp_dir/conflict-plan.out" --details plan conflict-only
 assert_contains "conflicts: conflict-old, conflict-git" "$tmp_dir/conflict-plan.out"
 assert_contains "Installed conflict confirmed" "$tmp_dir/conflict-plan.out"
 assert_contains "declaring package conflict-only" "$tmp_dir/conflict-plan.out"
@@ -168,7 +182,15 @@ assert_contains "build/install is blocked before mutation" \
     "$tmp_dir/conflict-plan.out"
 assert_not_contains "ConfirmedInstalledConflict" "$tmp_dir/conflict-plan.out"
 
-run_ok "$tmp_dir/replace-plan.out" plan replace-only
+run_ok "$tmp_dir/replace-plan-normal.out" plan replace-only
+assert_contains "replacement: replace-only -> replace-legacy; potential replacement of replace-legacy" \
+    "$tmp_dir/replace-plan-normal.out"
+assert_contains "Review required; no automatic replacement. Build/install is blocked." \
+    "$tmp_dir/replace-plan-normal.out"
+assert_contains "Build readiness: Requires check" "$tmp_dir/replace-plan-normal.out"
+assert_contains "Install readiness: Requires check" "$tmp_dir/replace-plan-normal.out"
+assert_no_relation_mutation
+run_ok "$tmp_dir/replace-plan.out" --details plan replace-only
 assert_contains "replaces: replace-legacy" "$tmp_dir/replace-plan.out"
 assert_contains "Potential replacement impact" "$tmp_dir/replace-plan.out"
 assert_contains "matched installed package replace-legacy" \
@@ -179,7 +201,18 @@ assert_contains "review is required and no automatic replacement is performed" \
 assert_not_contains "PotentialReplacement" "$tmp_dir/replace-plan.out"
 
 : > "$command_log"
-run_ok "$tmp_dir/dependency-plan.out" plan dependency-risk-root
+run_ok "$tmp_dir/dependency-plan-normal.out" plan dependency-risk-root
+assert_contains "Plan targets: dependency-risk-root" "$tmp_dir/dependency-plan-normal.out"
+assert_contains "conflict: risk-dep -> dep-old>=2; installed conflict with dep-old" \
+    "$tmp_dir/dependency-plan-normal.out"
+assert_contains "replacement: risk-dep -> dep-legacy; potential replacement of dep-legacy" \
+    "$tmp_dir/dependency-plan-normal.out"
+assert_contains "Build/install is blocked." "$tmp_dir/dependency-plan-normal.out"
+assert_contains "Build readiness: Requires check" "$tmp_dir/dependency-plan-normal.out"
+assert_contains "Install readiness: Requires check" "$tmp_dir/dependency-plan-normal.out"
+assert_no_relation_mutation
+# Deduplication of raw metadata remains a Detailed diagnostic contract.
+run_ok "$tmp_dir/dependency-plan.out" --details plan dependency-risk-root
 assert_contains "risk-dep" "$tmp_dir/dependency-plan.out"
 assert_contains "conflicts: dep-old>=2" "$tmp_dir/dependency-plan.out"
 assert_contains "construction: Constructed" "$tmp_dir/dependency-plan.out"
@@ -201,28 +234,38 @@ fi
 
 run_ok "$tmp_dir/clean-plan.out" plan clean-root
 assert_not_contains "Metadata conflicts/replaces:" "$tmp_dir/clean-plan.out"
-assert_contains "construction: Constructed" "$tmp_dir/clean-plan.out"
-assert_contains "completeness: Complete" "$tmp_dir/clean-plan.out"
-assert_contains "Fetch readiness: Ready" "$tmp_dir/clean-plan.out"
-assert_contains "Build readiness: Ready" "$tmp_dir/clean-plan.out"
-assert_contains "Install readiness: Ready" "$tmp_dir/clean-plan.out"
+assert_contains "Plan targets: clean-root" "$tmp_dir/clean-plan.out"
+assert_contains "Fetch/build/install: ready" "$tmp_dir/clean-plan.out"
+assert_not_contains "Plan state:" "$tmp_dir/clean-plan.out"
+assert_not_contains "construction:" "$tmp_dir/clean-plan.out"
+assert_not_contains "completeness:" "$tmp_dir/clean-plan.out"
 
 run_ok "$tmp_dir/planned-conflict-plan.out" plan planned-conflict-root
-assert_contains "Planned-target conflict confirmed" \
+assert_contains "planned conflict with planned-conflict-target" \
     "$tmp_dir/planned-conflict-plan.out"
-assert_contains "matched planned package planned-conflict-target" \
+assert_contains "Build/install is blocked." \
     "$tmp_dir/planned-conflict-plan.out"
-assert_contains "roots: input #1 requested planned-conflict-root" \
+assert_not_contains "roots:" \
     "$tmp_dir/planned-conflict-plan.out"
 assert_not_contains "ConfirmedPlannedTargetConflict" \
     "$tmp_dir/planned-conflict-plan.out"
-assert_contains "Fetch readiness: Ready" "$tmp_dir/planned-conflict-plan.out"
+assert_not_contains "Fetch readiness:" "$tmp_dir/planned-conflict-plan.out"
 assert_contains "Build readiness: Requires check" \
     "$tmp_dir/planned-conflict-plan.out"
 assert_contains "Install readiness: Requires check" \
     "$tmp_dir/planned-conflict-plan.out"
+run_ok "$tmp_dir/planned-conflict-details.out" --details plan planned-conflict-root
+assert_contains "Planned-target conflict confirmed" "$tmp_dir/planned-conflict-details.out"
+assert_contains "matched planned package planned-conflict-target" "$tmp_dir/planned-conflict-details.out"
+assert_contains "roots: input #1 requested planned-conflict-root" "$tmp_dir/planned-conflict-details.out"
+assert_contains "Fetch readiness: Ready" "$tmp_dir/planned-conflict-details.out"
 
-run_ok "$tmp_dir/no-match-plan.out" plan no-match-root
+run_ok "$tmp_dir/no-match-plan-normal.out" plan no-match-root
+assert_contains "conflict: no-match-root -> absent-relation-target; no matching installed or planned target" \
+    "$tmp_dir/no-match-plan-normal.out"
+assert_contains "Fetch/build/install: ready" "$tmp_dir/no-match-plan-normal.out"
+assert_not_contains "Build/install is blocked" "$tmp_dir/no-match-plan-normal.out"
+run_ok "$tmp_dir/no-match-plan.out" --details plan no-match-root
 assert_contains "Confirmed no matching current or planned target" \
     "$tmp_dir/no-match-plan.out"
 assert_contains "declares conflict absent-relation-target" \
@@ -242,17 +285,13 @@ assert_contains "Install readiness: Ready" "$tmp_dir/no-match-plan.out"
 run_ok "$tmp_dir/soname-old-self-plan.out" plan soname-regression-git
 assert_not_contains "Installed package provides metadata is malformed." \
     "$tmp_dir/soname-old-self-plan.out"
-assert_not_contains "Invalid relation metadata or observation" \
+assert_not_contains "invalid relation metadata or observation" \
     "$tmp_dir/soname-old-self-plan.out"
-assert_contains "Confirmed no matching current or planned target" \
+assert_contains "no matching installed or planned target" \
     "$tmp_dir/soname-old-self-plan.out"
-assert_not_contains "Installed conflict confirmed" \
+assert_not_contains "installed conflict with" \
     "$tmp_dir/soname-old-self-plan.out"
-assert_contains "completeness: Complete" \
-    "$tmp_dir/soname-old-self-plan.out"
-assert_contains "Build readiness: Ready" \
-    "$tmp_dir/soname-old-self-plan.out"
-assert_contains "Install readiness: Ready" \
+assert_contains "Fetch/build/install: ready" \
     "$tmp_dir/soname-old-self-plan.out"
 assert_no_relation_mutation
 
@@ -260,13 +299,11 @@ add_installed_package wezterm 1.0-1
 run_ok "$tmp_dir/soname-real-conflict-plan.out" plan soname-regression-git
 assert_not_contains "Installed package provides metadata is malformed." \
     "$tmp_dir/soname-real-conflict-plan.out"
-assert_contains "Installed conflict confirmed" \
+assert_contains "installed conflict with wezterm" \
     "$tmp_dir/soname-real-conflict-plan.out"
-assert_contains "matched installed package wezterm" \
+assert_not_contains "installed conflict with soname-regression-git" \
     "$tmp_dir/soname-real-conflict-plan.out"
-assert_not_contains "matched installed package soname-regression-git" \
-    "$tmp_dir/soname-real-conflict-plan.out"
-assert_contains "completeness: Complete" \
+assert_not_contains "completeness:" \
     "$tmp_dir/soname-real-conflict-plan.out"
 assert_contains "Build readiness: Requires check" \
     "$tmp_dir/soname-real-conflict-plan.out"
@@ -302,33 +339,26 @@ assert_not_contains "package relation blocker:" \
 assert_no_relation_mutation
 
 run_ok "$tmp_dir/self-conflict-plan.out" plan foo-git
-assert_contains "Confirmed no matching current or planned target" \
+assert_contains "no matching installed or planned target" \
     "$tmp_dir/self-conflict-plan.out"
-assert_not_contains "Planned-target conflict confirmed" \
+assert_not_contains "planned conflict with" \
     "$tmp_dir/self-conflict-plan.out"
-assert_contains "Build readiness: Ready" "$tmp_dir/self-conflict-plan.out"
+assert_contains "Fetch/build/install: ready" "$tmp_dir/self-conflict-plan.out"
 
 run_ok "$tmp_dir/other-planned-conflict-plan.out" plan foo-git-with-target
-assert_contains "Planned-target conflict confirmed" \
+assert_contains "planned conflict with foo" \
     "$tmp_dir/other-planned-conflict-plan.out"
-assert_contains "matched planned package foo" \
-    "$tmp_dir/other-planned-conflict-plan.out"
+assert_contains "Build/install is blocked." "$tmp_dir/other-planned-conflict-plan.out"
 
 add_installed_package foo-git 0.9-1 foo=1
 run_ok "$tmp_dir/installed-old-self-plan.out" plan foo-git
-assert_contains "Confirmed no matching current or planned target" \
+assert_contains "no matching installed or planned target" \
     "$tmp_dir/installed-old-self-plan.out"
-assert_not_contains "Installed conflict confirmed" \
+assert_not_contains "installed conflict with" \
     "$tmp_dir/installed-old-self-plan.out"
-assert_not_contains "Planned-target conflict confirmed" \
+assert_not_contains "planned conflict with" \
     "$tmp_dir/installed-old-self-plan.out"
-assert_contains "completeness: Complete" \
-    "$tmp_dir/installed-old-self-plan.out"
-assert_contains "Fetch readiness: Ready" \
-    "$tmp_dir/installed-old-self-plan.out"
-assert_contains "Build readiness: Ready" \
-    "$tmp_dir/installed-old-self-plan.out"
-assert_contains "Install readiness: Ready" \
+assert_contains "Fetch/build/install: ready" \
     "$tmp_dir/installed-old-self-plan.out"
 
 : > "$command_log"
@@ -345,13 +375,11 @@ unset MOGUET_TEST_MAKEPKG_EXIT_CODE
 
 add_installed_package foo 1.0-1
 run_ok "$tmp_dir/installed-real-conflict-plan.out" plan foo-git
-assert_contains "Installed conflict confirmed" \
+assert_contains "installed conflict with foo" \
     "$tmp_dir/installed-real-conflict-plan.out"
-assert_contains "matched installed package foo" \
+assert_not_contains "installed conflict with foo-git" \
     "$tmp_dir/installed-real-conflict-plan.out"
-assert_not_contains "matched installed package foo-git" \
-    "$tmp_dir/installed-real-conflict-plan.out"
-assert_contains "Fetch readiness: Ready" \
+assert_not_contains "Fetch readiness:" \
     "$tmp_dir/installed-real-conflict-plan.out"
 assert_contains "Build readiness: Requires check" \
     "$tmp_dir/installed-real-conflict-plan.out"
@@ -411,14 +439,19 @@ assert_no_relation_mutation
 
 : > "$command_log"
 run_ok "$tmp_dir/unknown-plan.out" plan unknown-relation-root
-assert_contains "Relation judgment unavailable" "$tmp_dir/unknown-plan.out"
+assert_contains "relation judgment unavailable" "$tmp_dir/unknown-plan.out"
 assert_contains "version judgment unavailable" "$tmp_dir/unknown-plan.out"
-assert_contains "not a confirmed absence" "$tmp_dir/unknown-plan.out"
-assert_not_contains "Confirmed no matching current or planned target" \
+assert_contains "Build/install is blocked." "$tmp_dir/unknown-plan.out"
+assert_not_contains "no matching installed or planned target" \
     "$tmp_dir/unknown-plan.out"
 assert_contains "completeness: Unknown" "$tmp_dir/unknown-plan.out"
-assert_contains "Fetch readiness: Ready" "$tmp_dir/unknown-plan.out"
+assert_not_contains "Fetch readiness:" "$tmp_dir/unknown-plan.out"
 assert_contains "Build readiness: Requires check" "$tmp_dir/unknown-plan.out"
+assert_contains "Install readiness: Requires check" "$tmp_dir/unknown-plan.out"
+run_ok "$tmp_dir/unknown-plan-details.out" --details plan unknown-relation-root
+assert_contains "Relation judgment unavailable" "$tmp_dir/unknown-plan-details.out"
+assert_contains "not a confirmed absence" "$tmp_dir/unknown-plan-details.out"
+assert_contains "Fetch readiness: Ready" "$tmp_dir/unknown-plan-details.out"
 run_fail "$tmp_dir/unknown-noconfirm.out" \
     --noconfirm build unknown-relation-root
 assert_contains "Relation judgment unavailable" \
@@ -427,10 +460,11 @@ assert_no_relation_mutation
 
 export MOGUET_TEST_PACKAGE_METADATA_PACMAN_CONF_EXIT_CODE=42
 run_ok "$tmp_dir/inventory-failure-plan.out" plan no-match-root
-assert_contains "Relation judgment unavailable" \
+assert_contains "relation judgment unavailable" \
     "$tmp_dir/inventory-failure-plan.out"
 assert_contains "completeness: Unknown" "$tmp_dir/inventory-failure-plan.out"
-assert_not_contains "Confirmed no matching current or planned target" \
+assert_contains "Build/install is blocked." "$tmp_dir/inventory-failure-plan.out"
+assert_not_contains "no matching installed or planned target" \
     "$tmp_dir/inventory-failure-plan.out"
 unset MOGUET_TEST_PACKAGE_METADATA_PACMAN_CONF_EXIT_CODE
 
@@ -470,6 +504,14 @@ assert_contains "completeness: Incomplete" "$tmp_dir/cycle.out"
 assert_contains "Fetch readiness: Blocked" "$tmp_dir/cycle.out"
 assert_contains "Cyclic dependencies:" "$tmp_dir/cycle.out"
 run_ok "$tmp_dir/split.out" plan split-child
+assert_contains "Plan targets: split-child" "$tmp_dir/split.out"
+assert_contains "1. split-base" "$tmp_dir/split.out"
+assert_contains "target package: split-child" "$tmp_dir/split.out"
+assert_contains "Install readiness: Blocked" "$tmp_dir/split.out"
+assert_contains "Use the package-base set lifecycle" "$tmp_dir/split.out"
+assert_not_contains "Fetch readiness:" "$tmp_dir/split.out"
+assert_not_contains "Build readiness:" "$tmp_dir/split.out"
+run_ok "$tmp_dir/split.out" --details plan split-child
 assert_contains "Split package install targets:" "$tmp_dir/split.out"
 assert_contains "split-child (base: split-base)" "$tmp_dir/split.out"
 assert_contains "construction: Constructed" "$tmp_dir/split.out"
@@ -499,10 +541,11 @@ add_installed_package unsupported-provides 1.0-1 \
     'unsupported-capability>=1'
 : > "$command_log"
 run_ok "$tmp_dir/unsupported-provides-plan.out" plan no-match-root
-assert_contains "Installed package provides metadata is malformed." \
+assert_contains "invalid relation metadata or observation" \
     "$tmp_dir/unsupported-provides-plan.out"
-assert_contains "Invalid relation metadata or observation" \
-    "$tmp_dir/unsupported-provides-plan.out"
+assert_contains "installed: metadata malformed" "$tmp_dir/unsupported-provides-plan.out"
+assert_contains "Build/install is blocked." "$tmp_dir/unsupported-provides-plan.out"
+assert_not_contains "no matching installed or planned target" "$tmp_dir/unsupported-provides-plan.out"
 assert_contains "completeness: Incomplete" \
     "$tmp_dir/unsupported-provides-plan.out"
 assert_contains "Build readiness: Blocked" \

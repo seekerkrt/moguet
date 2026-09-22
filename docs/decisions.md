@@ -8,9 +8,13 @@
 
 ### 文書の位置づけ
 
+projectの目的、correctness / safety / review / provenanceの考え方、非目標、v2/v3境界は
+[project stance](project-stance.md)を正本とする。この文書は、その姿勢を具体的な設計判断へ
+適用する原則と根拠を所有し、projectの方向性や将来計画を重複して定義しない。
+
 この文書は、現在のMoguetへ適用する普遍的な上位設計原則とlicense / third-party complianceの上位原則の詳細な正本である。CLI挙動、provider選択、solverの利用、fallback、自動化、安全境界について新しい判断を行うときは、このポリシーを基準にする。
 
-Issue別に増えるproduction contractの全文はこの文書へ追加せず、[docs/contracts/](contracts/README.md)の各安定contractを参照する。現在のcommand routingと利用者向けcompatibility summaryは[docs/COMPATIBILITY.md](COMPATIBILITY.md)を参照する。`DECISIONS.md`は上位原則の正本であり、個別contractの実装詳細を独立した正本として重複保持しない。
+Issue別に増えるproduction contractの全文はこの文書へ追加せず、[docs/contracts/](contracts/README.md)の各安定contractを参照する。現在のcommand routingと利用者向けcompatibility summaryは[docs/compatibility.md](compatibility.md)を参照する。`decisions.md`は上位原則の正本であり、個別contractの実装詳細を独立した正本として重複保持しない。
 
 現在のproject名はMoguetである。Moguet v2.0.0はjpacker v1.16.0の実行基盤を継承するが、current identityはMoguetとし、旧名称はversion、migration、storage等の明示されたlegacy contextだけで使用する。
 
@@ -94,6 +98,27 @@ user intent は、command 名、指定された target と option、元 tool の
 
 Moguet が外部 component を呼び出すための順序、事前条件、停止条件、表示を設計することは orchestration の責務である。ただし、それを理由に各 component の solver、transaction、build、repository operation を独自実装へ置き換えない。
 
+[project stance](project-stance.md)の能力と責任範囲の分離を、phase-point authorityで実現する。
+source / revision / artifact / install identityとprovenanceは、各consumerが値や副作用を採用する
+定義済み境界で証明する。必要なauthorityを必要なphaseで必要な期間だけ保持し、observed mismatch /
+invalid / unknownでは、そのauthorityに依存する処理へ進まずfail closedする。これはcorrectnessの要件である。
+明示承認、destructive-operation containment、user-owned sourceの非破壊と、failure / cancellation /
+partial outcomeのlosslessな保持も維持する。
+
+proofとresourceの寿命は実際のconsumerに結び付ける。独立copyへのtransferとfinal proofが完了し、
+元のphysical backingを使うconsumerがなくなれば、そのbackingを解放できる。一方、後段が必要とする
+semantic acceptance、context、identityのauthorityは必要期間保持する。常時監視はこの受渡しの証明を
+代替せず、review済みbuildを継続的な敵対者として監視する責務も生まない。phase間の任意の同UID改変や
+改変後の復元を網羅するcontinuous attestationを要求しない。新しいprivileged capabilityには固有の
+authoritative boundaryを定め、その境界の偽造や迂回を防ぐ責務をこの非目標で免除しない。
+
+derived stateの不整合検出は自動でも、復旧は対応する別の明示操作とする。任意の手動変更を追跡・修復して
+同じ失敗transactionを続行すると、失敗時に確定したidentity、承認、結果の境界が曖昧になるため、
+自動repair / continuationを既定責務にしない。復旧はMoguet-ownedなdisposable stateへ限定し、
+対象のownershipとcontainmentを証明できなければ削除しない。unknown / external path、user-owned source、
+durable provenance / review stateを万能resetの対象にしない。通常のfresh acquisitionやowned partial stateの
+安全なabort cleanupは、既知不整合のrepairとは区別し、それぞれのcontractへ従う。
+
 <a id="decision-7"></a>
 
 ### 7. 判断ルール
@@ -126,9 +151,14 @@ version boundary、配布policy、component別の詳細は[docs/LICENSING.md](LI
 
 ### Status and authority
 
+The [project stance](project-stance.md) is the canonical source for project purpose,
+correctness, safety, review, provenance, non-goals, and the v2/v3 boundary. This
+document owns the principles and rationale for applying that stance to concrete
+design decisions; it does not separately define project direction or future plans.
+
 This document is the detailed canonical source for the high-level design policy applied to the current Moguet project. Decisions 1 through 7 are universal design principles, and decision 8 is the high-level license and third-party compliance principle. New decisions about CLI behavior, provider selection, solver use, fallback, automation, and safety boundaries must be evaluated against this policy.
 
-Issue-specific production contracts are not duplicated here. Use the [contract index](contracts/README.md) for their Japanese normative source and [docs/COMPATIBILITY.md](COMPATIBILITY.md) for current routing and user-visible compatibility summaries. This document is the source of truth for the high-level principles.
+Issue-specific production contracts are not duplicated here. Use the [contract index](contracts/README.md) for their Japanese normative source and [docs/compatibility.md](compatibility.md) for current routing and user-visible compatibility summaries. This document is the source of truth for the high-level principles.
 
 The current project name is Moguet. Moguet v2.0.0 inherits the jpacker v1.16.0 execution base, but Moguet is the current identity; the former name is used only in explicit legacy contexts such as versions, migration, and storage.
 
@@ -212,6 +242,32 @@ User intent is inferred from the command name, explicit targets and options, con
 
 Designing the order, preconditions, stop conditions, and presentation around calls to external components is part of Moguet orchestration. It is not a reason to replace each component's solver, transaction, build, or repository operations with a custom implementation.
 
+Phase-point authority implements the separation of capability and responsibility in the
+[project stance](project-stance.md). Source, revision, artifact and install identity, and provenance,
+must be proven at the defined boundaries where each consumer adopts values or side effects.
+Retain necessary authority only for the phase and duration that need it. Observed mismatch,
+invalidity or unknown state must fail closed before processing that depends on that authority.
+This is a correctness requirement. Explicit approval, destructive-operation containment,
+non-destruction of user-owned sources, and lossless failure, cancellation and partial outcomes remain required.
+
+Tie proof and resource lifetimes to their actual consumers. Once transfer to independent copies and
+final proof complete, physical backing may be released if no consumer still needs it. Semantic
+acceptance, context and identity authority needed downstream must remain alive for their required
+duration. Continuous monitoring neither replaces this hand-off proof nor becomes a responsibility
+to surveil reviewed builds as ongoing adversaries. Continuous attestation covering arbitrary same-UID
+mutation or mutation followed by restoration between phases is not required. Every new privileged
+capability still needs its own authoritative boundary; this non-goal does not excuse forgery or bypass
+of that boundary.
+
+Derived-state inconsistency detection is automatic; recovery belongs to a separate, supported explicit
+operation. Tracking and repairing arbitrary manual changes to continue the same failed transaction
+would blur the established identity, approval and outcome boundaries, so automatic repair and
+continuation are not default responsibilities. Recovery is limited to Moguet-owned disposable state;
+deletion requires proven ownership and containment. Unknown or external paths, user-owned sources,
+and durable provenance or review state are not targets for a universal reset. Normal fresh acquisition
+and safe abort cleanup of owned partial state remain distinct from repairing known inconsistency and
+follow their respective contracts.
+
 <a id="decision-7-en"></a>
 
 ### 7. Decision rule
@@ -247,7 +303,7 @@ decision 9〜15として旧`DECISIONS.md`に記載していた全文contractは�
 | 旧decision | 現行contract | behavior / safety boundary |
 | --- | --- | --- |
 | 9 | [PackageBase build / required-child selection](contracts/packagebase-child-selection.md) | PackageBase build unitとrequired child install selectionの分離 |
-| 10 | [separated source-build `--rmdeps`](contracts/source-build-rmdeps.md) | cleanup ownershipを証明できないsource-buildではfail closed、pacman-onlyでは消費してno-op |
+| 10 | [separated source-build `--rmdeps`](contracts/source-build-rmdeps.md) | remote AUR buildは明示承認とfresh revalidation後のexact cleanup、他source routeは既存reject、pacman-onlyはno-op |
 | 11 | [XDG cache cutover safety](contracts/xdg-cache-safety.md) | cache filesystem identity、symlink、root escape、legacy cache非変更 |
 | 12 | [source-build preference XDG authority](contracts/source-build-preference-xdg.md) | source preferenceのuser XDG authorityと安全なfilesystem操作 |
 | 13 | [ambiguous provider selection](contracts/ambiguous-provider-selection.md) | invocation-localな明示provider選択とmutation前preflight |
@@ -260,7 +316,7 @@ Issue #355で、public profile / patch workflowより前に利用する[source-a
 
 ### 上位原則とcontractの読み分け
 
-decision 1〜7は全contractへ適用する普遍原則であり、decision 8はlicense / third-party complianceの上位原則である。個別contractはこれらの原則を特定のbehaviorやsafety boundaryへ適用したもので、実装module、type、capability plumbingを恒久固定するものではない。利用者向けのroute差分、pass-through、対応 / 非対応一覧は`COMPATIBILITY.md`を参照する。
+decision 1〜7は全contractへ適用する普遍原則であり、decision 8はlicense / third-party complianceの上位原則である。個別contractはこれらの原則を特定のbehaviorやsafety boundaryへ適用したもので、実装module、type、capability plumbingを恒久固定するものではない。利用者向けのroute差分、pass-through、対応 / 非対応一覧は`compatibility.md`を参照する。
 
 ## Legacy decision anchors and move notices
 

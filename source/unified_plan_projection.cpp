@@ -1524,10 +1524,9 @@ void append_aur_update_roots_and_blockers(
                 AurRootPackageIdentity{
                     package.aur_name, package.package_base},
                 UnifiedPlanRootRouteKind::AurSourceBuild);
-            observation.root_metadata.push_back(
-                UnifiedPlanBorrowedAuthorityReference<AurUpdatePlanEntry>(
-                    target.update));
         }
+        observation.root_metadata.push_back(
+            UnifiedPlanBorrowedAuthorityReference<AurUpdatePlanEntry>(target.update));
 
         if(target.status != AurUpdateExecutionTargetStatus::Unsupported &&
            target.status != AurUpdateExecutionTargetStatus::Incomplete) {

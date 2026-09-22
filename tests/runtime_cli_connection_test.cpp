@@ -92,6 +92,148 @@ void expect_issue(
         context + ": typed diagnostic differs");
 }
 
+void test_presentation_detail_plumbing() {
+    for(const std::vector<std::string>& arguments : {
+            std::vector<std::string>{"-Qua"},
+            std::vector<std::string>{"-S", "--aur", "--dry-run", "foo"},
+            std::vector<std::string>{"-Syu"},
+            std::vector<std::string>{"-Su"},
+            std::vector<std::string>{"-Syu", "--repo", "--dry-run"},
+            std::vector<std::string>{"upgrade-aur"},
+            std::vector<std::string>{"upgrade-all", "--dry-run"},
+            std::vector<std::string>{"build", "foo"},
+            std::vector<std::string>{"plan", "foo", "bar"},
+            std::vector<std::string>{"deps", "--recursive", "foo"},
+            std::vector<std::string>{"-S", "--select", "--needed", "--aur", "--noconfirm", "--dry-run", "--noedit", "--nodiff", "--build-mode=clean", "foo"}}) {
+        const ParsedCliArguments normal = require_parsed_invocation(arguments, "normal");
+        expect(normal.cli_overrides.presentation_detail == PresentationDetail::Normal,
+               "Absent --details must default to Normal");
+        expect_valid(normal, "normal presentation route");
+        for(std::size_t position : {std::size_t{0}, std::size_t{1}}) {
+            auto details_arguments = arguments;
+            details_arguments.insert(details_arguments.begin() + position, "--details");
+            expect(require_parsed_invocation(details_arguments, "single --details")
+                           .cli_overrides.presentation_detail == PresentationDetail::Detailed,
+                   "Single --details must select Detailed before or after operation");
+            details_arguments.push_back("--details");
+            const ParsedCliArguments details = require_parsed_invocation(details_arguments, "details");
+            expect(details.cli_overrides.presentation_detail == PresentationDetail::Detailed,
+                   "Repeated --details must retain Detailed before or after operation");
+            expect_valid(details, "details presentation route");
+            expect(
+                details.operation == normal.operation &&
+                    details.ordered_pacman_args == normal.ordered_pacman_args &&
+                    details.flags == normal.flags && details.targets == normal.targets &&
+                    details.source_selection == normal.source_selection &&
+                    details.root_package_selection_requested == normal.root_package_selection_requested &&
+                    details.end_of_options == normal.end_of_options &&
+                    details.pending_option == normal.pending_option &&
+                    details.cli_overrides.no_confirm == normal.cli_overrides.no_confirm &&
+                    details.cli_overrides.dry_run == normal.cli_overrides.dry_run &&
+                    details.cli_overrides.rm_deps == normal.cli_overrides.rm_deps &&
+                    details.cli_overrides.review_pkgbuild == normal.cli_overrides.review_pkgbuild &&
+                    details.cli_overrides.review_diff == normal.cli_overrides.review_diff &&
+                    details.cli_overrides.build_mode == normal.cli_overrides.build_mode,
+                "--details changed semantic state or leaked into pacman arguments");
+            const auto normal_contract = resolve_cli_runtime_contract(normal);
+            const auto details_contract = resolve_cli_runtime_contract(details);
+            expect(normal_contract.operation == details_contract.operation &&
+                       normal_contract.form == details_contract.form &&
+                       normal_contract.special_operation == details_contract.special_operation &&
+                       normal_contract.owner == details_contract.owner,
+                   "--details changed runtime route authority");
+            UserConfig user_config;
+            user_config.review.pkgbuild = ReviewPolicy::Skip;
+            user_config.build.mode = BuildMode::Rebuild;
+            const UserConfig normal_config = compose_user_config(user_config, normal.cli_overrides);
+            const UserConfig details_config = compose_user_config(user_config, details.cli_overrides);
+            expect(normal_config.schema_version == details_config.schema_version &&
+                       normal_config.review.pkgbuild == details_config.review.pkgbuild &&
+                       normal_config.review.diff == details_config.review.diff &&
+                       normal_config.build.mode == details_config.build.mode,
+                   "Presentation detail changed persistent user config composition");
+            std::size_t details_token_count = 0;
+            for(const ParsedCliToken& token : details.tokens) {
+                if(token.value != "--details") continue;
+                ++details_token_count;
+                expect(token.role == CliTokenRole::MoguetGlobalOption,
+                       "--details has the wrong lexical owner");
+            }
+            expect(details_token_count == 2 &&
+                       details.consumed_global_options.size() == normal.consumed_global_options.size() + 2,
+                   "Repeated --details was not consumed as a global option");
+        }
+    }
+    for(const auto& arguments : {
+            std::vector<std::string>{"-S", "--", "--details"},
+            std::vector<std::string>{"-S", "--config", "--details"}}) {
+        const auto parsed = require_parsed_invocation(arguments, "literal details token");
+        expect(parsed.cli_overrides.presentation_detail == PresentationDetail::Normal &&
+                   parsed.consumed_global_options.empty() &&
+                   parsed.ordered_pacman_args == arguments,
+               "--details must not override pacman value or end-of-options boundaries");
+        expect(parsed.tokens.back().role == (parsed.end_of_options
+                                                 ? CliTokenRole::OpaqueOperand
+                                                 : CliTokenRole::PacmanOptionValue),
+               "Literal --details changed token role");
+        expect_valid(parsed, "literal details token");
+    }
+}
+
+void test_presentation_option_ownership_boundaries() {
+    const std::vector<std::string> pacman_arguments{"-Q", "--verbose", "foo"};
+    const auto pacman = require_parsed_invocation(pacman_arguments, "pacman verbose");
+    expect(!is_moguet_global_option("--verbose") &&
+               pacman.cli_overrides.presentation_detail == PresentationDetail::Normal &&
+               pacman.consumed_global_options.empty() &&
+               pacman.ordered_pacman_args == pacman_arguments &&
+               pacman.tokens[1].role == CliTokenRole::PacmanOption,
+           "Pacman --verbose must not be consumed as a Moguet presentation option");
+    expect_valid(pacman, "pacman verbose");
+
+    for(const auto& arguments : {
+            std::vector<std::string>{"build", "--local", "."},
+            std::vector<std::string>{"fetch", "foo"},
+            std::vector<std::string>{"clean"},
+            std::vector<std::string>{"-Q", "foo"},
+            std::vector<std::string>{"-S", "foo"},
+            std::vector<std::string>{"-Syu", "foo"}}) {
+        auto normal = require_parsed_invocation(arguments, "route without details");
+        normal.cli_overrides.presentation_detail = PresentationDetail::Detailed;
+        expect_valid(normal, "presentation state alone is not a CLI occurrence");
+        auto details_arguments = arguments;
+        details_arguments.insert(details_arguments.begin() + 1, "--details");
+        const auto parsed = require_parsed_invocation(details_arguments, "unsupported details");
+        expect_issue(parsed, CliInvocationIssueKind::UnsupportedPresentationDetail,
+                     DiagnosticClass::Unsupported, "unsupported details route");
+        const auto validation = validate_cli_invocation_contract(parsed);
+        const auto& diagnostic = validation.diagnostic.value();
+        expect(diagnostic.severity == DiagnosticSeverity::Error &&
+                   diagnostic.phase == DiagnosticPhase::Parsing &&
+                   diagnostic.blocking_decision == DiagnosticBlockingDecision::BlocksCurrentOperation &&
+                   diagnostic.exit_status_effect == DiagnosticExitStatusEffect::Failure &&
+                   cli_invocation_issue_message(diagnostic.reason) ==
+                       "Option --details is not supported for operation " + parsed.operation + ".",
+               "Unsupported --details must report a blocking CLI failure");
+        expect(parsed.ordered_pacman_args == arguments,
+               "Unsupported --details leaked into pacman arguments");
+    }
+
+    const auto local = require_parsed_invocation({"build", "--local", "."}, "local build");
+    require_local_source_build_invocation(local);
+    const auto details = require_parsed_invocation(
+        {"build", "--local", ".", "--details"}, "unsupported local details");
+    bool rejected = false;
+    try {
+        require_local_source_build_invocation(details);
+    } catch(const std::invalid_argument& error) {
+        rejected = true;
+        expect(std::string(error.what()) == "Unsupported option --details for build --local.",
+               "Local build rejected --details for an unexpected reason");
+    }
+    expect(rejected, "Local build silently accepted unsupported --details");
+}
+
 void test_operand_contract_connection() {
     for(const char* operation : {
             "deps", "plan", "fetch", "edit-src", "del-src",
@@ -660,6 +802,10 @@ void test_terminal_safe_policy_and_runtime_boundary() {
 
 int main() {
     try {
+        test_presentation_detail_plumbing();
+        std::cout << "  ok: invocation-local presentation detail plumbing\n";
+        test_presentation_option_ownership_boundaries();
+        std::cout << "  ok: presentation option ownership boundaries\n";
         test_operand_contract_connection();
         std::cout << "  ok: runtime operand contract connection\n";
         test_runtime_help_connection();

@@ -137,7 +137,7 @@ live proofのconstructorへ到達できない。test seamは専用CMake profile�
 
 ## Acceptance evidence boundary
 
-[VALIDATION](../VALIDATION.md)のfinal acceptanceを同一candidateで実行する。
+[VALIDATION](../validation.md)のfinal acceptanceを同一candidateで実行する。
 deterministic normal route/partial acceptance、actual Git/makepkg/archive、loopback HTTPS、actual isolated pacman
 transactionを区別して記録する。S5-only laneはpublicationなし、S6 laneはraw document SHA-256・27 keys・
 exact predecessor chain・actual S4 OID / artifact / S5 bindingとのreadback一致を要求する。
