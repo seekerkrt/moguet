@@ -555,6 +555,66 @@ with tempfile.TemporaryDirectory() as directory:
 print("compact provider live parser: plain/style and negative identities passed")
 PY_PROVIDER_PRESENTATION
 
+# Keep the local-install lane parser aligned with compact Normal provider rows.
+python3 - "$local_runner" "$validation_status_library" <<'PY_LOCAL_PROVIDER_PRESENTATION'
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+
+runner = Path(sys.argv[1]).read_text()
+function = (
+    runner.split("parse_selected_provider_choice() {", 1)[1]
+    .split("\nassert_inventory_transition()", 1)[0]
+)
+
+script = """set -eu
+. "$1"
+fail() { echo "$*" >&2; exit 1; }
+EXPECTED_PROVIDER_REPOSITORY=extra
+REQUIRED_MAKE_DEPENDENCY=cargo
+EXPECTED_PROVIDER_PACKAGES=rust,rustup
+LOCAL_INSTALL_PROVIDER=rust
+parse_selected_provider_choice() {""" + function + """
+parse_selected_provider_choice "$2" "$3"
+"""
+
+plain = (
+    ":: Choose a provider for cargo:\n"
+    "1) extra/rust 1:1.98.1-1 [provides: cargo]\n"
+    "2) extra/rustup 1.29.1-1 [provides: cargo]\n"
+)
+
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
+
+    for label, content, accepted in (
+        ("compact", plain, True),
+        ("wrong-source", plain.replace("extra/rust ", "aur/rust "), False),
+    ):
+        source = root / label
+        table = root / (label + ".tsv")
+        source.write_text(content)
+
+        result = subprocess.run(
+            ["sh", "-c", script, "sh", sys.argv[2], str(source), str(table)],
+            capture_output=True,
+        )
+
+        assert (result.returncode == 0) == accepted, (
+            label, result.stdout, result.stderr
+        )
+
+        if accepted:
+            assert result.stdout.decode().strip() == "1"
+            assert table.read_text() == (
+                "1\trepository\trust\textra\tcargo\n"
+                "2\trepository\trustup\textra\tcargo\n"
+            )
+
+print("compact local-provider live parser: regression passed")
+PY_LOCAL_PROVIDER_PRESENTATION
+
 assert_contains "$provider_runner" 'production_moguet=$repo_root/moguet'
 assert_contains "$provider_runner" 'makepkg --printsrcinfo > .SRCINFO'
 assert_contains "$provider_runner" 'cmp -s "$fixture_expected_srcinfo" "$case_source/.SRCINFO"'

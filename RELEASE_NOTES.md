@@ -1,3 +1,223 @@
+# Moguet v2.9.0
+
+This tracked file is the source of truth for release bodies. The English and
+Japanese sections for each release describe the same scope.
+
+## English
+
+Moguet v2.9.0 is the final planned MINOR release in the v2.x series. It rounds
+out the ordinary AUR-helper foundation built throughout v2, adds supported
+dependency cleanup for the bounded remote-AUR build route, makes normal CLI
+output substantially more compact while retaining detailed diagnostics, and
+simplifies internal responsibility boundaries and release validation before
+v3 development begins.
+
+### Dependency cleanup and ordinary AUR workflows
+
+* Remote `build <AUR package> --rmdeps` now supports invocation-owned dependency
+  cleanup. Eligibility is based on causal installation evidence rather than a
+  broad orphan scan or merely observing that a package appeared during the
+  invocation.
+* Cleanup remains explicitly bounded: Moguet previews eligible packages, asks
+  for confirmation, freshly revalidates the approved set immediately before
+  removal, and removes only the exact still-eligible packages. Existing,
+  explicit, shared, ambiguous, or otherwise unproven packages are preserved.
+  `--noconfirm` is not cleanup approval.
+* This support is intentionally limited to the public remote AUR `build` route.
+  `-S --aur`, local builds, repository source builds, ordinary update routes,
+  and coordinated transition routes do not gain `--rmdeps` support from this
+  release.
+* Additional production-path evidence covers same-PackageBase child
+  dependencies and a controlled two-revision AUR lifecycle with both repository
+  and AUR dependencies. Explicit/dependency install reasons are retained across
+  the lifecycle.
+* The v2 support-completeness audit found no new release-blocking gaps in the
+  major ordinary AUR workflows. Less common non-Git source backends and
+  externally blocked live documentation evidence remain outside the v2
+  completion condition rather than being represented as fully verified support.
+
+### Compact normal output and detailed diagnostics
+
+* `--details` establishes a shared Normal/Detailed presentation boundary across
+  supported inspection, build, update and dry-run surfaces. Normal output
+  prioritizes operation intent, outcomes and attention-required information;
+  Detailed output retains the underlying per-target, authority and diagnostic
+  information.
+* Long runtime command lines are summarized in normal output while detailed
+  presentation can still show the complete executable and arguments. Persistent
+  execution logs continue to record the exact command evidence independently of
+  terminal presentation.
+* `plan` and `deps` now emphasize package structure, readiness, selected
+  providers, dependency summaries and exceptional constraint/relation states.
+  Routine satisfied or unconstrained detail is aggregated instead of dominating
+  normal output.
+* Interactive source-aware selection uses a more compact candidate display, and
+  package search results are ranked by match quality without changing source
+  resolution authority.
+* Update presentation is more consistent across ordinary and explicit update
+  routes. Final real-system dogfooding also removed per-package `-Qua` progress
+  spam, repetitive `UpToDate`/`NoUpdates` lines, and full NoOp target expansion
+  from normal dry-run output.
+* Affected update and dry-run routes accept `--details` where needed so the
+  information removed from normal output remains directly accessible. The
+  option changes presentation only; routing, readiness, mutation, execution and
+  exit semantics remain identical.
+* AUR batch progress wording has been clarified in Japanese, and source-closure
+  acquisition failures retain their useful underlying diagnostics at the CLI
+  boundary.
+
+### Simpler responsibility and workspace boundaries
+
+* Existing cache identity/repository mismatches no longer trigger automatic
+  delete-and-reclone recovery. Moguet detects the mismatch, preserves the
+  existing cache, reports an actionable error, and fails closed. Missing caches
+  may still be acquired normally.
+* Local-source cleanup no longer performs a hidden retry after an explicit
+  cleanup failure. The failure remains a terminal, observable result instead of
+  being retried implicitly by a later lifetime hook.
+* Pinned-source acquisition backing is retained only as long as it is needed to
+  establish the accepted source-ready state. Later build/install phases keep the
+  required semantic proof without holding unnecessary physical backing.
+* Redundant full-tree artifact validation and duplicate reviewed-checkout
+  projection were reduced while preserving the validation boundaries that
+  protect destructive operations, source identity, review state and final
+  mutation.
+* These changes formalize the v2 responsibility rule: detect invalid,
+  inconsistent or unknown state automatically, but keep recovery explicit.
+  Moguet does not expand into continuous same-UID surveillance, a generic
+  sandbox, arbitrary automatic repair, or broader security mediation.
+
+### Validation and release workflow
+
+* The long pinned-submodule closure test was split into independent CTest shards
+  while preserving the same case set and semantic coverage. The change improves
+  scheduler flexibility without claiming an unproven overall performance gain.
+* Fragile fixed-count validation ledgers were reduced or replaced by semantic
+  membership authorities where appropriate. New validation should demonstrate
+  a contract rather than exist only to increase a count.
+* A dedicated `release-validate` entrypoint now owns the fresh final-RC sequence:
+  candidate/hygiene capture, clean production build, host validation, current
+  Arch container validation, live validation, post-run diff checks and final
+  candidate recheck. Evidence from an older candidate is not reused after the
+  candidate changes.
+* Controlled lifecycle validation now exercises representative AUR dependency
+  relationships and actual package transactions in isolated environments,
+  complementing the ordinary host suite rather than replacing it.
+* Repository documentation, completion, localization, man pages and CLI
+  authority were kept synchronized as presentation surfaces expanded.
+
+### v2 closeout and project direction
+
+* The documented project stance now describes Moguet primarily as an ordinary
+  AUR helper: it respects pacman/libalpm, makepkg and Git as their respective
+  authorities; automates decisions when they are sufficiently established;
+  asks for explicit input when user authority can resolve the choice; and fails
+  closed when correctness cannot be established.
+* Review and provenance features are evidence about the source and operation
+  Moguet used, not a claim that upstream code or packages are safe.
+* v2 deliberately does not require a universal dependency solver, support for
+  every VCS/source topology, continuous workspace monitoring, or generic repair
+  frameworks before it can be considered complete.
+* With the ordinary helper foundation complete, future v3 work can be
+  reassessed around Moguet-specific value such as profile and patch workflows
+  without retroactively expanding the v2 release boundary.
+
+## 日本語
+
+Moguet v2.9.0は、v2.x seriesで予定している最後のMINOR releaseです。v2を通して整備してきた
+「普通に使えるAUR helper」としての土台を仕上げ、限定されたremote AUR build経路での
+dependency cleanup、通常CLI表示の大幅なcompact化と詳細diagnosticの両立、内部responsibility
+boundaryの簡素化、v3開発前のrelease validation整理をまとめています。
+
+### Dependency cleanupと通常AUR workflow
+
+* remote `build <AUR package> --rmdeps`で、invocation-owned dependencyのcleanupを
+  対応しました。cleanup eligibilityは、単にinvocation中にpackageが増えたことや広いorphan
+  sweepではなく、そのinvocationがinstallしたことを示すcausal evidenceに基づきます。
+* cleanupは明示的に限定されています。eligible packageをpreviewし、利用者の確認を取り、
+  removal直前に承認済み集合をfreshに再検証して、その時点でもexactにeligibleなpackageだけを
+  削除します。既存、Explicit、shared、ambiguous、その他ownershipを証明できないpackageは
+  保持します。`--noconfirm`はcleanup approvalにはなりません。
+* この対応はpublicなremote AUR `build` routeに限定しています。`-S --aur`、local build、
+  repository source build、通常update route、coordinated transition routeへ
+  `--rmdeps` supportを広げるものではありません。
+* production-path evidenceを追加し、same-PackageBase child dependencyと、repo dependency /
+  AUR dependencyを含むcontrolledな2 revisionのAUR lifecycleを確認しました。
+  lifecycleを通してExplicit / Dependency install reasonも保持します。
+* v2 support-completeness auditでは、主要なordinary AUR workflowに新しいrelease blockerは
+  見つかりませんでした。利用頻度の低いnon-Git source backendや、外部要因で取得できなかった
+  live documentation evidenceは、未検証部分を誇張せずv2 completion conditionの外に置きます。
+
+### Compactな通常表示と詳細diagnostic
+
+* supportedなinspection、build、update、dry-run surfaceで、`--details`を軸に
+  Normal / Detailed presentation boundaryを整備しました。Normalはoperation intent、結果、
+  attention-required情報を優先し、Detailedではper-target、authority、diagnostic等の
+  underlying detailを確認できます。
+* 長大なruntime command argvはNormalでは要約しますが、Detailedではactual executableと
+  complete argumentsを確認できます。persistent execution logはterminal表示とは独立して
+  exact command evidenceを保持します。
+* `plan` / `deps`はpackage構成、readiness、selected provider、dependency summary、
+  exceptionalなconstraint / relation stateを優先します。routineなSatisfied /
+  Unconstrained detailはNormalでは集約します。
+* interactiveなsource-aware selectionはcandidate表示をcompact化し、package search resultは
+  source resolution authorityを変えずmatch qualityでrankingします。
+* ordinary / explicit update routeのvisible presentationを揃えました。さらに最終実機dogfoodで
+  見つかった`-Qua`のper-package progress spam、`UpToDate` / `NoUpdates`の全件列挙、
+  NoOp dry-runでの全target展開をNormalから抑制しました。
+* 必要なaffected update / dry-run routeでは`--details`を受理し、Normalから省略した情報へ
+  引き続き到達できます。`--details`が変えるのはpresentationだけで、routing、readiness、
+  mutation、execution、exit semanticsは変わりません。
+* AUR batch progressの日本語を自然な語順へ整理し、source closure取得失敗でも利用可能な
+  underlying diagnosticをCLI境界まで保持します。
+
+### Responsibility / workspace boundaryの簡素化
+
+* 既存cacheのidentity / repository mismatchを検出しても、自動delete / reclone recoveryを
+  行わなくなりました。既存cacheを保持し、actionable diagnosticを表示してfail closedします。
+  cache自体が存在しない場合の通常acquisitionは維持します。
+* local-source cleanupの明示的な失敗後にhidden retryを行いません。cleanup failureを
+  observableなterminal resultとして保持し、後続lifetime hookで暗黙に再試行しません。
+* pinned-source acquisitionのphysical backingはaccepted SourceReady stateを成立させるために
+  必要な期間だけ保持します。後続build/installは必要なsemantic proofを保持しつつ、不要になった
+  backingを引きずりません。
+* artifact cleanupの重複full-tree validationとreviewed checkoutのduplicate projectionを削減し、
+  destructive operation、source identity、review state、final mutationを守るvalidation boundaryは
+  維持しました。
+* v2のresponsibility ruleとして、invalid / inconsistent / unknown stateの検出は自動、
+  recoveryはexplicitとします。continuousなsame-UID surveillance、generic sandbox、
+  arbitrary automatic repair、より広いsecurity mediationへ責任範囲を拡張しません。
+
+### Validationとrelease workflow
+
+* 長時間だったpinned-submodule closure testを独立したCTest shardへ分割し、同じcase集合と
+  semantic coverageを維持しました。scheduler flexibilityを高めますが、suite全体の恒久的な
+  performance改善が証明されたとは主張しません。
+* fragileなfixed-count validation ledgerを必要に応じて簡素化し、semantic membership authorityへ
+  置き換えました。新しいvalidationは単に件数を増やすためではなく、contractを証明するために
+  追加する方針を明文化しました。
+* fresh final RCを一括検証する`release-validate` entrypointを追加しました。candidate / hygiene
+  capture、clean production build、host validation、current Arch container、live validation、
+  post-run diff check、candidate recheckを一つのrelease epochとして扱います。candidateが変わった
+  場合、古いcandidateのPASS evidenceは再利用しません。
+* controlled lifecycle validationで代表的なAUR dependency relationとactual package transactionを
+  isolated environment上で検証し、通常host suiteを置き換えず補完します。
+* presentation surfaceの拡張に合わせてrepository docs、completion、localization、man page、
+  CLI authorityを同期しました。
+
+### v2 closeoutと今後のproject direction
+
+* project stanceでは、Moguetを第一にordinary AUR helperとして位置づけました。
+  pacman/libalpm、makepkg、Gitそれぞれのauthorityを尊重し、十分に判断できる場合は自動で進め、
+  user authorityで確立できる場合は明示入力を求め、correctnessを確立できない場合はfail closedします。
+* review / provenanceはMoguetが利用したsourceやoperationについてのevidenceであり、
+  upstream codeやpackage自体の安全性を保証するものではありません。
+* universal dependency solver、全VCS/source topology対応、continuous workspace monitoring、
+  generic repair frameworkをv2 completionの必須条件にはしません。
+* ordinary helperとしてのv2の土台を完成させたうえで、今後のv3ではprofile / patch workflow等の
+  Moguet固有の価値を改めて査定できます。v3のためにv2 release boundaryを後から無制限に
+  広げることはしません。
+
 # Moguet v2.8.0
 
 This tracked file is the source of truth for release bodies. The English and
