@@ -5,10 +5,12 @@
 <!-- parity:overview -->
 ## 概要
 
-Moguetは、検証済みsource buildとpackageごとのbuild preferenceを提供する、
-Arch Linux向けのpacman-first AUR helperです。package transactionは`pacman`、
-package buildは`makepkg`、repository取得は`git`へ委ね、Moguetはplan、review、
-artifact validationと各tool間の安全な引き渡しを担います。
+Moguetは、Arch Linuxで日常的なAUR利用を扱うpacman-first AUR helperです。
+検索、依存関係の解決、取得、review、build、install、updateをworkflowとして組み立て、
+必要に応じてpackageごとのsource-build preferenceも扱います。package transactionは
+`pacman`、PKGBUILDの評価とbuildは`makepkg`、Git objectとtransportは`git`へ委ねます。
+Moguetはlibalpmからpackage metadataとrelationshipをread-onlyで取得し、各toolの間で
+対象、実行順序、review、validationを組み立てます。
 
 MoguetはArch Linux、pacman、AURの公式projectではありません。独立したpackage
 manager、既存AUR helperの完全なclone、pacmanやmakepkgの契約を置き換えるtoolでも
@@ -29,6 +31,13 @@ variableは`MOGUET_*` prefixを使います。
 
 Moguetはproject固有の造語です。正式なproject表記は **Moguet**、正式な読みは
 **モグエット** です。
+
+Moguetは、作者自身のArch LinuxやAURへの興味と学習から始まり、AIを活用した開発も取り入れながら育ててきた個人projectです。現在も開発を通じて成長を続けています。
+v2では日常利用できることを目指し、correctnessとregression preventionを重視して
+保守的に設計してきました。automated regression、controlled integration、container検証、
+実packageのdogfoodで根拠を積み重ねていますが、bug-freeやupstream codeの安全性を
+保証するものではありません。検証の考え方は[validation policy](https://github.com/seekerkrt/moguet/blob/develop/docs/validation.md)を
+参照してください。
 
 <!-- parity:status -->
 ## Project status
@@ -55,26 +64,30 @@ canonical repository identityはGitHub上のMoguetで、GitLab mirrorを持ち�
 packageは`jpacker` command aliasを提供しません。AUR publicationは将来の別判断であり、
 この文書はAUR endpointが存在すると断定しません。
 
-Moguet v2.xは公開済みで利用できますが、完成済みの一般向けAUR helperではなく、
-development-phaseのproductのままです。basicなpacman wrapper、AUR source build、
-update、package別のsource-build preferenceは現在すでに動作しますが、AUR support全体と
-edge case対応は段階的に実装中で、UXも成熟途上です。Moguetはfull dependency solverや
-provider / conflictの自動解決を再実装せずpacman-firstを維持し、既存AUR helperと同等の
-自動解決能力・完成度を約束しません。unsupportedまたはambiguousなcaseは、推測せず
-fail-closedで停止します。v2.xは、Moguetのsource-aware入口、安全境界、検証基盤を
-築く公開開発期です。v3.0.0は、Moguet固有のbuild-profileとPKGBUILD差分workflowが揃う
-地点であり、projectは内部的にこれをMoguetの本格的な正式就役と位置付けています。詳細な
-計画はrelease roadmap（[issue #344](https://github.com/seekerkrt/moguet/issues/344)）
-を参照してください。
+現在のv2実装は、文書化したrouteごとの制限の範囲で、ordinary split package、provider選択、
+repositoryとAURを組み合わせた依存関係を含む、日常的なAUR利用の主要workflowに対応しています。
+[v2 support audit](https://github.com/seekerkrt/moguet/issues/606#issuecomment-5769277841)で
+新しいv2 blockerは見つかりませんでした。全AUR packageや全dependency topologyへの
+対応を約束するものではなく、対応済みの範囲、明示的な制限、意図したrejectを区別します。
+
+v2.9.0はv2最後のminor releaseとして、このAUR helperの土台とfailure behavior、public UX、
+validation、documentationを安定させる計画です。将来のprofile / patch workflowはv3で
+検討するもので、現在の機能やv2完成の条件ではありません。原則とv2/v3境界は
+[project stance](https://github.com/seekerkrt/moguet/blob/develop/docs/project-stance.md)を参照してください。
+
+他のAUR helperではそのまま進む操作でも、Moguetでは追加の確認や選択を求める場合が
+あります。また、安全に処理を継続できると判断できない場合は、警告や理由を表示したうえで
+停止することがあります。reviewとprovenanceは判断と実際のbuild/installの対応を保つための
+もので、upstream codeやpackageの安全性そのものを保証しません。
 
 <!-- parity:safety -->
 ## 設計と安全境界
 
 - `moguet`は通常ユーザーで実行します。system package transactionが必要な操作だけ
   `sudo pacman`を呼び、AUR sourceの取得・review・buildをrootでは実行しません。
-- package database stateとpackage transactionのauthorityは`pacman` / libalpmです。
-  package buildは`makepkg`、AUR repository取得は`git`が所有し、Moguetはこれらを
-  再実装しません。
+- package transactionは`pacman`が所有し、Moguetのlibalpm利用はpackage metadataと
+  relationshipのread-only取得に限ります。PKGBUILDの評価とpackage buildは`makepkg`、
+  AUR repository取得は`git`が所有し、Moguetはこれらを再実装しません。
 - `deps`と`plan`は調査・表示だけを行い、clone、build、installしません。`fetch`は
   未取得repositoryをcloneし、既存cloneでは`git fetch origin`だけを実行します。
   pull、merge、reset、working tree更新、build、installは行いません。
@@ -840,9 +853,9 @@ canonical development repositoryは
 active integration branchは`develop`、stable releaseは`main`です。
 [docs/development.md](https://github.com/seekerkrt/moguet/blob/develop/docs/development.md)、
 [docs/versioning.md](https://github.com/seekerkrt/moguet/blob/develop/docs/versioning.md)を
-参照してください。Moguet v2.xではAUR helper
-機能を段階的に追加し、高度なruntime-aware completionと将来のbuild profile systemは
-別作業として扱います。
+参照してください。高度なruntime-aware completionやprofile / patch workflowなどの
+将来候補は[release roadmap](https://github.com/seekerkrt/moguet/issues/344)で扱い、
+v2.9.0 final gate後に再査定します。
 
 <!-- parity:license -->
 ## License

@@ -5,11 +5,13 @@
 <!-- parity:overview -->
 ## Overview
 
-Moguet is a pacman-first AUR helper for Arch Linux with verified source
-builds and per-package build preferences. It keeps package transactions with
-`pacman`, package builds with `makepkg`, and repository transport with `git`,
-while Moguet owns planning, review, artifact validation, and the safe hand-off
-between those tools.
+Moguet is a pacman-first AUR helper for everyday use on Arch Linux. It brings
+search, dependency resolution, retrieval, review, build, install, and update
+together as a workflow, with per-package source-build preferences where needed.
+Package transactions stay with `pacman`, PKGBUILD evaluation and builds with
+`makepkg`, and Git objects and transport with `git`. Moguet uses libalpm for
+read-only package metadata and relationships, and coordinates the targets,
+execution order, review, and validation between those tools.
 
 Moguet is not an official Arch Linux, pacman, or AUR project. It is not an
 independent package manager, a complete clone of another AUR helper, or a
@@ -32,6 +34,15 @@ authoritative decision.
 
 Moguet is a project-specific coined name. Its formal project spelling is
 **Moguet**, and its formal Japanese reading is **モグエット**.
+
+Moguet began as a personal project driven by the author's interest in and
+learning about Arch Linux and the AUR. It has grown through continued
+development and experimentation, including AI-assisted development, and
+continues to evolve. Practical everyday use is the aim of v2, with correctness
+and regression prevention guiding its conservative design. Automated regression
+tests, controlled integration, container validation, and real-package dogfood
+provide evidence for that work; they do not promise bug-free software or certify
+upstream code as safe. See the [validation policy](https://github.com/seekerkrt/moguet/blob/develop/docs/validation.md).
 
 <!-- parity:status -->
 ## Project status
@@ -62,22 +73,25 @@ The Moguet package does not provide a `jpacker` command alias. AUR publication
 is a separate future decision; this document does not claim that an AUR
 endpoint exists.
 
-Moguet v2.x is published and usable, but it remains a development-phase
-product rather than a finished, general-purpose AUR helper. Basic pacman
-wrapping, AUR source builds, updates, and per-package source-build
-preferences already work today, while the wider AUR-support surface and
-edge-case coverage are still being implemented incrementally and the UX is
-still maturing. Moguet remains pacman-first rather than reimplementing a full
-dependency solver or automatic provider/conflict resolution, and does not
-promise the same automatic-resolution completeness as established AUR
-helpers: unsupported or ambiguous cases stop fail-closed instead of guessing.
-v2.x is the public development period that
-builds Moguet's source-aware entry points, safety boundaries, and validation
-infrastructure; v3.0.0 is the point where Moguet-specific build-profile and
-PKGBUILD-diff workflows come together, which the project treats internally
-as Moguet's full commissioning. See the release roadmap
-([issue #344](https://github.com/seekerkrt/moguet/issues/344)) for the
-detailed plan.
+The current v2 implementation covers the main everyday AUR workflows, including
+ordinary split packages, provider selection, and combined repository/AUR
+dependencies within the documented route limits. The
+[v2 support audit](https://github.com/seekerkrt/moguet/issues/606#issuecomment-5769277841)
+found no new v2 blocker. This is not a promise to handle every AUR package or
+dependency topology: supported cases, explicit limitations, and intentional
+rejections remain distinct.
+
+v2.9.0 is the planned final v2 minor release, stabilizing this AUR-helper
+foundation, its failure behavior, public UX, validation, and documentation.
+Future profile and patch workflows belong to v3 planning, not current
+capabilities or requirements for completing v2. See the
+[project stance](https://github.com/seekerkrt/moguet/blob/develop/docs/project-stance.md) for the principles and v2/v3 boundary.
+
+An operation that proceeds directly in another AUR helper may require an
+additional confirmation or selection in Moguet. If Moguet cannot establish
+that processing can safely continue, it may display a warning or reason and
+stop. Review and provenance preserve decisions and their connection to the
+actual build/install; neither guarantees the safety of upstream code or packages.
 
 <!-- parity:safety -->
 ## Design and safety boundaries
@@ -85,9 +99,10 @@ detailed plan.
 - Run `moguet` as a normal user. It invokes `sudo pacman` only for operations
   that require a system package transaction; AUR source retrieval, review, and
   builds do not run as root.
-- `pacman` and libalpm remain the authorities for package database state and
-  package transactions. `makepkg` builds packages, and `git` retrieves AUR
-  repositories. Moguet does not reimplement those tools.
+- `pacman` owns package transactions; Moguet's libalpm use is limited to
+  read-only package metadata and relationships. `makepkg` evaluates PKGBUILDs
+  and builds packages, and `git` retrieves AUR repositories. Moguet does not
+  reimplement those tools.
 - `deps` and `plan` only inspect and present information. They do not clone,
   build, or install. `fetch` clones missing repositories or runs only
   `git fetch origin` for an existing clone; it does not pull, merge, reset,
@@ -977,9 +992,9 @@ See
 [docs/development.md](https://github.com/seekerkrt/moguet/blob/develop/docs/development.md),
 and
 [docs/versioning.md](https://github.com/seekerkrt/moguet/blob/develop/docs/versioning.md).
-Moguet v2.x will add AUR-helper
-capabilities incrementally; advanced runtime-aware completion and the later
-build-profile system are separate work.
+Future candidates, including advanced runtime-aware completion and profile/patch
+workflows, are tracked in the [release roadmap](https://github.com/seekerkrt/moguet/issues/344)
+and remain subject to reassessment after the v2.9.0 final gate.
 
 <!-- parity:license -->
 ## License
