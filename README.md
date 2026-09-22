@@ -60,12 +60,11 @@ a new storage direction: source-build preferences now use only the executing
 user's XDG config context, while the published v2.0.0 tag, Release, and release
 notes remain historical records.
 
-Moguet v2.8.0 is the latest feature and correctness release. It completes major
-parts of ordinary system + AUR updates and devel package migration/tracking for
-representative real packages, strengthens exact Git source handling for supported
-submodule and tag-dependent builds, and adds guarded repo/AUR exact-version
-transitions. It also fixes persistent-state, resource, and diagnostic issues.
-See the [v2.8.0 release](https://github.com/seekerkrt/moguet/releases/tag/v2.8.0)
+Moguet v2.9.0 is the final planned MINOR release in the v2.x series. It completes
+the ordinary AUR-helper foundation with bounded dependency cleanup for the
+supported remote-AUR build route, more compact Normal/Detailed presentation,
+simpler responsibility boundaries, and a dedicated final-RC validation workflow.
+See the [v2.9.0 release](https://github.com/seekerkrt/moguet/releases/tag/v2.9.0)
 for the supported scope and complete user-visible changes.
 
 The canonical repository identity is Moguet on GitHub, with a GitLab mirror.
@@ -81,11 +80,10 @@ found no new v2 blocker. This is not a promise to handle every AUR package or
 dependency topology: supported cases, explicit limitations, and intentional
 rejections remain distinct.
 
-v2.9.0 is the planned final v2 minor release, stabilizing this AUR-helper
-foundation, its failure behavior, public UX, validation, and documentation.
-Future profile and patch workflows belong to v3 planning, not current
-capabilities or requirements for completing v2. See the
-[project stance](https://github.com/seekerkrt/moguet/blob/develop/docs/project-stance.md) for the principles and v2/v3 boundary.
+v2.9.0 closes the planned v2 minor series. Future profile and patch workflows
+belong to v3 planning rather than the completed v2 release boundary. See the
+[project stance](https://github.com/seekerkrt/moguet/blob/develop/docs/project-stance.md)
+for the principles and v2/v3 boundary.
 
 An operation that proceeds directly in another AUR helper may require an
 additional confirmation or selection in Moguet. If Moguet cannot establish
