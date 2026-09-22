@@ -1016,7 +1016,8 @@ local_live_target_reference_count=$(validation_grep_count -F -c \
 if [ "$local_live_target_reference_count" -ne 3 ]; then
     fail 'live local target must appear only in .PHONY, its definition, and the aggregate gate'
 fi
-# Only these two runtime commands need cross-UID sealed procfd access.
+# Actual public AUR/local installs need cross-UID sealed procfd access. The
+# networkless controlled lifecycle uses the same helper boundary (checked below).
 for trusted_live_target in "$aur_live_target" "$local_live_target"; do
     printf '%s\n' "$trusted_live_target" | grep -F -- '$(DOCKER) run --rm --cap-add=SYS_PTRACE' >/dev/null ||
         fail 'trusted live run lacks its exact SYS_PTRACE boundary'
@@ -1024,8 +1025,8 @@ done
 if printf '%s\n' "$live_target" | grep -F -- '--cap-add' >/dev/null; then
     fail 'provider lane must not gain a capability'
 fi
-[ "$(validation_grep_count -F -c -- '--cap-add' "$makefile")" -eq 2 ] ||
-    fail 'capability must be limited to the two live install runs'
+[ "$(validation_grep_count -F -c -- '--cap-add' "$makefile")" -eq 3 ] ||
+    fail 'capability must be limited to the two live and one controlled install runs'
 for trusted_gateway in "$aur_gateway" "$local_gateway"; do
     assert_contains "$trusted_gateway" 'check-trusted "$source_artifact"'
     assert_contains "$trusted_gateway" 'verify-trusted'
@@ -1346,6 +1347,18 @@ printf '%s\n' "$source_receipt_target_body" | grep -F -- \
     'run-installed-source-artifact-receipt.py' >/dev/null ||
     fail 'source-artifact receipt target does not run its owner-specific fixture'
 cleanup_authority_target_body=$(make_target_body test-container-cleanup-authority)
+controlled_aur_target_body=$(make_target_body test-container-controlled-aur-lifecycle)
+printf '%s\n' "$controlled_aur_target_body" | grep -F -- 'build --network=none' >/dev/null ||
+    fail 'controlled AUR lifecycle lost its offline image build'
+printf '%s\n' "$controlled_aur_target_body" | grep -F -- 'run --rm --network=none --cap-add=SYS_PTRACE' >/dev/null ||
+    fail 'controlled AUR lifecycle lost its networkless disposable runtime'
+printf '%s\n' "$controlled_aur_target_body" | grep -F -- '--file containers/arch-receipt-validation/Dockerfile' >/dev/null ||
+    fail 'controlled AUR lifecycle lost its existing receipt toolchain'
+printf '%s\n' "$controlled_aur_target_body" | grep -F -- 'run-controlled-aur-lifecycle.py' >/dev/null ||
+    fail 'controlled AUR lifecycle does not execute its focused runner'
+if printf '%s\n' "$controlled_aur_target_body" | grep -E -- '--mount|--volume| -v ' >/dev/null; then
+    fail 'controlled AUR lifecycle must not mount host state'
+fi
 printf '%s\n' "$cleanup_authority_target_body" | grep -F -- '--network=none' >/dev/null ||
     fail 'cleanup-authority target lost its network-none boundary'
 printf '%s\n' "$cleanup_authority_target_body" | grep -F -- \

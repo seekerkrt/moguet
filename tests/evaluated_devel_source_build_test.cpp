@@ -510,6 +510,7 @@ struct ArchitectureFixture {
     std::optional<std::string> source_destination;
     bool qualified_source = false;
     bool split_children = false;
+    bool sibling_dependency = false;
     std::string sibling_arch;
     std::string sibling_suffix = "-tools";
 };
@@ -873,6 +874,7 @@ private:
                              (tracked_local_source ? " 'SKIP' 'SKIP'" : "") +
                              ")\n\n" + pkgver_function + prepare +
                              "package() {\n" + architecture_.package_commands +
+                             (architecture_.sibling_dependency ? "    depends=('" + package_name_ + architecture_.sibling_suffix + "')\n" : "") +
                              "    install -Dm644 \"$srcdir/$pkgname/payload.txt\" \"$pkgdir/usr/share/$pkgname/payload.txt\"\n" +
                              (tracked_local_source ? "    install -Dm644 \"$srcdir/$pkgname/built-config.toml\" \"$pkgdir/usr/share/$pkgname/config.toml\"\n" : "") +
                              "}\n";
@@ -931,6 +933,7 @@ private:
         }
         result += "pkgname = " + package_name_ + "\n";
         result += architecture_.reviewed_child_arch;
+        if(architecture_.sibling_dependency) result += "\tdepends = " + package_name_ + architecture_.sibling_suffix + "\n";
         if(architecture_.split_children) {
             result += "pkgname = " + package_name_ + architecture_.sibling_suffix + "\n";
             if(!architecture_.sibling_arch.empty()) result += "\tarch = " + architecture_.sibling_arch + "\n";
@@ -2190,6 +2193,7 @@ void test_split_artifact_authority() {
                                   "foreign-base", "archive-version", "archive-arch"}) {
         ArchitectureFixture shape;
         shape.split_children = true;
+        shape.sibling_dependency = kind == "both";
         if(kind == "prefix-overlap") shape.sibling_suffix = "-1.r1.g" + upstream.oid().substr(0, 12) + "-1";
         if(kind == "initial-arch" || kind == "prepared-arch") {
             shape.declared = {"x86_64", "i686"};
@@ -2281,6 +2285,13 @@ void test_split_artifact_authority() {
                             artifact.evidence().identity.package_name == artifact.package().package_name() &&
                             archive_member(artifact.path(), "usr/share/" + artifact.package().package_name() + "/payload.txt") == "revision-one\n",
                         "split artifact child/base/retained payload differs");
+            }
+            if(shape.sibling_dependency) {
+                const auto primary = std::find_if(proof.artifacts().begin(), proof.artifacts().end(),
+                                                  [&](const auto& artifact) { return artifact.package().package_name() == fixture.package_name(); });
+                require(primary != proof.artifacts().end() &&
+                            archive_member(primary->path(), ".PKGINFO").find("\ndepend = " + sibling + "\n") != std::string::npos,
+                        "native split archive lost its sibling dependency");
             }
             cleanup_proof(proof);
         } else {

@@ -1216,6 +1216,7 @@ set(
     source/dependency_plan_model.cpp
     source/invocation_owned_cleanup_adapter.cpp
     source/remote_aur_cleanup_candidate_collector.cpp
+    source/interactive_confirmation.cpp
     source/dependency_cleanup_interaction.cpp
     source/dependency_cleanup_execution.cpp
     source/package_relation.cpp

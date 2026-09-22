@@ -333,6 +333,7 @@ export MOGUET_FRONTEND_USE_DEFAULT_COMPILE_OPTIONS
 	test-container-receipt \
 	test-container-cleanup-authority \
 	test-container-source-artifact-receipt \
+	test-container-controlled-aur-lifecycle \
 	test-container-exact-installed-binding \
 	test-container-devel-publication \
 	test-container-installed-binding-characterization
@@ -707,6 +708,14 @@ test-container-receipt:
 		printf '%s\n' ':: Running trusted ALPM receipt validation container'; \
 		$(DOCKER) run --rm --network=none \
 			"$(ARCH_RECEIPT_VALIDATION_IMAGE)"
+
+# F-02: two controlled revisions through the installed production CLI. The
+# existing receipt toolchain supplies real makepkg/ALPM/pacman and root helper.
+test-container-controlled-aur-lifecycle:
+	$(DOCKER) build --network=none --tag "$(ARCH_RECEIPT_VALIDATION_IMAGE)" \
+		--file containers/arch-receipt-validation/Dockerfile .
+	$(DOCKER) run --rm --network=none --cap-add=SYS_PTRACE "$(ARCH_RECEIPT_VALIDATION_IMAGE)" \
+		/usr/bin/python3 containers/arch-receipt-validation/run-controlled-aur-lifecycle.py
 
 test-container-source-artifact-receipt:
 	@set -eu; \

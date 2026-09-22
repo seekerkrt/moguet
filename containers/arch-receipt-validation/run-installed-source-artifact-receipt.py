@@ -4,9 +4,11 @@ import fcntl
 import hashlib
 import os
 import pathlib
+import select
 import stat
 import subprocess
 import sys
+import time
 
 
 HELPER = "/usr/libexec/moguet/moguet-source-artifact-install-helper"
@@ -429,6 +431,74 @@ def expect_rejection(arguments: list[str], label: str) -> None:
     require(result.returncode != 0, f"{label} unexpectedly succeeded")
 
 
+def run_cleanup_execution(dependency: pathlib.Path) -> None:
+    """Current collector/approval/executor with actual isolated pacman effects."""
+    name = "moguet-receipt-dependency"
+    target = "moguet-receipt-target"
+    require(package_version(name) is None and package_version(target) is None,
+            "cleanup execution needs a fresh container")
+    environment = {"PATH": "/usr/bin", "LC_ALL": "C"}
+
+    def inventory() -> tuple[bytes, bytes]:
+        return tuple(subprocess.check_output(["/usr/bin/pacman", option], env=environment)
+                     for option in ("-Q", "-Qqe"))
+
+    before = inventory()
+    config = pathlib.Path("/etc/pacman.conf")
+    original = config.read_bytes()
+    process = subprocess.Popen(
+        ["/usr/bin/runuser", "-u", "moguet-validation", "--", TRANSPORT_FIXTURE,
+         "--cleanup-lifecycle", "execute", str(dependency), name, name, "1-1", "any"],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        env=environment | {"HOME": "/home/moguet-validation",
+                           "XDG_CACHE_HOME": "/home/moguet-validation/.cache",
+                           "XDG_CONFIG_HOME": "/home/moguet-validation/.config",
+                           "XDG_STATE_HOME": "/home/moguet-validation/.local/state"},
+    )
+    output = b""
+
+    def wait_for(marker: bytes) -> None:
+        nonlocal output
+        deadline = time.monotonic() + 60
+        while marker not in output:
+            require(time.monotonic() < deadline, f"cleanup barrier timeout: {output!r}")
+            if select.select([process.stdout], [], [], .1)[0]:
+                chunk = os.read(process.stdout.fileno(), 65536)
+                require(bool(chunk), f"cleanup fixture ended before {marker!r}: {output!r}")
+                output += chunk
+
+    try:
+        for step in ("protected", "still-required", "remove"):
+            wait_for(f"READY\t{step}\n".encode())
+            require(package_version(name) == "1-1", "collector dependency install missing")
+            if step == "protected":
+                require(b"[options]" in original, "pacman options section absent")
+                config.write_bytes(original.replace(b"[options]", b"[options]\nHoldPkg = " + name.encode(), 1))
+            elif step == "still-required":
+                config.write_bytes(original)
+                subprocess.run(["/usr/bin/pacman", "-U", "--noconfirm", "--",
+                                str(package_path("moguet-receipt-target-1-1-any.pkg.tar.zst"))],
+                               env=environment, check=True, stdout=subprocess.DEVNULL)
+            else:
+                subprocess.run(["/usr/bin/pacman", "-R", "--noconfirm", "--", target],
+                               env=environment, check=True, stdout=subprocess.DEVNULL)
+            process.stdin.write(b"y\n")
+            process.stdin.flush()
+            wait_for(f"EXECUTION\t{step}\tPASS\n".encode())
+            require(package_version(name) == (None if step == "remove" else "1-1"),
+                    f"actual package state differs after {step}")
+        require(process.wait(timeout=10) == 0, f"cleanup execution failed: {output!r}")
+        require(inventory() == before, "cleanup changed unrelated package versions/reasons")
+        print("cleanup-execution: real collector -> explicit approval -> fresh Protected/StillRequired -> exact removal PASS")
+    finally:
+        config.write_bytes(original)
+        if process.poll() is None:
+            process.kill()
+            process.wait()
+        process.stdin.close()
+        process.stdout.close()
+
+
 def main() -> None:
     require(os.geteuid() == 0, "installed fixture must run as container root")
     for helper in (HELPER, SELECTED_HELPER):
@@ -454,6 +524,7 @@ def main() -> None:
     single_v1 = [(0, "moguet-source-receipt-single", "1-1", "moguet-source-receipt-single", "any", v1)]
     single_v2 = [(0, "moguet-source-receipt-single", "2-1", "moguet-source-receipt-single", "any", v2)]
 
+    run_cleanup_execution(lifecycle_dependency)
     run_cleanup_authority_scenario("positive", lifecycle_dependency)
 
     mismatch_token = token("a")
@@ -496,6 +567,20 @@ def main() -> None:
     # alone must not manufacture a package-manager outcome or an Install.
     require(status == "OutcomeUnknown" and evidence == "Incomplete" and causal == "Absent" and not installs and pacman_status is None, "--needed skip became Install or a known unobserved outcome")
 
+    # Extend the same actual transaction lifecycle; no new package fixture.
+    explicit_before = subprocess.check_output(["/usr/bin/pacman", "-Qqe"])
+    subprocess.run(["/usr/bin/pacman", "-R", "--noconfirm", "--", "moguet-source-receipt-single"],
+                   check=True, stdout=subprocess.DEVNULL)
+    require(package_version("moguet-source-receipt-single") is None, "remove did not remove the fixture")
+    status, evidence, causal, installs, pacman_status = run_production_transport(
+        "installed-invocation", 6, single_v1[0]
+    )
+    require(status == "Complete" and evidence == "Complete" and causal == "Established"
+            and installs == ["moguet-source-receipt-single"] and pacman_status == 0
+            and package_version("moguet-source-receipt-single") == "1-1"
+            and subprocess.check_output(["/usr/bin/pacman", "-Qqe"]) == explicit_before,
+            "remove/reinstall lost actual Install evidence or install reason")
+
     status, evidence, causal, installs, pacman_status = run_production_transport(
         "installed-invocation",
         5,
@@ -524,6 +609,11 @@ def main() -> None:
         os.close(descriptor)
     require(duplicate.returncode != 0, "used token was prepared again")
 
+    # Native makepkg emitted an actual sibling dependency; the fixed helper
+    # installs both selected archives in one ordinary dependency-checked -U.
+    metadata = subprocess.check_output(["/usr/bin/bsdtar", "-xOf", str(multi_a), ".PKGINFO"])
+    require(b"\ndepend = moguet-source-receipt-multi-b=1-1\n" in metadata,
+            "native split archive lost its sibling dependency")
     multi_state, multi_installs = run_transaction(
         token("2"),
         [
@@ -532,6 +622,9 @@ def main() -> None:
         ],
     )
     require(multi_state == "Complete" and sorted(multi_installs) == ["moguet-source-receipt-multi-a", "moguet-source-receipt-multi-b"], "multi-artifact Install set was not exact")
+    require(package_version("moguet-source-receipt-multi-a") == "1-1"
+            and package_version("moguet-source-receipt-multi-b") == "1-1",
+            "same-base dependency transaction did not install both children")
 
     expect_rejection([HELPER, "consume", token("3"), SELECTED_OWNER], "source caller-selected owner")
     expect_rejection([HELPER, "consume", "../bad"], "invalid source token")
