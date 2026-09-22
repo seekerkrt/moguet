@@ -1676,7 +1676,7 @@ std::string devel_requires_check_query_message(
         "Devel check-required update entry has no suffix evidence."));
 }
 
-int cmd_query_foreign_updates() {
+int cmd_query_foreign_updates(PresentationDetail detail) {
     AurUpdateQueryResult query_result = query_installed_aur_updates();
     if(query_result.plan.entries.empty()) {
         Logger::info(localization::translate_message(
@@ -1686,9 +1686,10 @@ int cmd_query_foreign_updates() {
 
     for(size_t i = 0; i < query_result.plan.entries.size(); ++i) {
         const AurUpdatePlanEntry& entry = query_result.plan.entries[i];
-        Logger::info(localization::format_translated_message(
-            "Checking package {}/{}: {}", i + 1,
-            query_result.plan.entries.size(), entry.installed_name));
+        if(detail == PresentationDetail::Detailed)
+            Logger::info(localization::format_translated_message(
+                "Checking package {}/{}: {}", i + 1,
+                query_result.plan.entries.size(), entry.installed_name));
 
         switch(project_aur_update_effective_state(entry)) {
             case AurUpdateEffectiveState::NonAurForeign:

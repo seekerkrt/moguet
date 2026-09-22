@@ -1474,9 +1474,9 @@ assert_exact_command_before "aur info-many 100 foreign-001 foreign-100" "aur inf
 if grep -E '^aur info(-strict)? ' "$command_log" >/dev/null; then
     fail_case "ordinary batch failure unexpectedly entered per-package fallback"
 fi
-assert_contains "Checking package 1/101: foreign-001" "$stdout_file"
+assert_not_contains "Checking package" "$stdout_file"
 assert_contains "Foreign package not found in AUR: foreign-001" "$stdout_file"
-assert_before "Foreign package not found in AUR: foreign-001" "Checking package 101/101: foreign-101" "$stdout_file"
+assert_before "Foreign package not found in AUR: foreign-001" "foreign-101 1.0-1 -> 2.0-1" "$stdout_file"
 assert_exact_line "foreign-101 1.0-1 -> 2.0-1" "$stdout_file"
 echo "  ok: foreign ordinary batch failure continues with aggregate failure"
 
@@ -1500,7 +1500,7 @@ export MOGUET_TEST_INSPECTION_SCENARIO=foreign-order
 set_foreign_inventory 'foreign-order-z 1.0-1 explicit
 foreign-order-missing 1.0-1
 foreign-order-a 1.0-1'
-run_ok -Qua
+run_ok --details -Qua
 assert_before "Checking package 1/3: foreign-order-z" "Checking package 2/3: foreign-order-missing" "$stdout_file"
 assert_before "Checking package 2/3: foreign-order-missing" "Checking package 3/3: foreign-order-a" "$stdout_file"
 assert_contains "Foreign package not found in AUR: foreign-order-missing" "$stdout_file"
@@ -1533,7 +1533,8 @@ assert_not_contains "aur info-strict foreign-" "$command_log"
 assert_exact_line "vercmp 2.0-1 2.0-1" "$command_log"
 assert_not_contains "foreign-up-to-date 2.0-1 ->" "$stdout_file"
 assert_contains "Foreign package not found in AUR: foreign-non-aur" "$stdout_file"
-assert_file_line_count 6 "$stdout_file"
+assert_file_line_count 4 "$stdout_file"
+assert_not_contains "Checking package" "$stdout_file"
 assert_empty_file "$stderr_file"
 assert_no_foreign_update_mutation
 echo "  ok: foreign query classifies up-to-date and non-AUR without mutation"

@@ -1929,8 +1929,8 @@ std::string cross_source_stopped_phase(CrossSourceExecutionPhase phase) {
     return localization::translate_message("unknown phase");
 }
 
-void present_cross_source_transition(const CrossSourceTransitionExecutionResult& result) {
-    if(result.aur_result) present_filtered_aur_update_execution_result(*result.aur_result);
+void present_cross_source_transition(const CrossSourceTransitionExecutionResult& result, PresentationDetail detail) {
+    if(result.aur_result) present_filtered_aur_update_execution_result(*result.aur_result, detail);
     if(result.is_success()) {
         std::cout << localization::translate_message("Coordinated cross-source transition completed; exact versions, runtime requirement and install reason verified.") << std::endl;
         return;
@@ -1975,11 +1975,11 @@ void present_cross_source_transition(const CrossSourceTransitionExecutionResult&
 } // namespace
 
 void present_system_aur_update_operation_result(
-    SystemAurUpdateOperationResult result) {
+    SystemAurUpdateOperationResult result, PresentationDetail detail) {
     const SystemAurUpdateOperationResult authority =
         reduce_system_aur_update_result(std::move(result));
     if(authority.coordinated_transition) {
-        present_cross_source_transition(*authority.coordinated_transition);
+        present_cross_source_transition(*authority.coordinated_transition, detail);
         return;
     }
 
@@ -2058,7 +2058,7 @@ void present_system_aur_update_operation_result(
         report_system_aur_partial_failure(authority);
     if(authority.aur.operation_result.has_value()) {
         present_filtered_aur_update_execution_result(
-            authority.aur.operation_result.value());
+            authority.aur.operation_result.value(), detail);
     }
 
     if(authority.status == SystemAurUpdateOperationStatus::Completed) {
@@ -2086,7 +2086,7 @@ int cmd_system_aur_update(
                 }
             });
     const bool is_success = result.is_success();
-    present_system_aur_update_operation_result(std::move(result));
+    present_system_aur_update_operation_result(std::move(result), config.presentation_detail);
     return is_success ? 0 : 1;
 }
 

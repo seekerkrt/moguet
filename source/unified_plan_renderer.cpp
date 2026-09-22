@@ -14,6 +14,7 @@
 #include "unified_plan_projection.hpp"
 #include "upgrade_all_operation.hpp"
 
+#include <algorithm>
 #include <exception>
 #include <filesystem>
 #include <iterator>
@@ -4691,10 +4692,86 @@ std::string independent_requires_check_attention_message(DevelRequiresCheckReaso
         "skipped: devel update requires check: suffix candidate only; not automatically updated because authoritative build provenance is unavailable");
 }
 
+// Only presentation is reduced here: metadata remains borrowed from the query
+// and all execution blockers keep their original typed renderer.
+void render_compact_plan(const UnifiedPlanObservation& observation, RenderState& state) {
+    std::vector<const AurUpdatePlanEntry*> updates;
+    for(const auto& metadata : observation.root_metadata()) {
+        if(const auto* update = std::get_if<UnifiedPlanBorrowedAuthorityReference<AurUpdatePlanEntry>>(&metadata))
+            updates.push_back(&update->get());
+    }
+    if(!updates.empty()) {
+        const auto candidates = std::count_if(updates.begin(), updates.end(), [](const auto* entry) {
+            return project_aur_update_effective_state(*entry) == AurUpdateEffectiveState::UpdateAvailable;
+        });
+        const auto same_revision = std::count_if(updates.begin(), updates.end(), [](const auto* entry) {
+            return entry->devel_assessment_origin == AurDevelAssessmentOrigin::CurrentObservation &&
+                   entry->devel_assessment.state() == DevelUpdateAssessmentState::UpToDate;
+        });
+        state.output << localization::format_translated_message(
+                            "  Checked: {}; update candidates: {}; devel unchanged: {}",
+                            updates.size(), candidates, same_revision)
+                     << '\n';
+        for(const auto* entry : updates) {
+            const auto effective = project_aur_update_effective_state(*entry);
+            if(effective == AurUpdateEffectiveState::UpToDate) continue;
+            std::string label;
+            switch(effective) {
+                case AurUpdateEffectiveState::UpdateAvailable:
+                    if(aur_update_basis(*entry) == AurUpdateBasis::GitRevision)
+                        label = localization::format_translated_message("{} revision difference", "Git");
+                    else
+                        label = entry->installed_version + " -> " + (entry->aur_package ? entry->aur_package->version : localization::translate_message("unavailable"));
+                    break;
+                case AurUpdateEffectiveState::NonAurForeign: label = localization::format_translated_message("non-{} foreign", "AUR"); break;
+                case AurUpdateEffectiveState::MetadataUnavailable: label = localization::translate_message("metadata unavailable"); break;
+                case AurUpdateEffectiveState::RequiresCheck: label = localization::translate_message("requires check"); break;
+                case AurUpdateEffectiveState::VersionComparisonUnavailable: label = localization::translate_message("version comparison unavailable"); break;
+                case AurUpdateEffectiveState::Unknown: label = localization::translate_message("unknown"); break;
+                case AurUpdateEffectiveState::Unsupported: label = localization::translate_message("unsupported"); break;
+                case AurUpdateEffectiveState::Inconsistent: label = localization::translate_message("inconsistent"); break;
+                case AurUpdateEffectiveState::UpToDate: break;
+            }
+            state.output << "  " << terminal_safe_text_display(entry->installed_name) << ": " << terminal_safe_text_display(label) << '\n';
+        }
+    }
+    for(std::size_t index = 0; index < observation.roots().size(); ++index) {
+        const auto& root = observation.roots()[index];
+        const bool is_update = root.source_kind() == UnifiedPlanRootSourceKind::Aur &&
+                               std::any_of(updates.begin(), updates.end(), [&root](const auto* entry) {
+                                   return entry->installed_name == root.invocation_correlation().requested_name;
+                               });
+        if(!is_update)
+            state.output << "  " << root_identity_display(root, state, index) << '\n';
+    }
+    // Relations can require attention without being execution blockers (for
+    // example a declared replacement). Keep their existing assessment facts.
+    for(const auto& authority : observation.dependency_authorities()) {
+        if(const auto* plan = authority.build_plan()) {
+            for(const auto& relation : plan->relation_assessments)
+                state.output << "  " << terminal_safe_text_display(package_relation_assessment_diagnostic_display(relation)) << '\n';
+        }
+    }
+    for(const auto& intent : observation.transaction_intents()) {
+        if(const auto* repository = std::get_if<RepositoryPackageTransactionIntent>(&intent)) {
+            for(const auto& target : repository->targets) {
+                if(std::holds_alternative<RepositorySystemUpgradeIntent>(target))
+                    state.output << localization::translate_message("  Repository system upgrade planned.") << '\n';
+            }
+        }
+    }
+    state.output << localization::format_translated_message(
+                        "  Build units: {}; required artifacts: {}; transaction intents: {}",
+                        observation.build_units().size(), observation.required_artifacts().size(),
+                        observation.transaction_intents().size())
+                 << '\n';
+    render_blockers(observation, state);
+}
+
 } // namespace
 
 UnifiedPlanRenderingResult render_unified_plan_observation(
-    const UnifiedPlanObservation& observation) {
+    const UnifiedPlanObservation& observation, PresentationDetail detail) {
     RenderState state;
     state.output << localization::translate_message("Unified plan:") << '\n';
     state.output << localization::format_translated_message(
@@ -4702,6 +4779,10 @@ UnifiedPlanRenderingResult render_unified_plan_observation(
                         observation_status_display(
                             observation.status(), state))
                  << '\n';
+    if(detail == PresentationDetail::Normal) {
+        render_compact_plan(observation, state);
+        return {state.output.str(), std::move(state.issues)};
+    }
     render_roots(observation, state);
     for(const auto& metadata : observation.root_metadata()) {
         if(const auto* update = std::get_if<UnifiedPlanBorrowedAuthorityReference<AurUpdatePlanEntry>>(&metadata);
@@ -4710,6 +4791,9 @@ UnifiedPlanRenderingResult render_unified_plan_observation(
                                 // TRANSLATORS: The placeholders are a package name and the literal tool name "Git". This is a revision difference, not a newer package version.
                                 "  Observed update basis: {} — {} revision difference", terminal_safe_text_display(update->get().installed_name), "Git")
                          << '\n';
+        } else if(update && update->get().classification == AurUpdateClassification::NonAurForeign) {
+            state.output << "  " << terminal_safe_text_display(update->get().installed_name) << ": "
+                         << localization::format_translated_message("non-{} foreign", "AUR") << '\n';
         } else if(update && update->get().devel_assessment_origin == AurDevelAssessmentOrigin::CurrentObservation && update->get().devel_assessment.state() == DevelUpdateAssessmentState::UpToDate) {
             state.output << localization::format_translated_message(
                                 // TRANSLATORS: The placeholders are a package name and the literal tool name "Git".
@@ -4729,7 +4813,7 @@ UnifiedPlanRenderingResult render_unified_plan_observation(
 }
 
 UnifiedPlanRenderingResult render_system_aur_update_unified_plan(
-    const SystemAurUpdateUnifiedPlanProjection& projection) {
+    const SystemAurUpdateUnifiedPlanProjection& projection, PresentationDetail detail) {
     RenderState state;
     std::string status;
     switch(projection.status()) {
@@ -4762,52 +4846,54 @@ UnifiedPlanRenderingResult render_system_aur_update_unified_plan(
     state.output << localization::format_translated_message(
                         "  Status: {}", status)
                  << '\n';
-    if(is_repository_only) {
-        state.output << localization::translate_message(
-                            "Repository update phase:")
-                     << '\n';
-    } else {
-        state.output << localization::translate_message(
-                            "Combined update phases:")
-                     << '\n';
-    }
-    for(std::size_t index = 0; index < projection.phases().size(); ++index) {
-        std::string phase;
-        switch(projection.phases()[index]) {
-            case SystemAurUpdateUnifiedPlanPhase::
-                RepositorySystemTransactionIntent:
-                phase = localization::translate_message(
-                    "official repository system-upgrade intent");
-                break;
-            case SystemAurUpdateUnifiedPlanPhase::
-                CurrentForeignInventoryObservation:
-                phase = localization::format_translated_message(
-                    "current installed foreign/{} state observation",
-                    "AUR");
-                break;
-            case SystemAurUpdateUnifiedPlanPhase::
-                CurrentNormalAurAssessment:
-                phase = localization::format_translated_message(
-                    "current-state normal {} assessment", "AUR");
-                break;
-            case SystemAurUpdateUnifiedPlanPhase::
-                PotentialLaterAurTransactions:
-                phase = localization::format_translated_message(
-                    "potential later normal {} build/install intents",
-                    "AUR");
-                break;
-            default:
-                phase = unsupported_display(
-                    state, UnifiedPlanRenderingSection::RouteSemantics,
-                    index, std::nullopt,
-                    localization::format_translated_message(
-                        "A system/{} conceptual phase is not supported by the renderer.",
-                        "AUR"));
-                break;
+    if(detail == PresentationDetail::Detailed) {
+        if(is_repository_only) {
+            state.output << localization::translate_message(
+                                "Repository update phase:")
+                         << '\n';
+        } else {
+            state.output << localization::translate_message(
+                                "Combined update phases:")
+                         << '\n';
         }
-        state.output << localization::format_translated_message(
-                            "  Phase {}: {}", index + 1, phase)
-                     << '\n';
+        for(std::size_t index = 0; index < projection.phases().size(); ++index) {
+            std::string phase;
+            switch(projection.phases()[index]) {
+                case SystemAurUpdateUnifiedPlanPhase::
+                    RepositorySystemTransactionIntent:
+                    phase = localization::translate_message(
+                        "official repository system-upgrade intent");
+                    break;
+                case SystemAurUpdateUnifiedPlanPhase::
+                    CurrentForeignInventoryObservation:
+                    phase = localization::format_translated_message(
+                        "current installed foreign/{} state observation",
+                        "AUR");
+                    break;
+                case SystemAurUpdateUnifiedPlanPhase::
+                    CurrentNormalAurAssessment:
+                    phase = localization::format_translated_message(
+                        "current-state normal {} assessment", "AUR");
+                    break;
+                case SystemAurUpdateUnifiedPlanPhase::
+                    PotentialLaterAurTransactions:
+                    phase = localization::format_translated_message(
+                        "potential later normal {} build/install intents",
+                        "AUR");
+                    break;
+                default:
+                    phase = unsupported_display(
+                        state, UnifiedPlanRenderingSection::RouteSemantics,
+                        index, std::nullopt,
+                        localization::format_translated_message(
+                            "A system/{} conceptual phase is not supported by the renderer.",
+                            "AUR"));
+                    break;
+            }
+            state.output << localization::format_translated_message(
+                                "  Phase {}: {}", index + 1, phase)
+                         << '\n';
+        }
     }
 
     if(projection.mode() == SystemAurUpdateUnifiedPlanMode::Auto) {
@@ -4881,7 +4967,7 @@ UnifiedPlanRenderingResult render_system_aur_update_unified_plan(
             state.output.str(), std::move(state.issues)};
     }
     UnifiedPlanRenderingResult repository =
-        render_unified_plan_observation(*repository_observation);
+        render_unified_plan_observation(*repository_observation, detail);
     state.output << repository.text;
     state.issues.insert(
         state.issues.end(),
@@ -4907,7 +4993,7 @@ UnifiedPlanRenderingResult render_system_aur_update_unified_plan(
                 state.output.str(), std::move(state.issues)};
         }
         UnifiedPlanRenderingResult aur_rendering =
-            render_unified_plan_observation(*aur_observation);
+            render_unified_plan_observation(*aur_observation, detail);
         state.output << aur_rendering.text;
         state.issues.insert(
             state.issues.end(),

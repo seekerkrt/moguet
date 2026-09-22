@@ -554,6 +554,16 @@ independently. A successful but unverified observation remains successful with
 the required check, `Unknown` is not rewritten as `NoOp`, and severity,
 blocking, and exit-status effect remain separate dimensions.
 
+`-Qua`, exact target-less `-Syu` / `-Su` (including `--repo`), `upgrade-aur`,
+`upgrade-all`, and `--dry-run -S <pkg>` also accept `--details`. Normal output
+aggregates up-to-date AUR targets and keeps update candidates, non-AUR foreign
+packages, required checks, blockers and partial outcomes visible. Detailed output
+retains per-target skips and the full dry-run route, phase, dependency authority,
+build, artifact and transaction information. Display density does not change
+routing, readiness, execution, confirmation or exit status. The existing remote
+build and `-S --select` detail option also applies to their dry-run output. Other
+dry-run routes keep their existing presentation.
+
 **Choosing an upgrade command:** Use exact target-less `moguet -Syu` for the
 ordinary AUR-helper update: it completes the official repository system
 upgrade, then re-evaluates the installed foreign/AUR state and performs a

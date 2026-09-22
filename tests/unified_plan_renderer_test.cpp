@@ -302,8 +302,15 @@ UnifiedPlanRenderingResult render_blocked(UnifiedPlanBlocker blocker) {
     input.blockers.push_back(std::move(blocker));
     const UnifiedPlanObservationResult result =
         make_unified_plan_observation(std::move(input));
-    return render_unified_plan_observation(
-        expect_valid(result, "single blocker fixture"));
+    const auto& observation = expect_valid(result, "single blocker fixture");
+    const auto detailed = render_unified_plan_observation(observation, PresentationDetail::Detailed);
+    const auto normal = render_unified_plan_observation(observation, PresentationDetail::Normal);
+    expect(normal.text.substr(normal.text.find("Blockers:")) ==
+               detailed.text.substr(detailed.text.find("Blockers:")),
+           "Normal lost typed blocker facts");
+    expect(normal.issues == detailed.issues, "Normal changed blocker diagnostics");
+    expect(observation.status() == UnifiedPlanObservationStatus::Blocked, "rendering changed blocker status");
+    return detailed;
 }
 
 LocalPackageMetadata local_build_plan_metadata_fixture() {
@@ -3179,6 +3186,50 @@ void test_git_revision_basis_is_truthful() {
     expect_contains(rendered.text, "Observed update basis: same-version-git", "Git basis name");
     expect_contains(rendered.text, "Git revision difference", "Git basis explanation");
     expect(rendered.text.find("1-1 -> 1-1") == std::string::npos, "Git update rendered a fake version arrow");
+    const auto compact = render_unified_plan_observation(expect_valid(observed, "Git basis"), PresentationDetail::Normal);
+    expect_contains(compact.text, "same-version-git: Git revision difference", "compact Git attention");
+    expect_contains(compact.text, "update candidates: 1", "compact Git candidate count");
+    expect_not_contains(compact.text, "1-1 -> 1-1", "compact fake version arrow");
+}
+
+void test_compact_inventory_and_attention() {
+    std::vector<AurUpdatePlanEntry> entries;
+    for(int index = 0; index < 31; ++index) {
+        const std::string name = "ordinary-" + std::to_string(index);
+        entries.emplace_back(name, "1-1", InstalledPackageReason::Explicit,
+                             AurUpdateRemotePackage{name, name, "1-1", AurVersionRelation::SameAsInstalled},
+                             AurUpdateClassification::UpToDate);
+    }
+    entries.front().devel_assessment_origin = AurDevelAssessmentOrigin::CurrentObservation;
+    entries.front().devel_assessment = DevelUpdateAssessment::up_to_date();
+    entries.emplace_back("non-aur", "1-1", InstalledPackageReason::Explicit, std::nullopt, AurUpdateClassification::NonAurForeign);
+    entries.emplace_back("metadata-missing", "1-1", InstalledPackageReason::Explicit, std::nullopt, AurUpdateClassification::MetadataUnavailable);
+    entries.emplace_back("candidate", "1-1", InstalledPackageReason::Explicit,
+                         AurUpdateRemotePackage{"candidate", "candidate", "2-1", AurVersionRelation::NewerThanInstalled}, AurUpdateClassification::UpdateAvailable);
+    UnifiedPlanObservationInput input;
+    input.status = UnifiedPlanObservationStatus::NoOp;
+    for(std::size_t index = 0; index < entries.size(); ++index) {
+        const auto& entry = entries[index];
+        input.root_metadata.emplace_back(UnifiedPlanBorrowedAuthorityReference<AurUpdatePlanEntry>(entry));
+        if(entry.aur_package)
+            input.roots.emplace_back(RootTargetIdentity{index, entry.installed_name},
+                                     AurRootPackageIdentity{entry.installed_name, entry.aur_package->package_base},
+                                     UnifiedPlanRootRouteKind::AurSourceBuild);
+    }
+    const auto result = make_unified_plan_observation(std::move(input));
+    const auto& observation = expect_valid(result, "compact inventory");
+    const auto normal = render_unified_plan_observation(observation, PresentationDetail::Normal);
+    const auto detailed = render_unified_plan_observation(observation, PresentationDetail::Detailed);
+    expect_contains(normal.text, "Checked: 34; update candidates: 1; devel unchanged: 1", "compact counts");
+    expect_not_contains(normal.text, "ordinary-", "routine targets must be aggregated");
+    expect_contains(normal.text, "non-aur: non-AUR foreign", "foreign attention");
+    expect_contains(normal.text, "metadata-missing: metadata unavailable", "metadata attention");
+    expect_contains(normal.text, "candidate: 1-1 -> 2-1", "candidate attention");
+    expect_not_contains(normal.text, "Identity:", "compact route identity");
+    expect_contains(detailed.text, "non-aur: non-AUR foreign", "detailed foreign attention");
+    expect_contains(detailed.text, "ordinary-30", "detailed inventory");
+    expect_contains(detailed.text, "invocation index: 30", "detailed correlation");
+    expect(observation.status() == UnifiedPlanObservationStatus::NoOp, "rendering changed status");
 }
 
 } // namespace
@@ -3186,6 +3237,7 @@ void test_git_revision_basis_is_truthful() {
 int main() {
     try {
         test_git_revision_basis_is_truthful();
+        test_compact_inventory_and_attention();
         test_ready_rendering_and_identity_boundaries();
         test_no_op_and_blocked_rendering();
         test_local_build_plan_dependency_authority();

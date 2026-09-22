@@ -1054,15 +1054,19 @@ void print_upgrade_all_summary(
               << std::endl;
 }
 
-void print_upgrade_all_attention(
-    const PresentationProjection& presentation) {
-    if(presentation.attention_items.empty()) return;
+void print_upgrade_all_items(
+    const PresentationProjection& presentation, PresentationDetail detail) {
+    const auto& items = detail == PresentationDetail::Detailed
+                            ? presentation.full_items
+                            : presentation.attention_items;
+    if(items.empty()) return;
 
     std::cout << std::endl
-              << localization::translate_message(
-                     "Attention-required details:")
+              << (detail == PresentationDetail::Detailed
+                      ? localization::translate_message("Details:")
+                      : localization::translate_message("Attention-required details:"))
               << std::endl;
-    for(const PresentationItem& item : presentation.attention_items) {
+    for(const PresentationItem& item : items) {
         std::cout << "  - ";
         if(item.requested_package.has_value()) {
             std::cout << localization::format_translated_message(
@@ -1118,6 +1122,9 @@ void print_upgrade_all_attention(
                              diagnostic_class_label(
                                  item.diagnostic_class.value()))
                       << std::endl;
+        }
+        if(item.aur_normal_skip_reason.has_value()) {
+            std::cout << "    " << aur_update_preflight_reason_label(*item.aur_normal_skip_reason) << std::endl;
         }
         if(item.is_update_candidate) {
             std::cout << localization::translate_message(
@@ -1840,7 +1847,7 @@ void print_details(
     print_aggregate_issues_and_diagnostics(result, inventory_diagnostics);
 }
 
-void print_operation_result(const UpgradeAllOperationResult& result) {
+void print_operation_result(const UpgradeAllOperationResult& result, PresentationDetail detail) {
     // AUR child snapshotを最初に検証し、unknown enumやincoherent identityを
     // 成功済みsummaryへ混ぜずfail-closedにする。
     validate_aur_phase_presentation_boundary(result.aur);
@@ -1864,7 +1871,7 @@ void print_operation_result(const UpgradeAllOperationResult& result) {
     // remain orthogonal. Normal items are aggregated before attention detail.
     print_upgrade_all_summary(
         operation_state, phase_observations, runtime_presentation);
-    print_upgrade_all_attention(runtime_presentation);
+    print_upgrade_all_items(runtime_presentation, detail);
     print_system_reviewed_source_outcomes(result.system_source);
     if(presentation != nullptr) {
         for(const std::string& line : presentation->summary_lines) {
@@ -1902,12 +1909,12 @@ bool is_supported_upgrade_all_global_option(const std::string& option) {
         case cli_authority::GlobalOptionId::BuildMode:
         case cli_authority::GlobalOptionId::Rebuild:
         case cli_authority::GlobalOptionId::CleanBuild:
+        case cli_authority::GlobalOptionId::Details:
             return true;
         case cli_authority::GlobalOptionId::RmDeps:
         case cli_authority::GlobalOptionId::Select:
         case cli_authority::GlobalOptionId::Aur:
         case cli_authority::GlobalOptionId::Repo:
-        case cli_authority::GlobalOptionId::Details:
         case cli_authority::GlobalOptionId::Count:
             return false;
     }
@@ -1992,7 +1999,7 @@ int cmd_upgrade_all(const AppConfig& config) {
                       config)
                 : std::move(std::get<UpgradeAllOperationResult>(preparation));
 
-        print_operation_result(result);
+        print_operation_result(result, config.presentation_detail);
         return result.is_success() ? 0 : 1;
     } catch(const ConfirmationOperationStopped&) {
         return 1;

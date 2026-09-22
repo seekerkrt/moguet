@@ -557,8 +557,16 @@ remote
 .BR build ,
 .BR plan ,
 .BR deps ,
+.BR "-S --select" ,
+.BR -Qua ,
+exact target-less
+.BR "-Syu / -Su" ,
+.BR upgrade-aur ,
+.BR upgrade-all ,
 and
-.BR "-S --select" .
+.BR "--dry-run -S" .
+Normal AUR update output aggregates up-to-date targets and keeps attention visible.
+Detailed output retains per-target skips and full dry-run authority information.
 This invocation-only option changes presentation, not execution, dependency
 resolution, selection, or readiness. It does not enable interaction or bypass
 safety checks. During remote source builds, normal output summarizes bulk root

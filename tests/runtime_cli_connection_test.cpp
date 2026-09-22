@@ -94,6 +94,13 @@ void expect_issue(
 
 void test_presentation_detail_plumbing() {
     for(const std::vector<std::string>& arguments : {
+            std::vector<std::string>{"-Qua"},
+            std::vector<std::string>{"-S", "--aur", "--dry-run", "foo"},
+            std::vector<std::string>{"-Syu"},
+            std::vector<std::string>{"-Su"},
+            std::vector<std::string>{"-Syu", "--repo", "--dry-run"},
+            std::vector<std::string>{"upgrade-aur"},
+            std::vector<std::string>{"upgrade-all", "--dry-run"},
             std::vector<std::string>{"build", "foo"},
             std::vector<std::string>{"plan", "foo", "bar"},
             std::vector<std::string>{"deps", "--recursive", "foo"},
@@ -190,7 +197,7 @@ void test_presentation_option_ownership_boundaries() {
             std::vector<std::string>{"clean"},
             std::vector<std::string>{"-Q", "foo"},
             std::vector<std::string>{"-S", "foo"},
-            std::vector<std::string>{"-Syu"}}) {
+            std::vector<std::string>{"-Syu", "foo"}}) {
         auto normal = require_parsed_invocation(arguments, "route without details");
         normal.cli_overrides.presentation_detail = PresentationDetail::Detailed;
         expect_valid(normal, "presentation state alone is not a CLI occurrence");

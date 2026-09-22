@@ -104,10 +104,10 @@ cmp -s "$japanese_help" "$japanese_help_short" ||
 
 assert_contains '--details' "$english_help"
 assert_contains 'Show detailed diagnostic and provenance information' "$english_help"
-assert_contains 'For remote build, plan, deps, and -S --select; changes presentation only, not execution' "$english_help"
+assert_contains 'For remote build, plan, deps, -S --select, -Qua, -Syu / -Su, upgrade-aur, upgrade-all, and --dry-run -S; changes presentation only, not execution' "$english_help"
 assert_contains '--details' "$japanese_help"
 assert_contains '詳細な診断情報と由来情報を表示' "$japanese_help"
-assert_contains 'リモートbuild、plan、deps、-S --selectで使用可能。表示だけを変更し、実行動作は変えません' "$japanese_help"
+assert_contains 'リモートbuild、plan、deps、-S --select、-Qua、-Syu / -Su、upgrade-aur、upgrade-all、--dry-run -Sで使用可能。表示だけを変更し、実行動作は変えません' "$japanese_help"
 assert_not_contains '--verbose' "$english_help"
 assert_not_contains '--verbose' "$japanese_help"
 assert_contains 'Show detailed diagnostic and provenance information for' "$repo_root/man/moguet.1.in"

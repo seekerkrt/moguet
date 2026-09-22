@@ -196,6 +196,7 @@ class CliSchema:
     delegated_form: Form | None
     terminal_tokens: tuple[str, ...]
     canonical_grammar: tuple[str, ...]
+    presentation_scopes: tuple[tuple[str, int, int | None], ...] = ()
 
     @property
     def delegated_option_ids(self) -> tuple[int, ...]:
@@ -346,6 +347,7 @@ def parse_exported_schema(exported_schema: str) -> CliSchema:
     delegated_form: Form | None = None
     terminal_tokens: list[str] = []
     canonical_grammar: list[str] = []
+    presentation_scopes: list[tuple[str, int, int | None]] = []
 
     for line in exported_schema.splitlines():
         fields = line.split("\t")
@@ -445,6 +447,9 @@ def parse_exported_schema(exported_schema: str) -> CliSchema:
                 option_relations=parse_option_relations(fields[4]),
                 delegated_tail_policy="none",
             )
+        elif record == "PRESENTATION" and len(fields) == 4:
+            presentation_scopes.append((fields[1], parse_identity(fields[2], "presentation option"),
+                                        parse_identity(fields[3], "required option") if fields[3] else None))
         elif record == "TERMINAL" and len(fields) == 2:
             terminal_tokens.append(fields[1])
         elif record == "CANONICAL" and len(fields) == 2:
@@ -465,8 +470,14 @@ def parse_exported_schema(exported_schema: str) -> CliSchema:
         delegated_form=delegated_form,
         terminal_tokens=tuple(terminal_tokens),
         canonical_grammar=tuple(canonical_grammar),
+        presentation_scopes=tuple(presentation_scopes),
     )
     validate_schema_projection(schema)
+    for operation, option_id, required in schema.presentation_scopes:
+        if operation not in operations or not any(option.identity == option_id for option in options):
+            fail("invalid presentation scope")
+        if required is not None and not any(option.identity == required for option in options):
+            fail("invalid presentation scope requirement")
     return schema
 
 
@@ -1123,6 +1134,25 @@ def bash_array(values: tuple[str, ...] | list[str], indent: str = "            "
     return " ".join(shell_quote(value) for value in values)
 
 
+def presentation_additions(schema: CliSchema, shell: str) -> str:
+    lines = []
+    for operation, option_id, required in schema.presentation_scopes:
+        token = next(option.completion_token for option in schema.options if option.identity == option_id)
+        if shell == "fish":
+            condition = f'test "$operation" = {fish_quote(operation)}; and test "$option_id" = {option_id}'
+            if required is not None:
+                condition += f'; and __moguet_has_option_id {required}'
+            lines.append(f"    if {condition}; return 0; end")
+        else:
+            condition = f'[[ $operation == {shell_quote(operation)} ]]'
+            if required is not None:
+                condition += f' && _moguet_has_option_id {required}'
+            array = "candidates" if shell == "bash" else "reply"
+            condition += f' && [[ " ${{{array}[*]}} " != *{shell_quote(" " + token + " ")}* ]]'
+            lines.append(f"    if {condition}; then {array}+=({shell_quote(token)}); fi")
+    return "\n".join(lines)
+
+
 def render_bash(schema: CliSchema, descriptions: Descriptions, locale: str) -> str:
     del descriptions
     operations = tuple(operation.token for operation in schema.operations)
@@ -1373,6 +1403,8 @@ _moguet() {{
         *) candidates=() ;;
         esac
     fi
+
+{presentation_additions(schema, "bash")}
 
     filtered=()
     for candidate in "${{candidates[@]}}"; do
@@ -1661,6 +1693,7 @@ _moguet_collect_candidates() {{
 {chr(10).join(operation_cases)}
         __delegated__) reply=({zsh_case_values(delegated_tokens)}) ;;
     esac
+{presentation_additions(schema, "zsh")}
 }}
 
 _moguet_description() {{
@@ -1911,6 +1944,7 @@ def render_fish(schema: CliSchema, descriptions: Descriptions, locale: str) -> s
         "",
         "function __moguet_operation_allows --argument-names option_id",
         "    set -l operation (__moguet_operation)",
+        presentation_additions(schema, "fish"),
         "    if test -z \"$operation\"",
         f"        {fish_contains(root_ids)}",
         "    end",

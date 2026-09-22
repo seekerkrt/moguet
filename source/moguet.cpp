@@ -653,7 +653,7 @@ int run_moguet(int argc, char* argv[]) {
                 is_sync || operation.starts_with("-R") || operation.starts_with("-U") ||
                 operation.starts_with("-D") || (operation.starts_with("-F") && requests_refresh);
 
-            if(is_foreign_updates) return cmd_query_foreign_updates();
+            if(is_foreign_updates) return cmd_query_foreign_updates(g_config.presentation_detail);
 
             if(is_search) {
                 return cmd_sync_search(
@@ -956,8 +956,8 @@ void print_help() {
             "Show detailed diagnostic and provenance information"));
     print_help_continuation(localization::format_translated_message(
         // TRANSLATORS: The placeholders are literal supported CLI forms.
-        "For remote {}, {}, {}, and {}; changes presentation only, not execution",
-        "build", "plan", "deps", "-S --select"));
+        "For remote {}, {}, {}, {}, {}, {}, {}, {}, and {}; changes presentation only, not execution",
+        "build", "plan", "deps", "-S --select", "-Qua", "-Syu / -Su", "upgrade-aur", "upgrade-all", "--dry-run -S"));
     print_help_entry(
         cli_option_syntax(OptionId::Help),
         localization::translate_message(

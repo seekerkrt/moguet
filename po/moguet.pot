@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.8.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-21 10:39+0900\n"
+"POT-Creation-Date: 2026-09-22 11:25+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -4739,6 +4739,9 @@ msgstr ""
 msgid "  update candidates: {}, blockers: {}, requires-check: {}, failures: {}"
 msgstr ""
 
+msgid "Details:"
+msgstr ""
+
 #, c++-format
 msgid "package: {}"
 msgstr ""
@@ -5899,7 +5902,7 @@ msgstr ""
 
 #. TRANSLATORS: The placeholders are literal supported CLI forms.
 #, c++-format
-msgid "For remote {}, {}, {}, and {}; changes presentation only, not execution"
+msgid "For remote {}, {}, {}, {}, {}, {}, {}, {}, and {}; changes presentation only, not execution"
 msgstr ""
 
 msgid "Show this help message and exit"
@@ -9695,6 +9698,30 @@ msgid "package relation blocker: {}"
 msgstr ""
 
 msgid "Blockers:"
+msgstr ""
+
+#, c++-format
+msgid "  Checked: {}; update candidates: {}; devel unchanged: {}"
+msgstr ""
+
+#, c++-format
+msgid "{} revision difference"
+msgstr ""
+
+msgid "metadata unavailable"
+msgstr ""
+
+msgid "requires check"
+msgstr ""
+
+msgid "inconsistent"
+msgstr ""
+
+msgid "  Repository system upgrade planned."
+msgstr ""
+
+#, c++-format
+msgid "  Build units: {}; required artifacts: {}; transaction intents: {}"
 msgstr ""
 
 msgid "Unified plan:"

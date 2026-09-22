@@ -212,6 +212,8 @@ end
 
 function __moguet_operation_allows --argument-names option_id
     set -l operation (__moguet_operation)
+    if test "$operation" = '-Qua'; and test "$option_id" = 20; return 0; end
+    if test "$operation" = '-S'; and test "$option_id" = 20; and __moguet_has_option_id 5; return 0; end
     if test -z "$operation"
         contains -- $option_id 13 14 0 1 2 3 4 5 6 7 8 9 10 11 12 20; and return 0; or return 1
     end
@@ -233,10 +235,10 @@ function __moguet_operation_allows --argument-names option_id
             contains -- $option_id 0 1 2 3 4 5 6 7 8; and return 0; or return 1
         case 'upgrade-aur'
             __moguet_form_prefix_valid 'upgrade-aur' 0; or return 1
-            contains -- $option_id 0 1 2 3 4 5 6 7 8; and return 0; or return 1
+            contains -- $option_id 0 1 2 3 4 5 6 7 8 20; and return 0; or return 1
         case 'upgrade-all'
             __moguet_form_prefix_valid 'upgrade-all' 0; or return 1
-            contains -- $option_id 0 1 2 3 4 5 6 7 8; and return 0; or return 1
+            contains -- $option_id 0 1 2 3 4 5 6 7 8 20; and return 0; or return 1
         case 'clean'
             __moguet_form_prefix_valid 'clean' 0; or return 1
             contains -- $option_id 4; and return 0; or return 1
@@ -284,22 +286,22 @@ function __moguet_operation_allows --argument-names option_id
             __moguet_has_option_id 12; and set selected true
             if test $selected = true
                 __moguet_form_prefix_valid '-Syu' 1; or return 1
-                contains -- $option_id 12 18 4 5 19; and return 0; or return 1
+                contains -- $option_id 12 18 4 5 20 19; and return 0; or return 1
             else if __moguet_has_operand '-Syu'
                 contains -- $option_id 18 4; and return 0; or return 1
             else
-                contains -- $option_id 0 1 2 3 4 5 6 7 8 18 12 19; and return 0; or return 1
+                contains -- $option_id 0 1 2 3 4 5 20 6 7 8 18 12 19; and return 0; or return 1
             end
         case '-Su'
             set -l selected false
             __moguet_has_option_id 12; and set selected true
             if test $selected = true
                 __moguet_form_prefix_valid '-Su' 1; or return 1
-                contains -- $option_id 12 18 4 5 19; and return 0; or return 1
+                contains -- $option_id 12 18 4 5 20 19; and return 0; or return 1
             else if __moguet_has_operand '-Su'
                 contains -- $option_id 18 4; and return 0; or return 1
             else
-                contains -- $option_id 0 1 2 3 4 5 6 7 8 18 12 19; and return 0; or return 1
+                contains -- $option_id 0 1 2 3 4 5 20 6 7 8 18 12 19; and return 0; or return 1
             end
         case '-Ss'
             contains -- $option_id 18 4; and return 0; or return 1
@@ -388,7 +390,7 @@ complete -c moguet -f -n '__moguet_candidate_available 9' -a '--rmdeps' -d 'Prev
 complete -c moguet -f -n '__moguet_candidate_available 10' -a '--select' -d 'Interactively select source-aware package candidates for plain -S'
 complete -c moguet -f -n '__moguet_candidate_available 11' -a '--aur' -d 'Limit supported sync operations to AUR'
 complete -c moguet -f -n '__moguet_candidate_available 12' -a '--repo' -d 'Use only official binary repositories; with -Syu / -Su, run the repository system upgrade only'
-complete -c moguet -f -n '__moguet_candidate_available 20' -a '--details' -d 'Show detailed diagnostic and provenance information for remote build, plan, deps, and -S --select; presentation only'
+complete -c moguet -f -n '__moguet_candidate_available 20' -a '--details' -d 'Show detailed diagnostic and provenance information for remote build, plan, deps, -S --select, -Qua, -Syu/-Su, upgrade-aur/all, and --dry-run -S; presentation only'
 complete -c moguet -f -n '__moguet_candidate_available 15' -a '--local' -d 'Use one local PKGBUILD directory as the build root'
 complete -c moguet -f -n '__moguet_candidate_available 16' -a '--output-dir=' -d 'Select an existing export parent for -G'
 complete -c moguet -f -n '__moguet_candidate_available 17' -a '--recursive' -d 'Resolve dependencies recursively'

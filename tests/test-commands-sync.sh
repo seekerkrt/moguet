@@ -1477,7 +1477,7 @@ assert_event_before \
 assert_event_pattern '^sudo pacman -U --noconfirm -- .*/system-update-a-1\.0-1-x86_64\.pkg\.tar\.zst$'
 assert_contains "AUR update: completed" "$output_file"
 assert_contains "system-update-a: updated" "$output_file"
-assert_contains "system-current: skipped: up to date" "$output_file"
+assert_not_contains "system-current: skipped: up to date" "$output_file"
 assert_contains "package=system-devel-git" "$output_file"
 assert_output_count 1 \
     "skipped: devel update requires check: suffix candidate only; not automatically updated because authoritative build provenance is unavailable"
@@ -1671,7 +1671,7 @@ setup_case auto-install-dry-run-duplicate-repository-source-correlation
 write_repository_package duplicate-root
 write_source_preference duplicate-root 'CFLAGS=-Oduplicate-root'
 export MOGUET_TEST_PACMAN_REPO_PACKAGES='duplicate-root'
-run_status 0 --dry-run --noedit --nodiff --noconfirm -S duplicate-root duplicate-root
+run_status 0 --details --dry-run --noedit --nodiff --noconfirm -S duplicate-root duplicate-root
 assert_output_count 1 "Request: duplicate-root (invocation index: 0)"
 assert_output_count 1 "Request: duplicate-root (invocation index: 1)"
 assert_output_count 2 "Identity: duplicate-root (PackageBase: duplicate-root; source key: repository:duplicate-root)"

@@ -249,7 +249,8 @@ int cmd_system_aur_update(
     const AppConfig& config);
 
 void present_system_aur_update_operation_result(
-    SystemAurUpdateOperationResult result);
+    SystemAurUpdateOperationResult result,
+    PresentationDetail detail = PresentationDetail::Normal);
 
 #ifdef MOGUET_ENABLE_SYSTEM_AUR_UPDATE_PRESENTATION_TEST_HOOKS
 // Test-only seam: feed coherent childless failures, a child-owned failure, or

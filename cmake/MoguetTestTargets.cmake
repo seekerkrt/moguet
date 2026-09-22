@@ -2848,6 +2848,7 @@ moguet_add_cpp_test(
 
 set(
     _moguet_cli_diagnostic_model_test_sources
+    source/devel_update_model.cpp
     tests/cli_diagnostic_model_test.cpp
     source/dependency_constraint.cpp
     source/dependency_constraint_presentation.cpp
@@ -3026,6 +3027,10 @@ moguet_add_cpp_test(
 
 set(
     _moguet_unified_plan_renderer_test_sources
+    source/source_package_identity.cpp
+    source/vcs_source_identity.cpp
+    source/aur_update_plan.cpp
+    source/devel_package_classification.cpp
     source/devel_update_model.cpp
     tests/unified_plan_renderer_test.cpp
     source/unified_plan_observation.cpp
@@ -3603,13 +3608,13 @@ set(
     aur-update-operation-result-test=794c70c37241de19fa40d3e5369fadebe282fb321fd0e3771b8b3d89e0a369d2
     filtered-aur-update-operation-test=bd7f0ba6208cd64ea1a064415f31458c734af63e4b9df4dc501d406099e928f3
     upgrade-all-operation-test=3557c0a2d90fbc6bd1c46306c8217d1b3ab96bfe1589d03dbe602609edd55ee0
-    cli-diagnostic-model-test=b8eda1b83017d3b13bd253746e2937ad1a55ec3711e8bb1b6300374bf29304b9
+    cli-diagnostic-model-test=a29d9e338a80f8a2031345396fc6579d7ef6f6ce1c729131581039182357c17d
     runtime-cli-connection-test=e5c398b03a84f56613a9153c4751522a216e2f2002e9922dec1732f575d11947
     dependency-plan-model-test=c240141fe00162f237bb179cbb06b897dedf610879cc07a74a7f4e8f72daf35a
     build-plan-artifact-target-projection-test=c5847f5b152ca8e4df286ce6c32621703b0a2780189ef1e68fe65df5d7baef77
     unified-plan-observation-test=d662d2fa952f1be1f7f900faa617a8e57254b379d55be8b1c79ab54039b88ee1
     unified-plan-projection-test=75a30849633155b7c195d6163a86102bcbd67b13a4e7eb36608ed76e71b4bb88
-    unified-plan-renderer-test=46eb94ee7941750d4ed6e348f8fb9e5c45629794f671c7c4b958487b3b44667a
+    unified-plan-renderer-test=e0f6ddcfafc0edc37a534a5b5c5534e5c4614d3a19b197a58fbf1bf5fe1ccaaf
     artifact-selection-model-test=566c5d9683b833847b2a133c258cb9d7f89dbbf1006053340528c5bf2190d062
     artifact-identity-selection-test=6716fb97397e80a6de3704ff7e3cfd245c7ccb9c553693400a6f8da5347e4c44
     provider-installed-state-test=f0ac27a0911c3b0a32810ad375c8bdc0b3ce145f7ed3e2fb32e5661d526655b1

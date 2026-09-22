@@ -386,6 +386,20 @@ classificationは、installed packageとのconfirmed conflict、planned target�
 
 Moguetが所有するのはmetadata observation、typed classification、pre-transaction diagnostic、safety stopまでである。automatic package removal、automatic replacement、automatic conflict resolution、replacement targetやproviderのimplicit selection、full dependency / conflict solverの置換、libalpm transaction prepare / commitは行わない。`pacman` / libalpmが最終transaction authorityであり、Moguetのpreflight successはtransaction successを意味しない。`--noconfirm`もrelation guardをbypassせず、自動削除・自動置換を許可しない。
 
+## AUR update / dry-runのNormalとDetailed表示
+
+`-Qua`、exact target-less `-Syu` / `-Su`（`--repo`を含む）、`upgrade-aur`、
+`upgrade-all`、`--dry-run -S <pkg>`でも`--details`を指定できます。通常表示は
+最新のAUR targetを集約し、更新候補、AUR以外のforeign package、要確認、ブロッカー、
+部分完了を残します。詳細表示では個別のskip理由と、dry-runの経路、phase、依存authority、
+build、artifact、transactionの情報を確認できます。表示密度はrouting、readiness、実行、
+確認、終了statusを変えません。既存のremote buildと`-S --select`の詳細指定もdry-run表示へ適用します。
+その他のdry-run経路は既存の表示を維持します。
+
+詳細は既存typed結果から直接投影し、通常表示の文字列から再構成しない。通常表示でも
+metadata failure、devel Git revision差、RequiresCheck、provider ambiguity、relation blocker、
+取消、cleanup failure、未実行target、必要なfreshness警告を保持する。
+
 <a id="compat-plan-deps-presentation"></a>
 
 ## plan / depsのNormalとDetailed表示

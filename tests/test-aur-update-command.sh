@@ -204,10 +204,33 @@ assert_cache_absent
 setup_case all-up-to-date all-up-to-date
 run_status 0 upgrade-aur
 assert_exact_line "AUR update: no updates" "$stdout_file"
-assert_exact_line "up-to-date-pkg: skipped: up to date" "$stdout_file"
+assert_not_contains "up-to-date-pkg: skipped: up to date" "$stdout_file"
 assert_not_contains "fixture" "$stderr_file"
 assert_exact_line "reduce execution=no" "$command_log"
 assert_no_external_mutation
+
+setup_case all-up-to-date-details all-up-to-date
+run_status 0 --details upgrade-aur
+assert_exact_line "up-to-date-pkg: skipped: up to date" "$stdout_file"
+assert_exact_line "reduce execution=no" "$command_log"
+assert_no_external_mutation
+
+# The same no-update operation has identical execution evidence in both modes.
+for operation in -Syu -Su; do
+    setup_case "compact-system-$operation" all-up-to-date
+    export MOGUET_TEST_PACMAN_CONF_REPOSITORY_LIST=core
+    export MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE=$case_dir/foreign-packages
+    printf '%s\n' 'up-to-date-pkg 1.0-1 explicit' > "$MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE"
+    export MOGUET_TEST_SUDO_EXIT_CODE=0
+    run_status 0 "$operation"
+    assert_exact_line "AUR update: no updates" "$stdout_file"
+    assert_not_contains "up-to-date-pkg: skipped: up to date" "$stdout_file"
+    cp "$command_log" "$case_dir/normal-events"
+    : > "$command_log"
+    run_status 0 --details "$operation"
+    assert_exact_line "up-to-date-pkg: skipped: up to date" "$stdout_file"
+    cmp "$case_dir/normal-events" "$command_log" || fail_case "details changed execution events"
+done
 
 setup_case non-aur-foreign non-aur-foreign
 run_status 0 upgrade-aur
@@ -910,8 +933,8 @@ run_status 0 -Syu --repo
 assert_exact_line "sudo pacman -Syu" "$command_log"
 assert_pipeline_absent
 
-# Information-density convergence does not expand public option support.
-for operation in upgrade upgrade-aur upgrade-all -Su -Syu; do
+# Unaffected routes retain their existing option rejection.
+for operation in upgrade; do
     setup_case "details-unsupported-$operation" no-installed-foreign
     run_status 1 --details "$operation"
     assert_contains "--details" "$stderr_file"
@@ -1135,7 +1158,7 @@ assert_not_contains "git " "$command_log"
 assert_not_contains "sudo pacman -U" "$command_log"
 assert_cache_absent
 
-if [ "$case_count" -ne 107 ]; then
+if [ "$case_count" -ne 106 ]; then
     fail_case "internal test case count changed: $case_count"
 fi
 echo "AUR update command integration tests passed ($case_count cases)."

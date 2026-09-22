@@ -1045,6 +1045,14 @@ constexpr OperationOptionRelationSet operation_option_relation(
     return operation_option_relations(id);
 }
 
+struct DelegatedPresentationDetailScope {
+    std::string_view operation;
+    bool requires_dry_run;
+};
+
+inline constexpr std::array<DelegatedPresentationDetailScope, 2>
+    DELEGATED_PRESENTATION_DETAIL_SCOPES = {{{"-Qua", false}, {"-S", true}}};
+
 struct OperationFormSpec {
     OperationId operation;
     std::string_view related_contract_identity;
@@ -1097,7 +1105,7 @@ inline constexpr std::array<OperationFormSpec, 14> MOGUET_OPERATION_FORMS = {{
          OptionId::Diff, OptionId::NoDiff,
          source_no_confirm_option_relation(), OptionId::DryRun,
          OptionId::BuildMode, OptionId::Rebuild,
-         OptionId::CleanBuild)},
+         OptionId::CleanBuild, OptionId::Details)},
     {OperationId::UpgradeAll,
      "cli.upgrade.all",
      no_operands(),
@@ -1107,7 +1115,7 @@ inline constexpr std::array<OperationFormSpec, 14> MOGUET_OPERATION_FORMS = {{
          OptionId::Diff, OptionId::NoDiff,
          source_no_confirm_option_relation(), OptionId::DryRun,
          OptionId::BuildMode, OptionId::Rebuild,
-         OptionId::CleanBuild)},
+         OptionId::CleanBuild, OptionId::Details)},
     {OperationId::Clean,
      "cli.maintenance.clean",
      no_operands(),
@@ -1400,7 +1408,7 @@ inline constexpr std::array<SpecialOperationSpec,
              public_syntax_option_relation(
                  system_aur_needed_option_relation(),
                  OptionPublicSyntax::Optional),
-             pacman_no_confirm_option_relation(), OptionId::DryRun),
+             pacman_no_confirm_option_relation(), OptionId::DryRun, OptionId::Details),
          "exit.delegated-pacman",
          "cli.pacman.system-repository-update",
          DelegatedPacmanTailPolicy::RepositoryOnly},
@@ -1413,7 +1421,7 @@ inline constexpr std::array<SpecialOperationSpec,
          operation_option_relations(
              OptionId::Edit, OptionId::NoEdit,
              OptionId::Diff, OptionId::NoDiff,
-             source_no_confirm_option_relation(), OptionId::DryRun,
+             source_no_confirm_option_relation(), OptionId::DryRun, OptionId::Details,
              OptionId::BuildMode, OptionId::Rebuild,
              OptionId::CleanBuild,
              public_syntax_option_relation(
@@ -1435,7 +1443,7 @@ inline constexpr std::array<SpecialOperationSpec,
              public_syntax_option_relation(
                  system_aur_needed_option_relation(),
                  OptionPublicSyntax::Optional),
-             pacman_no_confirm_option_relation(), OptionId::DryRun),
+             pacman_no_confirm_option_relation(), OptionId::DryRun, OptionId::Details),
          "exit.delegated-pacman",
          "cli.pacman.system-repository-update",
          DelegatedPacmanTailPolicy::RepositoryOnly},
@@ -1448,7 +1456,7 @@ inline constexpr std::array<SpecialOperationSpec,
          operation_option_relations(
              OptionId::Edit, OptionId::NoEdit,
              OptionId::Diff, OptionId::NoDiff,
-             source_no_confirm_option_relation(), OptionId::DryRun,
+             source_no_confirm_option_relation(), OptionId::DryRun, OptionId::Details,
              OptionId::BuildMode, OptionId::Rebuild,
              OptionId::CleanBuild,
              public_syntax_option_relation(

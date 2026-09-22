@@ -1,6 +1,7 @@
 #pragma once
 
 #include "filtered_aur_update_operation.hpp"
+#include "presentation_detail.hpp"
 
 #include <string>
 
@@ -18,7 +19,8 @@ bool is_routine_aur_update_skip(AurUpdateExecutionReason reason);
 // the retained query/result authority; status is never reconstructed from
 // localized text.
 void present_filtered_aur_update_execution_result(
-    const FilteredAurUpdateExecutionResult& result);
+    const FilteredAurUpdateExecutionResult& result,
+    PresentationDetail detail = PresentationDetail::Normal);
 
 // Query/static preflight remains before the default state log. Only a
 // prepared executable capability may cross into the normal mutation route.

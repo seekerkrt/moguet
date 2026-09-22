@@ -23,7 +23,7 @@
     "-Qua": "Check AUR and foreign-package updates"
   },
   "options": {
-    "--details": "Show detailed diagnostic and provenance information for remote build, plan, deps, and -S --select; presentation only",
+    "--details": "Show detailed diagnostic and provenance information for remote build, plan, deps, -S --select, -Qua, -Syu/-Su, upgrade-aur/all, and --dry-run -S; presentation only",
     "-h": "Show the help message and exit",
     "--help": "Show the help message and exit",
     "-V": "Show version information and exit",
