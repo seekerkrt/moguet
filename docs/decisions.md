@@ -8,6 +8,10 @@
 
 ### 文書の位置づけ
 
+projectの目的、correctness / safety / review / provenanceの考え方、非目標、v2/v3境界は
+[project stance](project-stance.md)を正本とする。この文書は、その姿勢を具体的な設計判断へ
+適用する原則と根拠を所有し、projectの方向性や将来計画を重複して定義しない。
+
 この文書は、現在のMoguetへ適用する普遍的な上位設計原則とlicense / third-party complianceの上位原則の詳細な正本である。CLI挙動、provider選択、solverの利用、fallback、自動化、安全境界について新しい判断を行うときは、このポリシーを基準にする。
 
 Issue別に増えるproduction contractの全文はこの文書へ追加せず、[docs/contracts/](contracts/README.md)の各安定contractを参照する。現在のcommand routingと利用者向けcompatibility summaryは[docs/compatibility.md](compatibility.md)を参照する。`decisions.md`は上位原則の正本であり、個別contractの実装詳細を独立した正本として重複保持しない。
@@ -146,6 +150,11 @@ version boundary、配布policy、component別の詳細は[docs/LICENSING.md](LI
 ## English
 
 ### Status and authority
+
+The [project stance](project-stance.md) is the canonical source for project purpose,
+correctness, safety, review, provenance, non-goals, and the v2/v3 boundary. This
+document owns the principles and rationale for applying that stance to concrete
+design decisions; it does not separately define project direction or future plans.
 
 This document is the detailed canonical source for the high-level design policy applied to the current Moguet project. Decisions 1 through 7 are universal design principles, and decision 8 is the high-level license and third-party compliance principle. New decisions about CLI behavior, provider selection, solver use, fallback, automation, and safety boundaries must be evaluated against this policy.
 
