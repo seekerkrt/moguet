@@ -32,6 +32,7 @@ foreach(_moguet_direct_focus IN ITEMS
     xdg-state-log
     trusted-cache
     provider-selection
+    selection-expression
     provider-installed-state
     dependency-constraint
     cross-source-version-lock

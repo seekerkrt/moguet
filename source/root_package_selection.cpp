@@ -1,15 +1,15 @@
 #include "root_package_selection.hpp"
 
 #include "package_identifier.hpp"
+#include "selection_expression.hpp"
 
 #include <algorithm>
-#include <charconv>
 #include <cstddef>
 #include <iostream>
 #include <istream>
 #include <stdexcept>
 #include <string_view>
-#include <system_error>
+#include <variant>
 #include <unistd.h>
 #include <utility>
 
@@ -39,25 +39,6 @@ std::string_view trim_ascii_whitespace(std::string_view value) noexcept {
     return value;
 }
 
-std::vector<std::string_view> split_ascii_whitespace(
-    std::string_view value) {
-    std::vector<std::string_view> tokens;
-    std::size_t offset = 0;
-    while(offset < value.size()) {
-        while(offset < value.size() && is_ascii_whitespace(value[offset])) {
-            ++offset;
-        }
-        if(offset == value.size()) break;
-
-        const std::size_t begin = offset;
-        while(offset < value.size() && !is_ascii_whitespace(value[offset])) {
-            ++offset;
-        }
-        tokens.push_back(value.substr(begin, offset - begin));
-    }
-    return tokens;
-}
-
 std::string ascii_lower(std::string_view value) {
     std::string lowered;
     lowered.reserve(value.size());
@@ -76,68 +57,10 @@ bool is_cancel_token(std::string_view value) {
     return lowered == "q" || lowered == "quit" || lowered == "cancel";
 }
 
-enum class CandidateIndexParseStatus {
-    Valid,
-    Malformed,
-    OutOfRange
-};
-
-struct CandidateIndexParseResult {
-    CandidateIndexParseStatus status;
-    std::size_t value = 0;
-};
-
-CandidateIndexParseResult parse_candidate_index(
-    std::string_view value,
-    std::size_t candidate_count) {
-    if(value.empty()) {
-        return CandidateIndexParseResult{
-            CandidateIndexParseStatus::Malformed};
-    }
-
-    std::size_t selected = 0;
-    const char* first = value.data();
-    const char* last = first + value.size();
-    const auto [end, error] = std::from_chars(first, last, selected);
-    if(error == std::errc::result_out_of_range) {
-        return CandidateIndexParseResult{
-            CandidateIndexParseStatus::OutOfRange};
-    }
-    if(error != std::errc{} || end != last) {
-        return CandidateIndexParseResult{
-            CandidateIndexParseStatus::Malformed};
-    }
-    if(selected == 0 || selected > candidate_count) {
-        return CandidateIndexParseResult{
-            CandidateIndexParseStatus::OutOfRange};
-    }
-    return CandidateIndexParseResult{
-        CandidateIndexParseStatus::Valid, selected};
-}
-
-void append_index_issue(
-    const CandidateIndexParseResult& result,
-    std::string_view token,
-    std::size_t candidate_count,
-    std::vector<RootPackageSelectionIssue>& issues) {
-    switch(result.status) {
-        case CandidateIndexParseStatus::Malformed:
-            issues.push_back(MalformedRootPackageSelectionToken{
-                std::string(token)});
-            break;
-        case CandidateIndexParseStatus::OutOfRange:
-            issues.push_back(RootPackageSelectionIndexOutOfRange{
-                std::string(token), candidate_count});
-            break;
-        case CandidateIndexParseStatus::Valid:
-            break;
-    }
-}
-
 void select_group_members(
     std::string_view token,
     const RootPackageSearchSnapshot& snapshot,
-    std::vector<bool>& selected,
+    std::vector<std::size_t>& include_indices,
     std::vector<RootPackageSelectionIssue>& issues) {
     const std::string group_name(token.substr(1));
     if(!is_valid_package_name(group_name)) {
@@ -156,7 +79,7 @@ void select_group_members(
             snapshot.candidates[index].selectable_group_names;
         if(std::find(group_names.begin(), group_names.end(), group_name) !=
            group_names.end()) {
-            selected[index] = true;
+            include_indices.push_back(index + 1);
             found = true;
         }
     }
@@ -166,39 +89,26 @@ void select_group_members(
     }
 }
 
-void select_range(
-    std::string_view token,
-    std::size_t separator,
-    std::size_t candidate_count,
-    std::vector<bool>& selected,
-    std::vector<RootPackageSelectionIssue>& issues) {
-    const CandidateIndexParseResult first = parse_candidate_index(
-        token.substr(0, separator), candidate_count);
-    const CandidateIndexParseResult last = parse_candidate_index(
-        token.substr(separator + 1), candidate_count);
-
-    if(first.status == CandidateIndexParseStatus::Malformed ||
-       last.status == CandidateIndexParseStatus::Malformed) {
-        issues.push_back(MalformedRootPackageSelectionToken{
-            std::string(token)});
-        return;
+RootPackageSelectionIssue project_numeric_issue(
+    const SelectionExpressionIssue& issue,
+    std::size_t candidate_count) {
+    switch(issue.kind) {
+        case SelectionExpressionIssueKind::MalformedToken:
+            if(is_cancel_token(issue.token)) {
+                return MixedRootPackageSelectionCancellationToken{issue.token};
+            }
+            return MalformedRootPackageSelectionToken{issue.token};
+        case SelectionExpressionIssueKind::EmptyCommaField:
+            return EmptyRootPackageSelectionCommaField{};
+        case SelectionExpressionIssueKind::IndexOutOfRange:
+            return RootPackageSelectionIndexOutOfRange{
+                issue.token, candidate_count};
+        case SelectionExpressionIssueKind::DescendingRange:
+            return DescendingRootPackageSelectionRange{issue.token};
+        case SelectionExpressionIssueKind::EmptyResultAfterExclusion:
+            return EmptyRootPackageSelectionResult{};
     }
-    if(first.status == CandidateIndexParseStatus::OutOfRange ||
-       last.status == CandidateIndexParseStatus::OutOfRange) {
-        issues.push_back(RootPackageSelectionIndexOutOfRange{
-            std::string(token), candidate_count});
-        return;
-    }
-    if(first.value > last.value) {
-        issues.push_back(DescendingRootPackageSelectionRange{
-            std::string(token)});
-        return;
-    }
-
-    for(std::size_t index = first.value; index < last.value; ++index) {
-        selected[index - 1] = true;
-    }
-    selected[last.value - 1] = true;
+    throw std::logic_error("Unknown selection expression issue.");
 }
 
 struct SelectedPackageIdentitySet {
@@ -231,55 +141,72 @@ RootPackageSelectionExpressionResult parse_root_package_selection(
             RootPackageSelectionCancellationReason::CancelToken};
     }
 
-    const std::vector<std::string_view> tokens =
-        split_ascii_whitespace(trimmed);
-    std::vector<bool> selected(snapshot.candidates.size(), false);
-    std::vector<RootPackageSelectionIssue> issues;
-
-    for(const std::string_view token : tokens) {
-        if(is_cancel_token(token)) {
-            issues.push_back(MixedRootPackageSelectionCancellationToken{
-                std::string(token)});
+    // Keep group names in the root adapter. Mask each standalone group token
+    // at its original offset so numeric commas still validate on both sides.
+    std::string numeric_input = input;
+    std::vector<std::pair<std::size_t, RootPackageSelectionIssue>> ordered_issues;
+    std::vector<std::size_t> group_indices;
+    for(std::size_t offset = 0; offset < input.size();) {
+        if(is_ascii_whitespace(input[offset])) {
+            ++offset;
             continue;
         }
-        if(!token.empty() && token.front() == '@') {
-            select_group_members(token, snapshot, selected, issues);
-            continue;
+        const std::size_t begin = offset;
+        while(offset < input.size() && !is_ascii_whitespace(input[offset])) {
+            ++offset;
         }
+        const std::string_view token(input.data() + begin, offset - begin);
+        if(token.front() != '@') continue;
 
-        const std::size_t separator = token.find('-');
-        if(separator != std::string_view::npos) {
-            if(separator == 0 || separator + 1 == token.size() ||
-               token.find('-', separator + 1) != std::string_view::npos) {
-                issues.push_back(MalformedRootPackageSelectionToken{
-                    std::string(token)});
-                continue;
-            }
-            select_range(
-                token, separator, snapshot.candidates.size(),
-                selected, issues);
-            continue;
+        std::vector<RootPackageSelectionIssue> group_issues;
+        select_group_members(
+            token, snapshot, group_indices, group_issues);
+        for(RootPackageSelectionIssue& issue : group_issues) {
+            ordered_issues.emplace_back(begin, std::move(issue));
         }
-
-        const CandidateIndexParseResult index = parse_candidate_index(
-            token, snapshot.candidates.size());
-        append_index_issue(
-            index, token, snapshot.candidates.size(), issues);
-        if(index.status == CandidateIndexParseStatus::Valid) {
-            selected[index.value - 1] = true;
-        }
+        std::fill(
+            numeric_input.begin() + static_cast<std::ptrdiff_t>(begin),
+            numeric_input.begin() + static_cast<std::ptrdiff_t>(offset), ' ');
     }
 
+    SelectionExpressionParseResult parsed = parse_selection_expression(
+        numeric_input, snapshot.candidates.size());
+    for(const SelectionExpressionIssue& issue : parsed.issues) {
+        ordered_issues.emplace_back(
+            issue.offset,
+            project_numeric_issue(issue, snapshot.candidates.size()));
+    }
+    std::stable_sort(
+        ordered_issues.begin(), ordered_issues.end(),
+        [](const auto& left, const auto& right) {
+            return left.first < right.first;
+        });
+
+    std::vector<RootPackageSelectionIssue> issues;
+    for(auto& [offset, issue] : ordered_issues) {
+        (void)offset;
+        issues.push_back(std::move(issue));
+    }
     if(!issues.empty()) {
         return InvalidRootPackageSelection{std::move(issues)};
     }
 
+    parsed.expression.include_indices.insert(
+        parsed.expression.include_indices.end(),
+        group_indices.begin(), group_indices.end());
+    NormalizedSelectionExpressionResult normalized =
+        normalize_selection_expression(
+            parsed.expression, snapshot.candidates.size());
+    if(const auto* issue = std::get_if<SelectionExpressionIssue>(&normalized)) {
+        return InvalidRootPackageSelection{{project_numeric_issue(*issue, snapshot.candidates.size())}};
+    }
+
     std::vector<SelectedRootPackageTarget> selected_targets;
     std::vector<SelectedPackageIdentitySet> identities_by_package;
-    for(std::size_t index = 0; index < snapshot.candidates.size(); ++index) {
-        if(!selected[index]) continue;
+    for(std::size_t selected_index :
+        std::get<std::vector<std::size_t>>(normalized)) {
         const RootPackageCandidate& candidate =
-            snapshot.candidates[index].candidate;
+            snapshot.candidates[selected_index - 1].candidate;
 
         auto duplicate = std::find_if(
             selected_targets.begin(), selected_targets.end(),

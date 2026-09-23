@@ -128,8 +128,10 @@ v2.9.0で予定していたv2 minor seriesを閉じます。将来のprofile / p
 - non-TTYと`--noconfirm`ではprovider inputをstdinから読まず、candidateを自動選択しません。
   未選択のambiguous providerはfail-closedで停止します。
 - `moguet -S --select [--needed] <query>`はofficial repositoryとAURからsource-awareなroot
-  package candidateを検索します。interactive TTYではpackage番号、複数番号、inclusive range、
-  表示済みofficial groupの`@group` selectorを受理します。candidateが1件でもdefaultは
+  package candidateを検索します。interactive TTYではpackage番号、空白・comma区切りの
+  複数番号（`1 3`、`1,3`）、inclusive range（`1-2,4`）、除外（`^4`、`^2-4`）、
+  表示済みofficial groupの`@group` selectorを受理します。group展開後にも除外を適用します。
+  provider選択は引き続き単一番号だけです。candidateが1件でもdefaultは
   ありません。empty input、`q`、`quit`、`cancel`、EOFは取消とし、invalid inputは同じ
   candidate一覧に対して再入力します。
 - root package discoveryはnon-TTY stdinまたは`--noconfirm`ではcandidate queryもpromptも

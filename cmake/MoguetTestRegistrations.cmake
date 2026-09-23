@@ -43,6 +43,7 @@ _moguet_add_direct_ctest(
 _moguet_add_direct_ctest(cpp.xdg_state_log xdg-state-log-test)
 _moguet_add_direct_ctest(cpp.trusted_cache trusted-cache-test)
 _moguet_add_direct_ctest(cpp.provider_selection provider-selection-test)
+_moguet_add_direct_ctest(cpp.selection_expression selection-expression-test)
 _moguet_add_direct_ctest(cpp.root_package_candidate root-package-candidate-test)
 _moguet_add_direct_ctest(cpp.root_package_search root-package-search-test)
 _moguet_add_direct_ctest(cpp.root_package_selection root-package-selection-test)

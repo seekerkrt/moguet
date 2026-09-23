@@ -152,8 +152,11 @@ actual build/install; neither guarantees the safety of upstream code or packages
   auto-select a candidate. Unselected ambiguity fails closed.
 - `moguet -S --select [--needed] <query>` discovers source-aware root package candidates
   from official repositories and AUR. An interactive TTY accepts package
-  numbers, multiple numbers, inclusive ranges, and an `@group` selector for a
-  displayed official group; there is no default, even for one candidate.
+  numbers, space/comma-separated lists (`1 3`, `1,3`), inclusive ranges
+  (`1-2,4`), exclusions (`^4`, `^2-4`), and an `@group` selector for a
+  displayed official group. Exclusions also apply to expanded groups; there
+  is no default, even for one candidate. Provider selection still requires
+  exactly one number.
   Empty input, `q`, `quit`, `cancel`, or EOF cancels, and invalid input retries
   against the same candidate list.
 - Root package discovery does not query candidates or prompt on non-TTY stdin

@@ -43,6 +43,15 @@ struct DescendingRootPackageSelectionRange {
         const DescendingRootPackageSelectionRange&) const = default;
 };
 
+struct EmptyRootPackageSelectionCommaField {
+    bool operator==(
+        const EmptyRootPackageSelectionCommaField&) const = default;
+};
+
+struct EmptyRootPackageSelectionResult {
+    bool operator==(const EmptyRootPackageSelectionResult&) const = default;
+};
+
 struct UnknownRootPackageSelectionGroup {
     std::string group_name;
 
@@ -71,6 +80,8 @@ using RootPackageSelectionIssue = std::variant<
     MalformedRootPackageSelectionToken,
     RootPackageSelectionIndexOutOfRange,
     DescendingRootPackageSelectionRange,
+    EmptyRootPackageSelectionCommaField,
+    EmptyRootPackageSelectionResult,
     UnknownRootPackageSelectionGroup,
     MixedRootPackageSelectionCancellationToken,
     ConflictingRootPackageSelectionAlternatives>;

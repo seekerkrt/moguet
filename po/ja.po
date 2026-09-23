@@ -3761,6 +3761,12 @@ msgstr "パッケージ候補:"
 msgid "Invalid package selection token."
 msgstr "パッケージ選択トークンが無効です。"
 
+msgid "Package selection contains an empty comma field."
+msgstr "パッケージ選択に空のカンマ区切り項目があります。"
+
+msgid "Package selection has no candidates after exclusions."
+msgstr "除外後のパッケージ選択に候補がありません。"
+
 #, c++-format
 msgid "Package selection index is outside the displayed range 1-{}."
 msgstr "パッケージ選択のインデックスが表示範囲 1-{} の外です。"
@@ -3779,8 +3785,8 @@ msgid "Package {} was selected from more than one source; select exactly one sou
 msgstr "パッケージ {} が複数のソースから選択されています。ソースをちょうど1つ選択してください。"
 
 #, c++-format
-msgid "Select package numbers, ascending ranges, or displayed {}; press {} or enter {} to cancel:"
-msgstr "パッケージ番号、昇順の範囲、または表示されている {} を選択してください。取り消すには {} を押すか {} を入力してください:"
+msgid "Select package numbers (space/comma lists), ranges, exclusions (^), or displayed {}; press {} or enter {} to cancel:"
+msgstr "パッケージ番号（空白・カンマ区切り）、範囲、除外（^）、または表示されている {} を選択してください。取り消すには {} を押すか {} を入力してください:"
 
 msgid "Interactive package selection requires a TTY on standard input."
 msgstr "対話形式のパッケージ選択には、標準入力が TTY である必要があります。"
