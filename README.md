@@ -637,7 +637,8 @@ acceptance selects the exact upstream snapshot (remote, selector, root/tree,
 file identities and submodule pins) as build input. It does not certify
 source-code safety or require reading every upstream blob; binary and large
 assets do not alone make the snapshot unsupported. Recipe-local inputs retain
-full content review. `--noedit` is allowed;
+full content review. Normal output summarizes closure size and submodule count;
+`--details` shows per-file identity and exact submodule pins. `--noedit` is allowed;
 `--nodiff`, `review.diff = "skip"`, `--noconfirm`, and non-TTY input do not approve
 bootstrap. Decline skips the target; cancellation or a later execution failure
 stops subsequent work without rollback. Invalid, corrupt, future, mismatched,
