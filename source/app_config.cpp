@@ -44,6 +44,6 @@ ProviderSelectionCallback provider_selection_callback(const AppConfig& config) {
     return [session = std::move(session), presenter = std::move(presenter)](
                const std::string& dependency,
                const std::vector<ProvidedDependency>& candidates) {
-        return session->select_provider(dependency, candidates, presenter);
+        return session->select_provider_set(dependency, candidates, presenter);
     };
 }

@@ -1931,6 +1931,9 @@ void test_local_dependency_preparation_collects_selected_repository_providers() 
     const ProvidedDependency first_provider = make_repository_provider(
         "extra", "local-root-provider", first_dependency,
         first_dependency + "=1", std::string("2.4-1"));
+    const ProvidedDependency second_provider = make_repository_provider(
+        "community", "local-extra-provider", first_dependency,
+        first_dependency + "=1", std::string("2.4-1"));
     const ProvidedDependency duplicate_provider = make_repository_provider(
         "extra", "local-root-provider", duplicate_dependency,
         duplicate_dependency + "=1", std::string("2.4-1"));
@@ -1943,7 +1946,7 @@ void test_local_dependency_preparation_collects_selected_repository_providers() 
         first_dependency, std::nullopt);
     query_stub::set_aur_package_response(first_dependency, std::nullopt);
     query_stub::set_repository_provider_response(
-        first_dependency, {first_provider});
+        first_dependency, {first_provider, second_provider});
     query_stub::set_repository_package_response(
         duplicate_dependency, std::nullopt);
     query_stub::set_aur_package_response(
@@ -1956,29 +1959,36 @@ void test_local_dependency_preparation_collects_selected_repository_providers() 
         local_repository_provider_metadata_fixture(), "x86_64",
         [&](const std::string& dependency,
             const std::vector<ProvidedDependency>& candidates)
-            -> std::optional<ProvidedDependency> {
+            -> std::optional<ProviderSelectionSet> {
             ++selection_count;
             const ProvidedDependency& expected =
                 dependency == first_dependency
                     ? first_provider
                     : duplicate_provider;
-            expect(
-                (dependency == first_dependency ||
-                 dependency == duplicate_dependency) &&
-                    candidates ==
-                        std::vector<ProvidedDependency>{
-                            expected},
-                "Local repository-provider selection candidates differ");
-            return candidates.front();
+            expect(dependency == first_dependency ||
+                       dependency == duplicate_dependency,
+                   "Local repository-provider selection dependency differs");
+            if(dependency == first_dependency) {
+                expect(candidates == std::vector<ProvidedDependency>{
+                                         first_provider, second_provider},
+                       "Local multiple repository candidates differ");
+                return ProviderSelectionSet::from_candidate_indices(
+                    candidates, {1, 2});
+            }
+            expect(candidates == std::vector<ProvidedDependency>{expected},
+                   "Local duplicate repository candidate differs");
+            return ProviderSelectionSet::from_candidate_indices(candidates, {1});
         });
     expect(
         selection_count == 2 && plan.failures().empty() &&
-            plan.build_plan().provided.size() == 2 &&
+            plan.build_plan().provided.size() == 3 &&
             plan.build_plan().provided[0].resolution ==
                 ProviderResolutionKind::UserSelected &&
             plan.build_plan().provided[1].resolution ==
+                ProviderResolutionKind::UserSelected &&
+            plan.build_plan().provided[2].resolution ==
                 ProviderResolutionKind::UserSelected,
-        "Actual LocalBuildPlan did not retain both selected provider edges");
+        "Actual LocalBuildPlan did not retain all selected provider decisions");
     expect(
         plan.build_plan().order.size() == 1 &&
             plan.build_plan().order.front().package_base ==
@@ -1992,7 +2002,7 @@ void test_local_dependency_preparation_collects_selected_repository_providers() 
         "Local PackageBase unit leaked into remote source-build work items");
     expect(
         preparation.selected_repository_providers() ==
-                std::vector<ProvidedDependency>{first_provider} &&
+                (std::vector<ProvidedDependency>{first_provider, second_provider}) &&
             preparation.selected_repository_providers().front().provided_dependency_specification ==
                 first_dependency + "=1",
         "Production local dependency preparation did not preserve "
@@ -2072,10 +2082,13 @@ void test_local_dependency_invocation_executes_provider_without_aur_units(
     const ProvidedDependency duplicate_provider = make_repository_provider(
         "extra", "local-root-provider", "virtual-local-api-alias",
         "virtual-local-api-alias=1", std::string("1.1-1"));
+    const ProvidedDependency second_provider = make_repository_provider(
+        "community", "local-extra-provider", "virtual-local-api",
+        "virtual-local-api=1", std::string("1.0-1"));
     LocalSourceBuildDependencyPreparation preparation =
         LocalSourceBuildDependencyPreparation::
             make_for_production_source_build_test(
-                {}, {first_provider, duplicate_provider});
+                {}, {first_provider, second_provider, duplicate_provider});
 
     preflight_local_source_build_dependencies(preparation, config);
     const ValidatedCacheRoot cache_root = prepare_process_cache_root();
@@ -2089,12 +2102,12 @@ void test_local_dependency_invocation_executes_provider_without_aur_units(
         "Provider-only local dependency invocation lost its local authority");
     expect(
         invocation.selected_repository_providers ==
-            std::vector<ProvidedDependency>{first_provider},
-        "Provider-only local dependency invocation did not preserve first-seen identity deduplication");
+            (std::vector<ProvidedDependency>{first_provider, second_provider}),
+        "Provider-only local dependency invocation lost a target or identity deduplication");
 
     process_stub::expect_run_command(
         expected_repository_provider_install_command(
-            {first_provider}, config),
+            {first_provider, second_provider}, config),
         0);
     execute_prepared_source_build_invocation(
         std::move(invocation), config);
@@ -2103,7 +2116,7 @@ void test_local_dependency_invocation_executes_provider_without_aur_units(
         "Provider-only local dependency invocation did not execute exactly one transaction");
     expect(
         metadata_stub::local_package_query_history() ==
-                std::vector<std::string>{"local-root-provider"} &&
+                (std::vector<std::string>{"local-root-provider", "local-extra-provider"}) &&
             metadata_stub::release_call_count() == 1,
         "Provider-only local dependency invocation did not close its installed metadata authority");
     process_stub::require_process_expectations_consumed();
@@ -2116,6 +2129,9 @@ void test_selected_repository_provider_projection_and_invocation_deduplication()
     const ProvidedDependency root_provider = make_repository_provider(
         "extra", "repository-provider", "virtual-api-alias",
         "virtual-api-alias=2", std::string("2.5-1"));
+    const ProvidedDependency second_provider = make_repository_provider(
+        "community", "repository-provider-b", "virtual-api",
+        "virtual-api=2", std::string("2.4-1"));
     expect(
         same_provider_identity(dependency_provider, root_provider) &&
             dependency_provider != root_provider,
@@ -2126,6 +2142,9 @@ void test_selected_repository_provider_projection_and_invocation_deduplication()
         "dependency-package", "dependency-package",
         dependency_provider, ProviderResolutionKind::UserSelected));
     plan.dependency_edges.push_back(make_repository_provider_edge(
+        "dependency-package", "dependency-package",
+        second_provider, ProviderResolutionKind::UserSelected));
+    plan.dependency_edges.push_back(make_repository_provider_edge(
         "root-package", "root-package", root_provider,
         ProviderResolutionKind::UserSelected));
 
@@ -2134,8 +2153,8 @@ void test_selected_repository_provider_projection_and_invocation_deduplication()
     expect(
         work_items.size() == 2 &&
             work_items[0].selected_repository_providers ==
-                std::vector<ProvidedDependency>{
-                    dependency_provider} &&
+                (std::vector<ProvidedDependency>{
+                    dependency_provider, second_provider}) &&
             work_items[1].selected_repository_providers ==
                 std::vector<ProvidedDependency>{root_provider},
         "BuildPlan projection did not preserve selected provider metadata per edge owner");
@@ -2148,7 +2167,7 @@ void test_selected_repository_provider_projection_and_invocation_deduplication()
     process_stub::require_process_expectations_consumed();
     expect(
         invocation.selected_repository_providers ==
-            std::vector<ProvidedDependency>{dependency_provider},
+            (std::vector<ProvidedDependency>{dependency_provider, second_provider}),
         "Invocation did not deduplicate selected providers by source-aware identity in first-seen order");
     expect(
         invocation.selected_repository_providers.front()

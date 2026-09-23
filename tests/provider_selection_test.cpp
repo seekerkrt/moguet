@@ -793,6 +793,11 @@ void test_selection_set_reuse_refreshes_all_members_and_fails_on_partial_loss() 
     expect(reused.has_value() &&
                reused->members() == std::vector<ProvidedDependency>{refreshed[0], refreshed[2]},
            "Cached set did not refresh all metadata in current candidate order");
+    const auto callback_selection = session.select_provider_set(
+        "virtual<9", refreshed, make_default_provider_candidate_presenter());
+    expect(callback_selection.has_value() &&
+               callback_selection->members() == reused->members(),
+           "Production adapter flattened a cached provider set");
     expect(output.str().empty(), "Selection-set reuse unexpectedly presented candidates");
     std::string unread;
     expect(static_cast<bool>(std::getline(input, unread)) && unread == "1",
