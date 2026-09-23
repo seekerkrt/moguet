@@ -67,6 +67,11 @@ simpler responsibility boundaries, and a dedicated final-RC validation workflow.
 See the [v2.9.0 release](https://github.com/seekerkrt/moguet/releases/tag/v2.9.0)
 for the supported scope and complete user-visible changes.
 
+Moguet v2.9.1 is a PATCH release that makes pinned source snapshot acceptance
+more compact in Normal output. The snapshot identity and closure summary remain
+visible; `--details` retains exact per-node and per-file identity. Verification,
+acceptance, routing, build, install, and exit semantics are unchanged.
+
 The canonical repository identity is Moguet on GitHub, with a GitLab mirror.
 The Moguet package does not provide a `jpacker` command alias. AUR publication
 is a separate future decision; this document does not claim that an AUR

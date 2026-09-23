@@ -1,3 +1,34 @@
+# Moguet v2.9.1
+
+This tracked file is the source of truth for release bodies. The English and
+Japanese sections for each release describe the same scope.
+
+## English
+
+Moguet v2.9.1 is a PATCH release for the presentation of pinned source
+snapshot acceptance.
+
+* Normal output is more compact while retaining the selected snapshot identity:
+  remote, selector, root commit and tree, and root tag mapping. It also shows
+  closure node count, inventory file count, total regular/executable blob bytes,
+  and submodule count.
+* `--details` retains the existing exact per-node and per-file identities,
+  including submodule names, paths, URLs, and parent pins.
+* This is a presentation change. Verification, acceptance, routing, build,
+  install, and exit semantics are unchanged.
+
+## 日本語
+
+Moguet v2.9.1は、pinned source snapshot acceptanceの表示を整えるPATCH releaseです。
+
+* Normal表示をcompact化しつつ、選択したsnapshotのidentityとしてremote、selector、
+  root commit / tree、root tag mappingを保持します。closure node数、inventory file数、
+  regular / executable blobのtotal bytes、submodule数も表示します。
+* `--details`では、submoduleのname、path、URL、parent pinを含むnodeごと・fileごとの
+  既存のexact identityを維持します。
+* 変更対象は表示です。verification、acceptance、routing、build、install、exit semanticsは
+  変更しません。
+
 # Moguet v2.9.0
 
 This tracked file is the source of truth for release bodies. The English and

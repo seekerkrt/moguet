@@ -59,6 +59,11 @@ Normal / Detailed presentationのcompact化、responsibility boundaryの簡素�
 final RC validation workflowの整備をまとめています。対応範囲と利用者から見える変更の全体は
 [v2.9.0 release](https://github.com/seekerkrt/moguet/releases/tag/v2.9.0)を参照してください。
 
+Moguet v2.9.1はPATCH releaseです。pinned source snapshot acceptanceのNormal表示を
+compact化し、snapshot identityとclosure summaryを表示します。`--details`ではnodeごと・
+fileごとのexact identityを維持します。verification、acceptance、routing、build、
+install、exit semanticsは変更しません。
+
 canonical repository identityはGitHub上のMoguetで、GitLab mirrorを持ちます。Moguet
 packageは`jpacker` command aliasを提供しません。AUR publicationは将来の別判断であり、
 この文書はAUR endpointが存在すると断定しません。
