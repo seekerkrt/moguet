@@ -108,6 +108,13 @@ ProvidedDependency decoy_candidate(const std::string& dependency) {
         dependency + "=1", "1.0-1");
 }
 
+ProvidedDependency named_repository_candidate(
+    const std::string& package, const std::string& dependency,
+    std::string version = "1.0-1") {
+    return ProvidedDependency::from_repository(
+        "extra", package, dependency, dependency + "=1", std::move(version));
+}
+
 std::size_t occurrence_count(
     std::string_view text, std::string_view needle) {
     std::size_t count = 0;
@@ -482,7 +489,7 @@ void test_lookup_is_not_started_for_noninteractive_small_reuse_or_cancelled_path
 }
 
 void test_invalid_and_out_of_range_input_retries() {
-    std::istringstream input("not-a-number\n0\n3\n1\n");
+    std::istringstream input("not-a-number\n0\n3\n1-2\n1,2\n^1\n1\n");
     std::ostringstream output;
     ProviderSelectionSession session(input, output, true);
 
@@ -497,8 +504,8 @@ void test_invalid_and_out_of_range_input_retries() {
         occurrence_count(
             output.str(),
             ":: Invalid choice. Enter a number from [1-2], or press "
-            "Enter / enter q/quit/cancel to cancel.") == 3,
-        "invalid and out-of-range input did not retry exactly three times");
+            "Enter / enter q/quit/cancel to cancel.") == 6,
+        "invalid, out-of-range, and multiple-expression input did not retry");
 }
 
 void test_cancel_inputs_return_no_selection() {
@@ -730,6 +737,136 @@ void test_cross_dependency_same_identity_is_allowed() {
         "Same provider identity was rejected across dependency aliases");
 }
 
+void test_selection_set_retains_multiple_members_in_candidate_order() {
+    const std::vector<ProvidedDependency> offered{
+        named_repository_candidate("a", "virtual"),
+        named_repository_candidate("b", "virtual"),
+        named_repository_candidate("c", "virtual"),
+        named_repository_candidate("d", "virtual")};
+    const ProviderSelectionSet selected =
+        ProviderSelectionSet::from_candidate_indices(offered, {4, 2});
+    expect(selected.members() == std::vector<ProvidedDependency>{offered[1], offered[3]},
+           "Multiple provider selection was lost or reordered by input order");
+}
+
+void test_selection_set_deduplicates_identity_and_rejects_empty() {
+    const ProvidedDependency first = named_repository_candidate("a", "virtual");
+    const ProvidedDependency duplicate = named_repository_candidate(
+        "a", "virtual", "2.0-1");
+    ProviderSelectionSet selected =
+        ProviderSelectionSet::from_candidate_indices(
+            {first, duplicate}, {2, 1, 2});
+    expect(selected.members() == std::vector<ProvidedDependency>{first},
+           "Duplicate provider identity was preserved or preferred stale candidate order");
+
+    bool empty_rejected = false;
+    try {
+        static_cast<void>(ProviderSelectionSet::from_candidate_indices({first}, {}));
+    } catch(const std::invalid_argument&) {
+        empty_rejected = true;
+    }
+    expect(empty_rejected, "Empty provider set was accepted");
+
+    ProviderSelectionSet copied_from_rvalue = std::move(selected);
+    expect(!selected.members().empty() && !copied_from_rvalue.members().empty(),
+           "Moving a provider set left a valid empty selection");
+}
+
+void test_selection_set_reuse_refreshes_all_members_and_fails_on_partial_loss() {
+    std::istringstream input("1\n");
+    std::ostringstream output;
+    ProviderSelectionSession session(input, output, true);
+    const std::vector<ProvidedDependency> initial{
+        named_repository_candidate("a", "virtual"),
+        named_repository_candidate("b", "virtual"),
+        named_repository_candidate("c", "virtual")};
+    const ProviderSelectionSet selected = session.record_provider_selection(
+        "virtual>=1", initial, {3, 1});
+    expect(selected.members() == std::vector<ProvidedDependency>{initial[0], initial[2]},
+           "Selection cache did not retain all explicit members");
+
+    const std::vector<ProvidedDependency> refreshed{
+        named_repository_candidate("c", "virtual", "3.0-1"),
+        named_repository_candidate("b", "virtual", "2.0-1"),
+        named_repository_candidate("a", "virtual", "4.0-1")};
+    const auto reused = session.reuse_provider_selection("virtual<9", refreshed);
+    expect(reused.has_value() &&
+               reused->members() == std::vector<ProvidedDependency>{refreshed[0], refreshed[2]},
+           "Cached set did not refresh all metadata in current candidate order");
+    expect(output.str().empty(), "Selection-set reuse unexpectedly presented candidates");
+    std::string unread;
+    expect(static_cast<bool>(std::getline(input, unread)) && unread == "1",
+           "Selection-set reuse read input");
+
+    bool conflict = false;
+    try {
+        static_cast<void>(session.reuse_provider_selection(
+            "virtual", {refreshed[2], refreshed[1]}));
+    } catch(const ProviderSelectionConflict& error) {
+        conflict = error.dependency_name() == "virtual";
+    }
+    expect(conflict, "Partial disappearance silently shrank the cached set");
+}
+
+void test_selection_set_rejects_within_and_cross_dependency_identity_conflicts() {
+    const ProvidedDependency extra =
+        repository_identity_candidate("extra", "first-virtual");
+    const ProvidedDependency core =
+        repository_identity_candidate("core", "first-virtual");
+    bool within_conflict = false;
+    try {
+        static_cast<void>(ProviderSelectionSet::from_candidate_indices(
+            {extra, core}, {1, 2}));
+    } catch(const std::runtime_error&) {
+        within_conflict = true;
+    }
+    expect(within_conflict, "Incompatible identity within one set was accepted");
+
+    std::istringstream input;
+    std::ostringstream output;
+    ProviderSelectionSession session(input, output, true);
+    const ProvidedDependency unrelated =
+        named_repository_candidate("unrelated", "first-virtual");
+    static_cast<void>(session.record_provider_selection(
+        "first-virtual", {unrelated, extra}, {1, 2}));
+    const ProvidedDependency conflicting =
+        repository_identity_candidate("core", "second-virtual");
+    bool cross_conflict = false;
+    try {
+        static_cast<void>(session.record_provider_selection(
+            "second-virtual",
+            {named_repository_candidate("other", "second-virtual"), conflicting},
+            {1, 2}));
+    } catch(const std::runtime_error&) {
+        cross_conflict = true;
+    }
+    expect(cross_conflict, "Cross-dependency guard skipped a set member");
+
+    const ProvidedDependency same =
+        repository_identity_candidate("extra", "second-virtual", "8.0-1");
+    const ProviderSelectionSet allowed = session.record_provider_selection(
+        "second-virtual", {same}, {1});
+    expect(allowed.members() == std::vector<ProvidedDependency>{same},
+           "Same provider identity across dependencies was rejected");
+}
+
+void test_legacy_adapter_rejects_cached_multiple_selection() {
+    std::istringstream input;
+    std::ostringstream output;
+    ProviderSelectionSession session(input, output, true);
+    const std::vector<ProvidedDependency> offered{
+        named_repository_candidate("a", "virtual"),
+        named_repository_candidate("b", "virtual")};
+    static_cast<void>(session.record_provider_selection("virtual", offered, {1, 2}));
+    bool rejected = false;
+    try {
+        static_cast<void>(session.select_provider("virtual", offered));
+    } catch(const std::logic_error&) {
+        rejected = true;
+    }
+    expect(rejected, "Legacy adapter flattened a multiple provider set");
+}
+
 void test_no_confirm_production_session_is_noninteractive() {
     std::shared_ptr<ProviderSelectionSession> session =
         make_provider_selection_session(true);
@@ -761,6 +898,11 @@ int main() {
         test_missing_previous_identity_throws_typed_conflict();
         test_cross_dependency_package_identity_conflicts();
         test_cross_dependency_same_identity_is_allowed();
+        test_selection_set_retains_multiple_members_in_candidate_order();
+        test_selection_set_deduplicates_identity_and_rejects_empty();
+        test_selection_set_reuse_refreshes_all_members_and_fails_on_partial_loss();
+        test_selection_set_rejects_within_and_cross_dependency_identity_conflicts();
+        test_legacy_adapter_rejects_cached_multiple_selection();
         test_no_confirm_production_session_is_noninteractive();
         std::cout << "provider selection tests passed" << std::endl;
         return 0;
