@@ -5,7 +5,9 @@
 #include "terminal_safe_text.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <iostream>
+#include <limits>
 #include <new>
 #include <stdexcept>
 #include <unistd.h>
@@ -57,7 +59,7 @@ struct ReviewBody {
 // The live 4A owner already proves object hashes, connectivity and complete
 // inventories. Acceptance selects that exact build input; it does not attest
 // to source-code safety. Keep recipe content review in its separate owner.
-void render_identity(const InvocationOwnedPinnedSubmoduleClosure& closure, ReviewBody& body) {
+void render_identity(const InvocationOwnedPinnedSubmoduleClosure& closure, PresentationDetail presentation_detail, ReviewBody& body) {
     body.stage = Stage::Presentation;
 #ifdef MOGUET_ENABLE_PINNED_CLOSURE_REVIEW_TEST_HOOKS
     if(g_hooks.before_render) g_hooks.before_render();
@@ -68,14 +70,21 @@ void render_identity(const InvocationOwnedPinnedSubmoduleClosure& closure, Revie
     // NO_TRANSLATE: Stable technical inventory field labels; all values are escaped.
     body.field("remote: ", source.source_location());
     body.field("selector: ", source.selector().kind() == VcsSelectorKind::DefaultHead ? "HEAD" : "refs/heads/" + *source.selector().value());
-    body.field("root X: ", closure.nodes().front().commit.value());
+    if(presentation_detail == PresentationDetail::Detailed)
+        body.field("root X: ", closure.nodes().front().commit.value());
+    else {
+        body.field("root commit: ", closure.nodes().front().commit.value());
+        body.field("root tree: ", closure.nodes().front().tree.value());
+    }
     body.field("root tag count: ", std::to_string(closure.root_tags().size()));
     for(const auto& tag : closure.root_tags()) {
         body.field("root tag: ", tag.ref_name());
         body.field("raw object: ", tag.raw().value());
         if(tag.peeled()) body.field("peeled object: ", tag.peeled()->value());
     }
-    std::size_t entries = 0;
+    std::size_t entries = 0, submodules = 0;
+    std::uintmax_t total_bytes = 0;
+    bool total_bytes_overflow = false;
     std::vector<std::string> paths(closure.nodes().size());
     for(std::size_t node = 0; node < closure.nodes().size(); ++node) {
         body.node = node;
@@ -83,19 +92,23 @@ void render_identity(const InvocationOwnedPinnedSubmoduleClosure& closure, Revie
         if(value.parent_edge) {
             const auto& edge = closure.edges().at(*value.parent_edge);
             paths[node] = paths.at(edge.parent).empty() ? edge.path : paths[edge.parent] + "/" + edge.path;
-            body.field("parent edge: ", std::to_string(*value.parent_edge));
-            body.field("parent node: ", std::to_string(edge.parent));
-            body.field("logical name: ", edge.logical_name);
-            body.field("parent-relative path: ", edge.path);
-            body.field("locator (transport only): ", edge.locator);
-            body.field("parent gitlink pin: ", edge.pin.value());
+            if(presentation_detail == PresentationDetail::Detailed) {
+                body.field("parent edge: ", std::to_string(*value.parent_edge));
+                body.field("parent node: ", std::to_string(edge.parent));
+                body.field("logical name: ", edge.logical_name);
+                body.field("parent-relative path: ", edge.path);
+                body.field("locator (transport only): ", edge.locator);
+                body.field("parent gitlink pin: ", edge.pin.value());
+            }
         }
-        body.field("node: ", std::to_string(node));
-        body.field("closure path: ", node == 0 ? "." : paths[node]);
-        body.field("commit: ", value.commit.value());
-        body.field("object format: ", value.commit.format() == GitObjectFormat::Sha1 ? "sha1" : "sha256");
-        body.field("tree: ", value.tree.value());
-        body.field("locator: ", value.locator);
+        if(presentation_detail == PresentationDetail::Detailed) {
+            body.field("node: ", std::to_string(node));
+            body.field("closure path: ", node == 0 ? "." : paths[node]);
+            body.field("commit: ", value.commit.value());
+            body.field("object format: ", value.commit.format() == GitObjectFormat::Sha1 ? "sha1" : "sha256");
+            body.field("tree: ", value.tree.value());
+            body.field("locator: ", value.locator);
+        }
         for(std::size_t entry = 0; entry < value.inventory.entries.size(); ++entry) {
             body.entry = entry;
             if(++entries > body.limits.entries) body.stop(Reason::ResourceLimitExceeded);
@@ -105,25 +118,38 @@ void render_identity(const InvocationOwnedPinnedSubmoduleClosure& closure, Revie
             if(file.mode() != ReviewedSourceFileMode::Gitlink &&
                file.mode() != ReviewedSourceFileMode::Regular && file.mode() != ReviewedSourceFileMode::Executable)
                 body.stop(Reason::UnsupportedContent);
-            body.field("file: ", file.path().raw_bytes());
-            body.field("mode: ", file.mode() == ReviewedSourceFileMode::Gitlink ? "160000" : file.mode() == ReviewedSourceFileMode::Executable ? "100755"
-                                                                                                                                               : "100644");
-            body.field("object: ", file.object_id().value());
+            if(presentation_detail == PresentationDetail::Detailed) {
+                body.field("file: ", file.path().raw_bytes());
+                body.field("mode: ", file.mode() == ReviewedSourceFileMode::Gitlink ? "160000" : file.mode() == ReviewedSourceFileMode::Executable ? "100755"
+                                                                                                                                                   : "100644");
+                body.field("object: ", file.object_id().value());
+            }
             if(file.mode() == ReviewedSourceFileMode::Gitlink) {
+                ++submodules;
                 const auto edge = std::find_if(closure.edges().begin(), closure.edges().end(), [&](const auto& candidate) {
                     return candidate.parent == node && candidate.path == file.path().raw_bytes();
                 });
                 if(edge == closure.edges().end() || edge->pin != file.object_id() ||
                    closure.nodes().at(edge->child).commit != edge->pin) body.stop(Reason::InvalidClosure);
-                body.field("exact child node: ", std::to_string(edge->child));
+                if(presentation_detail == PresentationDetail::Detailed) body.field("exact child node: ", std::to_string(edge->child));
             } else {
                 if(!file.blob_size()) body.stop(Reason::InvalidClosure);
-                body.field("bytes: ", std::to_string(*file.blob_size()));
+                if(*file.blob_size() > std::numeric_limits<std::uintmax_t>::max() - total_bytes)
+                    total_bytes_overflow = true;
+                else if(!total_bytes_overflow)
+                    total_bytes += *file.blob_size();
+                if(presentation_detail == PresentationDetail::Detailed) body.field("bytes: ", std::to_string(*file.blob_size()));
             }
         }
     }
     body.node.reset();
     body.entry.reset();
+    if(presentation_detail == PresentationDetail::Normal) {
+        body.field("closure nodes: ", std::to_string(closure.nodes().size()));
+        body.field("files: ", std::to_string(entries));
+        body.field("total bytes: ", total_bytes_overflow ? "> " + std::to_string(std::numeric_limits<std::uintmax_t>::max()) : std::to_string(total_bytes));
+        body.field("submodules: ", std::to_string(submodules));
+    }
 }
 
 ExplicitConfirmationResult present_and_confirm(ReviewBody& body, std::istream& input, std::ostream& output) {
@@ -189,7 +215,8 @@ PinnedClosureCleanupResult AcceptedPinnedSubmoduleClosure::cleanup() noexcept {
 }
 
 PinnedClosureReviewResult review_pinned_submodule_closure(
-    InvocationOwnedPinnedSubmoduleClosure closure, ReviewPolicy diff_policy, bool no_confirm) {
+    InvocationOwnedPinnedSubmoduleClosure closure, PresentationDetail presentation_detail,
+    ReviewPolicy diff_policy, bool no_confirm) {
     ReviewBody body;
     std::istream* input = &std::cin;
     std::ostream* output = &std::cout;
@@ -210,9 +237,9 @@ PinnedClosureReviewResult review_pinned_submodule_closure(
         if(diff_policy != ReviewPolicy::Prompt) body.stop(Reason::ReviewSkipped);
         if(no_confirm) body.stop(Reason::NoConfirm);
         if(!interactive) body.stop(Reason::NonInteractiveInput);
-        render_identity(closure, body);
+        render_identity(closure, presentation_detail, body);
         // The token is obtained here, never accepted from a caller. Complete
-        // identity output precedes the prompt; no upstream blobs are read.
+        // selected presentation precedes the prompt; no upstream blobs are read.
         auto confirmation = present_and_confirm(body, *input, *output);
         if(auto* accepted = std::get_if<ExplicitConfirmationAcceptance>(&confirmation)) {
             if(!accepted->valid()) body.stop(Reason::InvalidClosure);
