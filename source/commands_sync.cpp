@@ -533,6 +533,16 @@ std::string root_package_selection_issue_message(
                     "Invalid package selection token.");
             } else if constexpr(std::is_same_v<
                                     Issue,
+                                    EmptyRootPackageSelectionCommaField>) {
+                return localization::translate_message(
+                    "Package selection contains an empty comma field.");
+            } else if constexpr(std::is_same_v<
+                                    Issue,
+                                    EmptyRootPackageSelectionResult>) {
+                return localization::translate_message(
+                    "Package selection has no candidates after exclusions.");
+            } else if constexpr(std::is_same_v<
+                                    Issue,
                                     RootPackageSelectionIndexOutOfRange>) {
                 // TRANSLATORS: The placeholder is the number of displayed package candidates.
                 return localization::format_translated_message(
@@ -583,7 +593,7 @@ root_package_selection_interaction(PresentationDetail detail) {
             // TRANSLATORS: Enter and q/quit/cancel are literal input tokens; @group is fixed selector syntax.
             std::cout << ":: "
                       << localization::format_translated_message(
-                             "Select package numbers, ascending ranges, or displayed {}; press {} or enter {} to cancel:",
+                             "Select package numbers (space/comma lists), ranges, exclusions (^), or displayed {}; press {} or enter {} to cancel:",
                              "@group", "Enter", "q/quit/cancel")
                       << ' ' << std::flush;
             return;

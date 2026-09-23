@@ -46,6 +46,7 @@ CMAKE_FOCUSED_ALIASES := \
 	test-runtime-identity \
 	test-app-config \
 	test-provider-selection \
+	test-selection-expression \
 	test-provider-installed-state \
 	test-dependency-constraint \
 	test-cross-source-version-lock \

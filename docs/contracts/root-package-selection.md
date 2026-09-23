@@ -54,7 +54,9 @@ dependency provider rankingへの適用は行わない。`-Ss`、候補表示for
 
 ### Selection grammarとinteractive gate
 
-interactive stdinでだけ、番号、複数番号、inclusive range、および表示済みofficial groupを表す`@group` selectorを受け付ける。empty input、`q`、`quit`、`cancel`、EOF、non-TTY、`--noconfirm`では選択せずnon-zeroで停止する。candidateが1件でも明示selectionを要求し、Enterや先頭候補をdefaultにしない。
+interactive stdinでだけ、1-originの番号、ASCII空白・comma区切りの複数番号、両端を含む昇順range、`^N` / `^N-M`による除外、および表示済みofficial groupを表す`@group` selectorを受け付ける。例: `1 3`、`1,3`、`1-2,4`、`1-3 5 ^2`、`^4`、`^2-4`、`@base-devel ^3`。空白とcommaは同じlist separatorとして混在できる。includeがあればその集合からexcludeを引き、excludeだけなら全候補から引く。groupはroot側でincludeへ展開してからexcludeを適用する。重複を除き、結果は候補表示順に正規化する。`^@group`とcommaに接続したgroupは受理しない。
+
+先頭・連続・末尾commaの空field、範囲外番号、降順range、malformed token、除外後の空集合はtyped invalid selectionとしてretryする。特に除外後の空集合は取消ではない。empty input、`q`、`quit`、`cancel`、EOF、non-TTY、`--noconfirm`では選択せずnon-zeroで停止する。candidateが1件でも明示selectionを要求し、Enterや先頭候補をdefaultにしない。
 
 invalidなselection expressionは一部だけを採用せず、同じcandidate snapshotに対してretryする。複数sourceの同名candidateを同時に選んだ場合はalternative source conflictとしてline全体を不採用にする。表示順はselection indexを固定するpresentation policyであり、sourceを暗黙決定するpriorityではない。
 
@@ -78,7 +80,7 @@ selected repository rootはexactな`repository/package`のbinary routeへ明示�
 
 mixed selectionではrepository rootsとAUR rootsをcandidate orderを保ったまま分ける。repository transaction failureではAUR rootsを未実行とし、AUR failureでは完了済みrepository transactionをrollbackしない。cross-source unified transaction、automatic rollbackは追加しない。完了済み、失敗、未実行を区別し、partial completionやfailureをsuccessへflattenしない。
 
-`#272`のprovider selectionとはTTY gate、cancel / retry / EOF、no-default、selection-before-mutationだけを共有し、dependency provider固有のexactly-one sessionやchoice cacheをroot selectionへ混ぜない。#268のsplit artifact selection、conflicts / replaces、version solverも別責務として維持する。
+`#631` Slice 2で数値selection expression parserを共通化したが、provider selectionへのproduction接続は後続Sliceである。現時点のproviderはexactly-one selectionを維持する。TTY gate、cancel / retry / EOF、no-default、selection-before-mutationは引き続きroot/providerの各sessionが所有する。#268のsplit artifact selection、conflicts / replaces、version solverも別責務として維持する。
 
 ## Non-scope / implementationを固定しない範囲
 

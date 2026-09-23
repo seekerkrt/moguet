@@ -3769,6 +3769,12 @@ msgstr ""
 msgid "Invalid package selection token."
 msgstr ""
 
+msgid "Package selection contains an empty comma field."
+msgstr ""
+
+msgid "Package selection has no candidates after exclusions."
+msgstr ""
+
 #, c++-format
 msgid "Package selection index is outside the displayed range 1-{}."
 msgstr ""
@@ -3787,7 +3793,7 @@ msgid "Package {} was selected from more than one source; select exactly one sou
 msgstr ""
 
 #, c++-format
-msgid "Select package numbers, ascending ranges, or displayed {}; press {} or enter {} to cancel:"
+msgid "Select package numbers (space/comma lists), ranges, exclusions (^), or displayed {}; press {} or enter {} to cancel:"
 msgstr ""
 
 msgid "Interactive package selection requires a TTY on standard input."
