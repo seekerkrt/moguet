@@ -6377,11 +6377,12 @@ protected:
     static_assert(!std::is_invocable_v<decltype(review_pinned_submodule_closure), Closure, ExplicitConfirmationAcceptance>);
     static_assert(!std::is_invocable_v<EvaluatedDevelSourceBuildResult (*)(EvaluatedDevelSourceSelection), Accepted>);
     const std::vector<std::string> cases{
-        "single", "nested", "siblings", "executable", "yes", "blank-then-yes", "freeze", "bounds-exact",
-        "binary", "symlink", "entry-limit", "render-limit", "render-failure",
-        "write", "throw-write", "flush", "throw-flush", "prompt-flush", "decline", "no", "cancel", "cancel-word", "eof", "input-failure", "throw-input",
+        "single", "normal", "nested", "siblings", "normal-siblings", "executable", "yes", "blank-then-yes", "freeze", "bounds-exact",
+        "binary", "symlink", "entry-limit", "normal-entry-limit", "render-limit", "normal-render-limit", "render-failure",
+        "write", "throw-write", "flush", "throw-flush", "prompt-flush", "decline", "no", "cancel", "normal-cancel", "cancel-word", "eof", "input-failure", "throw-input",
         "non-tty", "noconfirm", "nodiff", "config-skip", "recipe-token", "migration-token", "moved", "cleanup-failure", "destructor"};
     for(const auto& kind : cases) {
+        const auto presentation_detail = kind.starts_with("normal") ? PresentationDetail::Normal : PresentationDetail::Detailed;
         struct HookReset {
             ~HookReset() {
                 set_pinned_closure_review_test_hooks({});
@@ -6392,7 +6393,7 @@ protected:
         } reset;
         UpstreamGitFixture child("review-child-" + kind), root("review-root-" + kind);
         std::unique_ptr<UpstreamGitFixture> leaf;
-        if(kind == "single" || kind == "nested" || kind == "siblings") {
+        if(kind == "single" || kind == "normal" || kind == "nested" || kind == "siblings" || kind == "normal-siblings") {
             root.review_payload("root first line\nroot last line\n");
             child.review_payload("child first line\nchild last line\n");
         }
@@ -6406,7 +6407,7 @@ protected:
         }
         std::string declaration = module_declaration("logical/A", "deps/a", child.url());
         std::vector<std::pair<std::string, std::string>> pins{{"deps/a", child.oid()}};
-        if(kind == "siblings") {
+        if(kind == "siblings" || kind == "normal-siblings") {
             declaration += module_declaration("other-name", "deps/b", child.url());
             pins.emplace_back("deps/b", child.oid());
         }
@@ -6471,7 +6472,7 @@ protected:
             child.commit("advanced child\n");
         }
         std::string answer = kind == "eof" ? "" : kind == "cancel-word"                                                                               ? "cancel\n"
-                                              : kind == "cancel"                                                                                      ? "q\n"
+                                              : kind == "cancel" || kind == "normal-cancel"                                                           ? "q\n"
                                               : kind == "yes"                                                                                         ? "yes\n"
                                               : kind == "blank-then-yes"                                                                              ? "\ny\n"
                                               : kind == "no"                                                                                          ? "no\n"
@@ -6497,8 +6498,8 @@ protected:
         review.interactive = kind != "non-tty";
         if(kind == "throw-input") review.input = &failing_input;
         if(kind == "bounds-exact") review.entries = inventory_entries;
-        if(kind == "entry-limit") review.entries = inventory_entries - 1;
-        if(kind == "render-limit") review.rendered_bytes = 1;
+        if(kind == "entry-limit" || kind == "normal-entry-limit") review.entries = inventory_entries - 1;
+        if(kind == "render-limit" || kind == "normal-render-limit") review.rendered_bytes = 1;
         if(kind == "render-failure") review.before_render = [] { throw std::runtime_error("fixture render failure"); };
         set_pinned_closure_review_test_hooks(review);
         if(kind == "recipe-token" || kind == "migration-token") {
@@ -6512,10 +6513,10 @@ protected:
         if(kind == "moved") moved.emplace(std::move(closure));
         reviewing = true;
         {
-            auto result = review_pinned_submodule_closure(std::move(closure),
+            auto result = review_pinned_submodule_closure(std::move(closure), presentation_detail,
                                                           kind == "nodiff" || kind == "config-skip" ? ReviewPolicy::Skip : ReviewPolicy::Prompt, kind == "noconfirm");
             require(!closure.valid() && initial == 1, "Review duplicated selection ownership/evaluation");
-            const bool success = kind == "single" || kind == "nested" || kind == "siblings" || kind == "binary" ||
+            const bool success = kind == "single" || kind == "normal" || kind == "nested" || kind == "siblings" || kind == "normal-siblings" || kind == "binary" ||
                                  kind == "executable" || kind == "yes" || kind == "blank-then-yes" ||
                                  kind == "freeze" || kind == "destructor" || kind == "bounds-exact";
             const auto rendered = buffer.str();
@@ -6526,16 +6527,15 @@ protected:
                             accepted.closure().selection().snapshot_identity() == snapshot && accepted.closure().nodes()[0].commit.value() == root_pin &&
                             accepted.closure().edges()[0].pin.value() == child_pin && fs::exists(object_root) && fs::exists(context_root),
                         "Accepted review lost whole owner/backing/lineage/pins");
-                require(prompted && reads == 0 && rendered.find(root_pin) != std::string::npos &&
-                            rendered.find(child_pin) != std::string::npos && rendered.find("logical/A") != std::string::npos &&
-                            rendered.find("deps/a") != std::string::npos && rendered.find(".gitmodules") != std::string::npos &&
-                            rendered.find("exact child node:") != std::string::npos,
-                        "Review omitted identity/declaration context");
+                require(prompted && reads == 0 && rendered.find(root_pin) != std::string::npos,
+                        "Review omitted root identity or prompt");
                 require(rendered.find("Upstream blob contents are not displayed.") != std::string::npos &&
                             rendered.find("does not certify source-code safety") != std::string::npos &&
                             rendered.find("remote: " + root.url()) != std::string::npos &&
                             rendered.find("selector: HEAD") != std::string::npos &&
-                            rendered.find("tree: " + accepted.closure().nodes()[0].tree.value()) != std::string::npos,
+                            rendered.find(presentation_detail == PresentationDetail::Normal
+                                              ? "root tree: " + accepted.closure().nodes()[0].tree.value()
+                                              : "tree: " + accepted.closure().nodes()[0].tree.value()) != std::string::npos,
                         "Snapshot acceptance meaning/root identity omitted");
                 require(rendered.find("root tag count: 2") != std::string::npos &&
                             rendered.find("root tag: refs/tags/review/lightweight") != std::string::npos &&
@@ -6543,17 +6543,46 @@ protected:
                             rendered.find("raw object: " + reviewed_tag) != std::string::npos &&
                             rendered.find("peeled object: " + root_pin) != std::string::npos,
                         "Review lost complete raw/peeled tag mapping");
-                for(const auto& node : accepted.closure().nodes())
-                    for(const auto& file : node.inventory.entries) {
-                        require(rendered.find(file.path().raw_bytes()) != std::string::npos &&
-                                    rendered.find(file.object_id().value()) != std::string::npos,
-                                "Snapshot inventory omitted file identity");
-                        if(file.blob_size()) require(rendered.find("bytes: " + std::to_string(*file.blob_size())) != std::string::npos, "Snapshot inventory omitted blob size");
-                    }
+                if(presentation_detail == PresentationDetail::Detailed) {
+                    require(rendered.find("root X: " + root_pin) != std::string::npos &&
+                                rendered.find(child_pin) != std::string::npos && rendered.find("logical/A") != std::string::npos &&
+                                rendered.find("deps/a") != std::string::npos && rendered.find(".gitmodules") != std::string::npos &&
+                                rendered.find("exact child node:") != std::string::npos,
+                            "Detailed review omitted submodule identity");
+                    for(const auto& node : accepted.closure().nodes())
+                        for(const auto& file : node.inventory.entries) {
+                            require(rendered.find("file: " + file.path().raw_bytes()) != std::string::npos &&
+                                        rendered.find("object: " + file.object_id().value()) != std::string::npos &&
+                                        rendered.find("mode: " + std::string(file.mode() == ReviewedSourceFileMode::Gitlink ? "160000" : file.mode() == ReviewedSourceFileMode::Executable ? "100755"
+                                                                                                                                                                                           : "100644")) != std::string::npos,
+                                    "Detailed snapshot inventory omitted file identity");
+                            if(file.blob_size()) require(rendered.find("bytes: " + std::to_string(*file.blob_size())) != std::string::npos, "Detailed snapshot inventory omitted blob size");
+                        }
+                } else {
+                    std::uintmax_t expected_bytes = 0;
+                    std::size_t expected_entries = 0, expected_submodules = 0;
+                    for(const auto& node : accepted.closure().nodes())
+                        for(const auto& file : node.inventory.entries) {
+                            ++expected_entries;
+                            if(file.mode() == ReviewedSourceFileMode::Gitlink)
+                                ++expected_submodules;
+                            else
+                                expected_bytes += *file.blob_size();
+                        }
+                    require(rendered.find("closure nodes: " + std::to_string(accepted.closure().nodes().size())) != std::string::npos &&
+                                rendered.find("files: " + std::to_string(expected_entries)) != std::string::npos &&
+                                rendered.find("total bytes: " + std::to_string(expected_bytes)) != std::string::npos &&
+                                rendered.find("submodules: " + std::to_string(expected_submodules)) != std::string::npos &&
+                                rendered.find("\nfile: ") == std::string::npos && rendered.find("\nmode: ") == std::string::npos &&
+                                rendered.find("\nobject: ") == std::string::npos && rendered.find("\nbytes: ") == std::string::npos &&
+                                rendered.find("\nnode: ") == std::string::npos && rendered.find("\nparent gitlink pin: ") == std::string::npos,
+                            "Normal review did not preserve compact closure summary");
+                }
                 require(rendered.find("root first line") == std::string::npos && rendered.find("child first line") == std::string::npos,
                         "Acceptance silently restored whole-content review");
                 if(kind == "nested") require(rendered.find("deps/a/nested/b") != std::string::npos && rendered.find(leaf->oid()) != std::string::npos, "Nested review missing");
                 if(kind == "siblings") require(accepted.closure().edges().size() == 2 && rendered.find("deps/b") != std::string::npos && rendered.find("node: 2") != std::string::npos, "Sibling occurrence collapsed");
+                if(kind == "normal-siblings") require(accepted.closure().edges().size() == 2 && rendered.find("submodules: 2") != std::string::npos, "Normal sibling count collapsed");
                 if(kind == "executable") require(rendered.find("100755") != std::string::npos, "Executable mode lost");
                 if(kind == "freeze") require(rendered.find("advanced root") == std::string::npos && rendered.find("advanced child") == std::string::npos, "Review followed moved remote");
                 auto transferred = std::move(accepted);
@@ -6566,14 +6595,14 @@ protected:
                 if(kind == "render-failure") expected = Reason::RenderFailure;
                 if(kind == "write" || kind == "throw-write" || kind == "flush" || kind == "throw-flush" || kind == "prompt-flush") expected = Reason::OutputFailure;
                 if(kind == "decline" || kind == "no" || kind == "recipe-token" || kind == "migration-token" || kind == "cleanup-failure") expected = Reason::Declined;
-                if(kind == "cancel" || kind == "cancel-word" || kind == "eof") expected = Reason::Cancelled;
+                if(kind == "cancel" || kind == "normal-cancel" || kind == "cancel-word" || kind == "eof") expected = Reason::Cancelled;
                 if(kind == "input-failure" || kind == "throw-input") expected = Reason::InputFailure;
                 if(kind == "non-tty") expected = Reason::NonInteractiveInput;
                 if(kind == "noconfirm") expected = Reason::NoConfirm;
                 if(kind == "nodiff" || kind == "config-skip") expected = Reason::ReviewSkipped;
                 if(kind == "moved") expected = Reason::InvalidClosure;
                 require(failure.reason == expected, "Review failure taxonomy changed: " + kind + " reason=" + std::to_string(static_cast<int>(failure.reason)));
-                if(kind == "cancel" || kind == "cancel-word" || kind == "eof") require(failure.cancellation == (kind == "eof" ? ConfirmationCancellationReason::EndOfInput : ConfirmationCancellationReason::ExplicitToken), "Cancellation detail lost");
+                if(kind == "cancel" || kind == "normal-cancel" || kind == "cancel-word" || kind == "eof") require(failure.cancellation == (kind == "eof" ? ConfirmationCancellationReason::EndOfInput : ConfirmationCancellationReason::ExplicitToken), "Cancellation detail lost");
 
                 if(failure.stage == Stage::Input || failure.stage == Stage::Presentation)
                     require(rendered.empty() && input.rdbuf()->in_avail() == static_cast<std::streamsize>(answer.size()), "Failed collection/presentation consumed input or displayed prefix");
@@ -6710,7 +6739,7 @@ prepare() {
         review.output = &output;
         review.interactive = true;
         set_pinned_closure_review_test_hooks(review);
-        auto reviewed = review_pinned_submodule_closure(std::move(closure));
+        auto reviewed = review_pinned_submodule_closure(std::move(closure), PresentationDetail::Detailed);
         auto accepted = take_arm<AcceptedPinnedSubmoduleClosure>(reviewed, "Tag acceptance failed");
         for(const auto& tag : accepted.closure().root_tags()) {
             require(output.str().find("root tag: " + tag.ref_name()) != std::string::npos &&
@@ -7064,7 +7093,7 @@ prepare() {
         review.output = &output;
         review.interactive = true;
         set_pinned_closure_review_test_hooks(review);
-        auto reviewed = review_pinned_submodule_closure(std::move(closure));
+        auto reviewed = review_pinned_submodule_closure(std::move(closure), PresentationDetail::Detailed);
         auto accepted = take_arm<Accepted>(reviewed, "Workspace review did not accept");
         accepted_phase = true;
         const auto original_backing = fingerprint(object_root);

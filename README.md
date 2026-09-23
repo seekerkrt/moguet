@@ -67,6 +67,11 @@ simpler responsibility boundaries, and a dedicated final-RC validation workflow.
 See the [v2.9.0 release](https://github.com/seekerkrt/moguet/releases/tag/v2.9.0)
 for the supported scope and complete user-visible changes.
 
+Moguet v2.9.1 is a PATCH release that makes pinned source snapshot acceptance
+more compact in Normal output. The snapshot identity and closure summary remain
+visible; `--details` retains exact per-node and per-file identity. Verification,
+acceptance, routing, build, install, and exit semantics are unchanged.
+
 The canonical repository identity is Moguet on GitHub, with a GitLab mirror.
 The Moguet package does not provide a `jpacker` command alias. AUR publication
 is a separate future decision; this document does not claim that an AUR
@@ -637,7 +642,8 @@ acceptance selects the exact upstream snapshot (remote, selector, root/tree,
 file identities and submodule pins) as build input. It does not certify
 source-code safety or require reading every upstream blob; binary and large
 assets do not alone make the snapshot unsupported. Recipe-local inputs retain
-full content review. `--noedit` is allowed;
+full content review. Normal output summarizes closure size and submodule count;
+`--details` shows per-file identity and exact submodule pins. `--noedit` is allowed;
 `--nodiff`, `review.diff = "skip"`, `--noconfirm`, and non-TTY input do not approve
 bootstrap. Decline skips the target; cancellation or a later execution failure
 stops subsequent work without rollback. Invalid, corrupt, future, mismatched,

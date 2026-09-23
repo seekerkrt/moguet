@@ -64,7 +64,8 @@ private:
     AcceptedPinnedSubmoduleClosure(InvocationOwnedPinnedSubmoduleClosure closure,
                                    ExplicitConfirmationAcceptance confirmation) noexcept;
     friend PinnedClosureReviewResult review_pinned_submodule_closure(
-        InvocationOwnedPinnedSubmoduleClosure closure, ReviewPolicy diff_policy, bool no_confirm);
+        InvocationOwnedPinnedSubmoduleClosure closure, PresentationDetail presentation_detail,
+        ReviewPolicy diff_policy, bool no_confirm);
     InvocationOwnedPinnedSubmoduleClosure closure_;
     ExplicitConfirmationAcceptance confirmation_;
 };
@@ -73,7 +74,7 @@ private:
 // A migration/recipe token, raw metadata or an external "accepted" flag cannot
 // substitute for this session. No object reads occur after the human prompt.
 [[nodiscard]] PinnedClosureReviewResult review_pinned_submodule_closure(
-    InvocationOwnedPinnedSubmoduleClosure closure,
+    InvocationOwnedPinnedSubmoduleClosure closure, PresentationDetail presentation_detail,
     ReviewPolicy diff_policy = ReviewPolicy::Prompt, bool no_confirm = false);
 
 #ifdef MOGUET_ENABLE_PINNED_CLOSURE_REVIEW_TEST_HOOKS

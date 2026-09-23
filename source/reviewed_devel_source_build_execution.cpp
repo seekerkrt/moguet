@@ -257,7 +257,7 @@ std::optional<ReviewedDevelSourceBuildExecutionResult> ReviewedDevelSourceBuildE
                 return stopped;
             }
             auto accepted = review_pinned_submodule_closure(std::get<InvocationOwnedPinnedSubmoduleClosure>(std::move(closure)),
-                                                            ReviewPolicy::Prompt, state.intent.execution_options.no_confirm);
+                                                            presentation_detail, ReviewPolicy::Prompt, state.intent.execution_options.no_confirm);
             if(auto* failure = std::get_if<PinnedClosureReviewFailure>(&accepted)) {
                 state.closure_review_failure.emplace(std::move(*failure));
                 return stopped;
