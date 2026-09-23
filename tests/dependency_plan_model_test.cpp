@@ -1554,7 +1554,7 @@ void test_case_8_selected_repository_provider() {
         [&invocation_count](
             const std::string& dependency,
             const std::vector<ProvidedDependency>& candidates)
-        -> std::optional<ProvidedDependency> {
+        -> std::optional<ProviderSelectionSet> {
         ++invocation_count;
         expect(
             dependency == "case8-virtual",
@@ -1569,7 +1569,7 @@ void test_case_8_selected_repository_provider() {
         selected.provided_dependency_specification =
             "selector-tampered=999";
         selected.package_version = "999.0-1";
-        return selected;
+        return ProviderSelectionSet(selected);
     };
 
     BuildPlan plan = resolve_build_plan("case8-app", select_provider);
@@ -1637,6 +1637,164 @@ void test_case_8_cancel_and_unoffered_selection() {
         },
         "Provider selection returned a candidate that was not offered for "
         "case8-virtual.");
+}
+
+void test_multiple_selected_repository_providers() {
+    ProviderSelectionCallback select_both = [](
+                                                const std::string& dependency,
+                                                const std::vector<ProvidedDependency>& candidates)
+        -> std::optional<ProviderSelectionSet> {
+        expect(dependency == "case8-virtual" && candidates.size() == 2,
+               "Repository set callback input differs");
+        // Callback metadata must not replace resolver-owned observations.
+        std::vector<ProvidedDependency> stale = candidates;
+        stale[0].package_version = "999.0-1";
+        stale[1].provided_dependency_specification = "stale=999";
+        return ProviderSelectionSet::from_candidate_indices(stale, {2, 1});
+    };
+    BuildPlan plan = resolve_build_plan("case8-app", select_both);
+    expect(plan.provided.size() == 2, "Repository set lost a decision");
+    expect(plan.provided[0].provider == case8_repository_provider_a() &&
+               plan.provided[1].provider == case8_repository_provider_b(),
+           "Repository set lost canonical resolver metadata or order");
+    std::vector<ProvidedDependency> edge_providers;
+    for(const auto& edge : plan.dependency_edges) {
+        if(edge.parent_package_name != "case8-app" ||
+           edge.dependency_spec != "case8-virtual") continue;
+        expect(edge.kind == DependencyKind::Provided &&
+                   edge.provider_resolution == ProviderResolutionKind::UserSelected &&
+                   edge.resolved_candidate.has_value() &&
+                   edge.constraint_evaluation.has_value(),
+               "Repository set edge lost provider authority");
+        edge_providers.push_back(edge.resolved_provider.value());
+    }
+    expect(edge_providers == std::vector<ProvidedDependency>{
+                                 case8_repository_provider_a(),
+                                 case8_repository_provider_b()},
+           "Repository set edge expansion differs");
+    require_fetchable_build_plan("case8-app", plan);
+
+    ProviderSelectionCallback outside = [](
+                                            const std::string&,
+                                            const std::vector<ProvidedDependency>& candidates)
+        -> std::optional<ProviderSelectionSet> {
+        std::vector<ProvidedDependency> injected = {
+            candidates.front(), ProvidedDependency::from_repository(
+                                    "testing", "not-offered", "case8-virtual", "case8-virtual=1",
+                                    std::optional<std::string>{"1.0-1"})};
+        return ProviderSelectionSet::from_candidate_indices(injected, {1, 2});
+    };
+    expect_exception(
+        [&outside]() {
+            static_cast<void>(resolve_build_plan("case8-app", outside));
+        },
+        "Provider selection returned a candidate that was not offered for case8-virtual.");
+}
+
+void test_multiple_selected_aur_providers() {
+    ProviderSelectionCallback select_both = [](
+                                                const std::string& dependency,
+                                                const std::vector<ProvidedDependency>& candidates)
+        -> std::optional<ProviderSelectionSet> {
+        expect(dependency == "case21-virtual" && candidates.size() == 2,
+               "AUR set callback input differs");
+        return ProviderSelectionSet::from_candidate_indices(candidates, {2, 1});
+    };
+    BuildPlan plan = resolve_build_plan("case21-app", select_both);
+    expect(plan.provided.size() == 2 &&
+               plan.provided[0].provider == case21_aur_provider_a() &&
+               plan.provided[1].provider == case21_aur_provider_b(),
+           "AUR set lost selected decisions");
+    expect(package_target_count(plan, "case21-provider-a") == 1 &&
+               package_target_count(plan, "case21-provider-b") == 1,
+           "AUR set failed to traverse every provider");
+    std::size_t provider_edges = 0;
+    for(const auto& edge : plan.dependency_edges) {
+        if(edge.parent_package_name == "case21-app" &&
+           edge.dependency_spec == "case21-virtual" &&
+           edge.kind == DependencyKind::Provided) ++provider_edges;
+    }
+    expect(provider_edges == 2, "AUR set lost an edge");
+    require_fetchable_build_plan("case21-app", plan);
+
+    const AurPackageInfo root = AurClient::info_strict("case21-app").value();
+    const auto tree = resolve_recursive_dependencies(root, select_both);
+    expect(tree.size() == 2 && tree[0].provided_by == case21_aur_provider_a() &&
+               tree[1].provided_by == case21_aur_provider_b() &&
+               !tree[1].children.empty(),
+           "Recursive deps lost a selected provider or its children");
+}
+
+void test_selected_set_partial_refresh_blocks_execution() {
+    ProviderSelectionCallback select_both = [](
+                                                const std::string& dependency,
+                                                const std::vector<ProvidedDependency>& candidates)
+        -> std::optional<ProviderSelectionSet> {
+        expect(dependency == "case33-virtual" && candidates.size() == 2,
+               "Refresh fixture callback input differs");
+        return ProviderSelectionSet::from_candidate_indices(candidates, {1, 2});
+    };
+    BuildPlan plan = resolve_build_plan_for_preflight(
+        {"case33-app"}, select_both);
+    expect(plan.provided.size() == 2 &&
+               plan.provided[0].provider.package_name == "case33-provider-a" &&
+               plan.provided[1].provider.package_name == "case33-provider-b",
+           "Failed refresh silently removed a selected member");
+    std::size_t resolved = 0;
+    std::size_t unknown = 0;
+    for(const auto& edge : plan.dependency_edges) {
+        if(edge.parent_package_name != "case33-app" ||
+           edge.dependency_spec != "case33-virtual") continue;
+        if(edge.kind == DependencyKind::Provided) ++resolved;
+        if(edge.kind == DependencyKind::Unknown &&
+           edge.resolved_provider.has_value() &&
+           edge.resolved_provider->package_name == "case33-provider-b" &&
+           edge.constraint_evaluation.has_value() &&
+           edge.constraint_evaluation->satisfaction() ==
+               ConstraintSatisfaction::Unknown) ++unknown;
+    }
+    expect(resolved == 1 && unknown == 1 && !plan.unresolved.empty(),
+           "Partial refresh lost per-member failure evidence");
+    bool blocked = false;
+    try {
+        require_executable_build_plan("case33-app", plan);
+    } catch(const std::exception& error) {
+        blocked = std::string(error.what()).find("Unknown") != std::string::npos;
+    }
+    expect(blocked, "Partial refresh remained execution-ready");
+}
+
+void test_multiple_selected_aur_providers_same_base() {
+    ProviderSelectionCallback select_both = [](
+                                                const std::string& dependency,
+                                                const std::vector<ProvidedDependency>& candidates)
+        -> std::optional<ProviderSelectionSet> {
+        expect(dependency == "case34-virtual" && candidates.size() == 2,
+               "Same-base callback input differs");
+        return ProviderSelectionSet::from_candidate_indices(candidates, {1, 2});
+    };
+    BuildPlan plan = resolve_build_plan("case34-app", select_both);
+    expect(plan.provided.size() == 2,
+           "Same-base selection lost a provider decision");
+    expect(require_build_plan_entry(plan, "case34-suite").package_names ==
+               std::vector<std::string>{"case34-provider-a", "case34-provider-b"},
+           "Same-base build unit lost a required package child");
+    expect(package_target_count(plan, "case34-child-a") == 1 &&
+               package_target_count(plan, "case34-child-b") == 1,
+           "Same-base traversal lost provider dependencies");
+    expect_build_unit_before(plan, "case34-child-a", "case34-suite");
+    expect_build_unit_before(plan, "case34-child-b", "case34-suite");
+    require_fetchable_build_plan("case34-app", plan);
+
+    const AurPackageInfo root = AurClient::info_strict("case34-app").value();
+    const auto tree = resolve_recursive_dependencies(root, select_both);
+    expect(tree.size() == 2 &&
+               tree[0].provided_by->package_name == "case34-provider-a" &&
+               tree[1].provided_by->package_name == "case34-provider-b" &&
+               !tree[0].children.empty() && !tree[1].children.empty() &&
+               tree[0].children[0].package_name == "case34-child-a" &&
+               tree[1].children[0].package_name == "case34-child-b",
+           "Recursive deps lost a selected same-base child subtree");
 }
 
 void test_case_21_selected_aur_provider() {
@@ -3330,6 +3488,14 @@ int main() {
         run_case(
             "Case 8 cancel and unoffered selection",
             test_case_8_cancel_and_unoffered_selection);
+        run_case("multiple repository provider projection",
+                 test_multiple_selected_repository_providers);
+        run_case("multiple AUR provider projection",
+                 test_multiple_selected_aur_providers);
+        run_case("selected set partial refresh blocks execution",
+                 test_selected_set_partial_refresh_blocks_execution);
+        run_case("same PackageBase selected AUR providers",
+                 test_multiple_selected_aur_providers_same_base);
         run_case(
             "Case 21 selected AUR provider",
             test_case_21_selected_aur_provider);

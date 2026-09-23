@@ -1,9 +1,12 @@
 #pragma once
 
-#include "dependency_plan.hpp"
+#include "dependency_provider.hpp"
+#include "localization.hpp"
 #include "presentation_detail.hpp"
 
 #include <cstddef>
+#include <algorithm>
+#include <iterator>
 #include <functional>
 #include <iosfwd>
 #include <map>
@@ -12,6 +15,7 @@
 #include <set>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 // invocation内で確定済みだったproviderが、同じ依存の現在候補から消えた状態。
@@ -52,18 +56,69 @@ void present_provider_candidate_metadata(
 // 同一identityの重複は1件へ正規化する。metadataは選択時の候補snapshot。
 class ProviderSelectionSet final {
 public:
+    // A single explicit choice is a one-member selection set.
+    ProviderSelectionSet(const ProvidedDependency& member)
+        : members_{member} {
+    }
+
     // Copy on rvalues too, so a moved-from instance cannot become empty.
     ProviderSelectionSet(const ProviderSelectionSet&) = default;
     ProviderSelectionSet& operator=(const ProviderSelectionSet&) = default;
 
     static ProviderSelectionSet from_candidate_indices(
         const std::vector<ProvidedDependency>& candidates,
-        const std::vector<std::size_t>& one_origin_indices);
+        const std::vector<std::size_t>& one_origin_indices) {
+        if(one_origin_indices.empty()) {
+            throw std::invalid_argument("Provider selection set cannot be empty.");
+        }
+        std::vector<bool> selected(candidates.size(), false);
+        for(const std::size_t index : one_origin_indices) {
+            if(index == 0 || index > candidates.size()) {
+                throw std::out_of_range("Provider selection index is out of range.");
+            }
+            selected[index - 1] = true;
+        }
 
-    const std::vector<ProvidedDependency>& members() const noexcept;
+        std::vector<ProvidedDependency> members;
+        for(std::size_t index = 0; index < candidates.size(); ++index) {
+            if(!selected[index]) continue;
+            const ProvidedDependency& candidate = candidates[index];
+            const auto duplicate = std::find_if(
+                members.begin(), members.end(),
+                [&candidate](const ProvidedDependency& member) {
+                    return same_provider_identity(member, candidate);
+                });
+            if(duplicate != members.end()) continue;
+            const auto incompatible = std::find_if(
+                members.begin(), members.end(),
+                [&candidate](const ProvidedDependency& member) {
+                    return has_incompatible_provider_package_identity(
+                        member, candidate);
+                });
+            if(incompatible != members.end()) {
+                throw std::runtime_error(
+                    localization::format_translated_message(
+                        "Selected providers use incompatible identities for package {}: {} and {}.",
+                        candidate.package_name,
+                        provider_package_identity_display(*incompatible),
+                        provider_package_identity_display(candidate)));
+            }
+            members.push_back(candidate);
+        }
+        return ProviderSelectionSet(std::move(members));
+    }
+
+    const std::vector<ProvidedDependency>& members() const noexcept {
+        return members_;
+    }
 
 private:
-    explicit ProviderSelectionSet(std::vector<ProvidedDependency> members);
+    explicit ProviderSelectionSet(std::vector<ProvidedDependency> members)
+        : members_(std::move(members)) {
+        if(members_.empty()) {
+            throw std::invalid_argument("Provider selection set cannot be empty.");
+        }
+    }
 
     std::vector<ProvidedDependency> members_;
 };
@@ -83,6 +138,13 @@ public:
         const std::vector<ProvidedDependency>& candidates);
 
     std::optional<ProvidedDependency> select_provider(
+        const std::string& dependency,
+        const std::vector<ProvidedDependency>& candidates,
+        const ProviderCandidatePresenter& present_candidate);
+
+    // The production callback carries the whole cached decision. The current
+    // interactive prompt still records exactly one numeric candidate.
+    std::optional<ProviderSelectionSet> select_provider_set(
         const std::string& dependency,
         const std::vector<ProvidedDependency>& candidates,
         const ProviderCandidatePresenter& present_candidate);

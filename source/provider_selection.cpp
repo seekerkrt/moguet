@@ -165,56 +165,6 @@ const std::string& ProviderSelectionConflict::dependency_name() const noexcept {
     return dependency_name_;
 }
 
-ProviderSelectionSet::ProviderSelectionSet(
-    std::vector<ProvidedDependency> members)
-    : members_(std::move(members)) {
-    if(members_.empty()) {
-        throw std::invalid_argument("Provider selection set cannot be empty.");
-    }
-}
-
-ProviderSelectionSet ProviderSelectionSet::from_candidate_indices(
-    const std::vector<ProvidedDependency>& candidates,
-    const std::vector<std::size_t>& one_origin_indices) {
-    if(one_origin_indices.empty()) {
-        throw std::invalid_argument("Provider selection set cannot be empty.");
-    }
-    std::vector<bool> selected(candidates.size(), false);
-    for(const std::size_t index : one_origin_indices) {
-        if(index == 0 || index > candidates.size()) {
-            throw std::out_of_range("Provider selection index is out of range.");
-        }
-        selected[index - 1] = true;
-    }
-
-    std::vector<ProvidedDependency> members;
-    for(std::size_t index = 0; index < candidates.size(); ++index) {
-        if(!selected[index]) continue;
-        const ProvidedDependency& candidate = candidates[index];
-        const auto duplicate = std::find_if(
-            members.begin(), members.end(), [&candidate](const ProvidedDependency& member) {
-                return same_provider_identity(member, candidate);
-            });
-        if(duplicate != members.end()) continue;
-
-        const auto incompatible = std::find_if(
-            members.begin(), members.end(), [&candidate](const ProvidedDependency& member) {
-                return has_incompatible_provider_package_identity(member, candidate);
-            });
-        if(incompatible != members.end()) {
-            throw std::runtime_error(
-                selected_provider_package_identity_conflict_diagnostic(
-                    *incompatible, candidate));
-        }
-        members.push_back(candidate);
-    }
-    return ProviderSelectionSet(std::move(members));
-}
-
-const std::vector<ProvidedDependency>& ProviderSelectionSet::members() const noexcept {
-    return members_;
-}
-
 ProviderSelectionSession::ProviderSelectionSession(
     std::istream& input, std::ostream& output, bool is_interactive)
     : input_(&input), output_(&output), is_interactive_(is_interactive) {
@@ -225,6 +175,20 @@ std::optional<ProvidedDependency> ProviderSelectionSession::select_provider(
     const std::vector<ProvidedDependency>& candidates) {
     return select_provider(
         dependency, candidates, make_default_provider_candidate_presenter());
+}
+
+std::optional<ProviderSelectionSet> ProviderSelectionSession::select_provider_set(
+    const std::string& dependency,
+    const std::vector<ProvidedDependency>& candidates,
+    const ProviderCandidatePresenter& present_candidate) {
+    if(const auto cached = reuse_provider_selection(dependency, candidates);
+       cached.has_value()) {
+        return cached;
+    }
+    if(!select_provider(dependency, candidates, present_candidate).has_value()) {
+        return std::nullopt;
+    }
+    return reuse_provider_selection(dependency, candidates);
 }
 
 std::optional<ProvidedDependency> ProviderSelectionSession::select_provider(

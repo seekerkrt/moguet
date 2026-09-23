@@ -1,5 +1,6 @@
 #pragma once
 
+#include "dependency_plan.hpp"
 #include "presentation_detail.hpp"
 #include "provider_selection.hpp"
 #include "user_config.hpp"

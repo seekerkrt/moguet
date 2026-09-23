@@ -58,7 +58,7 @@ ProviderSelectionCallback registered_source_provider_selection_callback(
     return [select_provider = std::move(select_provider)](
                const std::string& dependency,
                const std::vector<ProvidedDependency>& candidates)
-               -> std::optional<ProvidedDependency> {
+               -> std::optional<ProviderSelectionSet> {
         const bool has_aur_candidate = std::any_of(
             candidates.begin(), candidates.end(),
             [](const ProvidedDependency& candidate) {

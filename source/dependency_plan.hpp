@@ -5,6 +5,7 @@
 #include "dependency_provider.hpp"
 #include "package_constraint_metadata.hpp"
 #include "package_relation_assessment.hpp"
+#include "provider_selection.hpp"
 
 #include <array>
 #include <cstddef>
@@ -22,7 +23,7 @@ struct AmbiguousProvidedDependency {
 
 // provider候補のpresentation/inputはCLI ownerへ委ね、plan coreは
 // source-aware candidateと選択結果だけを受け取る。
-using ProviderSelectionCallback = std::function<std::optional<ProvidedDependency>(
+using ProviderSelectionCallback = std::function<std::optional<ProviderSelectionSet>(
     const std::string& dependency,
     const std::vector<ProvidedDependency>& candidates)>;
 

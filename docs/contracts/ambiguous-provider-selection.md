@@ -213,6 +213,7 @@ installed stateはidentity modelやBuildPlanへ流入しない境界を維持す
 - Issue #388でprovider candidateのinstalled-state annotationをproduction presentationへ接続済み。
 - Issue #351 Slice 2〜4のtyped constraint model、source-aware repository/local adapter、AUR metadata projectionをproduction resolver edgeのauthorityとする。
 - Issue #351 Slice 5ではinvocation-wide aggregation、prompt前の`Invalid` / `Conflicting` guard、partial-source `Unknown`、selected provider refresh、installed exact fallbackを同じBuildPlan / preflight ownerへ接続する。
+- Issue #631 Slice 4では、内部callbackの選択結果をnon-emptyなprovider setとして受け、選択memberごとに`BuildPlan::provided`と単一provider edgeへ投影する。repository targetはidentity単位、AUR build unitはPackageBase単位の既存集約を用いる。public provider promptは引き続き番号1件のみを受け付け、multiple / range / exclude入力はSlice 5の対象とする。repository providerがある場合にAUR providerを候補へ加えない上記resolution orderも現時点では維持する。
 
 ### Ownership、plan、route
 
