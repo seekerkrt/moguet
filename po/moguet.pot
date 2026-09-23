@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.9.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-23 14:26+0900\n"
+"POT-Creation-Date: 2026-09-24 07:07+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -6926,6 +6926,21 @@ msgstr ""
 msgid "[component: {}]"
 msgstr ""
 
+msgid "Invalid provider selection token."
+msgstr ""
+
+msgid "Provider selection has an empty comma field."
+msgstr ""
+
+msgid "Provider selection index is out of range."
+msgstr ""
+
+msgid "Provider selection ranges must use ascending endpoints."
+msgstr ""
+
+msgid "Provider selection is empty after exclusions."
+msgstr ""
+
 msgid "Provider selection requires a non-empty dependency name."
 msgstr ""
 
@@ -6934,11 +6949,10 @@ msgid "Choose a provider for {}:"
 msgstr ""
 
 #, c++-format
-msgid "Select a provider from [{}], or press {} / enter {} to cancel:"
+msgid "Select providers from [{}] (1 2, 1,2, 1-2; exclude ^2):"
 msgstr ""
 
-#, c++-format
-msgid "Invalid choice. Enter a number from [{}], or press {} / enter {} to cancel."
+msgid "Enter, q, quit, or cancel to cancel. Selection:"
 msgstr ""
 
 #. TRANSLATORS: This tag means Moguet could not

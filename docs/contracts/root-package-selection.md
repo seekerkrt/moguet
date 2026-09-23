@@ -80,7 +80,7 @@ selected repository rootはexactな`repository/package`のbinary routeへ明示�
 
 mixed selectionではrepository rootsとAUR rootsをcandidate orderを保ったまま分ける。repository transaction failureではAUR rootsを未実行とし、AUR failureでは完了済みrepository transactionをrollbackしない。cross-source unified transaction、automatic rollbackは追加しない。完了済み、失敗、未実行を区別し、partial completionやfailureをsuccessへflattenしない。
 
-`#631` Slice 2で数値selection expression parserを共通化したが、provider selectionへのproduction接続は後続Sliceである。現時点のproviderはexactly-one selectionを維持する。TTY gate、cancel / retry / EOF、no-default、selection-before-mutationは引き続きroot/providerの各sessionが所有する。#268のsplit artifact selection、conflicts / replaces、version solverも別責務として維持する。
+`#631` Slice 2で数値selection expression parserを共通化し、Slice 5でprovider selectionのpublic promptにも接続した。root固有の`@group` selectorはproviderへ適用しない。TTY gate、cancel / retry / EOF、no-default、selection-before-mutationは引き続きroot/providerの各sessionが所有する。#268のsplit artifact selection、conflicts / replaces、version solverも別責務として維持する。
 
 ## Non-scope / implementationを固定しない範囲
 

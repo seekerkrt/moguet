@@ -181,7 +181,7 @@ enum class RootPackageSelectionInputGate {
     NoConfirm
 };
 
-// provider selectionのexactly-one choice cacheとは分離し、root固有の
+// provider selectionのinvocation-local choice cacheとは分離し、root固有の
 // multiple / range / group expressionを同じcandidate snapshotへ適用する。
 class RootPackageSelectionSession final {
 public:

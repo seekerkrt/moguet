@@ -139,9 +139,10 @@ actual build/install; neither guarantees the safety of upstream code or packages
   transaction authority. `-Si` shows the source metadata and explicitly
   defers this stateful assessment to planning and build preflight.
 - When multiple provider candidates remain, an interactive TTY lists
-  source-aware candidates by number and requires exactly one explicit choice;
-  there is no default. Empty input, `q`, `quit`, `cancel`, or EOF cancels the
-  choice, while invalid or out-of-range input retries.
+  source-aware candidates by number. It accepts one number, multiple numbers
+  (`1 3`, `1,3`), inclusive ranges (`1-3`), and exclusions (`^4`, `^2-4`)
+  within the resolved repository or AUR candidate set. There is no default.
+  Empty input, `q`, `quit`, `cancel`, or EOF cancels; invalid input retries.
 - An interactive provider list appends localized `[installed]` when the
   candidate's package name exists in the read-only local package database.
   It leaves not-installed candidates untagged and marks an unavailable lookup
@@ -155,8 +156,8 @@ actual build/install; neither guarantees the safety of upstream code or packages
   numbers, space/comma-separated lists (`1 3`, `1,3`), inclusive ranges
   (`1-2,4`), exclusions (`^4`, `^2-4`), and an `@group` selector for a
   displayed official group. Exclusions also apply to expanded groups; there
-  is no default, even for one candidate. Provider selection still requires
-  exactly one number.
+  is no default, even for one candidate. Provider selection uses the same
+  numeric grammar without the root-only `@group` selector.
   Empty input, `q`, `quit`, `cancel`, or EOF cancels, and invalid input retries
   against the same candidate list.
 - Root package discovery does not query candidates or prompt on non-TTY stdin

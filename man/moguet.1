@@ -1118,9 +1118,10 @@ pacman/libalpm remains the transaction authority.
 .
 .PP
 When multiple dependency providers remain, an interactive TTY displays
-source-aware numbered candidates and requires exactly one selection, with no
-default. Empty input, q, quit, cancel, or EOF cancels; invalid or out-of-range
-input retries. Non-TTY use and
+source-aware numbered candidates. One number, multiple numbers (1 3 or 1,3),
+inclusive ranges (1-3), and exclusions (^4 or ^2-4) can select within the
+resolved repository or AUR candidate set. There is no default. Empty input,
+q, quit, cancel, or EOF cancels; invalid input retries. Non-TTY use and
 .B --noconfirm
 do not read provider input from stdin and fail closed. A choice is shared only
 within the current invocation. Selected AUR PackageBases flow into fetch and
@@ -1149,7 +1150,9 @@ more package numbers separated by ASCII whitespace or commas (for example,
 1 3 or 1,3), inclusive ranges (1-2,4), exclusions (^4 or ^2-4), and an
 .B @group
 selector for a displayed official group. Exclusions also apply to expanded
-groups. Provider selection still requires exactly one number. Empty input,
+groups. Provider selection uses the same numeric grammar without the root-only
+.B @group
+selector. Empty input,
 q, quit, cancel, or EOF
 cancels; invalid input retries against the same candidate snapshot. Non-TTY
 stdin and

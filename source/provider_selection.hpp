@@ -142,15 +142,14 @@ public:
         const std::vector<ProvidedDependency>& candidates,
         const ProviderCandidatePresenter& present_candidate);
 
-    // The production callback carries the whole cached decision. The current
-    // interactive prompt still records exactly one numeric candidate.
+    // The production callback carries the whole normalized provider decision.
     std::optional<ProviderSelectionSet> select_provider_set(
         const std::string& dependency,
         const std::vector<ProvidedDependency>& candidates,
         const ProviderCandidatePresenter& present_candidate);
 
-    // Future multi-provider seam: explicit indices are projected through the
-    // current candidate order, then retained for invocation-local reuse.
+    // Explicit indices are projected through the current candidate order,
+    // then retained for invocation-local reuse.
     ProviderSelectionSet record_provider_selection(
         const std::string& dependency,
         const std::vector<ProvidedDependency>& candidates,

@@ -481,6 +481,7 @@ moguet_add_cpp_test(
         tests/app_config_test.cpp
         source/app_config.cpp
         source/provider_selection.cpp
+        source/selection_expression.cpp
         source/dependency_spec.cpp
         source/localization.cpp
     INCLUDE_DIRECTORIES "${_moguet_test_source_include_dir}"
@@ -492,6 +493,7 @@ moguet_add_cpp_test(
     SOURCES
         tests/provider_selection_test.cpp
         source/provider_selection.cpp
+        source/selection_expression.cpp
         source/dependency_constraint.cpp
         source/provider_installed_state_presentation.cpp
         source/provider_installed_state.cpp
@@ -2291,6 +2293,7 @@ moguet_add_cpp_test(
         source/package_relation_observation.cpp
         source/package_relation_observation_adapter.cpp
         source/provider_selection.cpp
+        source/selection_expression.cpp
         source/source_install.cpp
         source/local_source_build_dependency_preparation.cpp
         source/local_dependency_plan_projection.cpp
@@ -2724,6 +2727,7 @@ set(
     tests/filtered_aur_update_operation_test.cpp
     source/app_config.cpp
     source/provider_selection.cpp
+    source/selection_expression.cpp
     source/filtered_aur_update_operation.cpp
     source/system_aur_update_operation.cpp
     source/interactive_confirmation.cpp
@@ -2796,6 +2800,7 @@ set(
     tests/upgrade_all_operation_test.cpp
     source/app_config.cpp
     source/provider_selection.cpp
+    source/selection_expression.cpp
     source/upgrade_all_operation.cpp
     source/upgrade_all_operation_result.cpp
     source/operation_state_model.cpp
@@ -3619,8 +3624,8 @@ set(
     aur-update-execution-preflight-test=167eca6cef76a54712dd3281a015d38e406ae9fde1a264919d69b115a743cfd3
     aur-update-execution-runner-test=8766d5d10a5444e6ecb04ff945f2ef39341e4a0d99352817a0ab93c3fabb6197
     aur-update-operation-result-test=794c70c37241de19fa40d3e5369fadebe282fb321fd0e3771b8b3d89e0a369d2
-    filtered-aur-update-operation-test=bd7f0ba6208cd64ea1a064415f31458c734af63e4b9df4dc501d406099e928f3
-    upgrade-all-operation-test=3acab34fd7fc6e24c9d56ef5343c185f63e417066f4d20996ca0d7295b124484
+    filtered-aur-update-operation-test=58e59a5537fa9b04e3e33c069378157921e94b4c1f614c367de6530f60e8fe23
+    upgrade-all-operation-test=d3d803f932ffd053816222c6f47cf7c68e0e91ba2ed013174c1ce623b5f61436
     cli-diagnostic-model-test=ceb7b62b749af01bfc106bf72492ee3121ac4802b8134c86efcd5a732928585e
     runtime-cli-connection-test=a70bde0a026b816f996147b544b73358f1c3c7a086a9b4ad67591c7171e8e835
     dependency-plan-model-test=c2c4e46b7a02f76839089ed73710cceea255c1dcd94da156797e2a42579abc3c
