@@ -13,6 +13,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -253,6 +254,9 @@ void test_noninteractive_session_does_not_read_or_write() {
         session.select_provider("virtual-dependency>=1", candidates());
 
     expect(!selected.has_value(), "non-interactive session selected a provider");
+    const auto selected_set = session.select_provider_set(
+        "virtual-dependency>=1", candidates(), make_default_provider_candidate_presenter());
+    expect(!selected_set.has_value(), "non-interactive set path selected a provider");
     expect(input.tellg() == std::streampos(0), "non-interactive session read stdin");
     expect(output.str().empty(), "non-interactive session wrote a prompt");
 }
@@ -289,8 +293,7 @@ void test_candidate_metadata_and_exact_number_selection() {
         "AUR candidate metadata was not presented");
     expect(
         presentation.find(
-            ":: Select a provider from [1-2], or press Enter / enter "
-            "q/quit/cancel to cancel: ") != std::string::npos,
+            ":: Select providers from [1-2] (1 2, 1,2, 1-2; exclude ^2):") != std::string::npos,
         "translated provider prompt sentence was not presented");
 }
 
@@ -489,7 +492,7 @@ void test_lookup_is_not_started_for_noninteractive_small_reuse_or_cancelled_path
 }
 
 void test_invalid_and_out_of_range_input_retries() {
-    std::istringstream input("not-a-number\n0\n3\n1-2\n1,2\n^1\n1\n");
+    std::istringstream input("not-a-number\n0\n3\n1\n");
     std::ostringstream output;
     ProviderSelectionSession session(input, output, true);
 
@@ -501,11 +504,10 @@ void test_invalid_and_out_of_range_input_retries() {
         same_provider_identity(selected.value(), repository_candidate()),
         "retry path selected the wrong candidate");
     expect(
-        occurrence_count(
-            output.str(),
-            ":: Invalid choice. Enter a number from [1-2], or press "
-            "Enter / enter q/quit/cancel to cancel.") == 6,
-        "invalid, out-of-range, and multiple-expression input did not retry");
+        occurrence_count(output.str(), ":: Invalid provider selection token.") == 1 &&
+            occurrence_count(output.str(),
+                             ":: Provider selection index is out of range.") == 2,
+        "invalid and out-of-range input did not retry");
 }
 
 void test_cancel_inputs_return_no_selection() {
@@ -749,6 +751,154 @@ void test_selection_set_retains_multiple_members_in_candidate_order() {
            "Multiple provider selection was lost or reordered by input order");
 }
 
+void test_public_selection_expression_for_each_source() {
+    const std::vector<std::pair<std::string, std::vector<std::size_t>>> cases{
+        {"1", {1}}, {"2", {2}}, {"1 3", {1, 3}}, {"1,3", {1, 3}}, {"1-3", {1, 2, 3}}, {"1-2,4", {1, 2, 4}}, {"1-3 5", {1, 2, 3, 5}}, {"1-3,5", {1, 2, 3, 5}}, {"1 3-5", {1, 3, 4, 5}}, {"1 2,4-6", {1, 2, 4, 5, 6}}, {"^4", {1, 2, 3, 5, 6}}, {"^2-4", {1, 5, 6}}, {"1-5,^3", {1, 2, 4, 5}}, {"1-3 5 ^2", {1, 3, 5}}, {"^2 1-3", {1, 3}}, {"1-3 ^2", {1, 3}}, {"1,1,2", {1, 2}}, {"3,1,2", {1, 2, 3}}};
+
+    for(const bool is_aur : {false, true}) {
+        std::vector<ProvidedDependency> offered;
+        for(std::size_t index = 1; index <= 6; ++index) {
+            const std::string name = "provider-" + std::to_string(index);
+            offered.push_back(is_aur
+                                  ? ProvidedDependency::from_aur(
+                                        name, name, "virtual", "virtual=1", "1.0-1")
+                                  : ProvidedDependency::from_repository(
+                                        "extra", name, "virtual", "virtual=1", "1.0-1"));
+        }
+        for(const auto& [expression, indices] : cases) {
+            std::istringstream input(expression + "\n");
+            std::ostringstream output;
+            ProviderSelectionSession session(input, output, true);
+            const auto selected = session.select_provider_set(
+                "virtual", offered, make_default_provider_candidate_presenter());
+            expect(selected.has_value(), "valid public expression was rejected: " + expression);
+            std::vector<ProvidedDependency> expected;
+            for(const std::size_t index : indices)
+                expected.push_back(offered[index - 1]);
+            expect(selected->members() == expected,
+                   "public expression changed candidate order or source: " + expression);
+            expect(occurrence_count(output.str(), ":: Select providers from [1-6]") == 1,
+                   "valid expression prompted more than once: " + expression);
+        }
+    }
+}
+
+void test_public_multiple_presentation_modes_preserve_selection() {
+    const std::vector<ProvidedDependency> offered{
+        named_repository_candidate("a", "virtual"),
+        named_repository_candidate("b", "virtual"),
+        named_repository_candidate("c", "virtual")};
+    for(const PresentationDetail detail : {PresentationDetail::Normal, PresentationDetail::Detailed}) {
+        std::istringstream input("3,1\n");
+        std::ostringstream output;
+        ProviderSelectionSession session(input, output, true);
+        const auto selected = session.select_provider_set(
+            "virtual", offered, make_default_provider_candidate_presenter(detail));
+        expect(selected.has_value() &&
+                   selected->members() == std::vector<ProvidedDependency>{offered[0], offered[2]},
+               "detail mode changed public multiple selection");
+        const std::string first = detail == PresentationDetail::Detailed
+                                      ? "1) source=repository package=a"
+                                      : "1) extra/a";
+        const std::string second = detail == PresentationDetail::Detailed
+                                       ? "2) source=repository package=b"
+                                       : "2) extra/b";
+        const std::string third = detail == PresentationDetail::Detailed
+                                      ? "3) source=repository package=c"
+                                      : "3) extra/c";
+        expect(output.str().find(first) < output.str().find(second) &&
+                   output.str().find(second) < output.str().find(third),
+               "detail mode changed candidate presentation order");
+        expect(occurrence_count(output.str(), ":: Select providers from [1-3]") == 1,
+               "detail mode changed prompt or retry behavior");
+    }
+}
+
+void test_public_invalid_expression_retries_atomically() {
+    const std::vector<std::string> invalid{
+        "0", "7", "3-1", "^4-2", "1-", "-3", "^", "^^3",
+        "^ 3", "foo", "1,,3", ",1", "1,", "1 - 3",
+        "1 3 foo", "1,3,99", "^1-6", "1,^1"};
+    std::vector<ProvidedDependency> offered;
+    for(std::size_t index = 1; index <= 6; ++index) {
+        offered.push_back(named_repository_candidate(
+            "provider-" + std::to_string(index), "virtual"));
+    }
+    for(const std::string& expression : invalid) {
+        std::istringstream input(expression + "\n2\n");
+        std::ostringstream output;
+        ProviderSelectionSession session(input, output, true);
+        const auto selected = session.select_provider_set(
+            "virtual", offered, make_default_provider_candidate_presenter());
+        expect(selected.has_value() &&
+                   selected->members() == std::vector<ProvidedDependency>{offered[1]},
+               "invalid line was partially accepted or failed to retry: " + expression);
+        expect(occurrence_count(output.str(), ":: Select providers from [1-6]") == 2,
+               "invalid line did not retry exactly once: " + expression);
+        if(expression == "^1-6" || expression == "1,^1") {
+            expect(output.str().find("Provider selection is empty after exclusions.") !=
+                       std::string::npos,
+                   "empty result was not a typed invalid selection: " + expression);
+        }
+    }
+}
+
+void test_public_multiple_reuse_refresh_and_cancel() {
+    const std::vector<ProvidedDependency> initial{
+        named_repository_candidate("a", "virtual"),
+        named_repository_candidate("b", "virtual"),
+        named_repository_candidate("c", "virtual")};
+    std::istringstream input("1 3\n2\n");
+    std::ostringstream output;
+    ProviderSelectionSession session(input, output, true);
+    const auto first = session.select_provider_set(
+        "virtual>=1", initial, make_default_provider_candidate_presenter());
+    expect(first.has_value() &&
+               first->members() == std::vector<ProvidedDependency>{initial[0], initial[2]},
+           "public multiple selection lost a member");
+    const std::vector<ProvidedDependency> refreshed{
+        named_repository_candidate("c", "virtual", "3.0-1"),
+        named_repository_candidate("b", "virtual", "2.0-1"),
+        named_repository_candidate("a", "virtual", "4.0-1")};
+    const auto second = session.select_provider_set(
+        "virtual<9", refreshed, make_default_provider_candidate_presenter());
+    expect(second.has_value() &&
+               second->members() == std::vector<ProvidedDependency>{refreshed[0], refreshed[2]},
+           "public cached set lost current order or metadata");
+    expect(occurrence_count(output.str(), ":: Choose a provider for virtual:") == 1,
+           "cached public set prompted again");
+    std::string unread;
+    expect(static_cast<bool>(std::getline(input, unread)) && unread == "2",
+           "cached public set consumed input");
+    bool conflict = false;
+    try {
+        static_cast<void>(session.select_provider_set(
+            "virtual", {refreshed[2], refreshed[1]},
+            make_default_provider_candidate_presenter()));
+    } catch(const ProviderSelectionConflict&) {
+        conflict = true;
+    }
+    expect(conflict, "public cached set shrank after member disappearance");
+
+    for(const std::string& cancel : {std::string("\n"), std::string("q\n"),
+                                     std::string("QUIT\n"), std::string("cancel\n"),
+                                     std::string()}) {
+        std::istringstream cancel_input(cancel);
+        std::ostringstream cancel_output;
+        ProviderSelectionSession cancel_session(cancel_input, cancel_output, true);
+        const auto selected = cancel_session.select_provider_set(
+            "virtual", initial, make_default_provider_candidate_presenter());
+        expect(!selected.has_value() && cancel_session.was_cancelled("virtual"),
+               "public cancel became an empty set or a choice");
+        expect(!cancel_session.select_provider_set(
+                                  "virtual", initial, make_default_provider_candidate_presenter())
+                    .has_value(),
+               "cancelled public dependency was read again");
+        expect(occurrence_count(cancel_output.str(), ":: Choose a provider for virtual:") == 1,
+               "cancelled public dependency prompted again");
+    }
+}
+
 void test_selection_set_deduplicates_identity_and_rejects_empty() {
     const ProvidedDependency first = named_repository_candidate("a", "virtual");
     const ProvidedDependency duplicate = named_repository_candidate(
@@ -879,6 +1029,14 @@ void test_no_confirm_production_session_is_noninteractive() {
     expect(
         !session->is_interactive(),
         "--noconfirm production session remained interactive");
+    std::ostringstream output;
+    const auto selected = session->select_provider_set(
+        "virtual", {named_repository_candidate("a", "virtual"), named_repository_candidate("b", "virtual")},
+        [&output](std::ostream&, std::size_t, const ProvidedDependency&) {
+            output << "presented";
+        });
+    expect(!selected.has_value() && output.str().empty(),
+           "--noconfirm public set path presented or selected a candidate");
 }
 
 } // namespace
@@ -904,6 +1062,10 @@ int main() {
         test_cross_dependency_package_identity_conflicts();
         test_cross_dependency_same_identity_is_allowed();
         test_selection_set_retains_multiple_members_in_candidate_order();
+        test_public_selection_expression_for_each_source();
+        test_public_multiple_presentation_modes_preserve_selection();
+        test_public_invalid_expression_retries_atomically();
+        test_public_multiple_reuse_refresh_and_cancel();
         test_selection_set_deduplicates_identity_and_rejects_empty();
         test_selection_set_reuse_refreshes_all_members_and_fails_on_partial_loss();
         test_selection_set_rejects_within_and_cross_dependency_identity_conflicts();

@@ -632,7 +632,7 @@ directory snapshot、strict read、PackageBase fallback read、preference-derive
 
 ## Dependency provider compatibility
 
-official exact、AUR exact、unique providerを先に扱い、複数providerはambiguousとして扱う。候補identityはsource kind、package、repositoryまたはPackageBase、provided dependency、available constraint metadataを保持する。interactive TTYの番号選択以外ではdefaultを設けない。
+official exact、AUR exact、unique providerを先に扱い、複数providerはambiguousとして扱う。候補identityはsource kind、package、repositoryまたはPackageBase、provided dependency、available constraint metadataを保持する。interactive TTYでは同一sourceの候補について番号1件、ASCII空白・comma区切りの複数番号、inclusive range、`^N` / `^N-M`の除外を受け付ける。includeからexcludeを引き、exclude-onlyは全候補から引く。重複を除き候補順に正規化し、invalid lineと空resultは取消にせずatomicに再入力する。defaultは設けない。
 
 non-TTY、`--noconfirm`、cancel、EOFではpromptや自動選択を開始しない。choiceはinvocation-localであり、config / cacheへ保存しない。selected repository providerはexact `repository/package`のofficial dependency、selected AUR providerはPackageBase build unitとして扱う。selectionとstatic preflight前にclone、build、pacman、sudoを開始しない。詳細は[ambiguous provider contract](contracts/ambiguous-provider-selection.md)を参照する。
 
@@ -646,7 +646,7 @@ interactive candidate listには、read-only local package databaseにcandidate�
 
 正式入口は`moguet -S --select [--needed] <query>`であり、`-Ss`は非対話search / presentationのままである。repository / AUR candidateはsource identityを保持し、同名packageでもsourceが違えば別候補とする。official searchはread-only libalpm metadata、AUR searchはtyped AUR responseをauthorityとし、pacmanのhuman-readable search outputをparseしない。
 
-interactive stdinで番号、ASCII空白・comma区切りの複数番号、inclusive range、`^N` / `^N-M`の除外、表示済みofficial groupの`@group` selectorを扱う。`1,3`と`1-2,4`はvalidなpublic syntaxとなる。includeからexcludeを引き、exclude-onlyは全候補から引く。groupはroot側でincludeへ展開してからexcludeを適用する。除外後の空集合と空comma fieldはinvalidでありcancelではない。empty、cancel、EOF、non-TTY、`--noconfirm`はnon-zeroで停止し、invalid lineはatomically retryする。selection、identity validation、全static preflightが終わるまでpacman、sudo、clone、build、install、cache / workspace mutationを開始しない。selected repository rootとAUR rootは明示routeへprojectし、package nameからsourceを再推定しない。共通numeric grammarとroot接続は#631 Slice 2で実装したが、providerのmultiple selectionは未実装でexactly-oneを維持する。詳細は[root package selection contract](contracts/root-package-selection.md)を参照する。
+interactive stdinで番号、ASCII空白・comma区切りの複数番号、inclusive range、`^N` / `^N-M`の除外、表示済みofficial groupの`@group` selectorを扱う。`1,3`と`1-2,4`はvalidなpublic syntaxとなる。includeからexcludeを引き、exclude-onlyは全候補から引く。groupはroot側でincludeへ展開してからexcludeを適用する。除外後の空集合と空comma fieldはinvalidでありcancelではない。empty、cancel、EOF、non-TTY、`--noconfirm`はnon-zeroで停止し、invalid lineはatomically retryする。selection、identity validation、全static preflightが終わるまでpacman、sudo、clone、build、install、cache / workspace mutationを開始しない。selected repository rootとAUR rootは明示routeへprojectし、package nameからsourceを再推定しない。共通numeric grammarは#631 Slice 2でroot、Slice 5でproviderのpublic選択へ接続した。root固有の`@group` selectorはproviderには適用しない。詳細は[root package selection contract](contracts/root-package-selection.md)を参照する。
 
 <a id="compat-local-pkgbuild"></a>
 

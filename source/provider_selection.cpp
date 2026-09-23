@@ -3,14 +3,12 @@
 #include "dependency_spec.hpp"
 #include "localization.hpp"
 #include "package_text_style.hpp"
+#include "selection_expression.hpp"
 
 #include <algorithm>
-#include <charconv>
 #include <cctype>
 #include <iostream>
 #include <iterator>
-#include <string_view>
-#include <system_error>
 #include <unistd.h>
 #include <utility>
 
@@ -113,17 +111,20 @@ void present_compact_candidate(
     }
 }
 
-std::optional<std::size_t> parse_candidate_number(
-    const std::string& input, std::size_t candidate_count) {
-    std::size_t selected = 0;
-    const char* first = input.data();
-    const char* last = first + input.size();
-    auto [end, error] = std::from_chars(first, last, selected);
-    if(error != std::errc{} || end != last || selected == 0 ||
-       selected > candidate_count) {
-        return std::nullopt;
+std::string selection_issue_message(const SelectionExpressionIssue& issue) {
+    switch(issue.kind) {
+        case SelectionExpressionIssueKind::MalformedToken:
+            return localization::translate_message("Invalid provider selection token.");
+        case SelectionExpressionIssueKind::EmptyCommaField:
+            return localization::translate_message("Provider selection has an empty comma field.");
+        case SelectionExpressionIssueKind::IndexOutOfRange:
+            return localization::translate_message("Provider selection index is out of range.");
+        case SelectionExpressionIssueKind::DescendingRange:
+            return localization::translate_message("Provider selection ranges must use ascending endpoints.");
+        case SelectionExpressionIssueKind::EmptyResultAfterExclusion:
+            return localization::translate_message("Provider selection is empty after exclusions.");
     }
-    return selected;
+    throw std::logic_error("Unknown selection expression issue.");
 }
 
 } // namespace
@@ -185,16 +186,6 @@ std::optional<ProviderSelectionSet> ProviderSelectionSession::select_provider_se
        cached.has_value()) {
         return cached;
     }
-    if(!select_provider(dependency, candidates, present_candidate).has_value()) {
-        return std::nullopt;
-    }
-    return reuse_provider_selection(dependency, candidates);
-}
-
-std::optional<ProvidedDependency> ProviderSelectionSession::select_provider(
-    const std::string& dependency,
-    const std::vector<ProvidedDependency>& candidates,
-    const ProviderCandidatePresenter& present_candidate) {
     const std::string dependency_name = dependency_package_name(dependency);
     if(dependency_name.empty()) {
         throw std::invalid_argument(
@@ -202,22 +193,12 @@ std::optional<ProvidedDependency> ProviderSelectionSession::select_provider(
                 "Provider selection requires a non-empty dependency name."));
     }
 
-    if(const auto existing = reuse_provider_selection(dependency_name, candidates);
-       existing.has_value()) {
-        if(existing->members().size() != 1) {
-            throw std::logic_error(
-                "Legacy provider selection requires exactly one provider.");
-        }
-        return existing->members().front();
-    }
-
     if(cancelled_dependencies_.contains(dependency_name))
         return std::nullopt;
 
     if(!is_interactive_ || candidates.size() < 2) return std::nullopt;
-    // NO_TRANSLATE: The ":: " framing, numeric range, and response tokens are
-    // fixed provider-selection UI syntax. The complete prompt sentences are
-    // translated below.
+    // NO_TRANSLATE: The ":: " framing and expression examples are fixed
+    // provider-selection UI syntax. The prompt sentences are translated.
     *output_ << ":: " << localization::format_translated_message("Choose a provider for {}:", dependency_name) << '\n';
     for(std::size_t index = 0; index < candidates.size(); ++index) {
         present_candidate(*output_, index + 1, candidates[index]);
@@ -226,13 +207,13 @@ std::optional<ProvidedDependency> ProviderSelectionSession::select_provider(
     const std::string choice_range =
         "1-" + std::to_string(candidates.size());
     for(;;) {
-        // TRANSLATORS: The placeholders are the numeric provider-choice range,
-        // the literal Enter key, and the fixed q/quit/cancel response tokens.
+        // TRANSLATORS: The placeholder is the numeric provider-choice range.
         *output_ << ":: "
                  << localization::format_translated_message(
-                        "Select a provider from [{}], or press {} / enter "
-                        "{} to cancel:",
-                        choice_range, "Enter", "q/quit/cancel")
+                        "Select providers from [{}] (1 2, 1,2, 1-2; exclude ^2):",
+                        choice_range)
+                 << '\n'
+                 << ":: " << localization::translate_message("Enter, q, quit, or cancel to cancel. Selection:")
                  << " " << std::flush;
 
         std::string input;
@@ -241,32 +222,43 @@ std::optional<ProvidedDependency> ProviderSelectionSession::select_provider(
             return std::nullopt;
         }
 
-        input = to_lower(trim(std::move(input)));
-        if(input.empty() || input == "q" || input == "quit" ||
-           input == "cancel") {
+        const std::string response = to_lower(trim(input));
+        if(response.empty() || response == "q" || response == "quit" ||
+           response == "cancel") {
             cancelled_dependencies_.insert(dependency_name);
             return std::nullopt;
         }
 
-        std::optional<std::size_t> selected =
-            parse_candidate_number(input, candidates.size());
-        if(!selected.has_value()) {
-            // TRANSLATORS: The placeholders are the numeric provider-choice
-            // range, the literal Enter key, and the fixed q/quit/cancel
-            // response tokens.
-            *output_ << ":: "
-                     << localization::format_translated_message(
-                            "Invalid choice. Enter a number from [{}], or "
-                            "press {} / enter {} to cancel.",
-                            choice_range, "Enter", "q/quit/cancel")
-                     << '\n';
+        const SelectionExpressionParseResult parsed =
+            parse_selection_expression(input, candidates.size());
+        if(!parsed.issues.empty()) {
+            *output_ << ":: " << selection_issue_message(parsed.issues.front()) << '\n';
             continue;
         }
-
-        const ProviderSelectionSet selection = record_provider_selection(
-            dependency_name, candidates, {selected.value()});
-        return selection.members().front();
+        const NormalizedSelectionExpressionResult normalized =
+            normalize_selection_expression(parsed.expression, candidates.size());
+        if(const auto* issue = std::get_if<SelectionExpressionIssue>(&normalized)) {
+            *output_ << ":: " << selection_issue_message(*issue) << '\n';
+            continue;
+        }
+        return record_provider_selection(
+            dependency_name, candidates,
+            std::get<std::vector<std::size_t>>(normalized));
     }
+}
+
+std::optional<ProvidedDependency> ProviderSelectionSession::select_provider(
+    const std::string& dependency,
+    const std::vector<ProvidedDependency>& candidates,
+    const ProviderCandidatePresenter& present_candidate) {
+    const auto selected = select_provider_set(
+        dependency, candidates, present_candidate);
+    if(!selected.has_value()) return std::nullopt;
+    if(selected->members().size() != 1) {
+        throw std::logic_error(
+            "Legacy provider selection requires exactly one provider.");
+    }
+    return selected->members().front();
 }
 
 ProviderSelectionSet ProviderSelectionSession::record_provider_selection(

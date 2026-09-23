@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.9.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-22 11:25+0900\n"
+"POT-Creation-Date: 2026-09-24 07:07+0900\n"
 "PO-Revision-Date: 2026-09-19 17:53+0900\n"
 "Last-Translator: Moguet contributors\n"
 "Language-Team: Japanese\n"
@@ -6918,6 +6918,21 @@ msgstr "[提供: {}]"
 msgid "[component: {}]"
 msgstr "[コンポーネント: {}]"
 
+msgid "Invalid provider selection token."
+msgstr "プロバイダー選択の入力が無効です。"
+
+msgid "Provider selection has an empty comma field."
+msgstr "プロバイダー選択に空のカンマ区切り項目があります。"
+
+msgid "Provider selection index is out of range."
+msgstr "プロバイダー選択の番号が範囲外です。"
+
+msgid "Provider selection ranges must use ascending endpoints."
+msgstr "プロバイダー選択の範囲は端点を昇順で指定してください。"
+
+msgid "Provider selection is empty after exclusions."
+msgstr "除外後にプロバイダーが残りません。"
+
 msgid "Provider selection requires a non-empty dependency name."
 msgstr "プロバイダー選択には空でない依存関係名が必要です。"
 
@@ -6926,12 +6941,11 @@ msgid "Choose a provider for {}:"
 msgstr "{} を提供するパッケージを選択してください:"
 
 #, c++-format
-msgid "Select a provider from [{}], or press {} / enter {} to cancel:"
-msgstr "[{}] からプロバイダーを選択してください。取り消すには {} を押すか {} を入力してください："
+msgid "Select providers from [{}] (1 2, 1,2, 1-2; exclude ^2):"
+msgstr "[{}] からプロバイダーを選択してください（複数: 1 2、1,2、1-2 / 除外: ^2）："
 
-#, c++-format
-msgid "Invalid choice. Enter a number from [{}], or press {} / enter {} to cancel."
-msgstr "選択が無効です。[{}] の番号を入力してください。取り消すには {} を押すか {} を入力してください。"
+msgid "Enter, q, quit, or cancel to cancel. Selection:"
+msgstr "取消: Enter、q、quit、cancel。選択:"
 
 #. TRANSLATORS: This tag means Moguet could not
 #. determine whether the provider package is
@@ -10001,6 +10015,14 @@ msgstr "{}のデフォルト状態ログを段階{}で安全に使用できま�
 
 msgid "Unknown state log error code."
 msgstr "不明な状態ログエラーコードです。"
+
+#, c++-format
+#~ msgid "Select a provider from [{}], or press {} / enter {} to cancel:"
+#~ msgstr "[{}] からプロバイダーを選択してください。取り消すには {} を押すか {} を入力してください："
+
+#, c++-format
+#~ msgid "Invalid choice. Enter a number from [{}], or press {} / enter {} to cancel."
+#~ msgstr "選択が無効です。[{}] の番号を入力してください。取り消すには {} を押すか {} を入力してください。"
 
 #~ msgid "Remote URL mismatch. Re-cloning..."
 #~ msgstr "リモート URL が一致しません。clone し直します..."
