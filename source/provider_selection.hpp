@@ -48,6 +48,26 @@ void present_provider_candidate_metadata(
     const ProvidedDependency& candidate,
     PresentationDetail detail = PresentationDetail::Detailed);
 
+// 明示選択されたprovider identityを候補順で保持する。空集合は構築できず、
+// 同一identityの重複は1件へ正規化する。metadataは選択時の候補snapshot。
+class ProviderSelectionSet final {
+public:
+    // Copy on rvalues too, so a moved-from instance cannot become empty.
+    ProviderSelectionSet(const ProviderSelectionSet&) = default;
+    ProviderSelectionSet& operator=(const ProviderSelectionSet&) = default;
+
+    static ProviderSelectionSet from_candidate_indices(
+        const std::vector<ProvidedDependency>& candidates,
+        const std::vector<std::size_t>& one_origin_indices);
+
+    const std::vector<ProvidedDependency>& members() const noexcept;
+
+private:
+    explicit ProviderSelectionSet(std::vector<ProvidedDependency> members);
+
+    std::vector<ProvidedDependency> members_;
+};
+
 // provider選択をinvocation単位で共有し、CLI入出力とplan callbackを接続する。
 class ProviderSelectionSession final {
 public:
@@ -67,6 +87,19 @@ public:
         const std::vector<ProvidedDependency>& candidates,
         const ProviderCandidatePresenter& present_candidate);
 
+    // Future multi-provider seam: explicit indices are projected through the
+    // current candidate order, then retained for invocation-local reuse.
+    ProviderSelectionSet record_provider_selection(
+        const std::string& dependency,
+        const std::vector<ProvidedDependency>& candidates,
+        const std::vector<std::size_t>& one_origin_indices);
+
+    // Reuse all cached identities against current candidates. A missing member
+    // throws ProviderSelectionConflict instead of shrinking the selection.
+    std::optional<ProviderSelectionSet> reuse_provider_selection(
+        const std::string& dependency,
+        const std::vector<ProvidedDependency>& candidates) const;
+
     bool is_interactive() const noexcept;
     // Raw dependency specifications use the same canonical package-name
     // authority as selection and cancellation storage.
@@ -76,7 +109,7 @@ private:
     std::istream* input_;
     std::ostream* output_;
     bool is_interactive_;
-    std::map<std::string, ProvidedDependency> selections_;
+    std::map<std::string, ProviderSelectionSet> selections_;
     std::set<std::string> cancelled_dependencies_;
 };
 

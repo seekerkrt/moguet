@@ -8,6 +8,7 @@
 #include <charconv>
 #include <cctype>
 #include <iostream>
+#include <iterator>
 #include <string_view>
 #include <system_error>
 #include <unistd.h>
@@ -164,6 +165,56 @@ const std::string& ProviderSelectionConflict::dependency_name() const noexcept {
     return dependency_name_;
 }
 
+ProviderSelectionSet::ProviderSelectionSet(
+    std::vector<ProvidedDependency> members)
+    : members_(std::move(members)) {
+    if(members_.empty()) {
+        throw std::invalid_argument("Provider selection set cannot be empty.");
+    }
+}
+
+ProviderSelectionSet ProviderSelectionSet::from_candidate_indices(
+    const std::vector<ProvidedDependency>& candidates,
+    const std::vector<std::size_t>& one_origin_indices) {
+    if(one_origin_indices.empty()) {
+        throw std::invalid_argument("Provider selection set cannot be empty.");
+    }
+    std::vector<bool> selected(candidates.size(), false);
+    for(const std::size_t index : one_origin_indices) {
+        if(index == 0 || index > candidates.size()) {
+            throw std::out_of_range("Provider selection index is out of range.");
+        }
+        selected[index - 1] = true;
+    }
+
+    std::vector<ProvidedDependency> members;
+    for(std::size_t index = 0; index < candidates.size(); ++index) {
+        if(!selected[index]) continue;
+        const ProvidedDependency& candidate = candidates[index];
+        const auto duplicate = std::find_if(
+            members.begin(), members.end(), [&candidate](const ProvidedDependency& member) {
+                return same_provider_identity(member, candidate);
+            });
+        if(duplicate != members.end()) continue;
+
+        const auto incompatible = std::find_if(
+            members.begin(), members.end(), [&candidate](const ProvidedDependency& member) {
+                return has_incompatible_provider_package_identity(member, candidate);
+            });
+        if(incompatible != members.end()) {
+            throw std::runtime_error(
+                selected_provider_package_identity_conflict_diagnostic(
+                    *incompatible, candidate));
+        }
+        members.push_back(candidate);
+    }
+    return ProviderSelectionSet(std::move(members));
+}
+
+const std::vector<ProvidedDependency>& ProviderSelectionSet::members() const noexcept {
+    return members_;
+}
+
 ProviderSelectionSession::ProviderSelectionSession(
     std::istream& input, std::ostream& output, bool is_interactive)
     : input_(&input), output_(&output), is_interactive_(is_interactive) {
@@ -187,18 +238,13 @@ std::optional<ProvidedDependency> ProviderSelectionSession::select_provider(
                 "Provider selection requires a non-empty dependency name."));
     }
 
-    auto existing = selections_.find(dependency_name);
-    if(existing != selections_.end()) {
-        auto current = std::find_if(
-            candidates.begin(), candidates.end(),
-            [&existing](const ProvidedDependency& candidate) {
-                return same_provider_identity(candidate, existing->second);
-            });
-        if(current == candidates.end()) {
-            throw ProviderSelectionConflict(dependency_name);
+    if(const auto existing = reuse_provider_selection(dependency_name, candidates);
+       existing.has_value()) {
+        if(existing->members().size() != 1) {
+            throw std::logic_error(
+                "Legacy provider selection requires exactly one provider.");
         }
-        // Candidate metadata from the current resolution remains authoritative.
-        return *current;
+        return existing->members().front();
     }
 
     if(cancelled_dependencies_.contains(dependency_name))
@@ -253,21 +299,75 @@ std::optional<ProvidedDependency> ProviderSelectionSession::select_provider(
             continue;
         }
 
-        const ProvidedDependency& candidate = candidates[selected.value() - 1];
-        auto conflict = std::find_if(
-            selections_.begin(), selections_.end(),
-            [&candidate](const auto& selection) {
-                return has_incompatible_provider_package_identity(
-                    selection.second, candidate);
-            });
-        if(conflict != selections_.end()) {
-            throw std::runtime_error(
-                selected_provider_package_identity_conflict_diagnostic(
-                    conflict->second, candidate));
-        }
-        selections_.emplace(dependency_name, candidate);
-        return candidate;
+        const ProviderSelectionSet selection = record_provider_selection(
+            dependency_name, candidates, {selected.value()});
+        return selection.members().front();
     }
+}
+
+ProviderSelectionSet ProviderSelectionSession::record_provider_selection(
+    const std::string& dependency,
+    const std::vector<ProvidedDependency>& candidates,
+    const std::vector<std::size_t>& one_origin_indices) {
+    const std::string dependency_name = dependency_package_name(dependency);
+    if(dependency_name.empty()) {
+        throw std::invalid_argument(
+            localization::translate_message(
+                "Provider selection requires a non-empty dependency name."));
+    }
+    if(selections_.contains(dependency_name) ||
+       cancelled_dependencies_.contains(dependency_name)) {
+        throw std::logic_error("Provider selection was already decided.");
+    }
+
+    ProviderSelectionSet selection = ProviderSelectionSet::from_candidate_indices(
+        candidates, one_origin_indices);
+    for(const auto& [other_dependency, existing] : selections_) {
+        static_cast<void>(other_dependency);
+        for(const ProvidedDependency& selected : selection.members()) {
+            const auto conflict = std::find_if(
+                existing.members().begin(), existing.members().end(),
+                [&selected](const ProvidedDependency& previous) {
+                    return has_incompatible_provider_package_identity(previous, selected);
+                });
+            if(conflict != existing.members().end()) {
+                throw std::runtime_error(
+                    selected_provider_package_identity_conflict_diagnostic(
+                        *conflict, selected));
+            }
+        }
+    }
+    selections_.emplace(dependency_name, selection);
+    return selection;
+}
+
+std::optional<ProviderSelectionSet> ProviderSelectionSession::reuse_provider_selection(
+    const std::string& dependency,
+    const std::vector<ProvidedDependency>& candidates) const {
+    const std::string dependency_name = dependency_package_name(dependency);
+    if(dependency_name.empty()) {
+        throw std::invalid_argument(
+            localization::translate_message(
+                "Provider selection requires a non-empty dependency name."));
+    }
+    const auto existing = selections_.find(dependency_name);
+    if(existing == selections_.end()) return std::nullopt;
+
+    std::vector<std::size_t> current_indices;
+    for(const ProvidedDependency& previous : existing->second.members()) {
+        const auto current = std::find_if(
+            candidates.begin(), candidates.end(),
+            [&previous](const ProvidedDependency& candidate) {
+                return same_provider_identity(candidate, previous);
+            });
+        if(current == candidates.end()) {
+            throw ProviderSelectionConflict(dependency_name);
+        }
+        current_indices.push_back(
+            static_cast<std::size_t>(std::distance(candidates.begin(), current)) + 1);
+    }
+    // Rebuild from current candidates: cached metadata never becomes authority.
+    return ProviderSelectionSet::from_candidate_indices(candidates, current_indices);
 }
 
 bool ProviderSelectionSession::is_interactive() const noexcept {
