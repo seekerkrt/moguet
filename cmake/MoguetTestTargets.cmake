@@ -477,11 +477,13 @@ moguet_add_cpp_test(
 
 moguet_add_cpp_test(
     app-config-test
+    ALPM_COMPILE REAL_ALPM
     SOURCES
         tests/app_config_test.cpp
         source/app_config.cpp
         source/provider_selection.cpp
         source/selection_expression.cpp
+        source/dependency_constraint.cpp
         source/dependency_spec.cpp
         source/localization.cpp
     INCLUDE_DIRECTORIES "${_moguet_test_source_include_dir}"
