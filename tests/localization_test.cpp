@@ -66,6 +66,10 @@ int main(int argc, char* argv[]) {
               << '\n';
     std::cout << "prompt="
               << localization::translate_message("Rebuild package?") << '\n';
+    std::cout << "soname_class_32="
+              << localization::translate_message("[SONAME: 32-bit]") << '\n';
+    std::cout << "soname_class_64="
+              << localization::translate_message("[SONAME: 64-bit]") << '\n';
     std::cout << "reviewed_target_failure="
               << reviewed_source_production_failure_diagnostic(
                      ReviewedSourceProductionFailure{

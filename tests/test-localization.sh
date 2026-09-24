@@ -306,6 +306,8 @@ assert_english_messages() {
     assert_line 'diagnostic_project=Do not run Moguet as root or with sudo.' "$output_file"
     assert_line 'diagnostic_command=Run moguet as a normal user; Moguet will invoke sudo/pacman when needed.' "$output_file"
     assert_line 'prompt=Rebuild package?' "$output_file"
+    assert_line 'soname_class_32=[SONAME: 32-bit]' "$output_file"
+    assert_line 'soname_class_64=[SONAME: 64-bit]' "$output_file"
     assert_line 'reviewed_target_failure=Reviewed source target revision resolution failed; the build was not started.' "$output_file"
     assert_line 'reviewed_uncertain_failure=Reviewed source state publication reached a post-commit ambiguity; the build was not started, and automatic retry, rollback, and compatibility fallback are forbidden.' "$output_file"
     assert_line 'reviewed_lease_failure=Reviewed source PackageBase lease is already held; the build was not started.' "$output_file"
@@ -470,6 +472,8 @@ assert_line 'help=このヘルプを表示して終了' "$ja_output"
 assert_line 'diagnostic_project=Moguetをrootとして、またはsudo経由で実行しないでください。' "$ja_output"
 assert_line 'diagnostic_command=moguetは通常ユーザーとして実行してください。Moguetは必要に応じてsudo/pacmanを呼び出します。' "$ja_output"
 assert_line 'prompt=パッケージを再ビルドしますか？' "$ja_output"
+assert_line 'soname_class_32=[SONAME: 32ビット]' "$ja_output"
+assert_line 'soname_class_64=[SONAME: 64ビット]' "$ja_output"
 assert_line 'reviewed_target_failure=確認済みソースの対象リビジョンを解決できなかったため、ビルドを開始しませんでした。' "$ja_output"
 assert_line 'reviewed_uncertain_failure=確認済みソースの状態公開はcommit後に結果を確定できない状態になりました。ビルドは開始せず、自動再試行、rollback、互換fallbackも行いません。' "$ja_output"
 assert_line 'reviewed_lease_failure=確認済みソースのPackageBaseロックは別の処理が保持中です。ビルドを開始しませんでした。' "$ja_output"
@@ -551,6 +555,8 @@ with (Path(sys.argv[1]) / "ja/LC_MESSAGES/moguet.mo").open("rb") as stream:
     catalog = gettext.GNUTranslations(stream)
 expected = {
     "[repository]": "[リポジトリ]",
+    "[SONAME: 32-bit]": "[SONAME: 32ビット]",
+    "[SONAME: 64-bit]": "[SONAME: 64ビット]",
     "[provides: {}]": "[提供: {}]",
     "[component: {}]": "[コンポーネント: {}]",
     "Choose a provider for {}:": "{} を提供するパッケージを選択してください:",

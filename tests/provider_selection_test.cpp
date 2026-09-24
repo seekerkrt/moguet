@@ -71,6 +71,30 @@ ProvidedDependency typed_aur_candidate(
             std::move(provided_version)});
 }
 
+ProviderCapability metadata_capability(
+    const std::string& name, std::optional<std::string> version) {
+    const ProviderCapabilityParseResult parsed =
+        make_provider_capability_from_metadata(name, std::move(version));
+    if(parsed.capability() == nullptr) {
+        throw std::runtime_error("typed repository capability did not parse");
+    }
+    return *parsed.capability();
+}
+
+ProvidedDependency typed_repository_candidate(
+    const std::string& repository, const std::string& package,
+    const ProviderCapability& capability) {
+    return ProvidedDependency::from_repository_constraint_metadata(
+        repository, package, package, "x86_64",
+        ProviderConstraintMetadata{
+            capability,
+            ObservedVersion::available(
+                ObservedVersionSource::RepositoryExactPackage, "1.0-1"),
+            ObservedVersion::from_provider_capability(
+                ObservedVersionSource::RepositoryProviderCapability,
+                capability)});
+}
+
 std::vector<ProvidedDependency> candidates() {
     return {repository_candidate(), aur_candidate()};
 }
@@ -243,6 +267,121 @@ void test_compact_identity_and_style() {
     expect(styled.str() == "\033[1;35maur\033[0m/\033[1mshared\033[0m "
                            "\033[1;32m2.0-1\033[0m \033[1;36m[installed]\033[0m",
            "shared search palette changed");
+}
+
+void test_legacy_soname_class_projection() {
+    const auto reported_class = [](const std::string& name,
+                                   std::optional<std::string> version) {
+        return legacy_soname_v1_class(
+            metadata_capability(name, std::move(version)));
+    };
+    expect(reported_class("libjack.so", "0-64") ==
+               LegacySonameV1Class::Class64,
+           "legacy explicit 64-bit SONAME class was lost");
+    expect(reported_class("libasound.so", "2-32") ==
+               LegacySonameV1Class::Class32,
+           "legacy explicit 32-bit SONAME class was lost");
+    expect(reported_class("libexample.so", "1.2-64") ==
+               LegacySonameV1Class::Class64,
+           "dot-separated numeric interface version was lost");
+    expect(reported_class("libexample.so", "libexample.so-64") ==
+                   LegacySonameV1Class::Class64 &&
+               reported_class("libexample.so", "libexample.so-32") ==
+                   LegacySonameV1Class::Class32,
+           "legacy unversioned SONAME form was lost");
+
+    expect(!reported_class("foo", "1.2-64").has_value() &&
+               !reported_class("foo", "1.2-32").has_value() &&
+               !reported_class("libfoo.so", std::nullopt).has_value() &&
+               !reported_class("libfoo.so", "1..2-64").has_value() &&
+               !reported_class("libfoo.so", "abc-64").has_value() &&
+               !reported_class("libfoo.so", "1-128").has_value() &&
+               !reported_class("libfoo.so", "libbar.so-64").has_value(),
+           "ordinary, bare, ambiguous, or unsupported provide received a SONAME class");
+    expect(!legacy_soname_v1_class(
+                ProviderCapability("lib:libfoo.so.1", "lib:libfoo.so.1",
+                                   std::nullopt))
+                   .has_value() &&
+               !legacy_soname_v1_class(
+                    ProviderCapability("libfoo.so>=1-64", "libfoo.so",
+                                       "1-64"))
+                    .has_value(),
+           "SONAME v2 or non-equality text received a legacy class");
+}
+
+void test_soname_annotations_preserve_selection_and_installed_state() {
+    const std::vector<ProvidedDependency> offered{
+        typed_repository_candidate(
+            "extra", "jack2", metadata_capability("libjack.so", "0-64")),
+        typed_repository_candidate(
+            "multilib", "lib32-jack2",
+            metadata_capability("libjack.so", "0-32")),
+        typed_repository_candidate(
+            "multilib", "lib32-decoy",
+            metadata_capability("libjack.so", std::nullopt))};
+
+    for(const PresentationDetail detail :
+        {PresentationDetail::Normal, PresentationDetail::Detailed}) {
+        reset_metadata_stubs();
+        enqueue_valid_database_paths();
+        stub::enqueue_local_package_query_present(
+            "jack2", "jack2", "1.0-1", ALPM_PKG_REASON_EXPLICIT);
+        stub::enqueue_local_package_query_absent("lib32-jack2");
+        stub::enqueue_local_package_query_absent("lib32-decoy");
+        std::istringstream input("1,2\n");
+        std::ostringstream output;
+        ProviderSelectionSession session(input, output, true);
+        const auto selected = session.select_provider_set(
+            "libjack.so", offered,
+            make_provider_installed_state_candidate_presenter_factory()(detail));
+        expect(selected.has_value() &&
+                   selected->members() ==
+                       std::vector<ProvidedDependency>{offered[0], offered[1]},
+               "SONAME annotation changed the selected set or canonical order");
+        const std::string lines = output.str();
+        if(detail == PresentationDetail::Normal) {
+            expect(lines.find(
+                       "1) extra/jack2 1.0-1 [SONAME: 64-bit] "
+                       "[provides: libjack.so=0-64] [installed]\n") !=
+                           std::string::npos &&
+                       lines.find(
+                           "2) multilib/lib32-jack2 1.0-1 [SONAME: 32-bit] "
+                           "[provides: libjack.so=0-32]\n") !=
+                           std::string::npos &&
+                       lines.find(
+                           "3) multilib/lib32-decoy 1.0-1 "
+                           "[provides: libjack.so]\n") !=
+                           std::string::npos,
+                   "Normal SONAME, capability, or installed annotation drifted");
+        } else {
+            expect(lines.find(
+                       "1) source=repository package=jack2 repository=extra "
+                       "provided=libjack.so "
+                       "provided-specification=libjack.so=0-64 "
+                       "version=1.0-1 soname-class=64-bit [installed]\n") !=
+                           std::string::npos &&
+                       lines.find(
+                           "2) source=repository package=lib32-jack2 "
+                           "repository=multilib provided=libjack.so "
+                           "provided-specification=libjack.so=0-32 "
+                           "version=1.0-1 soname-class=32-bit\n") !=
+                           std::string::npos &&
+                       lines.find(
+                           "3) source=repository package=lib32-decoy "
+                           "repository=multilib provided=libjack.so "
+                           "provided-specification=libjack.so version=1.0-1\n") !=
+                           std::string::npos,
+                   "Detailed SONAME or existing metadata drifted");
+        }
+        expect(lines.find("1) ") < lines.find("2) ") &&
+                   lines.find("2) ") < lines.find("3) ") &&
+                   occurrence_count(lines, "SONAME: ") ==
+                       (detail == PresentationDetail::Normal ? 2U : 0U) &&
+                   occurrence_count(lines, "soname-class=") ==
+                       (detail == PresentationDetail::Detailed ? 2U : 0U),
+               "unknown candidate acquired a class or numbering changed");
+        stub::require_local_package_query_expectations_consumed();
+    }
 }
 
 void test_noninteractive_session_does_not_read_or_write() {
@@ -1044,6 +1183,8 @@ void test_no_confirm_production_session_is_noninteractive() {
 int main() {
     try {
         test_compact_identity_and_style();
+        test_legacy_soname_class_projection();
+        test_soname_annotations_preserve_selection_and_installed_state();
         test_presentation_modes_preserve_candidates_and_selection();
         test_noninteractive_session_does_not_read_or_write();
         test_candidate_metadata_and_exact_number_selection();

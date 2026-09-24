@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.9.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-24 07:07+0900\n"
+"POT-Creation-Date: 2026-09-24 11:28+0900\n"
 "PO-Revision-Date: 2026-09-19 17:53+0900\n"
 "Last-Translator: Moguet contributors\n"
 "Language-Team: Japanese\n"
@@ -6909,6 +6909,12 @@ msgstr "無視するシグナルの動作設定を初期化できませんでし
 #, c++-format
 msgid "Failed to initialize the {} mask: {}"
 msgstr "{} マスクを初期化できませんでした: {}"
+
+msgid "[SONAME: 32-bit]"
+msgstr "[SONAME: 32ビット]"
+
+msgid "[SONAME: 64-bit]"
+msgstr "[SONAME: 64ビット]"
 
 #, c++-format
 msgid "[provides: {}]"
