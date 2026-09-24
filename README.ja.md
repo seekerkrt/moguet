@@ -53,7 +53,7 @@ Moguet v2.0.1は、採用済みXDG storage契約のうちsource-preference部分
 preferenceは実行user自身のXDG config contextだけを使い、公開済みv2.0.0のtag、Release、
 release noteは歴史的記録のまま変更しません。
 
-Moguet v2.9.0はv2.x seriesで予定している最後のMINOR releaseです。ordinary AUR helperの
+Moguet v2.9.0はordinary AUR helperの
 土台を完成させ、対応するremote AUR build routeでの限定的なdependency cleanup、
 Normal / Detailed presentationのcompact化、responsibility boundaryの簡素化、
 final RC validation workflowの整備をまとめています。対応範囲と利用者から見える変更の全体は
@@ -63,6 +63,10 @@ Moguet v2.9.1はPATCH releaseです。pinned source snapshot acceptanceのNormal
 compact化し、snapshot identityとclosure summaryを表示します。`--details`ではnodeごと・
 fileごとのexact identityを維持します。verification、acceptance、routing、build、
 install、exit semanticsは変更しません。
+
+Moguet v2.10.0では、対話的なprovider選択に複数番号、range、除外を追加しました。
+認識できるlegacy SONAME v1のprovider capabilityには32-bitまたは64-bitの注記を付けますが、
+注記によって候補のfilterや選択は行いません。
 
 canonical repository identityはGitHub上のMoguetで、GitLab mirrorを持ちます。Moguet
 packageは`jpacker` command aliasを提供しません。AUR publicationは将来の別判断であり、
@@ -74,7 +78,7 @@ repositoryとAURを組み合わせた依存関係を含む、日常的なAUR利�
 新しいv2 blockerは見つかりませんでした。全AUR packageや全dependency topologyへの
 対応を約束するものではなく、対応済みの範囲、明示的な制限、意図したrejectを区別します。
 
-v2.9.0で予定していたv2 minor seriesを閉じます。将来のprofile / patch workflowは
+将来のprofile / patch workflowは
 完成したv2 release boundaryではなくv3 planningで改めて検討します。原則とv2/v3境界は
 [project stance](https://github.com/seekerkrt/moguet/blob/develop/docs/project-stance.md)を参照してください。
 
@@ -868,8 +872,7 @@ active integration branchは`develop`、stable releaseは`main`です。
 [docs/development.md](https://github.com/seekerkrt/moguet/blob/develop/docs/development.md)、
 [docs/versioning.md](https://github.com/seekerkrt/moguet/blob/develop/docs/versioning.md)を
 参照してください。高度なruntime-aware completionやprofile / patch workflowなどの
-将来候補は[release roadmap](https://github.com/seekerkrt/moguet/issues/344)で扱い、
-v2.9.0 final gate後に再査定します。
+将来候補は[release roadmap](https://github.com/seekerkrt/moguet/issues/344)で扱います。
 
 <!-- parity:license -->
 ## License

@@ -1,3 +1,62 @@
+# Moguet v2.10.0
+
+This tracked file is the source of truth for release bodies. The English and
+Japanese sections for each release describe the same scope.
+
+## English
+
+Moguet v2.10.0 improves interactive provider selection and makes legacy SONAME
+provider metadata clearer.
+
+### Provider selection expressions (#631)
+
+* Ambiguous provider prompts accept multiple numbers separated by spaces or
+  commas, inclusive ranges, exclusions, and combined include/exclude expressions.
+  Examples include `1 3`, `1,3`, `1-3`, `1-2,4`, `^4`, and `^2-4`.
+* Invalid expressions discard the entire input and prompt again. Excluding every
+  candidate is invalid rather than a cancellation. An empty input, a cancellation
+  command, or EOF still cancels the selection.
+* Selection remains within the resolved provider candidate set. Repository and
+  AUR providers are not mixed into one selection list, and candidate identity,
+  source routing, and the selection-before-mutation boundary remain in force.
+
+### SONAME provider clarity (#632)
+
+* For conservatively recognized legacy SONAME v1 capabilities, Normal candidate
+  output shows `[SONAME: 64-bit]` or `[SONAME: 32-bit]`. Detailed output shows
+  `soname-class=64-bit` or `soname-class=32-bit`.
+* Unknown or non-v1 capabilities are left unannotated rather than guessed. The
+  annotation reflects provider metadata, not verification of the actual ELF or
+  the requesting dependency's required ABI.
+* The annotation does not filter candidates, automatically reuse a 32/64-bit
+  counterpart, or change candidate order, numbering, or selection semantics.
+
+## 日本語
+
+Moguet v2.10.0では、対話的なprovider選択を拡張し、legacy SONAMEのprovider metadataを
+分かりやすく表示します。
+
+### Provider選択式（#631）
+
+* 複数providerの選択で、空白・comma区切りの複数番号、両端を含むrange、除外、
+  includeとexcludeの組み合わせを受け付けます。例は`1 3`、`1,3`、`1-3`、
+  `1-2,4`、`^4`、`^2-4`です。
+* 無効な式は入力行全体を破棄して再入力を求めます。全候補の除外は取消ではなく
+  無効な入力です。空入力、取消command、EOFは従来どおり選択を取り消します。
+* 選択は解決済みの同一source候補集合内に限ります。repositoryとAURのproviderを
+  一つの選択一覧へ混在させず、candidate identity、source routing、mutation前の
+  選択完了という安全境界を維持します。
+
+### SONAME provider表示（#632）
+
+* 保守的に認識できるlegacy SONAME v1 capabilityには、Normalの候補表示で
+  `[SONAME: 64-bit]`または`[SONAME: 32-bit]`を添えます。Detailedでは
+  `soname-class=64-bit`または`soname-class=32-bit`を表示します。
+* 判定できないものやv1以外のcapabilityは推測せず無注記にします。この注記は
+  provider metadataの表示であり、実際のELFの検証結果や要求側の必須ABIではありません。
+* 注記によるcandidateのfilter、32/64-bit counterpartの自動再利用、候補の順序・
+  番号・選択semanticsの変更は行いません。
+
 # Moguet v2.9.1
 
 This tracked file is the source of truth for release bodies. The English and
