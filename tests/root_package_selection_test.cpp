@@ -226,6 +226,74 @@ void test_number_multiple_range_group_and_ascii_whitespace() {
         "combined selector preserves display order");
 }
 
+void test_comma_and_exclusion_expressions() {
+    const RootPackageSearchSnapshot snapshot = selection_snapshot();
+    const auto expect_indices = [&](
+                                    std::string_view input,
+                                    const std::vector<std::size_t>& indices) {
+        std::vector<RootPackageIdentity> expected;
+        for(std::size_t index : indices) {
+            expected.push_back(snapshot.candidates[index - 1]
+                                   .candidate.identity());
+        }
+        const RootPackageSelectionExpressionResult result =
+            parse_root_package_selection(std::string(input), snapshot);
+        expect_selected_identities(
+            require_expression_selection(result, input), expected, input);
+    };
+
+    expect_indices("1,3", {1, 3});
+    expect_indices("1-2,4", {1, 2, 4});
+    expect_indices("1-3 5", {1, 2, 3, 5});
+    expect_indices("1-3,5", {1, 2, 3, 5});
+    expect_indices("1 3-5", {1, 3, 4, 5});
+    expect_indices("1 2,4-5", {1, 2, 4, 5});
+    expect_indices("^4", {1, 2, 3, 5});
+    expect_indices("^2-4", {1, 5});
+    expect_indices("1-5,^3", {1, 2, 4, 5});
+    expect_indices("@base-devel ^4", {1});
+    expect_indices("^4 @base-devel", {1});
+    expect_indices("1,1,2", {1, 2});
+    expect_indices("3,1,2", {1, 2, 3});
+
+    RootPackageSearchSnapshot six_candidates = selection_snapshot();
+    six_candidates.candidates.push_back(
+        repository_entry("extra", "zeta"));
+    const RootPackageSelectionExpressionResult mixed =
+        parse_root_package_selection("1 2,4-6", six_candidates);
+    expect_selected_identities(
+        require_expression_selection(mixed, "mixed six-candidate list"),
+        {
+            RepositoryRootPackageIdentity{"core", "alpha"},
+            RepositoryRootPackageIdentity{"extra", "beta"},
+            RepositoryRootPackageIdentity{"core", "delta"},
+            AurRootPackageIdentity{"epsilon", "epsilon-base"},
+            RepositoryRootPackageIdentity{"extra", "zeta"},
+        },
+        "mixed six-candidate list");
+
+    for(std::string_view input : {"1,,3", ",1", "1,"}) {
+        const RootPackageSelectionExpressionResult result =
+            parse_root_package_selection(std::string(input), snapshot);
+        const auto& invalid = require_invalid_expression(result, input);
+        expect(
+            std::holds_alternative<EmptyRootPackageSelectionCommaField>(
+                invalid.issues.front()),
+            std::string(input) + ": empty comma field issue differs");
+    }
+    for(std::string_view input : {"1,@base-devel", "^@base-devel"}) {
+        const RootPackageSelectionExpressionResult result =
+            parse_root_package_selection(std::string(input), snapshot);
+        require_invalid_expression(result, input);
+    }
+    const RootPackageSelectionExpressionResult empty =
+        parse_root_package_selection("1,^1", snapshot);
+    expect(
+        std::holds_alternative<EmptyRootPackageSelectionResult>(
+            require_invalid_expression(empty, "empty result").issues.front()),
+        "excluded empty selection was not typed invalid");
+}
+
 void test_overlapping_selectors_deduplicate_full_identity() {
     const RootPackageCandidate duplicate =
         repository_candidate("core", "duplicate");
@@ -290,6 +358,36 @@ void test_alternative_source_conflict_is_atomic_and_ordered() {
         "conflicting identities did not retain display order");
 }
 
+void test_exclusion_precedes_alternative_conflict() {
+    const RootPackageSearchSnapshot snapshot{{
+        repository_entry("core", "shared", {"both"}),
+        aur_entry("shared", "shared-base"),
+        repository_entry("core", "other", {"both"}),
+    }};
+    const RootPackageSelectionExpressionResult resolved =
+        parse_root_package_selection("1-3 ^2", snapshot);
+    expect_selected_identities(
+        require_expression_selection(resolved, "excluded alternative"),
+        {
+            RepositoryRootPackageIdentity{"core", "shared"},
+            RepositoryRootPackageIdentity{"core", "other"},
+        },
+        "excluded alternative");
+    const RootPackageSelectionExpressionResult remains =
+        parse_root_package_selection("1-3 ^3", snapshot);
+    expect(
+        std::holds_alternative<ConflictingRootPackageSelectionAlternatives>(
+            require_invalid_expression(remains, "remaining alternative")
+                .issues.front()),
+        "remaining alternatives did not conflict");
+    const RootPackageSelectionExpressionResult group =
+        parse_root_package_selection("@both ^1", snapshot);
+    expect_selected_identities(
+        require_expression_selection(group, "group exclusion"),
+        {RepositoryRootPackageIdentity{"core", "other"}},
+        "group exclusion");
+}
+
 void test_invalid_tokens_are_typed_and_atomic() {
     const RootPackageSearchSnapshot snapshot{{
         repository_entry("core", "first"),
@@ -299,11 +397,11 @@ void test_invalid_tokens_are_typed_and_atomic() {
 
     const RootPackageSelectionExpressionResult result =
         parse_root_package_selection(
-            "1 1,2 1- @ 0 4 3-2 @missing CANCEL", snapshot);
+            "1 1,,2 1- @ 0 4 3-2 @missing CANCEL", snapshot);
     const InvalidRootPackageSelection& invalid =
         require_invalid_expression(result, "typed invalid selectors");
     const std::vector<RootPackageSelectionIssue> expected{
-        MalformedRootPackageSelectionToken{"1,2"},
+        EmptyRootPackageSelectionCommaField{},
         MalformedRootPackageSelectionToken{"1-"},
         MalformedRootPackageSelectionToken{"@"},
         RootPackageSelectionIndexOutOfRange{"0", 3},
@@ -451,7 +549,7 @@ void test_invalid_attempt_retries_with_ordered_events() {
         repository_entry("core", "first"),
         aur_entry("second", "second-base"),
     }};
-    std::istringstream input("0\n2\nremaining\n");
+    std::istringstream input("1,,2\n2\nremaining\n");
     std::vector<RootPackageSelectionInteractionEvent> events;
     bool callbacks_received_same_snapshot = true;
     RootPackageSelectionSession session(
@@ -489,7 +587,7 @@ void test_invalid_attempt_retries_with_ordered_events() {
     expect(
         invalid.issues ==
             std::vector<RootPackageSelectionIssue>{
-                RootPackageSelectionIndexOutOfRange{"0", 2}},
+                EmptyRootPackageSelectionCommaField{}},
         "retry invalid event detail differs");
 
     std::string unread_input;
@@ -677,9 +775,11 @@ void test_production_factory_distinguishes_non_tty_and_no_confirm() {
 int main() {
     try {
         test_number_multiple_range_group_and_ascii_whitespace();
+        test_comma_and_exclusion_expressions();
         test_overlapping_selectors_deduplicate_full_identity();
         test_group_selector_ignores_aur_group_metadata();
         test_alternative_source_conflict_is_atomic_and_ordered();
+        test_exclusion_precedes_alternative_conflict();
         test_invalid_tokens_are_typed_and_atomic();
         test_empty_and_cancel_tokens_are_distinct_cancellations();
         test_input_gates_and_empty_snapshot_do_not_read_or_emit();

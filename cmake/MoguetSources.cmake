@@ -121,6 +121,7 @@ set(MOGUET_PRODUCTION_SOURCES
     source/root_package_route_projection.cpp
     source/root_package_search.cpp
     source/root_package_selection.cpp
+    source/selection_expression.cpp
     source/runtime_diagnostic.cpp
     source/separated_package_base_source_build.cpp
     source/separated_source_build.cpp

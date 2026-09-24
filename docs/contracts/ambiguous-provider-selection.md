@@ -44,7 +44,9 @@ completeなexact / provider lookupの後に行うinstalled exact fallbackは、p
 
 ### Interactive selection
 
-複数providerの選択はinteractive TTYの番号入力だけで受け付ける。候補を番号付きで表示し、defaultを設けず、validな番号1件を明示入力として受理する。empty input、`q`、`quit`、`cancel`、EOFは取消とする。invalidまたはout-of-range inputは再入力を求める。
+複数providerの選択はinteractive TTYで、共通numeric selection expressionを1行単位で受け付ける。番号1件（`1`）、ASCII空白・comma区切りの複数番号（`1 3`、`1,3`）、inclusive range（`1-3`）、除外（`^4`、`^2-4`）、それらの混在（`1-5,^3`）を許す。includeがあればincludeからexcludeを引き、excludeだけなら全候補から引く。token順に依存せず、重複を除き、候補のcanonical順で保持する。除外後の空集合、空comma field、malformed / out-of-range入力は取消ではなくinvalidとして行全体を破棄し、同じ候補へ再入力を求める。empty input、case-insensitiveな`q`、`quit`、`cancel`、EOFは取消とし、invocation内で再promptしない。defaultは設けない。
+
+選択対象はresolverが確定した同一source candidate setだけである。repository providerが1件以上あればrepository候補だけを表示し、0件と確認できた場合だけAUR候補を探索する。repository / AURを混合したpublic selection listは作らない。completeなprovider setが1件の場合の既存auto-resolutionは維持する。候補表示と選択が終わり、必要なstatic preflightが完了するまでmutationを開始しない。
 
 non-TTYではpromptを開始せず、stdin pipeをprovider selection inputとして暗黙使用しない。`--noconfirm`でも先頭候補やdefault候補を選ばず、ambiguous errorとしてfail closedする。cancel、EOF、non-TTY、`--noconfirm`はmutation可能なrouteをnon-zeroで停止させる。
 
@@ -54,6 +56,18 @@ Normalは番号、`repository/package`または`aur/package`、versionを主情�
 名前が`aur`のconfigured repositoryにはlocalized `[repository]`を添え、AUR sourceと区別する。
 PackageBaseがpackage名と異なる場合はNormalでも補助表示し、同一なら繰り返さない。
 provider capabilityは`[provides: ...]`へまとめ、version付きspecificationを保持する。
+typed provider capabilityの名前が`.so`で終わり、equality-onlyのversionがlegacy SONAME v1の
+数字のドット区切りinterface番号、または同名のunversioned SONAMEに続く`-32` / `-64`
+という保守的な認識形を満たす場合だけ、
+Normalへlocalizedな`[SONAME: 32-bit]` / `[SONAME: 64-bit]`を`[provides: ...]`の前に添える。
+Detailedも同じ判定からfixed field `soname-class=32-bit` / `soname-class=64-bit`を追加し、
+既存の`provided`、`provided-specification`を残す。v1のversion文字列全般を網羅する
+parserではなく、判定不能なprovideには注記を付けない。
+このclassはprovider metadataが申告するlegacy v1形式の表示であり、Moguetが実ELFを検査した
+証拠でもrequesting dependencyのrequired ABIでもない。手動version付きprovideとmakepkg自動生成の
+区別もできない。package arch、`lib32-`名、`multilib` repo、installed stateから推測しない。
+注記はcandidate identity、集合、順序、番号、選択、constraint filter、source fallback、
+BuildPlan、invocation-local reuseを変更せず、32/64のcounterpart familyも自動対応付けしない。
 presenterはpromptのdependency contextを所有しないため、unversioned capabilityも一度表示する。
 componentとspecificationの名前が異なる場合はcomponentも補助表示する。
 installed stateの注記・warningとlookup lifetimeは従来の契約を維持する。
@@ -213,6 +227,7 @@ installed stateはidentity modelやBuildPlanへ流入しない境界を維持す
 - Issue #388でprovider candidateのinstalled-state annotationをproduction presentationへ接続済み。
 - Issue #351 Slice 2〜4のtyped constraint model、source-aware repository/local adapter、AUR metadata projectionをproduction resolver edgeのauthorityとする。
 - Issue #351 Slice 5ではinvocation-wide aggregation、prompt前の`Invalid` / `Conflicting` guard、partial-source `Unknown`、selected provider refresh、installed exact fallbackを同じBuildPlan / preflight ownerへ接続する。
+- Issue #631 Slice 4では、内部callbackの選択結果をnon-emptyなprovider setとして受け、選択memberごとに`BuildPlan::provided`と単一provider edgeへ投影した。repository targetはidentity単位、AUR build unitはPackageBase単位の既存集約を用いる。Slice 5ではpublic provider promptを共通numeric grammarへ接続した。repository providerがある場合にAUR providerを候補へ加えない上記resolution orderは維持する。
 
 ### Ownership、plan、route
 

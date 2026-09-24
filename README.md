@@ -60,9 +60,9 @@ a new storage direction: source-build preferences now use only the executing
 user's XDG config context, while the published v2.0.0 tag, Release, and release
 notes remain historical records.
 
-Moguet v2.9.0 is the final planned MINOR release in the v2.x series. It completes
-the ordinary AUR-helper foundation with bounded dependency cleanup for the
-supported remote-AUR build route, more compact Normal/Detailed presentation,
+Moguet v2.9.0 completed the ordinary AUR-helper foundation with bounded
+dependency cleanup for the supported remote-AUR build route, more compact
+Normal/Detailed presentation,
 simpler responsibility boundaries, and a dedicated final-RC validation workflow.
 See the [v2.9.0 release](https://github.com/seekerkrt/moguet/releases/tag/v2.9.0)
 for the supported scope and complete user-visible changes.
@@ -71,6 +71,10 @@ Moguet v2.9.1 is a PATCH release that makes pinned source snapshot acceptance
 more compact in Normal output. The snapshot identity and closure summary remain
 visible; `--details` retains exact per-node and per-file identity. Verification,
 acceptance, routing, build, install, and exit semantics are unchanged.
+
+Moguet v2.10.0 extends interactive provider selection to multiple numbers,
+ranges, and exclusions. Recognized legacy SONAME v1 provider capabilities gain
+32-bit or 64-bit annotations; these do not filter or select candidates.
 
 The canonical repository identity is Moguet on GitHub, with a GitLab mirror.
 The Moguet package does not provide a `jpacker` command alias. AUR publication
@@ -85,8 +89,8 @@ found no new v2 blocker. This is not a promise to handle every AUR package or
 dependency topology: supported cases, explicit limitations, and intentional
 rejections remain distinct.
 
-v2.9.0 closes the planned v2 minor series. Future profile and patch workflows
-belong to v3 planning rather than the completed v2 release boundary. See the
+Future profile and patch workflows belong to v3 planning rather than the
+completed v2 release boundary. See the
 [project stance](https://github.com/seekerkrt/moguet/blob/develop/docs/project-stance.md)
 for the principles and v2/v3 boundary.
 
@@ -139,9 +143,10 @@ actual build/install; neither guarantees the safety of upstream code or packages
   transaction authority. `-Si` shows the source metadata and explicitly
   defers this stateful assessment to planning and build preflight.
 - When multiple provider candidates remain, an interactive TTY lists
-  source-aware candidates by number and requires exactly one explicit choice;
-  there is no default. Empty input, `q`, `quit`, `cancel`, or EOF cancels the
-  choice, while invalid or out-of-range input retries.
+  source-aware candidates by number. It accepts one number, multiple numbers
+  (`1 3`, `1,3`), inclusive ranges (`1-3`), and exclusions (`^4`, `^2-4`)
+  within the resolved repository or AUR candidate set. There is no default.
+  Empty input, `q`, `quit`, `cancel`, or EOF cancels; invalid input retries.
 - An interactive provider list appends localized `[installed]` when the
   candidate's package name exists in the read-only local package database.
   It leaves not-installed candidates untagged and marks an unavailable lookup
@@ -152,8 +157,11 @@ actual build/install; neither guarantees the safety of upstream code or packages
   auto-select a candidate. Unselected ambiguity fails closed.
 - `moguet -S --select [--needed] <query>` discovers source-aware root package candidates
   from official repositories and AUR. An interactive TTY accepts package
-  numbers, multiple numbers, inclusive ranges, and an `@group` selector for a
-  displayed official group; there is no default, even for one candidate.
+  numbers, space/comma-separated lists (`1 3`, `1,3`), inclusive ranges
+  (`1-2,4`), exclusions (`^4`, `^2-4`), and an `@group` selector for a
+  displayed official group. Exclusions also apply to expanded groups; there
+  is no default, even for one candidate. Provider selection uses the same
+  numeric grammar without the root-only `@group` selector.
   Empty input, `q`, `quit`, `cancel`, or EOF cancels, and invalid input retries
   against the same candidate list.
 - Root package discovery does not query candidates or prompt on non-TTY stdin
@@ -1007,8 +1015,7 @@ See
 and
 [docs/versioning.md](https://github.com/seekerkrt/moguet/blob/develop/docs/versioning.md).
 Future candidates, including advanced runtime-aware completion and profile/patch
-workflows, are tracked in the [release roadmap](https://github.com/seekerkrt/moguet/issues/344)
-and remain subject to reassessment after the v2.9.0 final gate.
+workflows, are tracked in the [release roadmap](https://github.com/seekerkrt/moguet/issues/344).
 
 <!-- parity:license -->
 ## License

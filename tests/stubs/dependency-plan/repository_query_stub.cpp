@@ -96,6 +96,8 @@ std::vector<ProvidedDependency> repository_providers(
     if(dependency_name == "case7-virtual-api" || dependency_name == "case9-missing" ||
        dependency_name == "case11-virtual" || dependency_name == "case11-missing" ||
        dependency_name == "case21-virtual" ||
+       dependency_name == "case33-virtual" ||
+       dependency_name == "case34-virtual" ||
        dependency_name == "case22-virtual" ||
        dependency_name == "recursive-selected-provider-failure-virtual" ||
        dependency_name == "selected-provider-identity-virtual" ||

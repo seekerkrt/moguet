@@ -43,6 +43,15 @@ struct DescendingRootPackageSelectionRange {
         const DescendingRootPackageSelectionRange&) const = default;
 };
 
+struct EmptyRootPackageSelectionCommaField {
+    bool operator==(
+        const EmptyRootPackageSelectionCommaField&) const = default;
+};
+
+struct EmptyRootPackageSelectionResult {
+    bool operator==(const EmptyRootPackageSelectionResult&) const = default;
+};
+
 struct UnknownRootPackageSelectionGroup {
     std::string group_name;
 
@@ -71,6 +80,8 @@ using RootPackageSelectionIssue = std::variant<
     MalformedRootPackageSelectionToken,
     RootPackageSelectionIndexOutOfRange,
     DescendingRootPackageSelectionRange,
+    EmptyRootPackageSelectionCommaField,
+    EmptyRootPackageSelectionResult,
     UnknownRootPackageSelectionGroup,
     MixedRootPackageSelectionCancellationToken,
     ConflictingRootPackageSelectionAlternatives>;
@@ -170,7 +181,7 @@ enum class RootPackageSelectionInputGate {
     NoConfirm
 };
 
-// provider selectionのexactly-one choice cacheとは分離し、root固有の
+// provider selectionのinvocation-local choice cacheとは分離し、root固有の
 // multiple / range / group expressionを同じcandidate snapshotへ適用する。
 class RootPackageSelectionSession final {
 public:

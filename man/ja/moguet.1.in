@@ -1030,8 +1030,9 @@ guardを解除します。宣言は残り、transaction authorityはpacman / lib
 .
 .PP
 複数dependency providerが残る場合、interactive TTYではsource-aware candidateを番号付きで
-表示し、defaultなしでexactly oneの選択を要求します。empty input、q、quit、cancel、EOFは
-取消とし、invalid / out-of-range inputは再入力します。non-TTYと
+表示します。確定済みのrepositoryまたはAUR候補集合内で、番号1件、複数番号（1 3、1,3）、
+inclusive range（1-3）、除外（^4、^2-4）を選択できます。defaultはありません。
+empty input、q、quit、cancel、EOFは取消とし、invalid inputは再入力します。non-TTYと
 .B --noconfirm
 ではprovider inputをstdinから読まずfail-closedで停止します。choiceは現在のinvocation内
 だけで共有します。selected AUR PackageBaseはfetch / build planへ渡し、selected official
@@ -1052,9 +1053,13 @@ compatibility、install reasonを証明せず、candidate順、番号、choice r
 .PP
 .B -S --select
 によるroot package discoveryも、candidateが1件でもdefaultを持ちません。interactive TTYでは
-1件または複数のpackage番号、inclusive range、表示済みofficial groupの
+1件またはASCII空白・comma区切りの複数package番号（例: 1 3、1,3）、inclusive range
+（1-2,4）、除外（^4、^2-4）、表示済みofficial groupの
 .B @group
-selectorを受理します。empty input、q、quit、cancel、EOFは取消とし、invalid inputは同じ
+selectorを受理します。group展開後にも除外を適用します。provider選択もroot固有の
+.B @group
+を除く同じnumeric grammarを使います。
+empty input、q、quit、cancel、EOFは取消とし、invalid inputは同じ
 candidate snapshotに対して再入力します。non-TTY stdinと
 .B --noconfirm
 ではcandidate queryやpromptより前に停止します。全selected rootのstatic preflight完了後、

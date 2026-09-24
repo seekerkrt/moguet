@@ -571,6 +571,21 @@ assert_selected_provider_transaction() {
         "$EXPECTED_PROVIDER_REPOSITORY/$expected_package"
 }
 
+assert_selected_provider_transaction_multiple() {
+    first_target=$EXPECTED_PROVIDER_REPOSITORY/$canonical_first_provider
+    second_target=$EXPECTED_PROVIDER_REPOSITORY/$canonical_second_provider
+    selected_install_intent="Installing selected repository providers: '$first_target' '$second_target'"
+    selected_transaction_intent="Running: 'sudo' 'pacman' '-S' '--asdeps' '--needed' '--' '$first_target' '$second_target'"
+    selected_sentinel_diagnostic="moguet-live-pacman-sentinel: accepted and blocked sudo pacman argv for $first_target $second_target"
+
+    assert_exact_message_count 1 "$selected_install_intent" "$case_output.normalized"
+    assert_exact_message_count 1 "$selected_transaction_intent" "$case_output.normalized"
+    assert_exact_message_count 1 "$selected_sentinel_diagnostic" "$case_output.normalized"
+    assert_contains 'Failed to install selected repository providers.' "$case_output"
+    assert_sentinel_log "$current_case" \
+        sudo pacman -S --asdeps --needed -- "$first_target" "$second_target"
+}
+
 assert_valid_selection_case() {
     expected_package=$1
     assert_blocked_status
@@ -580,11 +595,45 @@ assert_valid_selection_case() {
     assert_common_case_integrity
 }
 
+run_multiple_expression_case() {
+    expression_case=$1
+    expression_input=$2
+    printf ':: case=%s\n' "$expression_case"
+    prepare_case "$expression_case"
+    input_file=$case_directory/input
+    printf '%s\n' "$expression_input" > "$input_file"
+    run_pty_case "$input_file" --noedit build --local "$case_source"
+    assert_blocked_status
+    assert_same_candidate_presentation
+    assert_count 1 "$provider_prompt" "$case_output.normalized"
+    assert_selected_provider_transaction_multiple
+    assert_common_case_integrity
+    printf '  expression: %s; selected in candidate order: %s/%s %s/%s\n' \
+        "$expression_input" "$EXPECTED_PROVIDER_REPOSITORY" \
+        "$canonical_first_provider" "$EXPECTED_PROVIDER_REPOSITORY" \
+        "$canonical_second_provider"
+}
+
+run_single_expression_case() {
+    expression_case=$1
+    expression_input=$2
+    printf ':: case=%s\n' "$expression_case"
+    prepare_case "$expression_case"
+    input_file=$case_directory/input
+    printf '%s\n' "$expression_input" > "$input_file"
+    run_pty_case "$input_file" --noedit build --local "$case_source"
+    assert_valid_selection_case "$canonical_first_provider"
+    printf '  expression: %s; selected: %s/%s\n' \
+        "$expression_input" "$EXPECTED_PROVIDER_REPOSITORY" \
+        "$canonical_first_provider"
+}
+
 assert_invalid_retry_selection_before_mutation() {
     selected_package=$1
     if ! python3 - "$case_output.normalized" "$selected_package" \
         "$EXPECTED_PROVIDER_REPOSITORY" "$provider_prompt" \
-        "$provider_invalid_diagnostic" <<'PY'
+        "$provider_invalid_token" "$provider_invalid_index" \
+        "$provider_invalid_empty" <<'PY'
 from pathlib import Path
 import sys
 
@@ -593,7 +642,7 @@ selected_package = sys.argv[2].encode("ascii")
 repository = sys.argv[3].encode("ascii")
 
 provider_prompt = sys.argv[4].encode("ascii")
-invalid_diagnostic = sys.argv[5].encode("ascii")
+invalid_diagnostics = [message.encode("ascii") for message in sys.argv[5:]]
 install_intent = b"Installing selected repository providers: '" + repository + b"/" + selected_package + b"'"
 transaction_intent = (
     b"Running: 'sudo' 'pacman' '-S' '--asdeps' '--needed' '--' '" + repository + b"/" +
@@ -610,11 +659,15 @@ def positions(needle):
         found.append(position)
         start = position + len(needle)
 
-invalid_positions = positions(invalid_diagnostic)
+invalid_positions = sorted(
+    position
+    for message in invalid_diagnostics
+    for position in positions(message)
+)
 prompt_positions = positions(provider_prompt)
 install_positions = positions(install_intent)
 transaction_positions = positions(transaction_intent)
-if len(invalid_positions) != 3 or len(prompt_positions) != 4:
+if len(invalid_positions) != 5 or len(prompt_positions) != 6:
     raise SystemExit("invalid-retry diagnostic or prompt count changed before position check")
 if len(install_positions) != 1 or len(transaction_positions) != 1:
     raise SystemExit("invalid-retry transaction intent is not exactly once before position check")
@@ -622,8 +675,8 @@ if len(install_positions) != 1 or len(transaction_positions) != 1:
 transaction_position = transaction_positions[0]
 if any(position >= transaction_position for position in invalid_positions):
     raise SystemExit("an invalid-choice diagnostic appeared after transaction intent")
-if prompt_positions[3] >= install_positions[0]:
-    raise SystemExit("the fourth provider prompt did not precede selected-provider intent")
+if prompt_positions[5] >= install_positions[0]:
+    raise SystemExit("the final provider prompt did not precede selected-provider intent")
 if install_positions[0] > transaction_position:
     raise SystemExit("provider install intent appeared after its transaction intent")
 PY
@@ -651,8 +704,10 @@ first_provider=$1
 second_provider=$2
 first_provider_target=$EXPECTED_PROVIDER_REPOSITORY/$first_provider
 second_provider_target=$EXPECTED_PROVIDER_REPOSITORY/$second_provider
-provider_prompt='Select a provider from [1-2]'
-provider_invalid_diagnostic='Invalid choice. Enter a number from [1-2]'
+provider_prompt='Select providers from [1-2]'
+provider_invalid_token='Invalid provider selection token.'
+provider_invalid_index='Provider selection index is out of range.'
+provider_invalid_empty='Provider selection is empty after exclusions.'
 if [ "$(id -u)" -eq 0 ]; then
     fail 'live provider runner must execute as an unprivileged validation user'
 fi
@@ -700,6 +755,8 @@ if [ -z "$first_provider_choice" ] || [ -z "$second_provider_choice" ] ||
     [ "$first_provider_choice" = "$second_provider_choice" ]; then
     fail 'provider choices could not be resolved from candidate identities'
 fi
+canonical_first_provider=$(awk -F '\t' '$1 == 1 { print $3 }' "$discovery_table")
+canonical_second_provider=$(awk -F '\t' '$1 == 2 { print $3 }' "$discovery_table")
 assert_count 1 "$provider_prompt" "$case_output.normalized"
 assert_ambiguous_diagnostic
 assert_sentinel_absent provider-discovery
@@ -737,25 +794,32 @@ printf '  sentinel argv: sudo pacman -S --asdeps --needed -- %s/%s\n' \
     "$EXPECTED_PROVIDER_REPOSITORY" "$second_provider"
 printf '%s\n' '  expected blocked phase: repository provider transaction'
 
+run_multiple_expression_case multiple-range '1-2'
+run_multiple_expression_case multiple-comma '1,2'
+run_multiple_expression_case multiple-space '1 2'
+run_single_expression_case exclude-only '^2'
+run_single_expression_case include-exclude '1-2 ^2'
+
 printf '%s\n' ':: case=invalid-retry'
 prepare_case invalid-retry
 invalid_input=$case_directory/input
 out_of_range_choice=3
-printf 'not-a-number\n0\n%s\n%s\n' \
+printf '1 2 foo\n^1-2\nnot-a-number\n0\n%s\n%s\n' \
     "$out_of_range_choice" "$first_provider_choice" > "$invalid_input"
 run_pty_case "$invalid_input" --noedit build --local "$case_source"
 assert_blocked_status
 assert_same_candidate_presentation
-assert_count 3 "$provider_invalid_diagnostic" \
-    "$case_output.normalized"
-assert_count 4 "$provider_prompt" "$case_output.normalized"
+assert_count 2 "$provider_invalid_token" "$case_output.normalized"
+assert_count 2 "$provider_invalid_index" "$case_output.normalized"
+assert_count 1 "$provider_invalid_empty" "$case_output.normalized"
+assert_count 6 "$provider_prompt" "$case_output.normalized"
 assert_selected_provider_transaction "$first_provider"
 assert_invalid_retry_selection_before_mutation "$first_provider"
 assert_common_case_integrity
 print_candidate_summary "$candidate_table"
-printf '  retry inputs: non-numeric, zero, out-of-range=%s; valid=%s\n' \
+printf '  retry inputs: partial-token, exclude-all, non-numeric, zero, out-of-range=%s; valid=%s\n' \
     "$out_of_range_choice" "$first_provider_choice"
-printf '%s\n' '  retry prompts=4 invalid diagnostics=3 sentinel calls before valid=0'
+printf '%s\n' '  retry prompts=6 invalid diagnostics=5 sentinel calls before valid=0'
 printf '%s\n' '  expected blocked phase: repository provider transaction after valid retry'
 
 printf '%s\n' ':: case=cancel-empty'

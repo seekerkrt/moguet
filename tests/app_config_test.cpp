@@ -67,13 +67,29 @@ void test_provider_presentation_receives_invocation_detail() {
         auto callback = provider_selection_callback(config);
         expect(received_detail == detail, "provider factory lost invocation presentation detail");
         const auto selected = callback("virtual", candidates);
-        expect(selected.has_value() && selected.value() == candidates[1],
+        expect(selected.has_value() &&
+                   selected->members() == std::vector<ProvidedDependency>{candidates[1]},
                "presentation detail changed callback selection identity");
         expect(output.str().find(detail == PresentationDetail::Detailed
                                      ? "2) source=AUR package=aur-provider PackageBase=aur-base"
                                      : "2) aur/aur-provider 1.0 (PackageBase: aur-base)") != std::string::npos,
                "callback lost rich provider metadata");
     }
+}
+
+void test_production_provider_callback_preserves_multiple_selection() {
+    std::istringstream input("1-2\n");
+    std::ostringstream output;
+    AppConfig config;
+    config.provider_selection = std::make_shared<ProviderSelectionSession>(input, output, true);
+    const std::vector<ProvidedDependency> candidates = {
+        ProvidedDependency::from_repository("extra", "provider-a", "virtual", "virtual=1", "1.0"),
+        ProvidedDependency::from_repository("extra", "provider-b", "virtual", "virtual=1", "1.0"),
+        ProvidedDependency::from_repository("extra", "provider-c", "virtual", "virtual=1", "1.0")};
+    const auto selected = provider_selection_callback(config)("virtual", candidates);
+    expect(selected.has_value() &&
+               selected->members() == std::vector<ProvidedDependency>{candidates[0], candidates[1]},
+           "production callback flattened public multiple selection");
 }
 
 int run_test_driver(int argc, char* argv[]) {
@@ -90,6 +106,7 @@ int run_test_driver(int argc, char* argv[]) {
 
     if(argc == 2 && std::string(argv[1]) == "projection") {
         test_provider_presentation_receives_invocation_detail();
+        test_production_provider_callback_preserves_multiple_selection();
         UserConfig final_user_config;
         final_user_config.review.pkgbuild = ReviewPolicy::Skip;
         final_user_config.review.diff = ReviewPolicy::Skip;

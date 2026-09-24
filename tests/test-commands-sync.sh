@@ -1870,7 +1870,22 @@ assert_contains "    AUR presentation fixture" "$output_file"
 assert_contains \
     "Invalid: Package selection index is outside the displayed range 1-2." \
     "$output_file"
-assert_output_count 2 "Select package numbers, ascending ranges, or displayed @group; press Enter or enter q/quit/cancel to cancel:"
+assert_output_count 2 "Select package numbers (space/comma lists), ranges, exclusions (^), or displayed @group; press Enter or enter q/quit/cancel to cancel:"
+assert_contains "Cancelled: Package selection was cancelled." "$output_file"
+assert_event_prefix_absent '^(sudo|pacman|pacman-conf|git|makepkg|aur) '
+assert_state_log_absent
+
+setup_case select-empty-comma-and-exclusion-retry-cancel
+run_status_pty 1 '1,,2\n1,^1\nq\n' -S --select select-presentation
+assert_event_at 1 "root search all select-presentation"
+assert_event_count 1 "root search all select-presentation"
+assert_contains \
+    "Invalid: Package selection contains an empty comma field." \
+    "$output_file"
+assert_contains \
+    "Invalid: Package selection has no candidates after exclusions." \
+    "$output_file"
+assert_output_count 3 "Select package numbers (space/comma lists), ranges, exclusions (^), or displayed @group; press Enter or enter q/quit/cancel to cancel:"
 assert_contains "Cancelled: Package selection was cancelled." "$output_file"
 assert_event_prefix_absent '^(sudo|pacman|pacman-conf|git|makepkg|aur) '
 assert_state_log_absent

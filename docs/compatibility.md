@@ -632,11 +632,13 @@ directory snapshot、strict read、PackageBase fallback read、preference-derive
 
 ## Dependency provider compatibility
 
-official exact、AUR exact、unique providerを先に扱い、複数providerはambiguousとして扱う。候補identityはsource kind、package、repositoryまたはPackageBase、provided dependency、available constraint metadataを保持する。interactive TTYの番号選択以外ではdefaultを設けない。
+official exact、AUR exact、unique providerを先に扱い、複数providerはambiguousとして扱う。候補identityはsource kind、package、repositoryまたはPackageBase、provided dependency、available constraint metadataを保持する。interactive TTYでは同一sourceの候補について番号1件、ASCII空白・comma区切りの複数番号、inclusive range、`^N` / `^N-M`の除外を受け付ける。includeからexcludeを引き、exclude-onlyは全候補から引く。重複を除き候補順に正規化し、invalid lineと空resultは取消にせずatomicに再入力する。defaultは設けない。
 
 non-TTY、`--noconfirm`、cancel、EOFではpromptや自動選択を開始しない。choiceはinvocation-localであり、config / cacheへ保存しない。selected repository providerはexact `repository/package`のofficial dependency、selected AUR providerはPackageBase build unitとして扱う。selectionとstatic preflight前にclone、build、pacman、sudoを開始しない。詳細は[ambiguous provider contract](contracts/ambiguous-provider-selection.md)を参照する。
 
 constraint resultはcandidateのfilter、sort、番号、default、recommend、auto-selection、choice reuseを変更しない。`Unsatisfied` / `Unknown`はprompt上のpresentation-only warningであり、`Invalid` / `Conflicting`だけをprompt前にfail-closedとする。constraintによるrepository / AUR / local source fallbackは行わない。provider metadata refresh後はcurrent matching capabilityで再評価し、古いprovided version / resultを再利用しない。
+
+legacy SONAME v1の保守的な認識形をtyped provider capabilityが申告する場合、Normal candidate行にはlocalizedな`[SONAME: 32-bit]` / `[SONAME: 64-bit]`を`[provides: ...]`と併記し、Detailedには同じ判定の`soname-class=...`を追加する。これは実ELFの検査結果やrequesting ABIではなく、判定不能なら無注記とする。package arch、package名、repository名、installed stateをclass推測に使わず、candidate集合・順序・番号を変えない。classでのfilterやprovider familyのsilent reuseも行わない。詳細は[ambiguous provider contract](contracts/ambiguous-provider-selection.md)を参照する。
 
 interactive candidate listには、read-only local package databaseにcandidateの`package_name`と同名packageがある場合だけlocalizedな`[installed]`を末尾へ付ける。authoritativeなabsenceはsuffixなし、configuration / local DB / query / malformed metadata failureはlocalizedな`[installed state unknown]`と別warningで表示する。これはname-only observationであり、source provenance、PackageBase、version / constraint、install reasonを証明しない。state表示はcandidate identity、順序、番号、選択、choice reuse、BuildPlan、routingを変更せず、non-TTY、`--noconfirm`、candidate数1以下、reuse、cancelled dependencyではlookupを開始しない。
 
@@ -646,7 +648,7 @@ interactive candidate listには、read-only local package databaseにcandidate�
 
 正式入口は`moguet -S --select [--needed] <query>`であり、`-Ss`は非対話search / presentationのままである。repository / AUR candidateはsource identityを保持し、同名packageでもsourceが違えば別候補とする。official searchはread-only libalpm metadata、AUR searchはtyped AUR responseをauthorityとし、pacmanのhuman-readable search outputをparseしない。
 
-interactive stdinで番号、複数番号、inclusive range、表示済みofficial groupの`@group` selectorを扱う。empty、cancel、EOF、non-TTY、`--noconfirm`はnon-zeroで停止し、invalid lineはatomically retryする。selection、identity validation、全static preflightが終わるまでpacman、sudo、clone、build、install、cache / workspace mutationを開始しない。selected repository rootとAUR rootは明示routeへprojectし、package nameからsourceを再推定しない。詳細は[root package selection contract](contracts/root-package-selection.md)を参照する。
+interactive stdinで番号、ASCII空白・comma区切りの複数番号、inclusive range、`^N` / `^N-M`の除外、表示済みofficial groupの`@group` selectorを扱う。`1,3`と`1-2,4`はvalidなpublic syntaxとなる。includeからexcludeを引き、exclude-onlyは全候補から引く。groupはroot側でincludeへ展開してからexcludeを適用する。除外後の空集合と空comma fieldはinvalidでありcancelではない。empty、cancel、EOF、non-TTY、`--noconfirm`はnon-zeroで停止し、invalid lineはatomically retryする。selection、identity validation、全static preflightが終わるまでpacman、sudo、clone、build、install、cache / workspace mutationを開始しない。selected repository rootとAUR rootは明示routeへprojectし、package nameからsourceを再推定しない。共通numeric grammarは#631 Slice 2でroot、Slice 5でproviderのpublic選択へ接続した。root固有の`@group` selectorはproviderには適用しない。詳細は[root package selection contract](contracts/root-package-selection.md)を参照する。
 
 <a id="compat-local-pkgbuild"></a>
 
