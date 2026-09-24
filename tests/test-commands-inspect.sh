@@ -691,6 +691,71 @@ assert_contains "completeness: Complete" "$stdout_file"
 assert_contains "provider decision: Selected" "$stdout_file"
 echo "  ok: plan reuses one interactive provider choice across targets"
 
+for provider_expression in '1-2' '1,2' '1 2' '^2' '1-2 ^2'; do
+    case "$provider_expression" in
+        1-2) expression_case=range ;;
+        1,2) expression_case=comma ;;
+        '1 2') expression_case=whitespace ;;
+        '^2') expression_case=exclude ;;
+        '1-2 ^2') expression_case=include-exclude ;;
+    esac
+    setup_case "plan-provider-expression-$expression_case"
+    export MOGUET_TEST_INSPECTION_SCENARIO=plan-provider-interactive-selection
+    run_tty_ok "$provider_expression" plan provider-root provider-root
+    assert_details_execution_parity \
+        run_tty_ok "$provider_expression" plan provider-root provider-root
+    assert_contains_count 1 \
+        ":: Choose a provider for moguet-inspect-203-virtual-provider" \
+        "$stdout_file"
+    assert_contains_count 1 \
+        "moguet-inspect-203-virtual-provider -> aur/provider-z (selected)" \
+        "$stdout_file"
+    if [ "$expression_case" = range ] || [ "$expression_case" = comma ] ||
+        [ "$expression_case" = whitespace ]; then
+        assert_contains_count 1 \
+            "moguet-inspect-203-virtual-provider -> aur/provider-a (selected)" \
+            "$stdout_file"
+        assert_before "  1. provider-z" "  2. provider-a" "$stdout_file"
+    else
+        assert_not_contains "aur/provider-a (selected)" "$stdout_file"
+    fi
+    assert_contains "provider decision: Selected" "$stdout_file"
+    assert_no_git_mutation
+    assert_not_contains "makepkg " "$command_log"
+    assert_not_contains "sudo " "$command_log"
+done
+echo "  ok: public range/list/exclude provider expressions reach the BuildPlan"
+
+setup_case plan-provider-invalid-atomic-retry
+export MOGUET_TEST_INSPECTION_SCENARIO=plan-provider-interactive-selection
+invalid_retry_input=$(printf '1 2 foo\n1-2')
+run_tty_ok "$invalid_retry_input" plan provider-root
+assert_contains_count 2 "Select providers from [1-2]" "$stdout_file"
+assert_contains "Invalid provider selection token." "$stdout_file"
+assert_contains_count 1 \
+    "moguet-inspect-203-virtual-provider -> aur/provider-z (selected)" \
+    "$stdout_file"
+assert_contains_count 1 \
+    "moguet-inspect-203-virtual-provider -> aur/provider-a (selected)" \
+    "$stdout_file"
+assert_before "Invalid provider selection token." "Build plan:" "$stdout_file"
+assert_no_git_mutation
+echo "  ok: invalid mixed line is discarded before plan construction"
+
+setup_case plan-provider-exclude-all-retry
+export MOGUET_TEST_INSPECTION_SCENARIO=plan-provider-interactive-selection
+exclude_all_retry_input=$(printf '^1-2\n1')
+run_tty_ok "$exclude_all_retry_input" plan provider-root
+assert_contains_count 2 "Select providers from [1-2]" "$stdout_file"
+assert_contains "Provider selection is empty after exclusions." "$stdout_file"
+assert_contains "Fetch/build/install: ready" "$stdout_file"
+assert_not_contains "provider decision: Cancelled" "$stdout_file"
+assert_contains "moguet-inspect-203-virtual-provider -> aur/provider-z (selected)" \
+    "$stdout_file"
+assert_not_contains "aur/provider-a (selected)" "$stdout_file"
+assert_no_git_mutation
+echo "  ok: exclude-all is typed invalid and retries without cancellation"
+
 setup_case plan-provider-interactive-cancel
 export MOGUET_TEST_INSPECTION_SCENARIO=plan-provider-interactive-cancel
 run_tty_ok q plan provider-root provider-root
@@ -1201,6 +1266,33 @@ assert_not_contains \
     "git clone https://aur.archlinux.org/provider-z.git provider-z" \
     "$command_log"
 echo "  ok: fetch retrieves only the interactively selected AUR provider"
+
+setup_case fetch-provider-multiple-selection
+export MOGUET_TEST_INSPECTION_SCENARIO=fetch-provider-interactive-selection
+run_tty_ok '1-2' fetch provider-root
+assert_contains_count 1 \
+    ":: Choose a provider for moguet-inspect-203-virtual-provider" \
+    "$stdout_file"
+assert_contains "moguet-inspect-203-virtual-provider -> aur/provider-z" "$stdout_file"
+assert_contains "moguet-inspect-203-virtual-provider -> aur/provider-a" "$stdout_file"
+assert_exact_line_count 1 \
+    "git clone https://aur.archlinux.org/provider-z.git provider-z" \
+    "$command_log"
+assert_exact_line_count 1 \
+    "git clone https://aur.archlinux.org/provider-a.git provider-a" \
+    "$command_log"
+assert_exact_line_count 1 \
+    "git clone https://aur.archlinux.org/provider-root.git provider-root" \
+    "$command_log"
+assert_exact_command_before \
+    "git clone https://aur.archlinux.org/provider-z.git provider-z" \
+    "git clone https://aur.archlinux.org/provider-root.git provider-root"
+assert_exact_command_before \
+    "git clone https://aur.archlinux.org/provider-a.git provider-a" \
+    "git clone https://aur.archlinux.org/provider-root.git provider-root"
+assert_contains "aur info-strict provider-z" "$command_log"
+assert_contains "aur info-strict provider-a" "$command_log"
+echo "  ok: public AUR multiple selection refreshes both members and fetches both build units once"
 
 setup_case fetch-provider-interactive-cancel
 export MOGUET_TEST_INSPECTION_SCENARIO=fetch-provider-interactive-cancel

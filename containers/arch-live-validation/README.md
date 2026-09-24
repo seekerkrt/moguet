@@ -43,10 +43,11 @@ versionは固定しない。集合、origin、repository、重複、またはpre
 実package transactionは行わない。imageのprovisioningとMoguet buildが完了した後、
 container内のcanonical `/usr/bin/pacman`だけをroot-owned・non-writableなsentinelへ
 置き換える。sentinelはproduction Moguetが生成したexactな
-`sudo pacman -S --asdeps --needed [--noconfirm] -- extra/{rust,rustup}` argvを
-byte-safeに記録し、固定statusで停止する。元のreal pacmanはvalidation userから
-実行不能なroot-only pathへ隔離されるため、rust / rustupのreal install、`pacman -U`、
-remove、upgrade、複数target、unqualified targetは実行されない。
+`sudo pacman -S --asdeps --needed [--noconfirm] -- extra/{rust,rustup}` argvと、
+multiple選択caseに限るレビュー済み2件のargvをbyte-safeに記録し、固定statusで停止する。
+元のreal pacmanはvalidation userから実行不能なroot-only pathへ隔離されるため、
+rust / rustupのreal install、`pacman -U`、remove、upgrade、未承認の複数target、
+unqualified targetは実行されない。
 
 各caseはtracked PKGBUILDだけをfresh user-owned directoryへcopyし、そのcopyで
 unprivileged `makepkg --printsrcinfo`を実行してtracked `expected.srcinfo`とexact比較する。

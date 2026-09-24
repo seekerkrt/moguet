@@ -93,6 +93,11 @@ RUN install -d -o root -g root -m 0711 \
         provider-discovery \
         first-provider-selection \
         second-provider-selection \
+        multiple-range \
+        multiple-comma \
+        multiple-space \
+        exclude-only \
+        include-exclude \
         invalid-retry \
         cancel-empty \
         cancel-q \
