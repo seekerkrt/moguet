@@ -38,7 +38,8 @@ case "$case_name" in
     sentinel-reject-pacman-u|sentinel-reject-remove|sentinel-reject-syu|\
     sentinel-reject-multiple|sentinel-reject-unqualified|\
     sentinel-reject-option|sentinel-reject-unknown-target|\
-    provider-discovery|first-provider-selection|second-provider-selection|invalid-retry|\
+    provider-discovery|first-provider-selection|second-provider-selection|\
+    multiple-range|multiple-comma|multiple-space|exclude-only|include-exclude|invalid-retry|\
     cancel-empty|cancel-q|provider-eof|non-tty-pipe|noconfirm-tty)
         ;;
     *)
@@ -71,6 +72,7 @@ fi
 /usr/bin/chown root:moguet-validation "$log_file"
 /usr/bin/chmod 0640 "$log_file"
 
+selected_second_target=
 if [ "$#" -eq 5 ]; then
     [ "$1" = '-S' ] || reject 'operation is not -S'
     [ "$2" = '--asdeps' ] || reject '--asdeps is missing or reordered'
@@ -81,16 +83,33 @@ elif [ "$#" -eq 6 ]; then
     [ "$1" = '-S' ] || reject 'operation is not -S'
     [ "$2" = '--asdeps' ] || reject '--asdeps is missing or reordered'
     [ "$3" = '--needed' ] || reject '--needed is missing or reordered'
-    [ "$4" = '--noconfirm' ] || reject 'unknown optional argument'
-    [ "$5" = '--' ] || reject 'target delimiter is missing or reordered'
-    selected_target=$6
+    if [ "$4" = '--noconfirm' ]; then
+        [ "$5" = '--' ] || reject 'target delimiter is missing or reordered'
+        selected_target=$6
+    else
+        [ "$4" = '--' ] || reject 'target delimiter is missing or reordered'
+        case "$case_name" in
+            multiple-range|multiple-comma|multiple-space) ;;
+            *) reject 'multiple targets are not allowed for this case' ;;
+        esac
+        selected_target=$5
+        selected_second_target=$6
+    fi
 else
-    reject 'expected exactly one target and the fixed option set'
+    reject 'unexpected target count or option set'
 fi
 
 if [ "$selected_target" != "$first_provider_target" ] &&
     [ "$selected_target" != "$second_provider_target" ]; then
     reject 'target is not an allowed repo-qualified provider'
+fi
+if [ -n "$selected_second_target" ]; then
+    if [ "$selected_second_target" = "$selected_target" ] ||
+        { [ "$selected_second_target" != "$first_provider_target" ] &&
+          [ "$selected_second_target" != "$second_provider_target" ]; }; then
+        reject 'multiple targets are not the two distinct reviewed providers'
+    fi
+    selected_target="$selected_target $selected_second_target"
 fi
 
 printf '%s\n' \

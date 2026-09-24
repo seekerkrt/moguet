@@ -400,7 +400,7 @@ for reviewed_provider in $EXPECTED_PROVIDER_PACKAGES; do
     provider_count=$((provider_count + 1))
 done
 IFS=$saved_ifs
-provider_prompt="Select a provider from [1-$provider_count]"
+provider_prompt="Select providers from [1-$provider_count]"
 [ "$(id -u)" -eq 1000 ] && [ "$(id -g)" -eq 1000 ] ||
     fail 'live local runner must execute as validation uid/gid 1000'
 [ ! -e "$repo_root/.git" ] || fail 'container source copy unexpectedly includes .git'

@@ -570,7 +570,7 @@ ProductionSourceBuildWorkItem prepare_resolved_source_build_work_item(
             throw std::runtime_error(
                 "scripted registered-source provider remains ambiguous");
         }
-        const std::optional<ProvidedDependency> selected =
+        const std::optional<ProviderSelectionSet> selected =
             select_provider(
                 "scripted-registered-source-dependency",
                 candidates->second);
@@ -578,13 +578,13 @@ ProductionSourceBuildWorkItem prepare_resolved_source_build_work_item(
             throw std::runtime_error(
                 "scripted registered-source provider remains ambiguous");
         }
-        if(std::holds_alternative<RepositoryProviderOrigin>(
-               selected->origin)) {
-            work_item.selected_repository_providers.push_back(
-                selected.value());
-        } else {
-            throw std::runtime_error(
-                "scripted registered-source AUR provider is unsupported");
+        for(const ProvidedDependency& member : selected->members()) {
+            if(!std::holds_alternative<RepositoryProviderOrigin>(
+                   member.origin)) {
+                throw std::runtime_error(
+                    "scripted registered-source AUR provider is unsupported");
+            }
+            work_item.selected_repository_providers.push_back(member);
         }
     }
     auto providers = g_state.selected_repository_providers.find(
