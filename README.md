@@ -60,9 +60,9 @@ a new storage direction: source-build preferences now use only the executing
 user's XDG config context, while the published v2.0.0 tag, Release, and release
 notes remain historical records.
 
-Moguet v2.9.0 is the final planned MINOR release in the v2.x series. It completes
-the ordinary AUR-helper foundation with bounded dependency cleanup for the
-supported remote-AUR build route, more compact Normal/Detailed presentation,
+Moguet v2.9.0 completed the ordinary AUR-helper foundation with bounded
+dependency cleanup for the supported remote-AUR build route, more compact
+Normal/Detailed presentation,
 simpler responsibility boundaries, and a dedicated final-RC validation workflow.
 See the [v2.9.0 release](https://github.com/seekerkrt/moguet/releases/tag/v2.9.0)
 for the supported scope and complete user-visible changes.
@@ -71,6 +71,10 @@ Moguet v2.9.1 is a PATCH release that makes pinned source snapshot acceptance
 more compact in Normal output. The snapshot identity and closure summary remain
 visible; `--details` retains exact per-node and per-file identity. Verification,
 acceptance, routing, build, install, and exit semantics are unchanged.
+
+Moguet v2.10.0 extends interactive provider selection to multiple numbers,
+ranges, and exclusions. Recognized legacy SONAME v1 provider capabilities gain
+32-bit or 64-bit annotations; these do not filter or select candidates.
 
 The canonical repository identity is Moguet on GitHub, with a GitLab mirror.
 The Moguet package does not provide a `jpacker` command alias. AUR publication
@@ -85,8 +89,8 @@ found no new v2 blocker. This is not a promise to handle every AUR package or
 dependency topology: supported cases, explicit limitations, and intentional
 rejections remain distinct.
 
-v2.9.0 closes the planned v2 minor series. Future profile and patch workflows
-belong to v3 planning rather than the completed v2 release boundary. See the
+Future profile and patch workflows belong to v3 planning rather than the
+completed v2 release boundary. See the
 [project stance](https://github.com/seekerkrt/moguet/blob/develop/docs/project-stance.md)
 for the principles and v2/v3 boundary.
 
@@ -1011,8 +1015,7 @@ See
 and
 [docs/versioning.md](https://github.com/seekerkrt/moguet/blob/develop/docs/versioning.md).
 Future candidates, including advanced runtime-aware completion and profile/patch
-workflows, are tracked in the [release roadmap](https://github.com/seekerkrt/moguet/issues/344)
-and remain subject to reassessment after the v2.9.0 final gate.
+workflows, are tracked in the [release roadmap](https://github.com/seekerkrt/moguet/issues/344).
 
 <!-- parity:license -->
 ## License
