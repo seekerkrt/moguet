@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.9.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-24 07:07+0900\n"
+"POT-Creation-Date: 2026-09-24 11:28+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -6916,6 +6916,12 @@ msgstr ""
 
 #, c++-format
 msgid "Failed to initialize the {} mask: {}"
+msgstr ""
+
+msgid "[SONAME: 32-bit]"
+msgstr ""
+
+msgid "[SONAME: 64-bit]"
 msgstr ""
 
 #, c++-format

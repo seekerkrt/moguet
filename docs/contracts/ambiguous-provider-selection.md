@@ -56,6 +56,18 @@ Normalは番号、`repository/package`または`aur/package`、versionを主情�
 名前が`aur`のconfigured repositoryにはlocalized `[repository]`を添え、AUR sourceと区別する。
 PackageBaseがpackage名と異なる場合はNormalでも補助表示し、同一なら繰り返さない。
 provider capabilityは`[provides: ...]`へまとめ、version付きspecificationを保持する。
+typed provider capabilityの名前が`.so`で終わり、equality-onlyのversionがlegacy SONAME v1の
+数字のドット区切りinterface番号、または同名のunversioned SONAMEに続く`-32` / `-64`
+という保守的な認識形を満たす場合だけ、
+Normalへlocalizedな`[SONAME: 32-bit]` / `[SONAME: 64-bit]`を`[provides: ...]`の前に添える。
+Detailedも同じ判定からfixed field `soname-class=32-bit` / `soname-class=64-bit`を追加し、
+既存の`provided`、`provided-specification`を残す。v1のversion文字列全般を網羅する
+parserではなく、判定不能なprovideには注記を付けない。
+このclassはprovider metadataが申告するlegacy v1形式の表示であり、Moguetが実ELFを検査した
+証拠でもrequesting dependencyのrequired ABIでもない。手動version付きprovideとmakepkg自動生成の
+区別もできない。package arch、`lib32-`名、`multilib` repo、installed stateから推測しない。
+注記はcandidate identity、集合、順序、番号、選択、constraint filter、source fallback、
+BuildPlan、invocation-local reuseを変更せず、32/64のcounterpart familyも自動対応付けしない。
 presenterはpromptのdependency contextを所有しないため、unversioned capabilityも一度表示する。
 componentとspecificationの名前が異なる場合はcomponentも補助表示する。
 installed stateの注記・warningとlookup lifetimeは従来の契約を維持する。

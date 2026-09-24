@@ -9,6 +9,7 @@
 #include <cctype>
 #include <iostream>
 #include <iterator>
+#include <string_view>
 #include <unistd.h>
 #include <utility>
 
@@ -54,6 +55,37 @@ std::string selected_provider_package_identity_conflict_diagnostic(
         provider_package_identity_display(selected));
 }
 
+std::optional<LegacySonameV1Class> candidate_legacy_soname_v1_class(
+    const ProvidedDependency& candidate) {
+    if(!candidate.constraint_metadata.has_value()) return std::nullopt;
+    const ProviderCapability& capability =
+        candidate.constraint_metadata->provided_capability;
+    if(candidate.provided_dependency_name != capability.package_name() ||
+       candidate.provided_dependency_specification !=
+           capability.raw_specification()) {
+        return std::nullopt;
+    }
+    return legacy_soname_v1_class(capability);
+}
+
+std::string_view soname_class_value(LegacySonameV1Class soname_class) {
+    return soname_class == LegacySonameV1Class::Class32 ? "32-bit" : "64-bit";
+}
+
+bool is_numeric_interface_number(std::string_view value) {
+    bool has_digit = false;
+    for(const char character : value) {
+        if(character >= '0' && character <= '9') {
+            has_digit = true;
+        } else if(character == '.' && has_digit) {
+            has_digit = false;
+        } else {
+            return false;
+        }
+    }
+    return has_digit;
+}
+
 void present_candidate_metadata(
     std::ostream& output, std::size_t index,
     const ProvidedDependency& candidate) {
@@ -78,6 +110,11 @@ void present_candidate_metadata(
            << " provided-specification="
            << metadata_value(candidate.provided_dependency_specification)
            << " version=" << metadata_value(candidate.package_version);
+    if(const auto soname_class = candidate_legacy_soname_v1_class(candidate);
+       soname_class.has_value()) {
+        // NO_TRANSLATE: Detailed candidate fields are fixed CLI metadata labels.
+        output << " soname-class=" << soname_class_value(*soname_class);
+    }
 }
 
 void present_compact_candidate(
@@ -104,6 +141,13 @@ void present_compact_candidate(
     const std::string capability = candidate.provided_dependency_specification.empty()
                                        ? metadata_value(candidate.provided_dependency_name)
                                        : candidate.provided_dependency_specification;
+    if(const auto soname_class = candidate_legacy_soname_v1_class(candidate);
+       soname_class.has_value()) {
+        output << ' '
+               << (*soname_class == LegacySonameV1Class::Class32
+                       ? localization::translate_message("[SONAME: 32-bit]")
+                       : localization::translate_message("[SONAME: 64-bit]"));
+    }
     output << ' ' << localization::format_translated_message("[provides: {}]", capability);
     if(!candidate.provided_dependency_name.empty() &&
        dependency_package_name(capability) != candidate.provided_dependency_name) {
@@ -128,6 +172,34 @@ std::string selection_issue_message(const SelectionExpressionIssue& issue) {
 }
 
 } // namespace
+
+std::optional<LegacySonameV1Class> legacy_soname_v1_class(
+    const ProviderCapability& capability) {
+    const std::string& name = capability.package_name();
+    const std::optional<std::string>& version = capability.version();
+    if(!name.ends_with(".so") || !version.has_value() ||
+       capability.raw_specification() != name + "=" + *version) {
+        return std::nullopt;
+    }
+
+    const std::size_t separator = version->rfind('-');
+    if(separator == std::string::npos) return std::nullopt;
+    const std::string_view class_text(*version);
+    const std::string_view class_suffix = class_text.substr(separator + 1);
+    if(class_suffix != "32" && class_suffix != "64") return std::nullopt;
+
+    const std::string_view interface_version = class_text.substr(0, separator);
+    // alpm-sonamev1(7) does not specify a complete lexical grammar for its
+    // interface version or unversioned SONAME. Recognize numeric components
+    // and the documented same-name unversioned example; leave other shapes
+    // unannotated rather than treating arbitrary package versions as ELF data.
+    if(!is_numeric_interface_number(interface_version) &&
+       interface_version != std::string_view(name)) {
+        return std::nullopt;
+    }
+    return class_suffix == "32" ? LegacySonameV1Class::Class32
+                                : LegacySonameV1Class::Class64;
+}
 
 ProviderCandidatePresenter make_default_provider_candidate_presenter(
     PresentationDetail detail) {

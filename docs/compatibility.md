@@ -638,6 +638,8 @@ non-TTY、`--noconfirm`、cancel、EOFではpromptや自動選択を開始しな
 
 constraint resultはcandidateのfilter、sort、番号、default、recommend、auto-selection、choice reuseを変更しない。`Unsatisfied` / `Unknown`はprompt上のpresentation-only warningであり、`Invalid` / `Conflicting`だけをprompt前にfail-closedとする。constraintによるrepository / AUR / local source fallbackは行わない。provider metadata refresh後はcurrent matching capabilityで再評価し、古いprovided version / resultを再利用しない。
 
+legacy SONAME v1の保守的な認識形をtyped provider capabilityが申告する場合、Normal candidate行にはlocalizedな`[SONAME: 32-bit]` / `[SONAME: 64-bit]`を`[provides: ...]`と併記し、Detailedには同じ判定の`soname-class=...`を追加する。これは実ELFの検査結果やrequesting ABIではなく、判定不能なら無注記とする。package arch、package名、repository名、installed stateをclass推測に使わず、candidate集合・順序・番号を変えない。classでのfilterやprovider familyのsilent reuseも行わない。詳細は[ambiguous provider contract](contracts/ambiguous-provider-selection.md)を参照する。
+
 interactive candidate listには、read-only local package databaseにcandidateの`package_name`と同名packageがある場合だけlocalizedな`[installed]`を末尾へ付ける。authoritativeなabsenceはsuffixなし、configuration / local DB / query / malformed metadata failureはlocalizedな`[installed state unknown]`と別warningで表示する。これはname-only observationであり、source provenance、PackageBase、version / constraint、install reasonを証明しない。state表示はcandidate identity、順序、番号、選択、choice reuse、BuildPlan、routingを変更せず、non-TTY、`--noconfirm`、candidate数1以下、reuse、cancelled dependencyではlookupを開始しない。
 
 <a id="compat-root-package-selection"></a>

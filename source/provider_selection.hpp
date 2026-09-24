@@ -41,6 +41,16 @@ using ProviderCandidatePresenter = std::function<void(
 using ProviderCandidatePresenterFactory =
     std::function<ProviderCandidatePresenter(PresentationDetail)>;
 
+// Typed equality-only capabilityが申告するlegacy SONAME v1のELF class。
+// 実artifactのELF検査結果やconsumer側のrequired classではない。
+enum class LegacySonameV1Class {
+    Class32,
+    Class64
+};
+
+std::optional<LegacySonameV1Class> legacy_soname_v1_class(
+    const ProviderCapability& capability);
+
 // installed-state等を持たないcandidate表示を生成する。
 ProviderCandidatePresenter make_default_provider_candidate_presenter(
     PresentationDetail detail = PresentationDetail::Normal);
