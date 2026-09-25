@@ -896,7 +896,7 @@ setup_upgrade_transition_case() {
 setup_case build-missing-argument
 run_fail build
 assert_contains \
-    "Usage: moguet build [--use-preference] <pkg> [V=K...] | build --local <directory> [V=K...]" \
+    "Usage: moguet build [--use-preference] <pkg> [V=K...] | build --local [--use-patches] <directory> [V=K...]" \
     "$output_file"
 assert_total_command_count 0
 

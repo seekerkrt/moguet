@@ -29,6 +29,9 @@ KNOWN_OPERAND_KINDS = frozenset(
         "none",
         "package",
         "directory",
+        "patch-directory",
+        "patch-file",
+        "package-base",
         "query",
         "source-preference-item",
         "environment-assignment",
@@ -45,7 +48,7 @@ KNOWN_OPERAND_ORDERINGS = frozenset(
     }
 )
 KNOWN_TARGET_POLICIES = frozenset(
-    {"none", "exactly-one", "one-or-more", "ordered-items", "delegated"}
+    {"none", "exactly-one", "one-or-more", "ordered-items", "delegated", "fixed-sequence"}
 )
 KNOWN_OPTION_OCCURRENCES = frozenset(
     {"once", "repeat-idempotent", "repeat-same-value", "delegated"}
@@ -63,7 +66,7 @@ KNOWN_OPTION_VALUE_KINDS = frozenset(
     {"none", "attached-enum", "attached-value", "marker"}
 )
 KNOWN_OPTION_CONFLICT_RULES = frozenset(
-    {"none", "mutually-exclusive", "final-value-must-agree"}
+    {"none", "mutually-exclusive", "operation-local-exclusion", "final-value-must-agree"}
 )
 KNOWN_OPTION_SEMANTIC_SCOPES = frozenset(
     {
@@ -581,13 +584,26 @@ def completion_ids_for_form(schema: CliSchema, form: Form) -> tuple[int, ...]:
 def union_completion_form_ids(
     schema: CliSchema, forms: tuple[Form, ...]
 ) -> tuple[int, ...]:
+    selectors = {identity for form in forms for identity in form.selector_ids}
+    local_only = {option.identity for option in schema.options
+                  if "local-source-build" in option.semantic_scopes and option.identity not in selectors}
     return tuple(
         dict.fromkeys(
             identity
             for form in forms
             for identity in completion_ids_for_form(schema, form)
+            if identity not in local_only
         )
     )
+
+
+def completion_conflicts(schema: CliSchema, option: Option) -> tuple[int, ...]:
+    # A local selector can exclude a global option that already owns a
+    # final-value override relation. Render the local exclusion both ways.
+    return tuple(dict.fromkeys(option.conflicts + tuple(
+        other.identity for other in schema.options
+        if other.conflict_rule == "operation-local-exclusion" and option.identity in other.conflicts
+    )))
 
 
 def option_case_patterns(schema: CliSchema) -> list[tuple[int, tuple[str, ...]]]:
@@ -709,6 +725,15 @@ def validate_operand_projection(operation: Operation, form: Form) -> None:
             fail(f"invalid ordered-items operand projection: {form.syntax}")
         return
 
+    if form.target_policy == "fixed-sequence":
+        shape = tuple((term.kind, term.min_count, term.max_count) for term in terms)
+        if form.operand_ordering != "preserve-input-order" or shape not in {
+            (("directory", 1, 1), ("patch-directory", 1, 1), ("patch-file", 1, None)),
+            (("directory", 1, 1), ("package-base", 1, 1)),
+        }:
+            fail(f"invalid fixed-sequence operand projection: {form.syntax}")
+        return
+
     if form.target_policy == "delegated":
         if (
             not operation.open_grammar
@@ -799,9 +824,11 @@ def validate_option_projection(schema: CliSchema) -> dict[int, Option]:
                 fail(f"inconsistent conflict-free option projection: {option.token}")
         elif not option.conflicts:
             fail(f"conflict rule has no conflicting options: {option.token}")
-        elif option.conflict_rule == "mutually-exclusive":
+        elif option.conflict_rule in {"mutually-exclusive", "operation-local-exclusion"}:
             if option.conflict_value_identity:
                 fail(f"mutual exclusion has a value identity: {option.token}")
+            if option.conflict_rule == "operation-local-exclusion" and option.placement != "operation-local":
+                fail(f"local exclusion requires operation-local placement: {option.token}")
         elif not option.conflict_value_identity:
             fail(f"final-value conflict lacks a value identity: {option.token}")
 
@@ -813,6 +840,8 @@ def validate_option_projection(schema: CliSchema) -> dict[int, Option]:
                     f"option {option.token} references unknown conflict "
                     f"identity {conflicting_identity}"
                 )
+            if option.conflict_rule == "operation-local-exclusion":
+                continue
             if option.identity not in conflicting.conflicts:
                 fail(
                     f"asymmetric option conflict projection: "
@@ -1018,7 +1047,9 @@ def finite_operand_max(form: Form) -> int | None:
     if form.operand_ordering == "none":
         return 0
     if form.operand_ordering == "preserve-input-order":
-        return form.operand_terms[0].max_count
+        if any(term.max_count is None for term in form.operand_terms):
+            return None
+        return sum(term.max_count for term in form.operand_terms)
     return None
 
 
@@ -1180,11 +1211,11 @@ def render_bash(schema: CliSchema, descriptions: Descriptions, locale: str) -> s
         f"        {option.identity}) "
         + " || ".join(
             f"_moguet_has_option_id {conflict}"
-            for conflict in option.conflicts
+            for conflict in completion_conflicts(schema, option)
         )
         + " ;;"
         for option in schema.options
-        if option.conflicts
+        if completion_conflicts(schema, option)
     )
 
     operation_cases: list[str] = []
@@ -1457,11 +1488,11 @@ def render_zsh(schema: CliSchema, descriptions: Descriptions, locale: str) -> st
         f"        {option.identity}) "
         + " || ".join(
             f"_moguet_has_option_id {conflict}"
-            for conflict in option.conflicts
+            for conflict in completion_conflicts(schema, option)
         )
         + " ;;"
         for option in schema.options
-        if option.conflicts
+        if completion_conflicts(schema, option)
     )
 
     delegated_tokens = unique_completion_tokens(
@@ -1864,10 +1895,10 @@ def render_fish(schema: CliSchema, descriptions: Descriptions, locale: str) -> s
         f"        case {option.identity}\n"
         + "\n".join(
             f"            __moguet_has_option_id {conflict}; and return 1"
-            for conflict in option.conflicts
+            for conflict in completion_conflicts(schema, option)
         )
         for option in schema.options
-        if option.conflicts
+        if completion_conflicts(schema, option)
     )
     canonical_comments = "\n".join(
         f"#   {syntax}" for syntax in schema.canonical_grammar

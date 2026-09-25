@@ -365,7 +365,7 @@ Moguet-owned / interceptedのclosed grammarは次のとおりです。
 <!-- CLI CANONICAL GRAMMAR BEGIN -->
 ```text
 build [--use-preference] <pkg> [V=K...]
-build --local <directory> [V=K...]
+build --local [--use-patches] <directory> [V=K...]
 upgrade
 upgrade-aur
 upgrade-all
@@ -378,6 +378,9 @@ edit-src <pkg>...
 list-src
 del-src <pkg>...
 revert <pkg>...
+add-patch <directory> <patch-directory> <patch-file>...
+update-patch <directory> <patch-directory> <patch-file>...
+del-patch <directory> <package-base>
 -G <pkg> [--output-dir=DIR]
 -Gp <pkg>
 -S --select [--needed] <query>
@@ -416,7 +419,7 @@ moguet upgrade-all
 # remote package 1件、またはlocal PKGBUILD root 1件をbuild・install
 moguet build <pkg> [V=K...]
 moguet build <pkg> --use-preference
-moguet build --local <directory> [V=K...]
+moguet build --local [--use-patches] <directory> [V=K...]
 
 # buildせずAUR dependencyとbuild orderを調査
 moguet deps --recursive <pkg>...
@@ -696,7 +699,7 @@ moguet add-src obs-studio \
   CXXFLAGS="${CXXFLAGS/-O2/-O3}"
 ```
 
-`build --local <directory> [V=K...]`は、代わりにuser所有directoryを
+`build --local [--use-patches] <directory> [V=K...]`は、代わりにuser所有directoryを
 exactly oneのlocal PackageBase sourceとして扱います。pathらしいpackage operandからlocal
 rootを推測せず、そのrootをAURへqueryしません。
 
@@ -708,6 +711,35 @@ known-staleの場合、PKGBUILD reviewとdefaultなしの明示同意を終え�
 します。dependency artifactはdependency install reasonを保持し、既にexplicitなinstalled
 packageをdependencyへ降格しません。runtime stateを使うpackage-name completion等の高度な
 補完はfuture workであり、同梱completionはpublic CLI schemaに限定します。
+
+### Local recipe patch
+
+`moguet add-patch <directory> <patch-directory> <patch-file>...`で、local sourceの
+canonical pathとPackageBaseにorderedなGit unified text patch seriesを関連付けます。
+patch fileは指定directory内の重複しないleaf名です。directoryはabsoluteか`..`を含まない
+relative pathを使います。初期consumerは既存regular `PKGBUILD`だけをstrip 1で変更します。
+material原本は利用者が所有し、Moguetはreference・順序・SHA-256 digestを
+`${XDG_CONFIG_HOME:-$HOME/.config}/moguet/patches.d/`へ保存します。
+
+`moguet build --local --use-patches <directory> [V=K...]`で保存seriesを明示選択します。
+通常のlocal buildはassociation storeを読みません。登録は自動適用や実行同意を意味しません。
+selectionはlocal専用・1回だけで、`--edit`、`--dry-run`、`--use-preference`とは併用できません。
+原本とpatch後recipeをread-only表示でき、`--noedit`はこのpreviewだけを省略します。
+metadata評価にはdefaultなしの明示同意が必要で、patch適用後にも別の評価確認があります。
+non-TTYと`--noconfirm`は評価を許可しません。既存build / installの確認も維持します。
+
+全patchをstrict取得・digest検証した同一owned bytesを、freshなinvocation-owned candidateへ適用します。
+postpatchのfresh metadataだけからplan / buildを作り、original sourceは変更しません。
+upstream recipe更新後もcurrent candidateで適用可能性を再確認します。missing / changed / unsafe /
+corrupt、identity変更、apply / build failureは停止し、stock buildへのfallbackや自動修復はしません。
+
+material編集をreviewした後、
+`moguet update-patch <directory> <patch-directory> <patch-file>...`で順序・期待digestを明示更新します。
+重複登録と未登録のupdate / forgetは失敗します。
+`moguet del-patch <directory> <package-base>`はassociationだけを削除し、material消失時にも使えます。
+recipeを評価せず、materialを書換え・削除しません。source patch payloadはこのconsumerの対象外であり、
+将来もPKGBUILDのsource / checksum / prepare lifecycleとmakepkgが適用authorityを持ちます。
+詳細は[patch customization contract](docs/contracts/patch-customization.md)を参照してください。
 
 <!-- parity:configuration -->
 ## 設定
@@ -879,7 +911,7 @@ canonical development repositoryは
 active integration branchは`develop`、stable releaseは`main`です。
 [docs/development.md](https://github.com/seekerkrt/moguet/blob/develop/docs/development.md)、
 [docs/versioning.md](https://github.com/seekerkrt/moguet/blob/develop/docs/versioning.md)を
-参照してください。高度なruntime-aware completionやprofile / patch workflowなどの
+参照してください。高度なruntime-aware completionやprofile・追加patch consumerなどの
 将来候補は[release roadmap](https://github.com/seekerkrt/moguet/issues/344)で扱います。
 
 <!-- parity:license -->

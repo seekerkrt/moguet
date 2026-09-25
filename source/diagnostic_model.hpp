@@ -49,6 +49,7 @@ enum class DiagnosticOperation {
     SyncInstall,
     RootPackageSelection,
     PacmanDelegation,
+    PatchCustomization,
 };
 
 enum class DiagnosticPhase {

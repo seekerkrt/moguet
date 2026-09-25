@@ -39,7 +39,7 @@ contractの規範上の正本は各文書の日本語本文である。英語利
 
 | Proposal | Origin Issue | Decision scope |
 | --- | --- | --- |
-| [Package/source patch customization](patch-customization.md) | #363 | local candidate・association・XDG config・strict material acquisitionの内部contract。public selection / consentは後続 |
+| [Package/source patch customization](patch-customization.md) | #363 | local recipe patchのpublic登録・明示選択・consent、candidate・association・XDG config・strict acquisition |
 
 ## 英語利用者向けの読み方
 

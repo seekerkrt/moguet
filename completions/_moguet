@@ -3,7 +3,7 @@
 # Description locale: en
 # Canonical closed grammar (projected from source/cli_authority.hpp):
 #   build [--use-preference] <pkg> [V=K...]
-#   build --local <directory> [V=K...]
+#   build --local [--use-patches] <directory> [V=K...]
 #   upgrade
 #   upgrade-aur
 #   upgrade-all
@@ -16,6 +16,9 @@
 #   list-src
 #   del-src <pkg>...
 #   revert <pkg>...
+#   add-patch <directory> <patch-directory> <patch-file>...
+#   update-patch <directory> <patch-directory> <patch-file>...
+#   del-patch <directory> <package-base>
 #   -G <pkg> [--output-dir=DIR]
 #   -Gp <pkg>
 #   -S --select [--needed] <query>
@@ -45,6 +48,7 @@ _moguet_option_id() {
         --details) REPLY=20 ;;
         --local) REPLY=15 ;;
         --use-preference) REPLY=21 ;;
+        --use-patches) REPLY=22 ;;
         --output-dir|--output-dir=*) REPLY=16 ;;
         --recursive) REPLY=17 ;;
         --needed) REPLY=18 ;;
@@ -70,7 +74,7 @@ _moguet_find_operation() {
     for (( index=2; index<CURRENT; ++index )); do
         word=$words[index]
         case "$word" in
-        -h|--help|-V|--version|build|upgrade|upgrade-aur|upgrade-all|clean|deps|plan|fetch|add-src|edit-src|list-src|del-src|revert|-G|-Gp|-S|-Syu|-Su|-Ss|-Si|-Qua) REPLY=$word; return 0 ;;
+        -h|--help|-V|--version|build|upgrade|upgrade-aur|upgrade-all|clean|deps|plan|fetch|add-src|edit-src|list-src|del-src|revert|add-patch|update-patch|del-patch|-G|-Gp|-S|-Syu|-Su|-Ss|-Si|-Qua) REPLY=$word; return 0 ;;
         esac
         _moguet_option_id "$word" && continue
         if [[ $word == -* ]]; then
@@ -174,6 +178,16 @@ _moguet_form_prefix_valid() {
         revert:0)
             return 0
             ;;
+        add-patch:0)
+            return 0
+            ;;
+        update-patch:0)
+            return 0
+            ;;
+        del-patch:0)
+            (( ${#operands[@]} <= 2 )) && return 0
+            return 1
+            ;;
         -G:0)
             (( ${#operands[@]} <= 1 )) && return 0
             return 1
@@ -208,10 +222,11 @@ _moguet_form_prefix_valid() {
 
 _moguet_conflicts_with_present_option() {
     case "$1" in
-        0) _moguet_has_option_id 1 ;;
+        0) _moguet_has_option_id 1 || _moguet_has_option_id 22 ;;
         1) _moguet_has_option_id 0 ;;
         2) _moguet_has_option_id 3 ;;
         3) _moguet_has_option_id 2 ;;
+        5) _moguet_has_option_id 22 ;;
         6) _moguet_has_option_id 7 || _moguet_has_option_id 8 ;;
         7) _moguet_has_option_id 6 || _moguet_has_option_id 8 ;;
         8) _moguet_has_option_id 6 || _moguet_has_option_id 7 ;;
@@ -219,6 +234,8 @@ _moguet_conflicts_with_present_option() {
         10) _moguet_has_option_id 9 ;;
         11) _moguet_has_option_id 12 ;;
         12) _moguet_has_option_id 11 ;;
+        21) _moguet_has_option_id 22 ;;
+        22) _moguet_has_option_id 0 || _moguet_has_option_id 5 || _moguet_has_option_id 21 ;;
         *) return 1 ;;
     esac
 }
@@ -231,7 +248,7 @@ _moguet_collect_candidates() {
         build)
             if _moguet_has_option_id 15; then
                 if _moguet_form_prefix_valid build 1; then
-                    reply=(--edit --noedit --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --local)
+                    reply=(--edit --noedit --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --local --use-patches)
                 else
                     reply=()
                 fi
@@ -329,6 +346,27 @@ _moguet_collect_candidates() {
                 reply=()
             fi
             ;;
+        add-patch)
+            if _moguet_form_prefix_valid add-patch 0; then
+                reply=(--noconfirm)
+            else
+                reply=()
+            fi
+            ;;
+        update-patch)
+            if _moguet_form_prefix_valid update-patch 0; then
+                reply=(--noconfirm)
+            else
+                reply=()
+            fi
+            ;;
+        del-patch)
+            if _moguet_form_prefix_valid del-patch 0; then
+                reply=(--noconfirm)
+            else
+                reply=()
+            fi
+            ;;
         -G)
             if _moguet_form_prefix_valid -G 0; then
                 reply=(--output-dir=)
@@ -409,6 +447,9 @@ _moguet_description() {
         list-src) REPLY='List source-build preferences' ;;
         del-src) REPLY='Remove one or more source-build preferences' ;;
         revert) REPLY='Remove preferences and reinstall binary packages' ;;
+        add-patch) REPLY='Register ordered PKGBUILD patch references for one local source; never auto-apply' ;;
+        update-patch) REPLY='Explicitly update a local patch association, order and expected digests' ;;
+        del-patch) REPLY='Forget a local patch association without deleting user material' ;;
         -G) REPLY='Export one AUR PackageBase repository without building or installing' ;;
         -Gp) REPLY='Print one AUR PackageBase PKGBUILD without keeping a checkout' ;;
         -S) REPLY='Install packages' ;;
@@ -437,6 +478,7 @@ _moguet_description() {
         --details) REPLY='Show detailed diagnostic and provenance information for remote build, plan, deps, -S --select, -Qua, -Syu/-Su, upgrade-aur/all, and --dry-run -S; presentation only' ;;
         --local) REPLY='Use one local PKGBUILD directory as the build root' ;;
         --use-preference) REPLY='Use the saved source-build preference for one remote build; conflicts with V=K assignments' ;;
+        --use-patches) REPLY='Explicitly select saved recipe patches for build --local; requires metadata evaluation consent' ;;
         --output-dir=) REPLY='Select an existing export parent for -G' ;;
         --recursive) REPLY='Resolve dependencies recursively' ;;
         --needed) REPLY='Preserve pacman --needed semantics at the installation phase owned by the selected route' ;;
@@ -450,7 +492,7 @@ _moguet() {
     operation=$REPLY
 
     if [[ -z $operation ]]; then
-        candidates=(build upgrade upgrade-aur upgrade-all clean deps plan fetch add-src edit-src list-src del-src revert -G -Gp -S -Syu -Su -Ss -Si -Qua -h --help -V --version --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --rmdeps --select --aur --repo --details)
+        candidates=(build upgrade upgrade-aur upgrade-all clean deps plan fetch add-src edit-src list-src del-src revert add-patch update-patch del-patch -G -Gp -S -Syu -Su -Ss -Si -Qua -h --help -V --version --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --rmdeps --select --aur --repo --details)
     else
         _moguet_collect_candidates "$operation"
         candidates=("${reply[@]}")
@@ -460,7 +502,7 @@ _moguet() {
         if _moguet_option_id "$candidate"; then
             option_id=$REPLY
             case "$option_id" in
-            13|14|15|21|16)
+            13|14|15|21|22|16)
                 _moguet_has_option_id "$option_id" && continue
                 ;;
             esac

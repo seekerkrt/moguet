@@ -39,6 +39,12 @@ std::string operand_placeholder(OperandKind kind) {
             return "<pkg>";
         case OperandKind::Directory:
             return "<directory>";
+        case OperandKind::PatchDirectory:
+            return "<patch-directory>";
+        case OperandKind::PatchFile:
+            return "<patch-file>";
+        case OperandKind::PackageBase:
+            return "<package-base>";
         case OperandKind::Query:
             return "<query>";
         case OperandKind::SourcePreferenceItem:
@@ -100,6 +106,9 @@ constexpr std::array PUBLIC_OPERATION_ORDER = {
     OperationId::ListSources,
     OperationId::DeleteSource,
     OperationId::Revert,
+    OperationId::AddPatch,
+    OperationId::UpdatePatch,
+    OperationId::DeletePatch,
 };
 
 constexpr std::array PUBLIC_SPECIAL_OPERATION_ORDER = {

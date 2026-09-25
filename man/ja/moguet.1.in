@@ -108,7 +108,7 @@ assignmentだけを許し、extra bare build operandを拒否します。
 .na
 .\" PUBLIC COMMANDS BEGIN
 .TP
-.B "build [--use-preference] <pkg> [V=K...] | build --local <directory> [V=K...]"
+.B "build [--use-preference] <pkg> [V=K...] | build --local [--use-patches] <directory> [V=K...]"
 .B --local
 なしでは、source-build preferenceを保存せず、official repositoryまたはAURのpackageを
 1つsourceからbuildします。
@@ -132,6 +132,20 @@ dependency planとartifact validationの後、採用metadataが宣言するvalid
 childをexplicit rootとしてinstallします。
 dependency artifactはdependency install reasonを保持し、既にexplicitなinstalled packageを
 dependencyへ降格しません。
+.
+.PP
+.B --use-patches
+は保存済みlocal recipe seriesの明示選択です。通常のlocal buildはstoreを読みません。
+local専用・1回だけのoptionで、--edit、--dry-run、--use-preferenceとは併用できません。
+原本とpatch後recipeをread-only表示でき、--noeditはpreviewを省略します。
+identity評価とpatch後metadata評価には別々のdefaultなしの同意が必要です。
+non-TTYと--noconfirmは評価を許可しません。既存build / install確認も維持します。
+全seriesのdigestを検証した同一owned bytesを、fresh candidateへ指定順で適用します。
+postpatch metadataだけからplan / buildを作り、original sourceを保存します。
+upstream更新後もcurrent candidateを作り直します。missing / changed / unsafe / corrupt、
+identity変更、apply / build failureはstock fallbackや自動修復をせず停止します。
+初期scopeはGit strip 1でのregular PKGBUILD text変更です。source patch payloadは別consumerで、
+将来の適用もPKGBUILDのsource / checksum / prepareとmakepkgの責務です。
 .
 .TP
 .B "upgrade"
@@ -363,6 +377,24 @@ preferenceがmissingでもdirectoryを作成せず、repository reinstallは省�
 preferenceを保持し、reinstallに含めず、commandをnon-zeroにします。独立targetは続行し、
 grouped reinstallとpacman failureの診断優先順位を維持します。
 confirm前に表示されたpacman transactionをreviewしてください。
+.
+.TP
+.B "add-patch <directory> <patch-directory> <patch-file>..."
+local sourceのcanonical pathとPackageBaseにordered PKGBUILD patch seriesを登録します。
+patch fileは指定directory内の重複しないleaf名です。directoryはabsoluteか、
+..を含まないrelative pathを使います。metadata評価にはdefaultなしの明示同意が必要です。
+materialは利用者が所有し、reference・順序・SHA-256 digestだけをXDG configの
+moguet/patches.dへ保存します。登録は自動適用や実行同意を意味しません。
+.
+.TP
+.B "update-patch <directory> <patch-directory> <patch-file>..."
+変更したmaterialをreviewした後、既存associationのreference・順序・期待digestを明示更新します。
+重複登録と未登録のupdateは失敗します。
+.
+.TP
+.B "del-patch <directory> <package-base>"
+指定sourceとPackageBaseのassociationだけを削除します。PKGBUILDを評価せずmaterialを開きません。
+material消失時も削除でき、未登録なら失敗します。user materialの削除・書換え・chmodはしません。
 .
 .TP
 .B "-S <pkg> | -S --select [--needed] <query>"

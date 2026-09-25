@@ -15,6 +15,8 @@ import shlex
 import stat
 import subprocess
 import sys
+import tarfile
+import shutil
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -87,11 +89,29 @@ def project(helper, command, paths):
             # Both committed pacman -Qp stubs read name/version from the
             # first line of the text archive fixture. Bind the wire identity
             # to that oracle as well as its selected path and sealed bytes.
-            with path.open("rb") as original:
-                identity = original.readline(4096).split()[:2]
+            if tarfile.is_tarfile(path):
+                # Actual makepkg fixtures use uncompressed package archives.
+                # Read their standard metadata; do not emulate patch/build.
+                with tarfile.open(path) as archive:
+                    info = archive.extractfile(".PKGINFO").read().decode("utf-8")
+                fields = {}
+                for line in info.splitlines():
+                    if " = " in line:
+                        key, value = line.split(" = ", 1)
+                        if key in ("pkgname", "pkgver"):
+                            require(key not in fields, "duplicate archive identity")
+                            fields[key] = value
+                identity = [fields.get("pkgname", "").encode(), fields.get("pkgver", "").encode()]
+            else:
+                with path.open("rb") as original:
+                    identity = original.readline(4096).split()[:2]
             require(identity == [record[1].encode(), record[2].encode()], "selected fixture identity differs")
             verify_part(stream, path, int(record[5]), record[7])
             verify_part(stream, Path(path_text + ".sig"), int(record[6]), record[8])
+            if tarfile.is_tarfile(path):
+                output = Path(os.environ["MOGUET_TEST_COMMAND_LOG"]).parent / "archives"
+                require(output.is_dir() and not output.is_symlink(), "missing actual archive observation directory")
+                shutil.copyfile(path, output / path.name)
             projected.append(path_text)
         require(not stream.read(1), "unselected snapshot bytes")
     return projected

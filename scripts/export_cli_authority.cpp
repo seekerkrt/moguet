@@ -86,6 +86,8 @@ std::string_view conflict_rule_name(OptionConflictRule rule) noexcept {
     switch(rule) {
         case OptionConflictRule::None:
             return "none";
+        case OptionConflictRule::OperationLocalExclusion:
+            return "operation-local-exclusion";
         case OptionConflictRule::MutuallyExclusive:
             return "mutually-exclusive";
         case OptionConflictRule::FinalValueMustAgree:
@@ -177,6 +179,8 @@ std::string_view target_policy_name(TargetPolicy policy) noexcept {
             return "one-or-more";
         case TargetPolicy::OrderedItems:
             return "ordered-items";
+        case TargetPolicy::FixedSequence:
+            return "fixed-sequence";
         case TargetPolicy::Delegated:
             return "delegated";
     }
@@ -191,6 +195,9 @@ std::string_view operand_kind_name(OperandKind kind) noexcept {
             return "package";
         case OperandKind::Directory:
             return "directory";
+        case OperandKind::PatchDirectory: return "patch-directory";
+        case OperandKind::PatchFile: return "patch-file";
+        case OperandKind::PackageBase: return "package-base";
         case OperandKind::Query:
             return "query";
         case OperandKind::SourcePreferenceItem:
@@ -463,6 +470,7 @@ int main() {
         OptionId::Details,
         OptionId::LocalSource,
         OptionId::UseSourcePreference,
+        OptionId::UsePatches,
         OptionId::PkgbuildOutputDirectory,
         OptionId::Recursive,
         OptionId::Needed,

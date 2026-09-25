@@ -2,7 +2,9 @@
 
 #include "local_source_build.hpp"
 #include "source_package_identity.hpp"
+#include "interactive_confirmation.hpp"
 
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -23,7 +25,8 @@ enum class LocalRecipeCandidatePhase {
     Apply,
     PostpatchMetadata,
     Identity,
-    Plan
+    Plan,
+    Review
 };
 enum class LocalRecipeCandidateFailureReason {
     InvalidMaterial,
@@ -33,7 +36,8 @@ enum class LocalRecipeCandidateFailureReason {
     MetadataFailure,
     IdentityChanged,
     PlanFailure,
-    PreparationFailure
+    PreparationFailure,
+    ReviewStopped
 };
 
 // Pure shape check shared with acquisition; not applicability/authorization.
@@ -47,7 +51,12 @@ struct LocalRecipeCandidateFailure {
     std::optional<LocalSourceWorkspaceFailure> cleanup_failure;
     std::filesystem::path candidate_path; // Diagnostic only, never a capability.
     std::optional<std::size_t> rejected_patch_index = std::nullopt;
+    std::optional<ConfirmationResult> review_stop = std::nullopt;
 };
+
+// Optional public composition gate over the exact modified snapshot. No
+// persistence or UI policy belongs to the candidate owner itself.
+using LocalRecipeReviewCallback = std::function<ConfirmationResult(const LocalSourceFileSnapshot&)>;
 
 class LocalRecipeCandidateError final : public std::runtime_error {
     LocalRecipeCandidateFailure failure_;
@@ -77,7 +86,7 @@ class PreparedLocalRecipeBuild final {
     friend PreparedLocalRecipeBuild prepare_local_recipe_build(
         LocalSourceRoot, ValidatedCacheRoot, SourceBuildEnvironment,
         std::vector<LocalRecipePatch>, ArtifactMakepkgBuildOptions,
-        const ProviderSelectionCallback&, std::optional<PackageBaseIdentity>);
+        const ProviderSelectionCallback&, std::optional<PackageBaseIdentity>, const LocalRecipeReviewCallback&);
     friend LocalSourceBuildResult execute_local_recipe_build(
         PreparedLocalRecipeBuild);
 
@@ -102,7 +111,8 @@ PreparedLocalRecipeBuild prepare_local_recipe_build(
     SourceBuildEnvironment environment, std::vector<LocalRecipePatch> patches,
     ArtifactMakepkgBuildOptions options = {},
     const ProviderSelectionCallback& select_provider = {},
-    std::optional<PackageBaseIdentity> expected_source = std::nullopt);
+    std::optional<PackageBaseIdentity> expected_source = std::nullopt,
+    const LocalRecipeReviewCallback& review_modified = {});
 
 // Local unit only; the caller handles plan dependencies through existing
 // authority first. The returned artifact capability feeds the existing install

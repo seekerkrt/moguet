@@ -1,11 +1,10 @@
-# Package/source patch customization — internal consumer / design
+# Package/source patch customization — local recipe consumer
 
 ## Statusとauthority
 
-**Production Slice 1のCandidate ConsumerとSlice 2のassociation / persistence / acquisitionは内部実装。public selectionは未実装。**
+**Production Slice 1–3のinitial local recipe consumerを実装済み。**
 [Issue #363 current body](https://github.com/seekerkrt/moguet/issues/363)をrequirements SSOTとする。
-以下では実装済み内部contractと、後続のpublic selection / consent案を区別する。
-public CLI journeyやProduction AC全体の完了を表さない。
+以下は実装済みlocal contractとDesign Gateの比較根拠である。remote / other text / source payloadは将来consumerとする。
 [#627 requirements reset](https://github.com/seekerkrt/moguet/issues/627)に従い、過去の
 profile / snapshot foundationを要求へ戻さない。requirementsはIssue、具体的な
 patch contractはこの文書、上位原則は[decisions](../decisions.md)と[stance](../project-stance.md)が所有する。
@@ -28,7 +27,9 @@ actual source取得・展開・prepare・buildをmakepkgへ渡す。直接source
 
 `prepare_local_recipe_build`はalready-selectedなowning patch bytesのordered vectorを受ける。
 external path lookup、digest/association store、登録、saved preference、public dispatchを所有しない。
-callerはcandidateでのpre/post二度のmetadata評価を許可した後だけこのmutation-capable seamを呼ぶ。
+callerはcandidateでのidentity評価を許可した後だけこのmutation-capable seamを呼ぶ。
+public callerはapply後・postpatch評価前にread-only previewと別のno-default consentを行うcallbackを渡す。
+callbackが停止した場合はReview outcomeを保持し、postpatch評価・plan・buildへ進まない。
 association付きのcallerはacquired seriesのidentityを`expected_source`へ渡す。candidate作成前にsourceを、
 fresh prepatch評価後にPackageBaseを照合し、apply前に不一致を拒否する。これは適用可能性や実行同意を代替しない。
 全materialのPKGBUILD-only shapeをworkspace作成・評価前に検証し、非対応file / binary / mode変更 / 空materialは停止する。
@@ -49,14 +50,14 @@ ownerへ委ね、primary failureとsecondary cleanup failureを保持する。�
 build後のsource cleanup failureはinstall可能な成功resultへ変換しない。original PKGBUILD / `.SRCINFO`へ書き戻さない。
 
 `test-local-recipe-candidate`は実Git / makepkg / archive readと既存query stubで、ordered apply、fresh dependency plan、
-original保全、identity guard、途中failure、cleanupを確認する。public optionやhelp/man/completionは追加しない。
+original保全、identity guard、途中failure、cleanupを確認する。public接続は下記Slice 3が所有する。
 
 | Authority | 維持する責任と接続上の制約 |
 | --- | --- |
 | [#355 identity](source-package-identity.md) | source kind / location / repository、PackageBase、child、revision、releaseを分離する。value equalityやgeneric compatibilityはpatch適用許可ではない |
 | [local source](local-pkgbuild.md) | `LocalSourceRoot`の原本identity、`LocalSourceWorkspace`のowned snapshot / cleanup。semantic local pathとtemporary candidate pathを区別する |
 | [reviewed AUR source](reviewed-source-state.md) | exact upstream OID、review acceptance、pinned continuation、editor overlay。patch保存や将来の適用許可を所有しない |
-| local metadata / plan / request | `LocalSourceBuildMetadata`のrecipe / environment相関、local dependency projection。現行は原本metadata / planの後にsource snapshotを作るため、patch consumerには順序変更が必要 |
+| local metadata / plan / request | `LocalSourceBuildMetadata`のrecipe / environment相関、local dependency projection。通常localは原本metadata / planの後にsnapshot。patch routeはearly candidateとpostpatch planを使う |
 | `ArtifactWorkspace` / `ArtifactMakepkgContext` | fresh PKGDEST、packagelist / build、artifact検証。source candidateやdurable materialのownerにはしない |
 | [source preference](source-build-preference-xdg.md) / `SourceBuildEnvironment` | `source-build.d`とordered assignments。#362の`--use-preference`、empty値、one-offとの競合規則を再所有しない |
 | XDG safety / strict readers | descriptor / named identity、owner / mode、I/O failureを扱う。preference parserのinvalid assignmentをwarningで無視する仕様はpatch recordへ流用しない |
@@ -65,7 +66,7 @@ remote AURはRPC由来planをcheckout / editorより先に作る。既存editor�
 modified dependency authorityにならない。remoteの`InvocationOwnedRecipeAcquisition`も
 devel bootstrap専用であり、汎用candidate ownerとして転用しない。
 
-## Ownership方式の比較と提案
+## Ownership方式の比較と採用理由
 
 | 判断軸 | A: user directory / reference | B: managed copy / import | C: manual edit → generated diff |
 | --- | --- | --- | --- |
@@ -84,9 +85,9 @@ devel bootstrap専用であり、汎用candidate ownerとして転用しない�
 消失後にもbytesを保管する保証は固定requirementではない。Aでも変更検知と安全なcopyは省略しない。
 Bはその保管保証が必要になった場合の次候補、Cはauthoring需要が確認できた場合の追加producerとする。
 
-## Design Gate 6項目の提案
+## Design Gate 6項目の初期契約
 
-| Gate | Proposed initial contract |
+| Gate | Initial contract |
 | --- | --- |
 | 1. Material ownership | A。user-maintained directoryの明示されたpatch filesを正本とする。buildごとに検証済みbytesをinvocation-owned copyへ固定し、原本を変更・削除しない |
 | 2. Association / selection | Known sourceを持つ`PackageBaseIdentity`に1 series。初期はLocal + canonical original path + PackageBase。invocationで保存associationを明示選択する。名前の類似、child名、provider、default / inheritanceから推測しない |
@@ -143,7 +144,7 @@ update / forgetはstrict readerの観測token（record path、filesystem identit
 cooperative lock下の再観測と一致しなければConcurrentChangeで停止する。materialの編集後もdigestへ自動追随しない。
 forgetはrecordだけを処理し、materialが消失していてもexternal pathを開いたり削除したりしない。
 read / acquisitionはstoreを作らない。plain `build --local`はこのstoreを読まず、存在だけで適用しない。
-**association presence、selection、execution consentは別**であり、public接続はProduction Slice 3へ残す。
+**association presence、selection、execution consentは別**であり、public接続は下記Production Slice 3が所有する。
 
 configは既存XDG boundaryに沿い、unset / emptyはHOME fallback、明示baseはabsolute・既存・安全を要求する。
 managed directory / recordは0700 / 0600、euid ownership、descriptor / named identity、symlink拒否、
@@ -190,16 +191,16 @@ atomic import、replace / forget、backup整合もその方式のscopeになる�
 | --- | --- | --- |
 | every time ask | 条件付き次候補 | 通常routeでassociationを発見しpromptする責任が増える。non-TTY時の扱いも必要。明示選択後のexecution consentとは別 |
 | first-use ask then remember | 初期不採用 | remembered authorityのscope、material / identity / upstream変更時の失効を新設する |
-| explicit invocation / selection | **推奨** | invocationの意図と必要materialが明確。保存associationだけで既存buildの意味を変えない |
+| explicit invocation / selection | **採用** | invocationの意図と必要materialが明確。保存associationだけで既存buildの意味を変えない |
 | package-specific automatic apply | 初期不採用 | package名だけでは不足。source選択、失効、missing / changed / conflict、confirmation authorityが必要 |
 | defined-condition automatic apply | 初期不採用 | 自動化条件と再評価・失効policyが現在のgoalに不要 |
 | never automatic | 初期挙動として採用 | 明示選択なしには適用しない。将来の自動化を永久禁止する仕様にはしない |
 
 patch選択はPKGBUILD実行同意、upstream review acceptance、package transactionの確認を代替しない。
 初期localではowned candidate上のpatch前identity評価とpatch後metadata評価を行うことを表示し、
-既存localのno-default evaluation consentを維持する。まとめて同意を取る場合も2回の評価範囲を明示する。
-`--noconfirm` / non-TTYを評価同意へ昇格させず、dry-runはapply / metadata評価 / store作成を行わない。
-必要な評価がないと判定できない場合はBlockedとする。
+既存localのno-default evaluation consentを維持する。source identity観測とcandidate prepatch評価の範囲を最初に表示し、
+patch後にはread-only previewと別のno-default評価同意を取る。
+`--noconfirm` / non-TTYを評価同意へ昇格させず、selected routeとdry-runの組合せはpre-logで拒否する。
 
 ### Candidate、metadata、outcome
 
@@ -270,9 +271,44 @@ wrong source / PackageBase、material変化・消失・unsafe / corrupt、series
 original非変更、cleanup failureを追加する。tool protocolのfailure分類もfocusedに検証する。
 fixture側にpatch/buildを再実装しない。実行範囲は[validation policy](../validation.md)へ従う。
 
-## 後続Sliceに残る責任
+## Production Slice 3: public selection / consent
 
-Production Slice 1 / 2は内部APIとして実装した。Production Slice 3でpublic explicit selection / consentを接続し、
-saved associationからのupstream更新後reuse、Missing / Changed / apply failure時のno stock fallbackをfull CLIで証明する。
-CLI spellingと利用者向けhelp/man/completionはそのSliceで確定する。remote、selected recipe text、source payloadは
-それぞれ別のauthority確認を要する。
+public grammarは次に固定する。既存add-src / del-srcのverb命名へ合わせ、updateはdigest / orderの明示再取得を表す。
+
+```text
+add-patch <directory> <patch-directory> <patch-file>...
+update-patch <directory> <patch-directory> <patch-file>...
+del-patch <directory> <package-base>
+build --local [--use-patches] <directory> [V=K...]
+```
+
+lifecycleはpre-logのclosed grammarで、必要数のoperandと`--noconfirm` / `--`だけを受ける。
+material directoryはabsoluteか`..`なしrelative path。filesはstrict readerが確認するleaf名である。
+register / updateはowned candidateでfresh identityを観測し、全material取得後に既存atomic publicationへ渡す。
+forgetは明示したcanonical source referenceとPackageBaseでrecordだけを削除し、recipe / materialを評価・取得しない。
+materialやsourceが消失してもcanonical identityを指定できればforgetできる。未登録update / forgetはhard failure。
+
+`--use-patches`はoperation-local selectionであり、local buildだけで1回使える。remote・誤配置・attached value・
+重複・`--edit` / `--dry-run`との併用はpre-logで拒否する。`--use-preference`はremote専用のまま。
+CLI authorityのoperation-local exclusionは既存global final-value optionの意味を変更せず、completionにも相互に投影する。
+通常local buildはassociation storeを一切consultせず、保存の存在から自動適用・remembered selectionを作らない。
+selectionは実行同意ではない。originalのsnapshotをread-only previewでき、no-default consent後にowned candidateでidentityを観測する。
+associationの全strict取得・digest検証を終えた同じowned bytesとexpected identityをcandidate consumerへ渡す。
+patch後のexact snapshotもread-only previewでき、別のno-default consent後にだけfresh metadata評価へ進む。
+`--noedit`はpreviewを省略するだけであり、`--noconfirm` / non-TTYは評価同意を代替しない。
+previewはterminal escape済み・64 KiB以下とし、巨大recipeは外部確認を案内して停止する。
+
+postpatch planの既存Proceed確認後、dependency preparation / execution前にもoriginal・candidate・metadataの不変を再確認する。
+同じeffective environmentで既存local packagelist / build / artifact / install / cleanupへ渡す。
+association / material / apply / metadata / identity / plan / build / cleanup failureはhard stopであり、stock fallbackはない。
+user-facing diagnosticはmissing / changed / unsafe / corrupt / mismatch / apply等を区別し、normal成功出力はBaseとseries件数だけを追加する。
+
+`test-local-patch-cli`は実Git / makepkg / native libalpm fixture / archiveを用い、sealed install inputは既存test adapterで観測する。
+実package transactionは行わない。poisoned storeでもplain buildが成功するzero-read境界、ordered apply、fresh dependency、
+upstream version変更後のreuse、apply不能停止、acquisition後inode置換でも同じbytesを使うこと、原本保存、consent、closed grammarを確認する。
+consumer / association単体testはtyped failure・race・cleanupのfocused evidenceを引き続き所有する。
+
+## 将来consumer（initial scope外）
+
+remote、selected recipe-associated text、source payloadはそれぞれ別のauthority確認を要する。
+initial local journeyの未完了項目として扱わない。source payload適用は前述のmakepkg lifecycleが所有する。

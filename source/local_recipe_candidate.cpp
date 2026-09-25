@@ -223,7 +223,8 @@ PreparedLocalRecipeBuild prepare_local_recipe_build(
     SourceBuildEnvironment environment, std::vector<LocalRecipePatch> patches,
     ArtifactMakepkgBuildOptions options,
     const ProviderSelectionCallback& select_provider,
-    std::optional<PackageBaseIdentity> expected_source) {
+    std::optional<PackageBaseIdentity> expected_source,
+    const LocalRecipeReviewCallback& review_modified) {
     using Phase = LocalRecipeCandidatePhase;
     using Reason = LocalRecipeCandidateFailureReason;
     LocalRecipeCandidateFailure failure{
@@ -302,6 +303,18 @@ PreparedLocalRecipeBuild prepare_local_recipe_build(
         LocalSourceRoot modified = open_local_source_root(workspace->path(), true);
         if(modified.pkgbuild() != expected)
             throw std::runtime_error("local-recipe-modified-candidate-changed");
+        if(review_modified) {
+            failure.phase = Phase::Review;
+            failure.reason = Reason::ReviewStopped;
+            auto result = review_modified(modified.pkgbuild());
+            if(!std::holds_alternative<ConfirmationAccepted>(result)) {
+                failure.review_stop = std::move(result);
+                throw std::runtime_error("local-recipe-review-stopped");
+            }
+            failure.reason = Reason::CandidateChanged;
+            modified.require_unchanged_identity();
+        }
+        failure.phase = Phase::PostpatchMetadata;
         failure.reason = Reason::MetadataFailure;
         auto metadata = evaluate_local_source_metadata(modified, environment, architecture);
         failure.phase = Phase::Identity;

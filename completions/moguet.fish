@@ -2,7 +2,7 @@
 # Description locale: en
 # Canonical closed grammar (projected from source/cli_authority.hpp):
 #   build [--use-preference] <pkg> [V=K...]
-#   build --local <directory> [V=K...]
+#   build --local [--use-patches] <directory> [V=K...]
 #   upgrade
 #   upgrade-aur
 #   upgrade-all
@@ -15,6 +15,9 @@
 #   list-src
 #   del-src <pkg>...
 #   revert <pkg>...
+#   add-patch <directory> <patch-directory> <patch-file>...
+#   update-patch <directory> <patch-directory> <patch-file>...
+#   del-patch <directory> <package-base>
 #   -G <pkg> [--output-dir=DIR]
 #   -Gp <pkg>
 #   -S --select [--needed] <query>
@@ -79,6 +82,9 @@ function __moguet_option_id --argument-names word
         case '--use-preference'
             echo 21
             return 0
+        case '--use-patches'
+            echo 22
+            return 0
         case '--output-dir' '--output-dir=*'
             echo 16
             return 0
@@ -103,7 +109,7 @@ end
 function __moguet_operation
     for word in (commandline -opc)[2..-1]
         switch $word
-        case '-h' '--help' '-V' '--version' 'build' 'upgrade' 'upgrade-aur' 'upgrade-all' 'clean' 'deps' 'plan' 'fetch' 'add-src' 'edit-src' 'list-src' 'del-src' 'revert' '-G' '-Gp' '-S' '-Syu' '-Su' '-Ss' '-Si' '-Qua'
+        case '-h' '--help' '-V' '--version' 'build' 'upgrade' 'upgrade-aur' 'upgrade-all' 'clean' 'deps' 'plan' 'fetch' 'add-src' 'edit-src' 'list-src' 'del-src' 'revert' 'add-patch' 'update-patch' 'del-patch' '-G' '-Gp' '-S' '-Syu' '-Su' '-Ss' '-Si' '-Qua'
             echo $word
             return 0
         end
@@ -188,6 +194,13 @@ function __moguet_form_prefix_valid --argument-names expected_operation form_ind
             return 0
         case 'revert:0'
             return 0
+        case 'add-patch:0'
+            return 0
+        case 'update-patch:0'
+            return 0
+        case 'del-patch:0'
+            test (count $operands) -le 2; and return 0
+            return 1
         case '-G:0'
             test (count $operands) -le 1; and return 0
             return 1
@@ -226,7 +239,7 @@ function __moguet_operation_allows --argument-names option_id
             __moguet_has_option_id 15; and set selected true
             if test $selected = true
                 __moguet_form_prefix_valid 'build' 1; or return 1
-                contains -- $option_id 0 1 4 5 6 7 8 15; and return 0; or return 1
+                contains -- $option_id 0 1 4 5 6 7 8 15 22; and return 0; or return 1
             else if __moguet_has_operand 'build'
                 __moguet_form_prefix_valid 'build' 0; or return 1
                 contains -- $option_id 21 0 1 2 3 4 5 6 7 8 20; and return 0; or return 1
@@ -268,6 +281,15 @@ function __moguet_operation_allows --argument-names option_id
             return 1
         case 'revert'
             __moguet_form_prefix_valid 'revert' 0; or return 1
+            contains -- $option_id 4; and return 0; or return 1
+        case 'add-patch'
+            __moguet_form_prefix_valid 'add-patch' 0; or return 1
+            contains -- $option_id 4; and return 0; or return 1
+        case 'update-patch'
+            __moguet_form_prefix_valid 'update-patch' 0; or return 1
+            contains -- $option_id 4; and return 0; or return 1
+        case 'del-patch'
+            __moguet_form_prefix_valid 'del-patch' 0; or return 1
             contains -- $option_id 4; and return 0; or return 1
         case '-G'
             __moguet_form_prefix_valid '-G' 0; or return 1
@@ -320,16 +342,19 @@ end
 
 function __moguet_candidate_available --argument-names option_id
     __moguet_operation_allows $option_id; or return 1
-    contains -- $option_id 13 14 15 21 16; and __moguet_has_option_id $option_id; and return 1
+    contains -- $option_id 13 14 15 21 22 16; and __moguet_has_option_id $option_id; and return 1
     switch $option_id
         case 0
             __moguet_has_option_id 1; and return 1
+            __moguet_has_option_id 22; and return 1
         case 1
             __moguet_has_option_id 0; and return 1
         case 2
             __moguet_has_option_id 3; and return 1
         case 3
             __moguet_has_option_id 2; and return 1
+        case 5
+            __moguet_has_option_id 22; and return 1
         case 6
             __moguet_has_option_id 7; and return 1
             __moguet_has_option_id 8; and return 1
@@ -347,6 +372,12 @@ function __moguet_candidate_available --argument-names option_id
             __moguet_has_option_id 12; and return 1
         case 12
             __moguet_has_option_id 11; and return 1
+        case 21
+            __moguet_has_option_id 22; and return 1
+        case 22
+            __moguet_has_option_id 0; and return 1
+            __moguet_has_option_id 5; and return 1
+            __moguet_has_option_id 21; and return 1
     end
     return 0
 end
@@ -368,6 +399,9 @@ complete -c moguet -f -n '__moguet_no_operation' -a 'edit-src' -d 'Edit one or m
 complete -c moguet -f -n '__moguet_no_operation' -a 'list-src' -d 'List source-build preferences'
 complete -c moguet -f -n '__moguet_no_operation' -a 'del-src' -d 'Remove one or more source-build preferences'
 complete -c moguet -f -n '__moguet_no_operation' -a 'revert' -d 'Remove preferences and reinstall binary packages'
+complete -c moguet -f -n '__moguet_no_operation' -a 'add-patch' -d 'Register ordered PKGBUILD patch references for one local source; never auto-apply'
+complete -c moguet -f -n '__moguet_no_operation' -a 'update-patch' -d 'Explicitly update a local patch association, order and expected digests'
+complete -c moguet -f -n '__moguet_no_operation' -a 'del-patch' -d 'Forget a local patch association without deleting user material'
 complete -c moguet -f -n '__moguet_no_operation' -a '-G' -d 'Export one AUR PackageBase repository without building or installing'
 complete -c moguet -f -n '__moguet_no_operation' -a '-Gp' -d 'Print one AUR PackageBase PKGBUILD without keeping a checkout'
 complete -c moguet -f -n '__moguet_no_operation' -a '-S' -d 'Install packages'
@@ -396,6 +430,7 @@ complete -c moguet -f -n '__moguet_candidate_available 12' -a '--repo' -d 'Use o
 complete -c moguet -f -n '__moguet_candidate_available 20' -a '--details' -d 'Show detailed diagnostic and provenance information for remote build, plan, deps, -S --select, -Qua, -Syu/-Su, upgrade-aur/all, and --dry-run -S; presentation only'
 complete -c moguet -f -n '__moguet_candidate_available 15' -a '--local' -d 'Use one local PKGBUILD directory as the build root'
 complete -c moguet -f -n '__moguet_candidate_available 21' -a '--use-preference' -d 'Use the saved source-build preference for one remote build; conflicts with V=K assignments'
+complete -c moguet -f -n '__moguet_candidate_available 22' -a '--use-patches' -d 'Explicitly select saved recipe patches for build --local; requires metadata evaluation consent'
 complete -c moguet -f -n '__moguet_candidate_available 16' -a '--output-dir=' -d 'Select an existing export parent for -G'
 complete -c moguet -f -n '__moguet_candidate_available 17' -a '--recursive' -d 'Resolve dependencies recursively'
 complete -c moguet -f -n '__moguet_candidate_available 18' -a '--needed' -d 'Preserve pacman --needed semantics at the installation phase owned by the selected route'

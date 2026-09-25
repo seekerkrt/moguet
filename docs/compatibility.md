@@ -46,7 +46,7 @@ grammarは次のとおりである。
 <!-- CLI CANONICAL GRAMMAR BEGIN -->
 ```text
 build [--use-preference] <pkg> [V=K...]
-build --local <directory> [V=K...]
+build --local [--use-patches] <directory> [V=K...]
 upgrade
 upgrade-aur
 upgrade-all
@@ -59,6 +59,9 @@ edit-src <pkg>...
 list-src
 del-src <pkg>...
 revert <pkg>...
+add-patch <directory> <patch-directory> <patch-file>...
+update-patch <directory> <patch-directory> <patch-file>...
+del-patch <directory> <package-base>
 -G <pkg> [--output-dir=DIR]
 -Gp <pkg>
 -S --select [--needed] <query>
@@ -447,6 +450,19 @@ dependency edgeはmetadata trust boundaryで構成したtyped requirement、inst
 
 <a id="compat-split-package"></a>
 
+## Local recipe patch customization
+
+`add-patch <directory> <patch-directory> <patch-file>...`、`update-patch`の同形、
+`del-patch <directory> <package-base>`をclosed grammarとして公開する。
+`build --local --use-patches <directory> [V=K...]`だけが保存associationを明示選択する。
+通常local buildはpatch storeを読まず、登録・選択・実行同意を分離する。
+selectionのremote使用・誤配置・重複・attached value、`--edit` / `--dry-run`との併用はpre-logで拒否する。
+`--use-preference`は従来どおりremote専用。lifecycleは余分なoperand / optionをmutation前に拒否する。
+原本・patch後recipeのread-only previewとdefaultなしのmetadata評価確認を持ち、
+`--noconfirm` / non-TTYは評価同意を代替しない。forgetは明示PackageBaseによってrecipe評価を避ける。
+strict material取得後の同一owned bytesをfresh candidateへ適用し、postpatch metadataから既存buildへ渡す。
+選択後のfailureにstock fallbackはない。詳細は[patch contract](contracts/patch-customization.md)を正とする。
+
 ## Remote source-build PackageBase summary
 
 PackageBaseはclone / fetch / build repositoryの単位であり、package nameはinstall targetである。official repositoryでは、requested childとPackageBaseの対応をconfigured repository順のstrict libalpm exact snapshotから取得する。`Present`だけをrepository sourceとして採用し、confirmed `NotFound`だけをAUR fallbackへ渡す。query / config / metadata failureをabsenceへflattenせず停止し、requested name、filename、URL、artifact pathからPackageBaseを推測しない。
@@ -541,7 +557,7 @@ internal compatibility evaluatorはsource、PackageBase、child、revision、rel
 
 read-only projectionの一部はIssue #485のinternal production pathに限定接続されている。`project_dependency_source_package_identity()`は`SourceArtifactInstall`のtrusted bindingとinvocation-owned cleanup correlation / evidenceに、`project_artifact_source_package_identity()`はtrusted bindingのartifact整合とreceipt evidenceに利用される。このprojectionは既存のtrusted ownerへtyped identity / correlation evidenceを渡すだけであり、source-build routing、artifact identity、`SourceArtifactInstall` trusted transport、invocation-owned cleanupのauthorityをcommon modelへ移さず、既存routeを置換しない。
 
-generic compatibility evaluatorは引き続きpublic production workflow / routing decisionへ未接続である。public profile workflow、patch / revision authority、generic compatibility-driven routing、v3 source-build / profile architectureはcurrent featureではない。詳細なstate、equality、compatibility、projection contractは[source-aware package identity contract](contracts/source-package-identity.md)を正本とする。
+generic compatibility evaluatorは引き続きpublic production workflow / routing decisionへ未接続である。public profile workflow、generic revision authority、generic compatibility-driven routing、v3 source-build / profile architectureはcurrent featureではない。詳細なstate、equality、compatibility、projection contractは[source-aware package identity contract](contracts/source-package-identity.md)を正本とする。
 
 <a id="compat-packagebase-child-selection"></a>
 
@@ -654,7 +670,7 @@ interactive stdinで番号、ASCII空白・comma区切りの複数番号、inclu
 
 ## Local PKGBUILD compatibility（production接続済み）
 
-正式入口は`moguet build --local <directory> [V=K...]`であり、`build <pkg>`はremote package routeとして維持する。local PKGBUILD routeはproduction CLIへ接続済みである。local directory、root `PKGBUILD`、`.SRCINFO`のfilesystem identity、owner、mode、containmentをdescriptor-firstで検証し、unsafe stateはfail closedとする。local rootをAUR RPCへqueryせず、metadata failureをAUR absenceやempty dependencyへfallbackしない。
+正式入口は`moguet build --local [--use-patches] <directory> [V=K...]`であり、`build <pkg>`はremote package routeとして維持する。local PKGBUILD routeはproduction CLIへ接続済みである。local directory、root `PKGBUILD`、`.SRCINFO`のfilesystem identity、owner、mode、containmentをdescriptor-firstで検証し、unsafe stateはfail closedとする。local rootをAUR RPCへqueryせず、metadata failureをAUR absenceやempty dependencyへfallbackしない。
 
 safe `.SRCINFO`をread-only authorityの第一候補とし、missing / invalid / known-staleとPKGBUILD evaluationを区別する。`--noedit`はevaluation consentではなく、`--noconfirm`、non-TTY、cancel、EOFはevaluationを自動承認しない。local source treeをreset、clean、overwrite、deleteせず、local rootはExplicit、dependency artifactsはDependencyとして扱い、existing Explicitを降格しない。artifactはPackageBase / required-child contractへ接続する。Issue #271 Slice 2〜5でmetadata、dependency plan、source workspace、artifact / install、public surfaceを揃え、production CLIへ接続済みである。詳細なfilesystem、execution、cleanup contractは[local PKGBUILD contract](contracts/local-pkgbuild.md)を参照する。
 

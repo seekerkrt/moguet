@@ -427,7 +427,7 @@ The closed Moguet-owned and intercepted grammar is:
 <!-- CLI CANONICAL GRAMMAR BEGIN -->
 ```text
 build [--use-preference] <pkg> [V=K...]
-build --local <directory> [V=K...]
+build --local [--use-patches] <directory> [V=K...]
 upgrade
 upgrade-aur
 upgrade-all
@@ -440,6 +440,9 @@ edit-src <pkg>...
 list-src
 del-src <pkg>...
 revert <pkg>...
+add-patch <directory> <patch-directory> <patch-file>...
+update-patch <directory> <patch-directory> <patch-file>...
+del-patch <directory> <package-base>
 -G <pkg> [--output-dir=DIR]
 -Gp <pkg>
 -S --select [--needed] <query>
@@ -479,7 +482,7 @@ moguet upgrade-all
 # Build and install one remote package or one local PKGBUILD root
 moguet build <pkg> [V=K...]
 moguet build <pkg> --use-preference
-moguet build --local <directory> [V=K...]
+moguet build --local [--use-patches] <directory> [V=K...]
 
 # Inspect AUR dependencies and build order without building
 moguet deps --recursive <pkg>...
@@ -818,7 +821,7 @@ moguet add-src obs-studio \
   CXXFLAGS="${CXXFLAGS/-O2/-O3}"
 ```
 
-`build --local <directory> [V=K...]`
+`build --local [--use-patches] <directory> [V=K...]`
 instead treats exactly one user-owned directory as a local PackageBase source;
 it does not infer a local root from a path-like package operand or query AUR for
 that root.
@@ -833,6 +836,42 @@ artifacts retain dependency install reasons, and an already explicit installed
 package is never demoted. Runtime-aware package-name completion and more
 advanced completion are future work; the shipped completion is limited to the
 public CLI schema.
+
+### Local recipe patches
+
+Use `moguet add-patch <directory> <patch-directory> <patch-file>...` to associate
+an ordered series of Git unified text patches with a local source's canonical
+path and PackageBase. Patch files are distinct leaf names in the selected directory;
+the directory can be absolute or relative without `..`. The initial consumer only
+modifies an existing regular `PKGBUILD`, using strip level 1. Material remains
+user-owned. Moguet stores references, order and SHA-256 digests in
+`${XDG_CONFIG_HOME:-$HOME/.config}/moguet/patches.d/`.
+
+Explicitly select the series with
+`moguet build --local --use-patches <directory> [V=K...]`.
+Plain local builds do not read the association store. Registration enables neither
+automatic application nor execution consent. Selection is local-only, cannot repeat,
+and cannot be combined with `--edit`, `--dry-run` or `--use-preference`.
+The original and modified recipe can be displayed for read-only review; `--noedit`
+skips these previews. Metadata evaluation requires explicit no-default consent,
+including a separate confirmation after patch application. Non-TTY input and
+`--noconfirm` do not authorize evaluation. Existing build/install confirmations remain.
+
+All patches are acquired and digest-checked before the same owned bytes are applied
+to a fresh invocation-owned candidate. Only fresh postpatch metadata drives the plan
+and build; the original source remains unchanged. Reuse after an upstream recipe
+update always checks the current candidate. Missing, changed, unsafe or corrupt inputs,
+identity changes and apply/build failures stop the selected workflow without a stock
+build fallback or automatic repair.
+
+After reviewing edited material, run
+`moguet update-patch <directory> <patch-directory> <patch-file>...` to explicitly
+replace the order and expected digests. Duplicate registration and absent update/forget
+fail. `moguet del-patch <directory> <package-base>` deletes only the association,
+even if material is missing; it does not evaluate the recipe or modify material.
+Source patch payloads are outside this consumer; their future application belongs to
+PKGBUILD's source/checksum/prepare lifecycle and makepkg.
+See the [patch customization contract](docs/contracts/patch-customization.md).
 
 <!-- parity:configuration -->
 ## Configuration
@@ -1026,8 +1065,7 @@ See
 [docs/development.md](https://github.com/seekerkrt/moguet/blob/develop/docs/development.md),
 and
 [docs/versioning.md](https://github.com/seekerkrt/moguet/blob/develop/docs/versioning.md).
-Future candidates, including advanced runtime-aware completion and profile/patch
-workflows, are tracked in the [release roadmap](https://github.com/seekerkrt/moguet/issues/344).
+Future candidates, including advanced runtime-aware completion, profiles and additional patch consumers, are tracked in the [release roadmap](https://github.com/seekerkrt/moguet/issues/344).
 
 <!-- parity:license -->
 ## License

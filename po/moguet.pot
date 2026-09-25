@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.10.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-25 16:06+0900\n"
+"POT-Creation-Date: 2026-09-26 00:45+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -2332,6 +2332,14 @@ msgid "Invalid environment assignment: {}"
 msgstr ""
 
 #, c++-format
+msgid "Use {} once with {}; it cannot be combined with {} or {}."
+msgstr ""
+
+#, c++-format
+msgid "Invalid patch command arguments or options. Usage: {}"
+msgstr ""
+
+#, c++-format
 msgid "Unknown operation: {}"
 msgstr ""
 
@@ -3528,6 +3536,122 @@ msgstr ""
 
 #, c++-format
 msgid "Local source workspace cleanup also failed: {}"
+msgstr ""
+
+#, c++-format
+msgid "Patch customization is not registered for this local source and {}. Use {}."
+msgstr ""
+
+msgid "Required patch material or association is missing. Restore the material or inspect the saved association."
+msgstr ""
+
+msgid "Patch material changed. Review it and run update-patch explicitly; the saved digest was not changed."
+msgstr ""
+
+msgid "Patch customization is unsafe. Check ownership, permissions, symlinks and retained publication files."
+msgstr ""
+
+msgid "Patch association record is corrupt. Inspect the configuration before retrying."
+msgstr ""
+
+msgid "Patch association record uses an unsupported schema or source type."
+msgstr ""
+
+#, c++-format
+msgid "Invalid patch series. Use distinct ordered files containing supported {} text patches."
+msgstr ""
+
+#, c++-format
+msgid "Patch association does not match the current local source and {}."
+msgstr ""
+
+msgid "Patch customization changed during the operation. No automatic retry was attempted."
+msgstr ""
+
+msgid "Patch customization is already registered. Use update-patch to replace it explicitly."
+msgstr ""
+
+msgid "Patch customization could not be read or written because of an I/O failure."
+msgstr ""
+
+msgid "Local recipe identity evaluation failed. Patch customization was not used."
+msgstr ""
+
+msgid "Patch record operation may have completed. Inspect the configuration before retrying."
+msgstr ""
+
+#, c++-format
+msgid "Retained patch workspace or record: {}"
+msgstr ""
+
+msgid "Patched recipe review stopped or the candidate changed; metadata evaluation was not started."
+msgstr ""
+
+msgid "Recipe patch application failed; stock build was not attempted."
+msgstr ""
+
+#, c++-format
+msgid "Patched recipe identity differs from the selected source, {} or ordered package children."
+msgstr ""
+
+msgid "Prepatch recipe metadata evaluation failed."
+msgstr ""
+
+msgid "Patched recipe metadata evaluation failed; build was not started."
+msgstr ""
+
+msgid "Patched recipe dependency plan could not be prepared; build was not started."
+msgstr ""
+
+msgid "Recipe patch input or build settings failed preflight."
+msgstr ""
+
+msgid "Owned recipe candidate could not be prepared."
+msgstr ""
+
+#, c++-format
+msgid "Patch {} failed; later patches were not attempted."
+msgstr ""
+
+#, c++-format
+msgid "Show {} for read-only review?"
+msgstr ""
+
+#, c++-format
+msgid "{} is too large for inline review. Inspect it externally and decline the preview on the next invocation."
+msgstr ""
+
+#, c++-format
+msgid "Read-only {} candidate:"
+msgstr ""
+
+msgid "Selected patches require source identity evaluation and pre/post patch metadata evaluation in owned candidates. Editor overlays are not used."
+msgstr ""
+
+#, c++-format
+msgid "Patch registration evaluates {} once in an owned candidate; it does not build or install."
+msgstr ""
+
+#, c++-format
+msgid "Selected patch series for {}: {} patch(es)."
+msgstr ""
+
+#, c++-format
+msgid "Evaluate patched {} metadata with {}?"
+msgstr ""
+
+#, c++-format
+msgid "Forgot patch association for {}; user material was preserved."
+msgstr ""
+
+msgid "Use an absolute patch directory or a relative path without '..'."
+msgstr ""
+
+msgid "Patch files must be leaf names in the selected patch directory."
+msgstr ""
+
+#, c++-format
+msgid "Saved patch association for {}: {} patch(es). Registration does not enable automatic application."
 msgstr ""
 
 msgid "No package specified."
@@ -5863,6 +5987,23 @@ msgid "Remove one or more source-build preferences"
 msgstr ""
 
 msgid "Remove preferences and reinstall binary packages"
+msgstr ""
+
+msgid "LOCAL RECIPE PATCHES"
+msgstr ""
+
+#, c++-format
+msgid "Register ordered {} patches from a user-maintained directory; do not enable automatic application"
+msgstr ""
+
+msgid "Explicitly replace a local patch association and its expected digests"
+msgstr ""
+
+msgid "Forget only the association record; preserve user patch material"
+msgstr ""
+
+#, c++-format
+msgid "Use {} with {} to select saved patches; require explicit metadata evaluation consent and stop if customization fails"
 msgstr ""
 
 #. TRANSLATORS: The placeholder is the literal pacman program identity.

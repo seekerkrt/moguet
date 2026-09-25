@@ -812,6 +812,17 @@ moguet_add_cpp_test(
 )
 
 moguet_add_cpp_test(
+    moguet-local-patch-cli-test
+    ALPM_COMPILE REAL_ALPM CURL
+    SOURCES ${MOGUET_PRODUCTION_SOURCES}
+    DEFINITIONS
+        MOGUET_ENABLE_TEST_OVERRIDES
+        MOGUET_ENABLE_CLI_INSTALL_TEST_ADAPTER
+        "MOGUET_TEST_LEGACY_INSTALL_ADAPTER_PATH=\"${CMAKE_CURRENT_SOURCE_DIR}/tests/legacy-install-test-adapter.py\""
+    INCLUDE_DIRECTORIES "${_moguet_test_source_include_dir}"
+)
+
+moguet_add_cpp_test(
     user-config-test
     SOURCES
         tests/user_config_test.cpp
@@ -3463,6 +3474,7 @@ set(
     local-source-build-test
     local-recipe-candidate-test
     local-patch-association-test
+    moguet-local-patch-cli-test
     user-config-test
     package-identifier-test
     source-package-identity-test
