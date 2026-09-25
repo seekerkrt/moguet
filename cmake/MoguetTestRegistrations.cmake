@@ -58,6 +58,14 @@ _moguet_add_direct_ctest(
 )
 _moguet_add_direct_ctest(cpp.local_source_workspace local-source-workspace-test)
 _moguet_add_direct_ctest(cpp.local_source_build local-source-build-test)
+_moguet_add_direct_ctest(cpp.local_recipe_candidate local-recipe-candidate-test)
+_moguet_add_direct_ctest(cpp.local_patch_association local-patch-association-test)
+moguet_add_ctest(
+    NAME cli.local_patch
+    TARGETS moguet-local-patch-cli-test
+    COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test-local-patch-cli.py" "$<TARGET_FILE:moguet-local-patch-cli-test>"
+)
+set_tests_properties(cli.local_patch PROPERTIES TIMEOUT 180)
 _moguet_add_direct_ctest(cpp.package_identifier package-identifier-test)
 _moguet_add_direct_ctest(
     cpp.source_package_identity

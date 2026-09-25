@@ -108,7 +108,7 @@ and source-maintenance forms marked with an ellipsis remain multi-target.
 .SH COMMANDS
 .\" PUBLIC COMMANDS BEGIN
 .TP
-.B "build [--use-preference] <pkg> [V=K...] | build --local <directory> [V=K...]"
+.B "build [--use-preference] <pkg> [V=K...] | build --local [--use-patches] <directory> [V=K...]"
 Without
 .BR --local ,
 build one official-repository or AUR package from source without saving a
@@ -139,6 +139,20 @@ child declared by the accepted metadata is installed as an explicit root after
 dependency planning and artifact validation.
 Dependency artifacts retain dependency install reasons, and an already
 explicit installed package is never demoted.
+.
+With
+.BR --use-patches ,
+explicitly select the saved local recipe series. Plain local builds do not read this store.
+This option is local-only, cannot repeat, and conflicts with --edit, --dry-run and --use-preference.
+Original and modified recipes can be displayed for read-only review; --noedit skips previews.
+Initial identity evaluation and patched metadata evaluation require separate no-default consent;
+non-TTY input and --noconfirm do not authorize either. Existing build/install confirmation remains.
+The complete digest-verified series is applied, in order, from the same owned bytes to a fresh
+candidate; only postpatch metadata drives planning and building. Original source is preserved.
+Upstream updates use a fresh current candidate. Missing, changed, unsafe, corrupt, identity or
+apply/build failures stop without stock fallback or automatic repair. The initial scope is
+regular PKGBUILD text modification with Git strip level 1. Source patch payloads are separate;
+their future application belongs to PKGBUILD source/checksum/prepare and makepkg.
 .
 .TP
 .B "upgrade"
@@ -401,6 +415,25 @@ observation preserves that target's preference, excludes it from reinstall,
 and makes the command exit non-zero. Independent targets continue and share
 the grouped reinstall; pacman failure retains diagnostic priority.
 Review the displayed pacman transaction before confirming it.
+.
+.TP
+.B "add-patch <directory> <patch-directory> <patch-file>..."
+Associate ordered PKGBUILD patches with the canonical local source path and PackageBase.
+Patch files are distinct leaf names in the selected directory; the directory must be
+absolute or relative without '..'. Metadata evaluation requires no-default consent.
+Material remains user-owned; references, order and SHA-256 digests are saved under
+XDG config's moguet/patches.d. Registration enables neither automatic application nor execution consent.
+.
+.TP
+.B "update-patch <directory> <patch-directory> <patch-file>..."
+Explicitly replace an existing association's material references, order and expected digests
+after reviewing the changed material. Duplicate registration and absent update fail.
+.
+.TP
+.B "del-patch <directory> <package-base>"
+Forget only the association for the specified source and PackageBase, without evaluating
+PKGBUILD or opening material. Missing material does not prevent forgetting; missing
+registration fails. User material is never removed, rewritten or chmodded.
 .
 .TP
 .B "-S <pkg> | -S --select [--needed] <query>"

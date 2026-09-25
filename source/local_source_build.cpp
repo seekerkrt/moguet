@@ -554,6 +554,7 @@ make_local_source_build_projection_authority(
 PreparedLocalSourceBuild::PreparedLocalSourceBuild(
     PreparedLocalSourceBuild&& other) noexcept
     : request_(std::move(other.request_)),
+      recipe_workspace_(std::move(other.recipe_workspace_)),
       package_base_(std::move(other.package_base_)),
       required_targets_(std::move(other.required_targets_)),
       projection_authority_(request_) {
@@ -745,6 +746,10 @@ LocalSourceBuildResult execute_prepared_local_source_build(
 
     LocalSourceWorkspace source_workspace = [&]() {
         try {
+            if(prepared.recipe_workspace_.has_value()) {
+                prepared.recipe_workspace_->require_unchanged_identity();
+                return std::move(*prepared.recipe_workspace_);
+            }
             return materialize_local_source_workspace(
                 request.source_root, request.cache_root);
         } catch(const LocalSourceWorkspaceError& error) {
@@ -828,6 +833,22 @@ LocalSourceBuildResult execute_prepared_local_source_build(
     return LocalSourceBuildResult(
         std::move(completed.selection),
         std::move(completed.artifacts));
+}
+
+PreparedLocalSourceBuild PreparedLocalSourceBuild::from_recipe_candidate(
+    LocalSourceBuildRequest request, LocalSourceWorkspace& workspace) {
+    // The private caller holds the original semantic identity separately.
+    // This request is bound to the physical, already-modified candidate.
+    workspace.require_unchanged_identity();
+    if(request.source_root.canonical_path() != workspace.path()) {
+        throw std::invalid_argument("local-recipe-workspace-mismatch");
+    }
+    PreparedLocalBuildUnit unit = require_local_build_unit(request);
+    PreparedLocalSourceBuild prepared(
+        std::move(request), std::move(unit.package_base),
+        std::move(unit.required_targets));
+    prepared.recipe_workspace_.emplace(std::move(workspace));
+    return prepared;
 }
 
 LocalSourceBuildResult execute_local_source_build(

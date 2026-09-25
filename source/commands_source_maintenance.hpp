@@ -40,6 +40,9 @@ int cmd_build_local(
     PreparedLocalSourceBuildRoute route,
     const AppConfig& config);
 
+// Closed public patch lifecycle, dispatched before default state-log creation.
+int cmd_patch_association(const ParsedCliArguments& parsed, const AppConfig& config);
+
 int cmd_build(
     RemoteSourceBuildInvocation invocation,
     const AppConfig& config);

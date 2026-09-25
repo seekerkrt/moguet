@@ -50,6 +50,8 @@ foreach(_moguet_direct_focus IN ITEMS
     local-dependency-plan-projection
     local-source-workspace
     local-source-build
+    local-recipe-candidate
+    local-patch-association
     package-identifier
     source-package-identity
     exact-artifact-transaction-protocol
@@ -296,6 +298,7 @@ moguet_add_focused_ctest_alias(
     TESTS cli.build_cache_symlink
 )
 moguet_add_focused_ctest_alias(test-source-build TESTS cli.source_build)
+moguet_add_focused_ctest_alias(test-local-patch-cli TESTS cli.local_patch)
 moguet_add_focused_ctest_alias(test-source-selection TESTS cli.source_selection)
 moguet_add_focused_ctest_alias(test-needed-contract TESTS cli.needed_contract)
 moguet_add_focused_ctest_alias(test-pkgbuild-export TESTS cli.pkgbuild_export)

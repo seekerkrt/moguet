@@ -634,6 +634,9 @@ DryRunOperation classify_dry_run_operation(
         case cli_authority::OperationId::Revert:
         case cli_authority::OperationId::EditSource:
         case cli_authority::OperationId::ListSources:
+        case cli_authority::OperationId::AddPatch:
+        case cli_authority::OperationId::UpdatePatch:
+        case cli_authority::OperationId::DeletePatch:
         case cli_authority::OperationId::Count:
             return DryRunOperation::Unsupported;
     }
@@ -691,6 +694,10 @@ LocalSourceBuildInvocation require_local_source_build_invocation(
                 }
                 break;
             case CliTokenRole::PacmanOption:
+                if(token.value == cli_authority::USE_PATCHES_OPTION) {
+                    invocation.use_patches = true;
+                    break;
+                }
                 if(token.value != local_source_option) {
                     // TRANSLATORS: The placeholders are literal CLI syntax tokens.
                     reject_local_source_build_invocation(

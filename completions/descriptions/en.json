@@ -20,7 +20,10 @@
     "-Su": "Update repository packages and normal installed AUR packages without refreshing sync databases or using saved source-build preferences",
     "-Ss": "Search for packages",
     "-Si": "Show package information",
-    "-Qua": "Check AUR and foreign-package updates"
+    "-Qua": "Check AUR and foreign-package updates",
+    "add-patch": "Register ordered PKGBUILD patch references for one local source; never auto-apply",
+    "update-patch": "Explicitly update a local patch association, order and expected digests",
+    "del-patch": "Forget a local patch association without deleting user material"
   },
   "options": {
     "--details": "Show detailed diagnostic and provenance information for remote build, plan, deps, -S --select, -Qua, -Syu/-Su, upgrade-aur/all, and --dry-run -S; presentation only",
@@ -45,6 +48,7 @@
     "--aur": "Limit supported sync operations to AUR",
     "--repo": "Use only official binary repositories; with -Syu / -Su, run the repository system upgrade only",
     "--needed": "Preserve pacman --needed semantics at the installation phase owned by the selected route",
-    "--recursive": "Resolve dependencies recursively"
+    "--recursive": "Resolve dependencies recursively",
+    "--use-patches": "Explicitly select saved recipe patches for build --local; requires metadata evaluation consent"
   }
 }

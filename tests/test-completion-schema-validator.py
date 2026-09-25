@@ -524,6 +524,17 @@ def main() -> int:
             ),
         ),
         (
+            "local selector excludes a global final-value option",
+            exported_schema(options=(
+                option_record(identity=0, token="--local-choice", placement="operation-local",
+                              conflict_rule="operation-local-exclusion", conflicts="1"),
+                option_record(identity=1, token="--left", conflict_rule="final-value-must-agree",
+                              conflicts="2", conflict_value_identity="fixture.choice"),
+                option_record(identity=2, token="--right", conflict_rule="final-value-must-agree",
+                              conflicts="1", conflict_value_identity="fixture.choice"),
+            )),
+        ),
+        (
             "symmetric final-value conflicts",
             exported_schema(
                 options=(
@@ -552,6 +563,14 @@ def main() -> int:
     expect_current_authority_projection()
 
     rejected_controls = (
+        (
+            "global option cannot own local exclusion",
+            exported_schema(options=(
+                option_record(identity=0, conflict_rule="operation-local-exclusion", conflicts="1"),
+                option_record(identity=1, token="--other"),
+            )),
+            "local exclusion requires operation-local placement",
+        ),
         (
             "unknown operand kind",
             exported_schema(

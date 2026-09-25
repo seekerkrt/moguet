@@ -54,7 +54,9 @@ compatibility evaluatorは`ExactMatch`、`SamePackageChild`、`SamePackageBase`�
 
 read-only projectionの一部は、Issue #485のinternal production pathへ限定接続されている。`project_dependency_source_package_identity()`は`SourceArtifactInstall`のtrusted bindingとinvocation-owned cleanup correlation / evidenceへ、`project_artifact_source_package_identity()`はtrusted bindingのartifact整合とreceipt evidenceへtyped identity / correlation evidenceを渡す。これは既存のtrusted ownerが確定したidentityをread-onlyに投影する接続であり、common modelがsource-build routing、artifact identity、`SourceArtifactInstall` trusted transport、invocation-owned cleanupのauthorityを所有または置換することを意味しない。
 
-generic compatibility evaluatorは引き続きproduction callerを持たず、public production workflow / routing decisionへ未接続である。Issue #411は`PackageBaseIdentity` / `SourceRevisionIdentity`のvalidated valueを別のreviewed-source capability内で再利用するが、reviewed-source authorityをgeneric projectionへ移さず、evaluatorをproduction decisionへ接続しない。public profile workflow、patch / revision authority、generic compatibility-driven routing、v3 source-build / profile architectureは後続workであり、#355自体はpublic behaviorを追加しない。
+generic compatibility evaluatorは引き続きproduction callerを持たず、public production workflow / routing decisionへ未接続である。Issue #411は`PackageBaseIdentity` / `SourceRevisionIdentity`のvalidated valueを別のreviewed-source capability内で再利用するが、reviewed-source authorityをgeneric projectionへ移さず、evaluatorをproduction decisionへ接続しない。public profile workflow、generic revision authority、generic compatibility-driven routing、v3 source-build / profile architectureは後続workであり、#355自体はpublic behaviorを追加しない。
+Issue #363の[local recipe patch consumer](patch-customization.md)はvalidated identity valueをassociation keyへ使うが、
+適用許可は別のstrict acquisition・明示selection・fresh candidate guardで確認し、generic compatibility evaluatorへ委ねない。
 
 ## Contract本文（日本語normative source of truth）
 

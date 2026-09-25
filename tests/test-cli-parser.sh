@@ -601,7 +601,7 @@ setup_case help-operation
 run_ok --help
 assert_contains "USAGE" "$output_file"
 assert_contains \
-    "build [--use-preference] <pkg> [V=K...] | build --local <directory> [V=K...]" \
+    "build [--use-preference] <pkg> [V=K...] | build --local [--use-patches] <directory> [V=K...]" \
     "$output_file"
 assert_contains "upgrade-all" "$output_file"
 assert_contains "clean" "$output_file"

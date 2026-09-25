@@ -10,6 +10,7 @@
 #include "local_source_build.hpp"
 #include "local_source_install.hpp"
 #include "local_source_metadata_evaluation.hpp"
+#include "local_patch_association.hpp"
 #include "localization.hpp"
 #include "logging.hpp"
 #include "operation_state_model.hpp"
@@ -26,6 +27,7 @@
 #include "source_preference.hpp"
 #include "system_source_upgrade.hpp"
 #include "trusted_cache.hpp"
+#include "terminal_safe_text.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -804,7 +806,237 @@ std::string local_source_build_failure_diagnostic(
     return diagnostic;
 }
 
+class PatchCommandFailure final : public std::exception {
+public:
+    PatchAssociationFailure failure;
+    explicit PatchCommandFailure(PatchAssociationFailure value) : failure(std::move(value)) {
+    }
+};
+
+template <typename T, typename Result>
+T require_patch_result(Result result) {
+    if(const auto* failure = std::get_if<PatchAssociationFailure>(&result)) throw PatchCommandFailure(*failure);
+    if(auto* value = std::get_if<T>(&result)) return std::move(*value);
+    throw PatchCommandFailure({PatchAssociationFailureKind::Missing, {}, {}, std::nullopt, std::nullopt});
+}
+
+// TRANSLATORS: Technical placeholders below are literal PKGBUILD / PackageBase
+// identities or CLI command tokens; they must not be translated.
+void report_patch_failure(const PatchAssociationFailure& failure) {
+    using Kind = PatchAssociationFailureKind;
+    std::string message;
+    switch(failure.kind) {
+        case Kind::Missing:
+            message = failure.path.empty()
+                          ? localization::format_translated_message("Patch customization is not registered for this local source and {}. Use {}.", "PackageBase", "add-patch")
+                          : localization::translate_message("Required patch material or association is missing. Restore the material or inspect the saved association.");
+            break;
+        case Kind::Changed: message = localization::translate_message("Patch material changed. Review it and run update-patch explicitly; the saved digest was not changed."); break;
+        case Kind::Unsafe: message = localization::translate_message("Patch customization is unsafe. Check ownership, permissions, symlinks and retained publication files."); break;
+        case Kind::Corrupt: message = localization::translate_message("Patch association record is corrupt. Inspect the configuration before retrying."); break;
+        case Kind::Unsupported: message = localization::translate_message("Patch association record uses an unsupported schema or source type."); break;
+        case Kind::InvalidMaterial: message = localization::format_translated_message("Invalid patch series. Use distinct ordered files containing supported {} text patches.", "PKGBUILD"); break;
+        case Kind::InvalidIdentity:
+        case Kind::AssociationMismatch: message = localization::format_translated_message("Patch association does not match the current local source and {}.", "PackageBase"); break;
+        case Kind::ConcurrentChange: message = localization::translate_message("Patch customization changed during the operation. No automatic retry was attempted."); break;
+        case Kind::AlreadyExists: message = localization::translate_message("Patch customization is already registered. Use update-patch to replace it explicitly."); break;
+        case Kind::IoFailure: message = localization::translate_message("Patch customization could not be read or written because of an I/O failure."); break;
+        case Kind::ToolFailure: message = localization::translate_message("Local recipe identity evaluation failed. Patch customization was not used."); break;
+        case Kind::PublicationUncertain: message = localization::translate_message("Patch record operation may have completed. Inspect the configuration before retrying."); break;
+    }
+    Logger::error(message);
+    if(!failure.path.empty()) Logger::error(terminal_safe_text::escape_utf8(failure.path.string()));
+    if(failure.leftover) Logger::warn(localization::format_translated_message(
+        "Retained patch workspace or record: {}", terminal_safe_text::escape_utf8(failure.leftover->string())));
+    if(failure.cleanup_failure) Logger::warn(local_source_workspace_failure_diagnostic(*failure.cleanup_failure));
+}
+
+void report_recipe_patch_failure(const LocalRecipeCandidateFailure& failure) {
+    using Phase = LocalRecipeCandidatePhase;
+    std::string message;
+    switch(failure.phase) {
+        case Phase::Review:
+            if(failure.review_stop) {
+                report_runtime_diagnostic(project_confirmation_diagnostic(*failure.review_stop,
+                                                                          DiagnosticOperation::Build, DiagnosticPhase::Metadata),
+                                          confirmation_stop_diagnostic(*failure.review_stop));
+            }
+            message = localization::translate_message("Patched recipe review stopped or the candidate changed; metadata evaluation was not started.");
+            break;
+        case Phase::Apply: message = localization::translate_message("Recipe patch application failed; stock build was not attempted."); break;
+        case Phase::Identity: message = localization::format_translated_message("Patched recipe identity differs from the selected source, {} or ordered package children.", "PackageBase"); break;
+        case Phase::PrepatchMetadata: message = localization::translate_message("Prepatch recipe metadata evaluation failed."); break;
+        case Phase::PostpatchMetadata: message = localization::translate_message("Patched recipe metadata evaluation failed; build was not started."); break;
+        case Phase::Plan: message = localization::translate_message("Patched recipe dependency plan could not be prepared; build was not started."); break;
+        case Phase::Preflight: message = localization::translate_message("Recipe patch input or build settings failed preflight."); break;
+        case Phase::Snapshot: message = localization::translate_message("Owned recipe candidate could not be prepared."); break;
+    }
+    Logger::error(message);
+    if(failure.phase == Phase::Apply) {
+        const auto index = std::find(failure.patches.begin(), failure.patches.end(), LocalRecipePatchOutcome::Failed);
+        if(index != failure.patches.end()) Logger::error(localization::format_translated_message(
+            "Patch {} failed; later patches were not attempted.", std::distance(failure.patches.begin(), index) + 1));
+    }
+    if(failure.cleanup_failure) {
+        Logger::warn(local_source_workspace_failure_diagnostic(*failure.cleanup_failure));
+        Logger::warn(localization::format_translated_message("Retained patch workspace or record: {}",
+                                                             terminal_safe_text::escape_utf8(failure.candidate_path.string())));
+    }
+}
+
+std::optional<ConfirmationResult> offer_patch_recipe_review(const LocalSourceFileSnapshot& recipe, const AppConfig& config) {
+    if(config.user_config.review.pkgbuild == ReviewPolicy::Skip) return std::nullopt;
+    const auto show = request_confirmation(localization::format_translated_message("Show {} for read-only review?", "PKGBUILD"),
+                                           ConfirmationDefault::No, config.no_confirm);
+    if(std::holds_alternative<ConfirmationDeclined>(show)) return std::nullopt;
+    if(!std::holds_alternative<ConfirmationAccepted>(show)) return show;
+    constexpr std::size_t MAX_INLINE_RECIPE_BYTES = 65536;
+    if(recipe.contents.size() > MAX_INLINE_RECIPE_BYTES) {
+        Logger::error(localization::format_translated_message("{} is too large for inline review. Inspect it externally and decline the preview on the next invocation.", "PKGBUILD"));
+        throw std::runtime_error("local-recipe-review-limit");
+    }
+    Logger::info(localization::format_translated_message("Read-only {} candidate:", "PKGBUILD"));
+    std::istringstream lines(recipe.contents);
+    std::string line;
+    // NO_TRANSLATE: Indented user recipe content, escaped for terminal display.
+    while(std::getline(lines, line))
+        Logger::info("  | " + terminal_safe_text::escape_utf8(line));
+    return std::nullopt;
+}
+
+void confirm_patch_evaluation(const LocalSourceRoot& original, const AppConfig& config, bool build) {
+    Logger::info(localization::format_translated_message("Local source root: {}",
+                                                         terminal_safe_text::escape_utf8(original.canonical_path().string())));
+    Logger::warn(build
+                     ? localization::translate_message("Selected patches require source identity evaluation and pre/post patch metadata evaluation in owned candidates. Editor overlays are not used.")
+                     : localization::format_translated_message("Patch registration evaluates {} once in an owned candidate; it does not build or install.", "PKGBUILD"));
+    if(auto stopped = offer_patch_recipe_review(original.pkgbuild(), config))
+        stop_after_confirmation(*stopped, DiagnosticOperation::PatchCustomization, DiagnosticPhase::Metadata, {});
+    original.require_unchanged_identity();
+    auto result = request_confirmation(localization::format_translated_message(
+                                           "Evaluate {} metadata with {}?", "PKGBUILD", "makepkg --printsrcinfo"),
+                                       ConfirmationDefault::None, config.no_confirm);
+    if(!std::holds_alternative<ConfirmationAccepted>(result)) {
+        DiagnosticIdentity identity;
+        identity.source_kind = DiagnosticSourceKind::Local;
+        identity.local_root = original.canonical_path();
+        stop_after_confirmation(std::move(result), build ? DiagnosticOperation::Build : DiagnosticOperation::PatchCustomization,
+                                DiagnosticPhase::Metadata, std::move(identity));
+    }
+}
+
+ValidatedCacheRoot patch_cache_root(const LocalSourceRoot& original) {
+    const auto precondition = [&original](const xdg_directory_safety::DirectoryIdentity& parent) {
+        require_directory_identity_outside_local_source_tree(original, parent.device, parent.inode);
+    };
+    auto cache = prepare_process_cache_root(precondition);
+    require_directory_identity_outside_local_source_tree(original, cache.device(), cache.inode());
+    return cache;
+}
+
+int build_local_with_patches(PreparedLocalSourceBuildRoute route, const AppConfig& config) {
+    confirm_patch_evaluation(route.source_root, config, true);
+    auto cache = patch_cache_root(route.source_root);
+    // Keep the original command-start proof while the observation owns its own
+    // descriptor view. A concurrent source edit cannot silently select a newer root.
+    auto observed = require_patch_result<ObservedLocalPatchSource>(observe_local_patch_source(
+        open_local_source_root(route.source_root.canonical_path()), cache, route.invocation.source_environment));
+    route.source_root.require_unchanged_identity();
+    auto association = require_patch_result<LoadedPatchAssociation>(read_local_patch_association(observed.identity()));
+    auto acquired = require_patch_result<AcquiredLocalRecipeSeries>(acquire_local_patch_series(association));
+    const PackageBaseIdentity expected = acquired.identity();
+    Logger::info(localization::format_translated_message("Selected patch series for {}: {} patch(es).",
+                                                         expected.package_base(), acquired.patches().size()));
+    auto local = prepare_local_recipe_build(std::move(route.source_root), cache, route.invocation.source_environment,
+                                            std::move(acquired).take_patches(), local_makepkg_options(config), provider_selection_callback(config), expected,
+                                            [&config](const LocalSourceFileSnapshot& recipe) -> ConfirmationResult {
+                                                if(auto stopped = offer_patch_recipe_review(recipe, config)) return *stopped;
+                                                return request_confirmation(localization::format_translated_message("Evaluate patched {} metadata with {}?", "PKGBUILD", "makepkg --printsrcinfo"),
+                                                                            ConfirmationDefault::None, config.no_confirm);
+                                            });
+    require_complete_local_build_plan(local.plan());
+    auto proceed = request_confirmation(localization::translate_message("Proceed with build?"), ConfirmationDefault::Yes, config.no_confirm);
+    if(!std::holds_alternative<ConfirmationAccepted>(proceed)) {
+        DiagnosticIdentity identity;
+        identity.source_kind = DiagnosticSourceKind::Local;
+        stop_after_confirmation(std::move(proceed), DiagnosticOperation::Build, DiagnosticPhase::Preflight, std::move(identity));
+    }
+    local.require_unchanged_identity();
+    auto dependencies = prepare_local_source_build_dependencies(local.plan(), true, false);
+    preflight_local_source_build_dependencies(dependencies, config);
+    auto invocation = prepare_local_source_build_dependency_invocation(std::move(dependencies), cache, config);
+    const auto database_paths = invocation.database_paths;
+    local.require_unchanged_identity();
+    const auto dependency_result = execute_prepared_source_build_invocation(std::move(invocation), config);
+    if(!dependency_result.is_success()) return dependency_result.command_exit_status();
+    auto build_result = execute_local_recipe_build(std::move(local));
+    try {
+        const auto installed = execute_local_source_install(std::move(build_result), database_paths,
+                                                            SeparatedSourceBuildUnitOptions{.no_confirm = config.no_confirm});
+        present_local_source_install_result(installed);
+    } catch(const SeparatedPackageBaseSourceBuildCleanupError& error) {
+        present_local_source_install_result(error.result());
+        throw;
+    }
+    return 0;
+}
+
 } // namespace
+
+int cmd_patch_association(const ParsedCliArguments& parsed, const AppConfig& config) {
+    using Op = cli_authority::OperationId;
+    try {
+        const auto operation = cli_authority::find_moguet_operation(parsed.operation)->id;
+        if(operation == Op::DeletePatch) {
+            require_valid_package_name(parsed.targets.at(1));
+            // A canonical identity reference is sufficient to forget config;
+            // do not evaluate the recipe or require surviving material/source.
+            const auto path = fs::weakly_canonical(fs::absolute(parsed.targets.at(0)));
+            const auto identity = PackageBaseIdentity::make(PackageSourceIdentity::local(
+                                                                SourceLocationIdentity::known_local_path(path.string())),
+                                                            parsed.targets[1]);
+            auto loaded = require_patch_result<LoadedPatchAssociation>(read_local_patch_association(identity));
+            static_cast<void>(require_patch_result<PatchAssociationForgotten>(forget_local_patch_association(loaded)));
+            Logger::info(localization::format_translated_message("Forgot patch association for {}; user material was preserved.", identity.package_base()));
+            return 0;
+        }
+        // Normalize harmless relative spelling, but never erase a symlink/..
+        // boundary before the strict material reader has seen it.
+        fs::path material = parsed.targets.at(1);
+        for(const auto& component : material)
+            if(component == "..") throw std::invalid_argument(
+                localization::translate_message("Use an absolute patch directory or a relative path without '..'."));
+        material = fs::absolute(material).lexically_normal();
+        static_cast<void>(SourceLocationIdentity::known_local_path(material.string()));
+        std::vector<std::string> files(parsed.targets.begin() + 2, parsed.targets.end());
+        for(const auto& file : files) {
+            if(file.empty() || file == "." || file == ".." || file.find('/') != std::string::npos || file.find('\\') != std::string::npos)
+                throw std::invalid_argument(localization::translate_message("Patch files must be leaf names in the selected patch directory."));
+        }
+        auto original = open_local_source_root(parsed.targets.at(0));
+        static_cast<void>(SourceLocationIdentity::known_local_path(original.canonical_path().string()));
+        confirm_patch_evaluation(original, config, false);
+        auto cache = patch_cache_root(original);
+        auto source = require_patch_result<ObservedLocalPatchSource>(observe_local_patch_source(std::move(original), cache, {}));
+        if(operation == Op::AddPatch) {
+            static_cast<void>(require_patch_result<LoadedPatchAssociation>(register_local_patch_association(source, material, files)));
+        } else {
+            auto previous = require_patch_result<LoadedPatchAssociation>(read_local_patch_association(source.identity()));
+            static_cast<void>(require_patch_result<LoadedPatchAssociation>(update_local_patch_association(source, previous, material, files)));
+        }
+        Logger::info(localization::format_translated_message("Saved patch association for {}: {} patch(es). Registration does not enable automatic application.",
+                                                             source.identity().package_base(), files.size()));
+        return 0;
+    } catch(const PatchCommandFailure& error) {
+        report_patch_failure(error.failure);
+    } catch(const ConfirmationOperationStopped&) {
+    } catch(const LocalSourceRootError& error) {
+        Logger::error(local_source_root_failure_diagnostic(error.failure()));
+    } catch(const std::exception& error) {
+        Logger::error(error.what());
+    }
+    return 1;
+}
 
 PreparedLocalSourceBuildRoute prepare_local_source_build_route(
     LocalSourceBuildInvocation invocation,
@@ -919,6 +1151,7 @@ int cmd_build_local(
     PreparedLocalSourceBuildRoute route,
     const AppConfig& config) {
     try {
+        if(route.invocation.use_patches) return build_local_with_patches(std::move(route), config);
         const bool has_one_off_environment_assignment =
             !route.invocation.source_environment
                  .ordered_assignments.empty();
@@ -1002,6 +1235,12 @@ int cmd_build_local(
         }();
         present_local_source_install_result(install_result);
         return 0;
+    } catch(const PatchCommandFailure& error) {
+        report_patch_failure(error.failure);
+        return 1;
+    } catch(const LocalRecipeCandidateError& error) {
+        report_recipe_patch_failure(error.failure());
+        return 1;
     } catch(const ProductionSourceBuildInvocationError& error) {
         Logger::error(
             format_production_source_build_invocation_failure(error));

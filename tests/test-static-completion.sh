@@ -41,7 +41,7 @@ assert_reply() {
 
 root_candidates=(
     build upgrade upgrade-aur upgrade-all clean deps plan fetch
-    add-src edit-src list-src del-src revert
+    add-src edit-src list-src del-src revert add-patch update-patch del-patch
     -G -Gp -S -Syu -Su -Ss -Si -Qua
     -h --help -V --version
     --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode=
@@ -74,7 +74,7 @@ run_completion moguet list-src unexpected-target ""
 assert_reply "optionなしtargetless operationも不正operand後は閉じる"
 
 run_completion moguet up
-assert_reply "operation prefix" upgrade upgrade-aur upgrade-all
+assert_reply "operation prefix" upgrade upgrade-aur upgrade-all update-patch
 
 run_completion moguet deps --r
 assert_reply "deps固有option prefix" --recursive
@@ -128,15 +128,26 @@ assert_reply "remote buildのsecond bare operand後は候補を提示しない"
 run_completion moguet build --local ""
 assert_reply \
     "local build固有scopeとonce selector" \
-    --edit --noedit --noconfirm --dry-run --build-mode= --rebuild --cleanbuild
+    --edit --noedit --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --use-patches
 
 run_completion moguet build --local directory V=1 ""
 assert_reply \
     "local buildのdirectory/trailing assignmentを維持" \
-    --edit --noedit --noconfirm --dry-run --build-mode= --rebuild --cleanbuild
+    --edit --noedit --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --use-patches
 
 run_completion moguet build --local directory extra ""
 assert_reply "local buildのsecond bare operand後は候補を提示しない"
+
+run_completion moguet build --local --use-patches directory ""
+assert_reply "patch selectionは重複・editor・dry-runを候補にしない" --noedit --noconfirm --build-mode= --rebuild --cleanbuild
+
+run_completion moguet --edit build --local ""
+assert_reply "editor選択後はpatch selectionを提示しない" --edit --noconfirm --dry-run --build-mode= --rebuild --cleanbuild
+
+run_completion moguet add-patch directory material first.patch ""
+assert_reply "registerはordered file operandsを許可する" --noconfirm
+run_completion moguet del-patch directory base extra ""
+assert_reply "forget extra operand後は閉じる"
 
 run_completion moguet clean ""
 assert_reply "cleanのroute-owned option" --noconfirm
@@ -249,6 +260,11 @@ if command -v zsh >/dev/null 2>&1; then
     MOGUET_COMPLETION_FILE="${zsh_completion}" zsh -f <<'ZSH'
 compdef() { return 0 }
 source "$MOGUET_COMPLETION_FILE"
+_describe() {
+    reply=()
+    local entry
+    for entry in "${described[@]}"; do reply+=("${entry%%:*}"); done
+}
 
 fail() {
     print -u2 -- "FAIL: Zsh completion semantic projection: $1"
@@ -310,6 +326,7 @@ _moguet_collect_candidates build
 has_candidate --edit || fail 'remote build primary operand was closed'
 has_candidate --details || fail 'remote build lost --details'
 has_candidate --use-preference || fail 'remote build lost --use-preference'
+has_candidate --use-patches && fail 'remote build leaked --use-patches'
 
 words=(moguet build pkg extra '')
 CURRENT=5
@@ -323,6 +340,14 @@ has_candidate --edit || fail 'local build lost --edit'
 has_candidate --use-preference && fail 'local build leaked --use-preference'
 has_candidate --diff && fail 'local build leaked --diff'
 has_candidate --details && fail 'local build leaked --details'
+has_candidate --use-patches || fail 'local build lost --use-patches'
+words=(moguet build --local --use-patches directory '')
+CURRENT=6
+_moguet
+has_candidate --use-patches && fail 'patch selection repeated'
+has_candidate --edit && fail 'patch selection suggested editor'
+has_candidate --dry-run && fail 'patch selection suggested dry-run'
+has_candidate --noedit || fail 'patch selection lost noedit'
 
 words=(moguet build --local directory V=1 '')
 CURRENT=6
@@ -451,6 +476,7 @@ set mock_words moguet build pkg
 __moguet_candidate_available 0; or fail 'remote build primary operand was closed'
 __moguet_candidate_available 20; or fail 'remote build lost --details'
 __moguet_candidate_available 21; or fail 'remote build lost --use-preference'
+__moguet_candidate_available 22; and fail 'remote build leaked --use-patches'
 set mock_words moguet build pkg extra
 __moguet_candidate_available 0; and fail 'remote build second bare operand remained open'
 
@@ -460,6 +486,12 @@ __moguet_candidate_available 21; and fail 'local build leaked --use-preference'
 __moguet_candidate_available 2; and fail 'local build leaked --diff'
 __moguet_candidate_available 20; and fail 'local build leaked --details'
 __moguet_candidate_available 15; and fail 'once --local remained available'
+__moguet_candidate_available 22; or fail 'local build lost --use-patches'
+set mock_words moguet build --local --use-patches directory
+__moguet_candidate_available 22; and fail 'patch selection repeated'
+__moguet_candidate_available 0; and fail 'patch selection suggested editor'
+__moguet_candidate_available 5; and fail 'patch selection suggested dry-run'
+__moguet_candidate_available 1; or fail 'patch selection lost noedit'
 set mock_words moguet build --local directory V=1
 __moguet_candidate_available 0; or fail 'local build assignment flow was closed'
 set mock_words moguet build --local directory

@@ -23,6 +23,8 @@ enum class CliInvocationIssueKind {
     InvalidOperandOrdering,
     InvalidEnvironmentAssignment,
     UnsupportedPresentationDetail,
+    InvalidPatchSelection,
+    InvalidPatchLifecycle,
 };
 
 struct CliInvocationIssue {

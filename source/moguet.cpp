@@ -251,6 +251,15 @@ int run_moguet(int argc, char* argv[]) {
         return run_dry_run(parsed, g_config);
     }
 
+    const auto* patch_operation = cli_authority::find_moguet_operation(parsed.operation);
+    if(patch_operation && (patch_operation->id == cli_authority::OperationId::AddPatch ||
+                           patch_operation->id == cli_authority::OperationId::UpdatePatch ||
+                           patch_operation->id == cli_authority::OperationId::DeletePatch)) {
+        // Config lifecycle has no default state-log side effect. Its closed
+        // runtime grammar has already rejected unrelated options/operands.
+        return cmd_patch_association(parsed, g_config);
+    }
+
     // POLICY(#505): only the shared exact targetless classifier may create
     // the composite capability. Auto option rejection and source-build option
     // rejection both finish before the repository transaction or state log.
@@ -909,6 +918,16 @@ void print_help() {
         cli_operation_syntax(OperationId::Revert),
         localization::translate_message(
             "Remove preferences and reinstall binary packages"));
+    std::cout << std::endl;
+    print_help_section(localization::translate_message("LOCAL RECIPE PATCHES"));
+    print_help_entry(cli_operation_syntax(OperationId::AddPatch), localization::format_translated_message(
+                                                                      "Register ordered {} patches from a user-maintained directory; do not enable automatic application", "PKGBUILD"));
+    print_help_entry(cli_operation_syntax(OperationId::UpdatePatch), localization::translate_message(
+                                                                         "Explicitly replace a local patch association and its expected digests"));
+    print_help_entry(cli_operation_syntax(OperationId::DeletePatch), localization::translate_message(
+                                                                         "Forget only the association record; preserve user patch material"));
+    print_help_continuation(localization::format_translated_message(
+        "Use {} with {} to select saved patches; require explicit metadata evaluation consent and stop if customization fails", cli_authority::USE_PATCHES_OPTION, "build --local"));
     std::cout << std::endl;
     print_help_section(
         localization::format_translated_message(

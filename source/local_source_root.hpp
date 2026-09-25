@@ -242,6 +242,7 @@ class LocalSourceRoot final {
         std::uintmax_t directory_device,
         std::uintmax_t directory_inode);
     friend struct LocalSourceMetadataEvaluationAccess;
+    friend struct LocalRecipeCandidateAccess;
 #ifdef MOGUET_ENABLE_LOCAL_SOURCE_WORKSPACE_TEST_HOOKS
     friend void require_cache_identity_outside_source_tree_for_test(
         const LocalSourceRoot& source_root,

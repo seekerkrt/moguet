@@ -74,6 +74,8 @@ set(MOGUET_PRODUCTION_SOURCES
     source/invocation_owned_source_build_context.cpp
     source/local_dependency_plan_projection.cpp
     source/local_package_metadata.cpp
+    source/local_patch_association.cpp
+    source/local_recipe_candidate.cpp
     source/local_source_build.cpp
     source/local_source_build_dependency_preparation.cpp
     source/local_source_install.cpp

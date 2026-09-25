@@ -346,7 +346,7 @@ void test_runtime_help_connection() {
     const std::array expected = {
         std::pair{OperationId::Build,
                   std::string{
-                      "build [--use-preference] <pkg> [V=K...] | build --local <directory> [V=K...]"}},
+                      "build [--use-preference] <pkg> [V=K...] | build --local [--use-patches] <directory> [V=K...]"}},
         std::pair{OperationId::Upgrade, std::string{"upgrade"}},
         std::pair{OperationId::Clean, std::string{"clean"}},
         std::pair{OperationId::Deps,
@@ -372,7 +372,7 @@ void test_runtime_help_connection() {
 
     const std::vector<std::string> canonical = {
         "build [--use-preference] <pkg> [V=K...]",
-        "build --local <directory> [V=K...]",
+        "build --local [--use-patches] <directory> [V=K...]",
         "upgrade",
         "upgrade-aur",
         "upgrade-all",
@@ -385,6 +385,9 @@ void test_runtime_help_connection() {
         "list-src",
         "del-src <pkg>...",
         "revert <pkg>...",
+        "add-patch <directory> <patch-directory> <patch-file>...",
+        "update-patch <directory> <patch-directory> <patch-file>...",
+        "del-patch <directory> <package-base>",
         "-G <pkg> [--output-dir=DIR]",
         "-Gp <pkg>",
         "-S --select [--needed] <query>",
