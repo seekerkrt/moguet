@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.10.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-24 11:28+0900\n"
+"POT-Creation-Date: 2026-09-25 16:06+0900\n"
 "PO-Revision-Date: 2026-09-19 17:53+0900\n"
 "Last-Translator: Moguet contributors\n"
 "Language-Team: Japanese\n"
@@ -2329,6 +2329,18 @@ msgid "Unknown operation: {}"
 msgstr "不明な操作です: {}"
 
 #, c++-format
+msgid "Option {} is supported only with remote {}."
+msgstr "オプション {} はリモート{}でのみ使用できます。"
+
+#, c++-format
+msgid "Option {} may be specified only once for remote {}."
+msgstr "オプション {} はリモート{}で1回だけ指定できます。"
+
+#, c++-format
+msgid "Option {} cannot be combined with invocation-local environment assignments."
+msgstr "オプション {} は今回指定する環境変数代入と併用できません。"
+
+#, c++-format
 msgid "Option {} is not supported for operation {}."
 msgstr "option {} はoperation {} ではサポートされていません。"
 
@@ -3512,6 +3524,10 @@ msgstr "ローカルソース作業領域の後処理にも失敗しました: {
 
 msgid "No package specified."
 msgstr "パッケージが指定されていません。"
+
+#, c++-format
+msgid "No saved source-build preference is registered for {}."
+msgstr "{} の保存済みソースビルド設定は登録されていません。"
 
 #, c++-format
 msgid "Build Error: {}"
@@ -5975,6 +5991,12 @@ msgstr "{}のビルド、確認、計画段階は省略しません"
 
 msgid "Select the source-build mode"
 msgstr "ソースビルドモードを選択"
+
+msgid "Use the saved source-build preference for this remote build"
+msgstr "このリモートビルドで保存済みソースビルド設定を使用"
+
+msgid "Require a registered preference; do not combine with V=K assignments"
+msgstr "登録済み設定が必要です。V=Kの代入とは併用できません"
 
 #. TRANSLATORS: The placeholder is a literal compatibility option form.
 #, c++-format

@@ -578,12 +578,18 @@ DryRunOperation classify_dry_run_operation(
         case cli_authority::OperationId::Build: {
             const bool local_build = local_source_build_requested(parsed);
             std::size_t local_selector_count = 0;
+            std::size_t preference_option_count = 0;
             for(const ParsedCliToken& token : parsed.tokens) {
                 switch(token.role) {
                     case CliTokenRole::PacmanOption:
                         if(local_build &&
                            token.value == cli_authority::LOCAL_SOURCE_OPTION) {
                             ++local_selector_count;
+                            break;
+                        }
+                        if(!local_build &&
+                           token.value == cli_authority::USE_SOURCE_PREFERENCE_OPTION) {
+                            ++preference_option_count;
                             break;
                         }
                         return DryRunOperation::Unsupported;
@@ -597,7 +603,8 @@ DryRunOperation classify_dry_run_operation(
                         break;
                 }
             }
-            if(local_build && local_selector_count != 1) {
+            if((local_build && local_selector_count != 1) ||
+               preference_option_count > 1) {
                 return DryRunOperation::Unsupported;
             }
             return local_build ? DryRunOperation::LocalBuild

@@ -462,6 +462,7 @@ int main() {
         OptionId::Repo,
         OptionId::Details,
         OptionId::LocalSource,
+        OptionId::UseSourcePreference,
         OptionId::PkgbuildOutputDirectory,
         OptionId::Recursive,
         OptionId::Needed,

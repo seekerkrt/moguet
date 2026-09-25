@@ -39,6 +39,7 @@
     "--cleanbuild": "Compatibility alias for --build-mode=clean",
     "--rmdeps": "Preview newly installed build dependencies after remote AUR build success; remove only with explicit approval",
     "--local": "Use one local PKGBUILD directory as the build root",
+    "--use-preference": "Use the saved source-build preference for one remote build; conflicts with V=K assignments",
     "--output-dir": "Select an existing export parent for -G",
     "--select": "Interactively select source-aware package candidates for plain -S",
     "--aur": "Limit supported sync operations to AUR",

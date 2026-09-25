@@ -108,11 +108,18 @@ and source-maintenance forms marked with an ellipsis remain multi-target.
 .SH COMMANDS
 .\" PUBLIC COMMANDS BEGIN
 .TP
-.B "build <pkg> [V=K...] | build --local <directory> [V=K...]"
+.B "build [--use-preference] <pkg> [V=K...] | build --local <directory> [V=K...]"
 Without
 .BR --local ,
 build one official-repository or AUR package from source without saving a
 source-build preference.
+The default uses only invocation-local assignments. With
+.BR --use-preference ,
+read the saved preference for the requested package; an unregistered preference
+or any accompanying
+.B V=K
+assignment fails before the build. Saved empty values are omitted, while
+invocation-local empty values are forwarded.
 With
 .BR --local ,
 treat exactly one user-owned directory as a local PackageBase source and never

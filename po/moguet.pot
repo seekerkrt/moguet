@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.10.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-24 11:28+0900\n"
+"POT-Creation-Date: 2026-09-25 16:06+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -2336,6 +2336,18 @@ msgid "Unknown operation: {}"
 msgstr ""
 
 #, c++-format
+msgid "Option {} is supported only with remote {}."
+msgstr ""
+
+#, c++-format
+msgid "Option {} may be specified only once for remote {}."
+msgstr ""
+
+#, c++-format
+msgid "Option {} cannot be combined with invocation-local environment assignments."
+msgstr ""
+
+#, c++-format
 msgid "Option {} is not supported for operation {}."
 msgstr ""
 
@@ -3519,6 +3531,10 @@ msgid "Local source workspace cleanup also failed: {}"
 msgstr ""
 
 msgid "No package specified."
+msgstr ""
+
+#, c++-format
+msgid "No saved source-build preference is registered for {}."
 msgstr ""
 
 #, c++-format
@@ -5982,6 +5998,12 @@ msgid "Do not skip {} build, review, or plan steps"
 msgstr ""
 
 msgid "Select the source-build mode"
+msgstr ""
+
+msgid "Use the saved source-build preference for this remote build"
+msgstr ""
+
+msgid "Require a registered preference; do not combine with V=K assignments"
 msgstr ""
 
 #. TRANSLATORS: The placeholder is a literal compatibility option form.

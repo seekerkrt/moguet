@@ -133,6 +133,8 @@ inline constexpr std::string_view BUILD_MODE_CLEAN_OPTION =
 // Operation-local source selector。GlobalOptionSpecへ昇格させず、build routing
 // だけが解釈する。
 inline constexpr std::string_view LOCAL_SOURCE_OPTION = "--local";
+inline constexpr std::string_view USE_SOURCE_PREFERENCE_OPTION =
+    "--use-preference";
 
 // PKGBUILD exportだけが解釈するoperation-local attached-value option。
 // GlobalOptionSpecやCliOverridesへ昇格させない。
@@ -277,6 +279,7 @@ enum class OptionId {
     EndOfOptions,
     // Preserve existing exported option IDs when adding new globals.
     Details,
+    UseSourcePreference,
     Count,
 };
 
@@ -766,6 +769,18 @@ inline constexpr std::array<OptionContract,
          OptionPublicDefinitionRole::Definition,
          OptionCompletionVisibility::SuggestedAndDescribed,
          "cli.presentation.detail"},
+        {OptionId::UseSourcePreference,
+         USE_SOURCE_PREFERENCE_OPTION,
+         no_token_aliases(),
+         no_option_value(),
+         OptionOccurrence::Once,
+         no_option_conflicts(),
+         OptionLexicalPlacement::OperationLocal,
+         option_scope(OptionSemanticScope::SourceBuild),
+         GrammarOwnership::MoguetOwned,
+         OptionPublicDefinitionRole::SyntaxOnly,
+         OptionCompletionVisibility::SuggestedAndDescribed,
+         "cli.build.remote"},
     }};
 
 constexpr const OptionContract& option_contract(OptionId id) noexcept {
@@ -1069,6 +1084,9 @@ inline constexpr std::array<OperationFormSpec, 14> MOGUET_OPERATION_FORMS = {{
      operand_with_trailing_assignments(OperandKind::Package),
      TargetPolicy::ExactlyOne,
      operation_option_relations(
+         public_syntax_option_relation(
+             OptionId::UseSourcePreference,
+             OptionPublicSyntax::Optional),
          OptionId::Edit, OptionId::NoEdit,
          OptionId::Diff, OptionId::NoDiff,
          source_no_confirm_option_relation(), OptionId::DryRun,

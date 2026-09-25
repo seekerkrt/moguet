@@ -940,12 +940,16 @@ struct RemoteSourceBuildResult {
 RemoteSourceBuildResult build_source_target(
     const std::string& package_name,
     const SourceBuildEnvironment& custom_environment,
-    const AppConfig& config);
+    const AppConfig& config,
+    SourceEnvironmentEmptyValuePolicy empty_value_policy =
+        SourceEnvironmentEmptyValuePolicy::Forward);
 
 RemoteSourceBuildPreparation prepare_remote_source_build(
     const std::string& package_name,
     const SourceBuildEnvironment& custom_environment,
-    const AppConfig& config);
+    const AppConfig& config,
+    SourceEnvironmentEmptyValuePolicy empty_value_policy =
+        SourceEnvironmentEmptyValuePolicy::Forward);
 
 ResolvedSourceBuildIdentity resolve_source_build_identity(
     const std::string& package_name);

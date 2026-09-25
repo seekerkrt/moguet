@@ -392,6 +392,23 @@ int run_moguet(int argc, char* argv[]) {
         return 1;
     }
 
+    std::optional<RemoteSourceBuildInvocation> prepared_remote_source_build;
+    if(parsed.operation ==
+           cli_authority::operation_spec(
+               cli_authority::OperationId::Build)
+               .token &&
+       !prepared_local_source_build.has_value()) {
+        try {
+            // Explicit preference failure must precede even the default state
+            // log mutation; the owned environment is used without a second read.
+            prepared_remote_source_build.emplace(
+                require_remote_source_build_invocation(parsed));
+        } catch(const std::exception& error) {
+            Logger::error(error.what());
+            return 1;
+        }
+    }
+
     if(!validate_pre_log_operation_route(parsed)) return 1;
 
     if(parsed.operation ==
@@ -538,7 +555,9 @@ int run_moguet(int argc, char* argv[]) {
                cli_authority::operation_spec(
                    cli_authority::OperationId::Build)
                    .token) {
-                return cmd_build(targets, g_config);
+                return cmd_build(
+                    std::move(prepared_remote_source_build.value()),
+                    g_config);
             }
             if(operation ==
                cli_authority::operation_spec(
@@ -1034,6 +1053,12 @@ void print_help() {
         cli_option_syntax(OptionId::BuildMode),
         localization::translate_message("Select the source-build mode"));
     print_help_entry(
+        cli_option_syntax(OptionId::UseSourcePreference),
+        localization::translate_message(
+            "Use the saved source-build preference for this remote build"));
+    print_help_continuation(localization::translate_message(
+        "Require a registered preference; do not combine with V=K assignments"));
+    print_help_entry(
         cli_option_syntax(OptionId::Rebuild),
         localization::format_translated_message(
             // TRANSLATORS: The placeholder is a literal compatibility option form.
@@ -1183,6 +1208,12 @@ std::string join_pacman_args(const std::vector<std::string>& args) {
 bool validate_optionless_moguet_operation(const std::string& operation, const std::vector<std::string>& flags) {
     for(const auto& flag : flags) {
         if(flag == operation) continue;
+        if(operation == cli_authority::operation_spec(
+                            cli_authority::OperationId::Build)
+                            .token &&
+           flag == cli_authority::USE_SOURCE_PREFERENCE_OPTION) {
+            continue;
+        }
         // POLICY(#335): target-bearing source-preference operations alone use
         // semantic `--` to pass a leading-hyphen operand to package validation.
         if(flag == "--" &&

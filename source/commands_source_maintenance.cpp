@@ -838,8 +838,8 @@ void require_executable_local_source_build_route(
 }
 
 RemoteSourceBuildInvocation require_remote_source_build_invocation(
-    const std::vector<std::string>& args) {
-    if(args.empty()) {
+    const ParsedCliArguments& parsed) {
+    if(parsed.targets.empty()) {
         // TRANSLATORS: The placeholders are the literal CLI command and the complete build syntax.
         throw std::invalid_argument(localization::format_translated_message(
             "Usage: {} {}",
@@ -848,7 +848,13 @@ RemoteSourceBuildInvocation require_remote_source_build_invocation(
     }
 
     RemoteSourceBuildInvocation invocation;
-    for(const auto& arg : args) {
+    invocation.use_source_preference = std::any_of(
+        parsed.tokens.begin(), parsed.tokens.end(),
+        [](const ParsedCliToken& token) {
+            return token.role == CliTokenRole::PacmanOption &&
+                   token.value == cli_authority::USE_SOURCE_PREFERENCE_OPTION;
+        });
+    for(const auto& arg : parsed.targets) {
         std::string key;
         std::string value;
         if(split_env_assignment(arg, key, value)) {
@@ -875,6 +881,37 @@ RemoteSourceBuildInvocation require_remote_source_build_invocation(
             "No package specified."));
     }
     require_valid_package_name(invocation.package_name);
+    if(invocation.use_source_preference &&
+       !invocation.source_environment.ordered_assignments.empty()) {
+        throw std::invalid_argument(
+            localization::format_translated_message(
+                "Option {} cannot be combined with invocation-local environment assignments.",
+                cli_authority::USE_SOURCE_PREFERENCE_OPTION));
+    }
+    if(invocation.use_source_preference) {
+        StrictSourcePreferenceResult result =
+            read_source_preference_strict(invocation.package_name);
+        if(std::get_if<SourcePreferenceAbsent>(&result) != nullptr) {
+            // TRANSLATORS: The placeholder is a package name.
+            throw std::runtime_error(localization::format_translated_message(
+                "No saved source-build preference is registered for {}.",
+                invocation.package_name));
+        }
+        if(const auto* failure =
+               std::get_if<SourcePreferenceFailure>(&result)) {
+            throw SourcePreferenceError(*failure);
+        }
+        SourcePreferenceLoaded loaded =
+            std::get<SourcePreferenceLoaded>(std::move(result));
+        // TRANSLATORS: The placeholder is a source preference file path.
+        Logger::info(localization::format_translated_message(
+            "Loading custom build flags from {}.",
+            loaded.entry_path.string()));
+        for(const std::string& warning : loaded.warnings) {
+            Logger::warn(warning);
+        }
+        invocation.source_environment = std::move(loaded.environment);
+    }
     return invocation;
 }
 
@@ -1013,20 +1050,15 @@ int cmd_build_local(
 }
 
 int cmd_build(
-    const std::vector<std::string>& args,
+    RemoteSourceBuildInvocation invocation,
     const AppConfig& config) {
-    RemoteSourceBuildInvocation invocation;
-    try {
-        invocation = require_remote_source_build_invocation(args);
-    } catch(const std::exception& error) {
-        Logger::error(error.what());
-        return 1;
-    }
-
     try {
         return build_source_target(
                    invocation.package_name,
-                   invocation.source_environment, config)
+                   invocation.source_environment, config,
+                   invocation.use_source_preference
+                       ? SourceEnvironmentEmptyValuePolicy::Omit
+                       : SourceEnvironmentEmptyValuePolicy::Forward)
             .command_exit_status();
     } catch(const ProductionSourceBuildInvocationError& error) {
         Logger::error(

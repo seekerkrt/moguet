@@ -182,11 +182,14 @@ int run_remote_build_dry_run(
     const ParsedCliArguments& parsed,
     const AppConfig& config) {
     RemoteSourceBuildInvocation invocation =
-        require_remote_source_build_invocation(parsed.targets);
+        require_remote_source_build_invocation(parsed);
     RemoteSourceBuildPreparation preparation =
         prepare_remote_source_build(
             invocation.package_name,
-            std::move(invocation.source_environment), config);
+            std::move(invocation.source_environment), config,
+            invocation.use_source_preference
+                ? SourceEnvironmentEmptyValuePolicy::Omit
+                : SourceEnvironmentEmptyValuePolicy::Forward);
     return std::visit(
         [&config](const auto& authority) {
             return render_dry_run_projection(
