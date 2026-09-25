@@ -1204,6 +1204,12 @@ DirectoryRequest make_request(
         paths.managed_components, true};
 }
 
+DirectoryRequest make_request(const xdg_paths::PatchAssociationPaths& paths) {
+    const fs::path expected = paths.creation_boundary.base_directory /
+                              std::string(application_identity::XDG_IDENTITY) / "patches.d";
+    return DirectoryRequest{xdg_paths::DirectoryKind::Config, paths.directory, paths.creation_boundary, paths.directory == expected, {"patches.d"}, true};
+}
+
 } // namespace
 
 PreparationError::PreparationError(PreparationFailure failure)
@@ -1594,6 +1600,19 @@ std::optional<PreparedDirectory> open_existing_directory(
     const xdg_paths::SourcePreferencePaths& paths) {
     const DirectoryRequest request = make_request(paths);
     return DirectorySafetyAccess::open_existing(request, nullptr);
+}
+
+PreparedDirectory prepare_directory(const xdg_paths::PatchAssociationPaths& paths) {
+    return DirectorySafetyAccess::prepare(make_request(paths), nullptr);
+}
+
+PreparedDirectory prepare_directory(const xdg_paths::PatchAssociationPaths& paths,
+                                    const DirectoryCreationPrecondition& creation_precondition) {
+    return DirectorySafetyAccess::prepare(make_request(paths), nullptr, creation_precondition);
+}
+
+std::optional<PreparedDirectory> open_existing_directory(const xdg_paths::PatchAssociationPaths& paths) {
+    return DirectorySafetyAccess::open_existing(make_request(paths), nullptr);
 }
 
 PreparedDirectory prepare_directory(

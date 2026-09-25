@@ -356,6 +356,20 @@ SourcePreferencePaths resolve_source_preference(
             std::move(config_base), application_component)};
 }
 
+PatchAssociationPaths resolve_patch_associations(const EnvironmentSnapshot& environment) {
+    ConfigPaths config = resolve_config(environment);
+    config.creation_boundary.creatable_components.push_back("patches.d");
+    return {config.directory / "patches.d", std::move(config.creation_boundary)};
+}
+
+PatchAssociationPaths resolve_patch_associations_process_environment() {
+    return resolve_patch_associations(EnvironmentSnapshot{
+        .xdg_config_home = process_environment_value("XDG_CONFIG_HOME"),
+        .xdg_state_home = std::nullopt,
+        .xdg_cache_home = std::nullopt,
+        .home = process_environment_value("HOME")});
+}
+
 ReviewedSourceStatePaths resolve_reviewed_source_state(
     const EnvironmentSnapshot& environment) {
     ResolvedBaseDirectory state_base = resolve_base_directory(

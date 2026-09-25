@@ -59,6 +59,7 @@ _moguet_add_direct_ctest(
 _moguet_add_direct_ctest(cpp.local_source_workspace local-source-workspace-test)
 _moguet_add_direct_ctest(cpp.local_source_build local-source-build-test)
 _moguet_add_direct_ctest(cpp.local_recipe_candidate local-recipe-candidate-test)
+_moguet_add_direct_ctest(cpp.local_patch_association local-patch-association-test)
 _moguet_add_direct_ctest(cpp.package_identifier package-identifier-test)
 _moguet_add_direct_ctest(
     cpp.source_package_identity

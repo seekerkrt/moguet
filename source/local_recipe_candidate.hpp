@@ -36,6 +36,9 @@ enum class LocalRecipeCandidateFailureReason {
     PreparationFailure
 };
 
+// Pure shape check shared with acquisition; not applicability/authorization.
+std::optional<LocalRecipeCandidateFailureReason> validate_local_recipe_patch(const std::string& bytes);
+
 struct LocalRecipeCandidateFailure {
     LocalRecipeCandidatePhase phase;
     LocalRecipeCandidateFailureReason reason;
@@ -74,7 +77,7 @@ class PreparedLocalRecipeBuild final {
     friend PreparedLocalRecipeBuild prepare_local_recipe_build(
         LocalSourceRoot, ValidatedCacheRoot, SourceBuildEnvironment,
         std::vector<LocalRecipePatch>, ArtifactMakepkgBuildOptions,
-        const ProviderSelectionCallback&);
+        const ProviderSelectionCallback&, std::optional<PackageBaseIdentity>);
     friend LocalSourceBuildResult execute_local_recipe_build(
         PreparedLocalRecipeBuild);
 
@@ -98,7 +101,8 @@ PreparedLocalRecipeBuild prepare_local_recipe_build(
     LocalSourceRoot original, ValidatedCacheRoot cache_root,
     SourceBuildEnvironment environment, std::vector<LocalRecipePatch> patches,
     ArtifactMakepkgBuildOptions options = {},
-    const ProviderSelectionCallback& select_provider = {});
+    const ProviderSelectionCallback& select_provider = {},
+    std::optional<PackageBaseIdentity> expected_source = std::nullopt);
 
 // Local unit only; the caller handles plan dependencies through existing
 // authority first. The returned artifact capability feeds the existing install

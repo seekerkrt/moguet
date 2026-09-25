@@ -173,6 +173,10 @@ void cleanup_failure_workspace(std::optional<LocalSourceWorkspace>& workspace,
 
 } // namespace
 
+std::optional<LocalRecipeCandidateFailureReason> validate_local_recipe_patch(const std::string& bytes) {
+    return validate_patch(bytes);
+}
+
 LocalRecipeCandidateError::LocalRecipeCandidateError(
     LocalRecipeCandidateFailure failure, const std::string& diagnostic)
     : std::runtime_error(diagnostic), failure_(std::move(failure)) {
@@ -218,7 +222,8 @@ PreparedLocalRecipeBuild prepare_local_recipe_build(
     LocalSourceRoot original, ValidatedCacheRoot cache_root,
     SourceBuildEnvironment environment, std::vector<LocalRecipePatch> patches,
     ArtifactMakepkgBuildOptions options,
-    const ProviderSelectionCallback& select_provider) {
+    const ProviderSelectionCallback& select_provider,
+    std::optional<PackageBaseIdentity> expected_source) {
     using Phase = LocalRecipeCandidatePhase;
     using Reason = LocalRecipeCandidateFailureReason;
     LocalRecipeCandidateFailure failure{
@@ -243,6 +248,12 @@ PreparedLocalRecipeBuild prepare_local_recipe_build(
         require_unclaimed_artifact_pkgdest(environment);
         const std::string architecture = resolve_local_source_effective_architecture(environment);
         original.require_unchanged_identity();
+        if(expected_source && expected_source->source() != PackageSourceIdentity::local(
+                                                               SourceLocationIdentity::known_local_path(original.canonical_path().string()))) {
+            failure.phase = Phase::Identity;
+            failure.reason = Reason::IdentityChanged;
+            throw std::runtime_error("local-recipe-source-association-mismatch");
+        }
         failure.phase = Phase::Snapshot;
         failure.reason = Reason::PreparationFailure;
         workspace.emplace(materialize_local_source_workspace(original, cache_root));
@@ -257,6 +268,11 @@ PreparedLocalRecipeBuild prepare_local_recipe_build(
             PackageSourceIdentity::local(SourceLocationIdentity::known_local_path(
                 original.canonical_path().string())),
             baseline.metadata().package_base);
+
+        failure.phase = Phase::Identity;
+        failure.reason = Reason::IdentityChanged;
+        if(expected_source && *expected_source != identity)
+            throw std::runtime_error("local-recipe-association-mismatch");
 
         // Each root snapshot expires on successful apply. Reopen only after a
         // known tool success; a failed/unknown mutator never produces authority.

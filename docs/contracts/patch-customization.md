@@ -2,10 +2,10 @@
 
 ## Statusとauthority
 
-**Slice 2のlocal Candidate Consumerは内部実装。public customizationは未実装。**
+**Production Slice 1のCandidate ConsumerとSlice 2のassociation / persistence / acquisitionは内部実装。public selectionは未実装。**
 [Issue #363 current body](https://github.com/seekerkrt/moguet/issues/363)をrequirements SSOTとする。
-以下のDesign Gate比較・永続化案と、今回実装した内部consumerのcontractを区別する。
-CLI、association、registration、digest persistenceの完成やProduction AC全体の完了を表さない。
+以下では実装済み内部contractと、後続のpublic selection / consent案を区別する。
+public CLI journeyやProduction AC全体の完了を表さない。
 [#627 requirements reset](https://github.com/seekerkrt/moguet/issues/627)に従い、過去の
 profile / snapshot foundationを要求へ戻さない。requirementsはIssue、具体的な
 patch contractはこの文書、上位原則は[decisions](../decisions.md)と[stance](../project-stance.md)が所有する。
@@ -21,14 +21,16 @@ recipe-side customizationとsource patch payloadは別責務である。source p
 actual source取得・展開・prepare・buildをmakepkgへ渡す。直接source mutationの具体的要求が生じた場合は
 このIssueの暗黙拡張ではなく別design reviewを必要とする。
 
-今回の会話ではDesign GateをSlice 1、以下のCandidate ConsumerをSlice 2と数える。
-Issue本文のproduction Slice 1と同じscopeであり、source patch payloadは実装しない。
+この文書はIssue本文のproduction Slice番号を使う。過去handoffでDesign GateをSlice 1として数えた
+会話上のSlice 2は、以下のProduction Slice 1に対応する。source patch payloadは実装しない。
 
-### Slice 2で実装する内部contract
+### Production Slice 1: Candidate Consumer
 
 `prepare_local_recipe_build`はalready-selectedなowning patch bytesのordered vectorを受ける。
 external path lookup、digest/association store、登録、saved preference、public dispatchを所有しない。
 callerはcandidateでのpre/post二度のmetadata評価を許可した後だけこのmutation-capable seamを呼ぶ。
+association付きのcallerはacquired seriesのidentityを`expected_source`へ渡す。candidate作成前にsourceを、
+fresh prepatch評価後にPackageBaseを照合し、apply前に不一致を拒否する。これは適用可能性や実行同意を代替しない。
 全materialのPKGBUILD-only shapeをworkspace作成・評価前に検証し、非対応file / binary / mode変更 / 空materialは停止する。
 Git unified textのenvelopeだけを検査し、context照合と適用は実Gitへ委譲する。stripは1、入力bytesは同じ
 invocation-owned streamからcheck / applyへ渡し、Git config/indexとoriginal checkoutからauthorityを借りない。
@@ -78,7 +80,7 @@ devel bootstrap専用であり、汎用candidate ownerとして転用しない�
 | 将来source payload | type / phaseを別に追加できる。今は実装しない | 同様。import自体はprepareへのintegrationを解決しない | 既存のuser-supplied patchesを作り直す理由にならない |
 | 今不要な責任 | 自動追随、原本保管、汎用directory管理を持たない | 原本消失後の保管保証とmanaged lifecycle | authoring UI、baseline取得、diff生成 |
 
-**提案はA。** 現在のgoalは保持したassociationとpatch群の更新後reuseであり、original pathの
+**初期実装はA。** 現在のgoalは保持したassociationとpatch群の更新後reuseであり、original pathの
 消失後にもbytesを保管する保証は固定requirementではない。Aでも変更検知と安全なcopyは省略しない。
 Bはその保管保証が必要になった場合の次候補、Cはauthoring需要が確認できた場合の追加producerとする。
 
@@ -112,37 +114,70 @@ PackageBase変更は明示rebindとし、similar nameへの追随、rename推測
 postpatchのPackageBaseとordered child identityはprepatchと一致を要求する。version、dependency、
 build optionの変更はfresh metadataで扱う。split childrenは既存local selection / install reasonを維持する。
 
-### 最小recordとmaterial read
+### Production Slice 2: association / persistence / strict acquisition
 
-候補配置は`${XDG_CONFIG_HOME:-$HOME/.config}/moguet/patches.d/`。1 associationにつき1 strict recordで、
-version、typed source / PackageBase、absolute material root、ordered relative pathsと各SHA-256を保持する。
-storage keyはtyped identityから決定的に導出し、record本文と照合する。named profileや別manifest languageは作らない。
+配置は`${XDG_CONFIG_HOME:-$HOME/.config}/moguet/patches.d/<key>.toml`。keyはdomain-separatedな
+canonical original local pathとPackageBaseから既存SHA-256実装で導出し、本文identityと必ず照合する。
+別path / 別PackageBase / child名だけのlookupは別keyであり、同名packageへfallbackしない。
+1 associationにつき1 strict TOML recordとし、初版のfieldは次だけである。
+
+| Field | v1の意味 |
+| --- | --- |
+| `schema_version` | exact integer `1`。boolean / float / stringを変換して採用しない |
+| `source_kind` | `local`固定 |
+| `local_source` / `package_base` | original canonical pathとKnown PackageBase identity |
+| `material_root` | safeに取得するabsolute external root |
+| `patches` | 順序を持つ非空array。各entryは`file`（root直下のleaf）と`sha256`だけ |
+
+Git unified text / recipe-side / owned recipe root / PKGBUILD target / strip 1はv1で固定し、自由設定fieldにしない。
+unknown version / source kindはUnsupported、型不正・unknown field・duplicate key・truncated recordはCorruptで停止する。
+schema migration、generic DB、別manifest languageは追加しない。
 順序は登録時の明示listそのものとし、directory列挙順、glob、filename sort、mtimeを使わない。
 初版はroot直下のregular patch filesに限定し、空series、duplicate path、absolute / traversal pathを拒否する。
-type / apply root / phase / stripはversion 1の固定値なのでentryごとの自由な設定にしない。
-将来の別type / phaseを現版が黙って解釈せず、unknown version / field / type、duplicate key、壊れたrecordは停止する。
-古いpatch schemaは存在しないためmigration engineは作らない。
 
-登録・更新はmaterialのsafe readとdigestを利用者が確認したうえでrecordをatomic publicationする。
-同じassociationへの置換は明示操作とし、同時更新はcooperative lockと期待recordの照合で拒否する。
-forgetはassociationだけを削除し、external bytesを削除しない。material path変更も明示更新とする。
-read / list / selected buildはstoreを作らず、未選択の既存routeはpatch storeを読まず現在の挙動を保つ。
-未登録は管理操作でのabsenceと、明示選択したbuildのMissing failureを区別する。
+register / update / forgetは内部APIであり、CLI spellingやbuild-time optionを公開しない。
+登録用`ObservedLocalPatchSource`は、callerが許可したowned snapshotでのfresh metadata評価から作り、
+original identityを保持する。stale `.SRCINFO`、child名、pure valueだけから登録用authorityを作らない。
+registerはcomplete acquisitionとdigest固定後にno-replace publicationし、既存recordを上書きしない。
+update / forgetはstrict readerの観測token（record path、filesystem identity、raw bytes）を要求し、
+cooperative lock下の再観測と一致しなければConcurrentChangeで停止する。materialの編集後もdigestへ自動追随しない。
+forgetはrecordだけを処理し、materialが消失していてもexternal pathを開いたり削除したりしない。
+read / acquisitionはstoreを作らない。plain `build --local`はこのstoreを読まず、存在だけで適用しない。
+**association presence、selection、execution consentは別**であり、public接続はProduction Slice 3へ残す。
 
 configは既存XDG boundaryに沿い、unset / emptyはHOME fallback、明示baseはabsolute・既存・安全を要求する。
 managed directory / recordは0700 / 0600、euid ownership、descriptor / named identity、symlink拒否、
 atomic write / syncを必要とし、I/O、permission、race、partial publicationをabsenceへ丸めない。
 `source-build.d`やreviewed-sources stateに新fieldを混ぜず、root時も別userのcontextを推測しない。
+登録・更新でconfigをoriginal source / material内へ作成しない。mkdir前にはoriginal capabilityによるcreation precondition、
+既存namespaceにもphysical directory identityの分離検証を行う。
+
+publicationはcomplete temp write / file sync / expected-state再検証後のatomic renameをcommit pointとする。
+updateは旧recordを保持するexchange、forgetはrecordをowned temporary nameへ移す操作を使い、
+directory lineageと対象identityを再検証できた場合だけ旧recordをunlinkする。
+commit前failureは旧recordを保持する。commit後のsync / reproof failureはPublicationUncertainとし、
+未実行・成功のどちらにも丸めず、自動rollback / retryをしない。残留する同keyのinternal artifactはUnsafeとして扱う。
+非協調same-euidによる最終検査とpathname syscall間の置換まで完全race-freeとはせず、観測した不整合後は削除しない。
 
 external materialはprivate configと異なり、euid-ownedでgroup / other writableでないdirectory / regular file
 （0755 / 0644等）を許可する。rootへのlineageとlisted fileをdescriptor基準で確認し、symlink経由、
 unsafe owner / writable component、special file、root escapeを拒否する。原本のchmodはしない。
 euid ownershipの要求はmaterial rootとlisted fileに適用する。通常のroot-ownedなsystem ancestorを
 一律拒否するものではなく、ancestorの安全性とnamed lineageは別に検証する。
+root-owned sticky ancestor（`/tmp`等）とsearch-only ancestorを許可し、ancestorの列挙権限を要求しない。
+同名の重複だけでなく、別leaf名の同じdevice/inodeもduplicate materialとして拒否する。
 bounded readの前後でnamed / descriptor identityと変更を確認し、全entryのSHA-256一致を確認した同じbytesを
 owned copyから使う。apply時にexternal pathを開き直さない。未列挙fileはseriesに追加しない。
 missing、changed、unsafe、corrupt、I/O / raceは別reasonで停止し、changedをその場で自動承認・digest更新しない。
 snapshot固定後はexternal originalの監視を継続しない。copyと必要な相関情報をconsumerの寿命まで保持する。
+
+strict readerはAbsent / Loaded / Failureを区別する。Absentは安全なnamespace / recordの未登録だけであり、
+material消失はMissing、digest不一致はChanged、owner / mode / symlinkはUnsafe、replacementはConcurrentChange、
+record破損はCorrupt、未知schemaはUnsupported、patch形状不正はInvalidMaterial、I/OはIoFailureとする。
+identity評価toolの失敗はToolFailureとし、unknown identityはInvalidIdentity、本文とlookupの不一致はAssociationMismatch。
+`acquire_local_patch_series`は全seriesの検証を終えてから、同じowned bytesを`AcquiredLocalRecipeSeries`として返す。
+partial inputやCorrupt→empty Loadedの経路を持たず、consumerへ渡すためにmaterial pathを再openしない。
+`test-local-patch-association`がpersistence、failure、race、同一bytesのconsumer transferを確認する。
 
 Bを採る場合、durable materialはuser dataとしてXDG_DATA_HOME側が自然であり、再生成可能なcacheや
 review acceptance stateへ置かない。current resolverはConfig / State / Cacheのみなので、data用resolver / safety、
@@ -237,7 +272,7 @@ fixture側にpatch/buildを再実装しない。実行範囲は[validation polic
 
 ## 後続Sliceに残る責任
 
-local Candidate Consumerは今回の実装scopeとして確定した。A reference方式のassociation / strict acquisitionと
-persistence、public explicit selection / consentは後続Sliceで接続する。ここにあるstorage候補、CLI spelling、
-record encodingは現在のpublic contractではない。material path消失時の停止、明示更新、no stock fallbackを
-そのconsumerで証明する。remote、selected recipe text、source payloadはそれぞれ別のauthority確認を要する。
+Production Slice 1 / 2は内部APIとして実装した。Production Slice 3でpublic explicit selection / consentを接続し、
+saved associationからのupstream更新後reuse、Missing / Changed / apply failure時のno stock fallbackをfull CLIで証明する。
+CLI spellingと利用者向けhelp/man/completionはそのSliceで確定する。remote、selected recipe text、source payloadは
+それぞれ別のauthority確認を要する。

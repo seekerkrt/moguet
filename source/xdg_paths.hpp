@@ -81,6 +81,11 @@ struct SourcePreferencePaths {
     DirectoryCreationBoundary creation_boundary;
 };
 
+struct PatchAssociationPaths {
+    std::filesystem::path directory;
+    DirectoryCreationBoundary creation_boundary;
+};
+
 struct StatePaths {
     std::filesystem::path directory;
     std::filesystem::path default_log_file;
@@ -139,6 +144,10 @@ ConfigPaths resolve_config_process_environment();
 
 // Source-build preference専用adapter。XDG_CONFIG_HOME / HOMEだけをsnapshot化する。
 SourcePreferencePaths resolve_source_preference_process_environment();
+
+// Patch association config only; no source-preference/state/cache authority.
+PatchAssociationPaths resolve_patch_associations(const EnvironmentSnapshot& environment);
+PatchAssociationPaths resolve_patch_associations_process_environment();
 
 // Reviewed-source store consumerが無関係なconfig/cache environmentを
 // authorityへ取り込まず、state pathだけを解決するpure resolver。
