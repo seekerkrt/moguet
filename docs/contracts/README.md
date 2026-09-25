@@ -33,6 +33,14 @@ contractの規範上の正本は各文書の日本語本文である。英語利
 | [root package selection](root-package-selection.md) | #217 | `-S --select`のsource-aware root selectionとroute固定 |
 | [local PKGBUILD](local-pkgbuild.md) | #271 | local root identity、metadata authority、source tree非破壊境界 |
 
+## Design Gate / implementation in progress
+
+次はDesign Gate案と実装途中の内部contractを区別して記録する。public機能の完成を保証しない。
+
+| Proposal | Origin Issue | Decision scope |
+| --- | --- | --- |
+| [Package/source patch customization](patch-customization.md) | #363 | local Candidate Consumer内部contractと、後続association / selection / XDG persistenceの設計案 |
+
 ## 英語利用者向けの読み方
 
 - contract本文は日本語がnormative source of truthである。
