@@ -69,6 +69,18 @@ formatへfallbackせず、untrackedまたは今回と無関係なC++を暗黙に
 実行段階、approvalへ十分なevidence、再実行が必要な変更は`docs/validation.md`を正とする。
 CLI出力や終了codeを変えた場合は対象commandを直接確認する。pacman、makepkg、sudo、system package databaseへ影響する確認は通常testと同列に実行せず、対象と副作用を明示した依頼に基づいて行う。
 
+### 検証scopeの選択
+
+- `test-host-release` は **PR / merge前のcanonical host approval gate** であり、通常の実装中やSlice完了時に毎回実行する既定targetではない。
+- small fix、presentation-only変更、review finding修正では、`docs/validation.md` に従い、変更したcontractのownerと直接consumerを覆う `test-<領域>` などのaffected / focused targetを優先する。
+- production codeを変更したという理由だけで、`test`、`test-host-release`、container validation、`release-validate`へ自動的に拡大しない。
+- audit / reviewによって変更scopeが実際に広がり、focused validationだけでは対象contractを証明できない場合に限り、理由を明示してbroader gateを追加する。
+- 「念のため」「canonicalだから」「全部通した方が安心だから」だけを理由にfull validationを再実行しない。
+- PR-ready candidateを固定した時点で `test-host-release` を原則1回実行する。
+  PASS後にcandidateのcontractを変更するdeltaが入った場合は、
+  `docs/validation.md` のevidence reuse / invalidationに従って再実行範囲を判断する。
+- final release candidateは別approval epochとして扱い、その時点で既存release policyに従って `release-validate` を実行する。
+
 ## Branch・remote・mirror
 
 - GitHubの`origin`がcanonical、GitLabの`gitlab`がbackup mirrorである。
