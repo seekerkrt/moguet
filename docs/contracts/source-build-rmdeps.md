@@ -554,7 +554,6 @@ networkless disposable Arch fixtureはsynthetic remote AUR rootとMoguet-owned s
 
 Slice 5のassessmentはinternal resultであり、public output、preview、prompt、confirmation、removalへ接続しない。`pacman -R*`、`pacman -Qdt*`、broad orphan scan、automatic rollbackは追加しない。makepkg syncdeps authorityは#484 / #501、mutation直前revalidationとremovalは#486の独立scopeである。Issue #485のcandidate authority completionだけで#486全体をGOとしない。
 
-
 ## Compatibility
 
 利用者向け互換性はrepositoryの `docs/compatibility.md`（`compat-rmdeps` section）も参照。
