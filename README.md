@@ -871,7 +871,7 @@ fail. `moguet del-patch <directory> <package-base>` deletes only the association
 even if material is missing; it does not evaluate the recipe or modify material.
 Source patch payloads are outside this consumer; their future application belongs to
 PKGBUILD's source/checksum/prepare lifecycle and makepkg.
-See the [patch customization contract](docs/contracts/patch-customization.md).
+See the [patch customization contract](https://github.com/seekerkrt/moguet/blob/develop/docs/contracts/patch-customization.md).
 
 <!-- parity:configuration -->
 ## Configuration

@@ -739,7 +739,7 @@ material編集をreviewした後、
 `moguet del-patch <directory> <package-base>`はassociationだけを削除し、material消失時にも使えます。
 recipeを評価せず、materialを書換え・削除しません。source patch payloadはこのconsumerの対象外であり、
 将来もPKGBUILDのsource / checksum / prepare lifecycleとmakepkgが適用authorityを持ちます。
-詳細は[patch customization contract](docs/contracts/patch-customization.md)を参照してください。
+詳細は[patch customization contract](https://github.com/seekerkrt/moguet/blob/develop/docs/contracts/patch-customization.md)を参照してください。
 
 <!-- parity:configuration -->
 ## 設定
