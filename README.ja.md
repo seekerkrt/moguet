@@ -68,6 +68,10 @@ Moguet v2.10.0では、対話的なprovider選択に複数番号、range、除�
 認識できるlegacy SONAME v1のprovider capabilityには32-bitまたは64-bitの注記を付けますが、
 注記によって候補のfilterや選択は行いません。
 
+Moguet v2.10.1では、pinned source snapshot承認のNormal表示にroot tag数を残し、
+tag mappingの全件列挙を省きます。`--details`ではtag名とraw/peeled object IDを
+引き続き表示します。取得・検証・build inputとしての保持は変わりません。
+
 canonical repository identityはGitHub上のMoguetで、GitLab mirrorを持ちます。Moguet
 packageは`jpacker` command aliasを提供しません。AUR publicationは将来の別判断であり、
 この文書はAUR endpointが存在すると断定しません。

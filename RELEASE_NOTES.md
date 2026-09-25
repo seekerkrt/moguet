@@ -1,3 +1,26 @@
+# Moguet v2.10.1
+
+This tracked file is the source of truth for release bodies. The English and
+Japanese sections for each release describe the same scope.
+
+## English
+
+Moguet v2.10.1 is a PATCH release for pinned source snapshot presentation.
+
+* Normal acceptance output shows the root tag count without listing every tag
+  name and raw/peeled object ID. `--details` retains the complete mapping.
+* Root tag acquisition, verification, retained build input, and snapshot
+  confirmation and execution semantics are unchanged.
+
+## 日本語
+
+Moguet v2.10.1は、pinned source snapshotの表示を改善するPATCH releaseです。
+
+* Normalの承認表示ではroot tag数を示し、tag名とraw/peeled object IDの全件列挙を
+  省きます。`--details`ではcomplete mappingを引き続き表示します。
+* root tagの取得・検証・build inputとしての保持、snapshotの確認と実行の意味は
+  変更しません。
+
 # Moguet v2.10.0
 
 This tracked file is the source of truth for release bodies. The English and
