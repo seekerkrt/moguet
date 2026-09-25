@@ -50,6 +50,7 @@ foreach(_moguet_direct_focus IN ITEMS
     local-dependency-plan-projection
     local-source-workspace
     local-source-build
+    local-recipe-candidate
     package-identifier
     source-package-identity
     exact-artifact-transaction-protocol

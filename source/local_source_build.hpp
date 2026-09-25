@@ -18,6 +18,7 @@ struct LocalSourceBuildRequest;
 class PreparedLocalSourceBuild;
 class LocalSourceBuildResult;
 class LocalSourceBuildProjectionAuthority;
+class PreparedLocalRecipeBuild;
 
 enum class LocalSourceBuildMetadataProvenance {
     ExistingSrcinfo,
@@ -207,6 +208,9 @@ make_local_source_build_projection_authority(
 
 class PreparedLocalSourceBuild final {
     LocalSourceBuildRequest request_;
+    // Only the recipe consumer can transfer an early snapshot. The ordinary
+    // route still materializes its source after dependency preparation.
+    std::optional<LocalSourceWorkspace> recipe_workspace_;
     std::string package_base_;
     std::vector<RequiredPackageArtifactTarget> required_targets_;
     LocalSourceBuildProjectionAuthority projection_authority_;
@@ -222,6 +226,10 @@ class PreparedLocalSourceBuild final {
     friend class LocalSourceBuildResult;
     friend LocalSourceBuildResult execute_prepared_local_source_build(
         PreparedLocalSourceBuild prepared);
+    friend class PreparedLocalRecipeBuild;
+
+    static PreparedLocalSourceBuild from_recipe_candidate(
+        LocalSourceBuildRequest request, LocalSourceWorkspace& workspace);
 
 public:
     PreparedLocalSourceBuild(const PreparedLocalSourceBuild&) = delete;
