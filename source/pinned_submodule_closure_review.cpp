@@ -77,10 +77,12 @@ void render_identity(const InvocationOwnedPinnedSubmoduleClosure& closure, Prese
         body.field("root tree: ", closure.nodes().front().tree.value());
     }
     body.field("root tag count: ", std::to_string(closure.root_tags().size()));
-    for(const auto& tag : closure.root_tags()) {
-        body.field("root tag: ", tag.ref_name());
-        body.field("raw object: ", tag.raw().value());
-        if(tag.peeled()) body.field("peeled object: ", tag.peeled()->value());
+    if(presentation_detail == PresentationDetail::Detailed) {
+        for(const auto& tag : closure.root_tags()) {
+            body.field("root tag: ", tag.ref_name());
+            body.field("raw object: ", tag.raw().value());
+            if(tag.peeled()) body.field("peeled object: ", tag.peeled()->value());
+        }
     }
     std::size_t entries = 0, submodules = 0;
     std::uintmax_t total_bytes = 0;

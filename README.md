@@ -76,6 +76,11 @@ Moguet v2.10.0 extends interactive provider selection to multiple numbers,
 ranges, and exclusions. Recognized legacy SONAME v1 provider capabilities gain
 32-bit or 64-bit annotations; these do not filter or select candidates.
 
+Moguet v2.10.1 keeps the root tag count in Normal pinned snapshot acceptance
+output without listing every tag mapping. `--details` still shows tag names and
+raw/peeled object IDs. Acquisition, verification, and retained build input are
+unchanged.
+
 The canonical repository identity is Moguet on GitHub, with a GitLab mirror.
 The Moguet package does not provide a `jpacker` command alias. AUR publication
 is a separate future decision; this document does not claim that an AUR
@@ -650,8 +655,9 @@ acceptance selects the exact upstream snapshot (remote, selector, root/tree,
 file identities and submodule pins) as build input. It does not certify
 source-code safety or require reading every upstream blob; binary and large
 assets do not alone make the snapshot unsupported. Recipe-local inputs retain
-full content review. Normal output summarizes closure size and submodule count;
-`--details` shows per-file identity and exact submodule pins. `--noedit` is allowed;
+full content review. Normal output summarizes closure size, root tag count, and
+submodule count; `--details` shows the complete root tag mapping, per-file
+identity, and exact submodule pins. `--noedit` is allowed;
 `--nodiff`, `review.diff = "skip"`, `--noconfirm`, and non-TTY input do not approve
 bootstrap. Decline skips the target; cancellation or a later execution failure
 stops subsequent work without rollback. Invalid, corrupt, future, mismatched,

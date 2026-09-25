@@ -165,8 +165,9 @@ S6 OutcomeUnknownではrecordが存在する可能性を保ち、baseline succes
 上記exact routeのtyped intentだけが、recipe full review/acceptance→exact S3→actual initial evaluation→
 4A parent-pinned recursive closure→別途explicit closure review→SourceReady→native makepkg→common S4→S5→S6を通る。
 root-onlyを含むこのbootstrap chainでは、recipe内容reviewとは別にexact upstream snapshotをbuild inputとして
-使う明示承認を要求する。Slice 6ではremote/selector/root/tree、complete inventory metadata、submodule pin、root tagのfull name/raw OID/annotated peeled OID mappingを
-提示し、上流全blobの全文reviewは要求しない。binary/large blobの存在だけでは拒否しない。承認はsource-codeの
+使う明示承認を要求する。Slice 6ではremote/selector/root/tree、closure/inventory/bytes/submodule数、root tag数を
+Normalで提示する。`--details`ではcomplete inventory metadata、submodule pin、root tagのfull name/raw OID/annotated peeled OID mappingも表示する。
+いずれの表示でも内部のcomplete mappingを取得・保持・検証し、上流全blobの全文reviewは要求しない。binary/large blobの存在だけでは拒否しない。承認はsource-codeの
 安全性保証ではなくsnapshot選択である。metadata/取得/workspaceの上限とidentity不整合の拒否は維持する。
 通常のvalid provenanceやnon-devel経路にはこの承認を追加しない。
 
