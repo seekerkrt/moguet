@@ -380,6 +380,45 @@ CliInvocationValidation validate_cli_invocation_contract(
     ResolvedCliRuntimeContract contract =
         resolve_cli_runtime_contract(parsed);
 
+    std::size_t preference_option_count = 0;
+    for(const ParsedCliToken& token : parsed.tokens) {
+        if((token.role == CliTokenRole::PacmanOption ||
+            token.role == CliTokenRole::Operation) &&
+           token.value == cli_authority::USE_SOURCE_PREFERENCE_OPTION) {
+            ++preference_option_count;
+        }
+    }
+    if(preference_option_count != 0) {
+        const bool is_remote_build =
+            contract.operation != nullptr &&
+            contract.operation->id == OperationId::Build &&
+            primary_operand_kind(*contract.form) == OperandKind::Package;
+        const CliInvocationIssueKind kind =
+            !is_remote_build
+                ? CliInvocationIssueKind::MisplacedSourcePreferenceOption
+            : preference_option_count > 1
+                ? CliInvocationIssueKind::DuplicateSourcePreferenceOption
+                : CliInvocationIssueKind::SourcePreferenceAssignmentConflict;
+        bool has_assignment = false;
+        if(is_remote_build) {
+            for(std::size_t index = 1; index < parsed.targets.size(); ++index) {
+                if(is_environment_assignment(parsed.targets[index])) {
+                    has_assignment = true;
+                    break;
+                }
+            }
+        }
+        if(!is_remote_build || preference_option_count > 1 || has_assignment) {
+            return invalid_invocation(
+                contract,
+                CliInvocationIssue{
+                    kind, parsed.operation, std::nullopt,
+                    TargetPolicy::ExactlyOne, OperandKind::Package},
+                DiagnosticClass::Invalid,
+                DiagnosticOperation::Build);
+        }
+    }
+
     if(parsed.operation == cli_authority::LOCAL_SOURCE_OPTION) {
         return invalid_invocation(
             contract,
@@ -522,6 +561,18 @@ std::string cli_invocation_issue_message(
             return localization::format_translated_message(
                 "Option {} is supported only with operation {}.",
                 cli_authority::LOCAL_SOURCE_OPTION, "build");
+        case CliInvocationIssueKind::MisplacedSourcePreferenceOption:
+            return localization::format_translated_message(
+                "Option {} is supported only with remote {}.",
+                cli_authority::USE_SOURCE_PREFERENCE_OPTION, "build");
+        case CliInvocationIssueKind::DuplicateSourcePreferenceOption:
+            return localization::format_translated_message(
+                "Option {} may be specified only once for remote {}.",
+                cli_authority::USE_SOURCE_PREFERENCE_OPTION, "build");
+        case CliInvocationIssueKind::SourcePreferenceAssignmentConflict:
+            return localization::format_translated_message(
+                "Option {} cannot be combined with invocation-local environment assignments.",
+                cli_authority::USE_SOURCE_PREFERENCE_OPTION);
         case CliInvocationIssueKind::MisplacedPkgbuildOutputDirectoryOption:
             return localization::format_translated_message(
                 "Option {} is supported only with operation {}.",

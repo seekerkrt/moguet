@@ -122,6 +122,7 @@ setup_case() {
     unset MOGUET_TEST_MAKEPKG_ARTIFACT_IDENTITIES
     unset MOGUET_TEST_MAKEPKG_ENV_LOG
     unset MOGUET_TEST_MAKEPKG_ENV_KEYS
+    unset MOGUET_TEST_MAKEPKG_ARGV_LOG
     unset MOGUET_TEST_MAKEPKG_PACKAGELIST_EXIT_CODE
     unset MOGUET_TEST_MAKEPKG_PACKAGELIST_OUTPUT_FILE
 }
@@ -509,6 +510,85 @@ assert_contains "Detected branch: master" "$output_file"
 assert_command "git show-ref --verify --quiet refs/remotes/origin/main"
 assert_command "git show-ref --verify --quiet refs/remotes/origin/master"
 assert_command "git reset --hard origin/master"
+
+# Issue #362: plain remote build never opens the preference, even when the
+# saved entry is unsafe. One-off empty assignments keep Forward semantics.
+setup_case build-preference-default-zero-read
+create_existing_checkout
+mkdir -p "$source_preference_dir"
+chmod 0700 "$source_preference_dir"
+ln -s "$case_dir/missing-entry" "$source_preference_dir/clean-root"
+makepkg_argv_log=$case_dir/makepkg-argv.log
+: > "$makepkg_argv_log"
+export MOGUET_TEST_MAKEPKG_ARGV_LOG=$makepkg_argv_log
+run_ok --noedit --nodiff build clean-root LOCAL_EMPTY=
+assert_not_contains "Loading custom build flags" "$output_file"
+assert_file_line_count 'arg[1]=<LOCAL_EMPTY=>' 2 "$makepkg_argv_log"
+
+setup_case build-preference-unregistered
+run_fail --noedit --nodiff build clean-root --use-preference
+assert_contains \
+    "No saved source-build preference is registered for clean-root." \
+    "$output_file"
+if [ -s "$command_log" ] || [ -e "$case_dir/xdg-state/moguet" ]; then
+    echo "unregistered preference reached external command or state mutation" >&2
+    exit 1
+fi
+
+setup_case build-preference-valid-empty
+create_existing_checkout
+mkdir -p "$source_preference_dir"
+chmod 0700 "$source_preference_dir"
+: > "$source_preference_dir/clean-root"
+chmod 0600 "$source_preference_dir/clean-root"
+run_ok --noedit --nodiff build clean-root --use-preference
+assert_contains "Loading custom build flags from" "$output_file"
+assert_command "makepkg -sc"
+
+setup_case build-preference-ordered-assignments
+create_existing_checkout
+mkdir -p "$source_preference_dir"
+chmod 0700 "$source_preference_dir"
+printf 'PREF_ORDER=first\nPREF_ORDER=second\nPREF_EMPTY=\n' \
+    > "$source_preference_dir/clean-root"
+chmod 0600 "$source_preference_dir/clean-root"
+makepkg_argv_log=$case_dir/makepkg-argv.log
+: > "$makepkg_argv_log"
+export MOGUET_TEST_MAKEPKG_ARGV_LOG=$makepkg_argv_log
+run_ok --noedit --nodiff build clean-root --use-preference
+assert_makepkg_argv_log "$makepkg_argv_log" 'argv-begin
+arg[0]=<--packagelist>
+arg[1]=<PREF_ORDER=first>
+arg[2]=<PREF_ORDER=second>
+arg[3]=<PKGDEST=<owned>>
+argv-end
+argv-begin
+arg[0]=<-sc>
+arg[1]=<PREF_ORDER=first>
+arg[2]=<PREF_ORDER=second>
+arg[3]=<PKGDEST=<owned>>
+argv-end'
+unset MOGUET_TEST_MAKEPKG_ARGV_LOG
+
+setup_case build-preference-unsafe-symlink
+mkdir -p "$source_preference_dir"
+chmod 0700 "$source_preference_dir"
+ln -s "$case_dir/missing-entry" "$source_preference_dir/clean-root"
+run_fail --noedit --nodiff build clean-root --use-preference
+assert_contains "Source preference entry is not a regular file" "$output_file"
+if [ -s "$command_log" ] || [ -e "$case_dir/xdg-state/moguet" ]; then
+    echo "unsafe preference reached external command or state mutation" >&2
+    exit 1
+fi
+
+setup_case build-preference-raw-pkgdest
+mkdir -p "$source_preference_dir"
+chmod 0700 "$source_preference_dir"
+printf 'PKGDEST=/tmp/unclaimed\n' > "$source_preference_dir/clean-root"
+chmod 0600 "$source_preference_dir/clean-root"
+run_fail --noedit --nodiff build clean-root --use-preference
+assert_contains "PKGDEST" "$output_file"
+assert_command_prefix_absent "makepkg "
 
 # Issue #406 Slice 3: standalone repository builds always use the
 # PackageBase-set lifecycle and install only the archive-selected child.

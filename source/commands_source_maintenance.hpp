@@ -20,6 +20,7 @@ struct PreparedLocalSourceBuildRoute {
 struct RemoteSourceBuildInvocation {
     std::string package_name;
     SourceBuildEnvironment source_environment;
+    bool use_source_preference = false;
 };
 
 PreparedLocalSourceBuildRoute prepare_local_source_build_route(
@@ -30,7 +31,7 @@ void require_executable_local_source_build_route(
     const PreparedLocalSourceBuildRoute& route);
 
 RemoteSourceBuildInvocation require_remote_source_build_invocation(
-    const std::vector<std::string>& args);
+    const ParsedCliArguments& parsed);
 
 std::string local_source_workspace_failure_diagnostic(
     const LocalSourceWorkspaceFailure& failure);
@@ -40,7 +41,7 @@ int cmd_build_local(
     const AppConfig& config);
 
 int cmd_build(
-    const std::vector<std::string>& args,
+    RemoteSourceBuildInvocation invocation,
     const AppConfig& config);
 
 int cmd_add_src(const std::vector<std::string>& args);

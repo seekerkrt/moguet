@@ -364,7 +364,7 @@ Moguet-owned / interceptedのclosed grammarは次のとおりです。
 
 <!-- CLI CANONICAL GRAMMAR BEGIN -->
 ```text
-build <pkg> [V=K...]
+build [--use-preference] <pkg> [V=K...]
 build --local <directory> [V=K...]
 upgrade
 upgrade-aur
@@ -415,6 +415,7 @@ moguet upgrade-all
 
 # remote package 1件、またはlocal PKGBUILD root 1件をbuild・install
 moguet build <pkg> [V=K...]
+moguet build <pkg> --use-preference
 moguet build --local <directory> [V=K...]
 
 # buildせずAUR dependencyとbuild orderを調査
@@ -596,8 +597,11 @@ sourceを限定します。両selected routeで同じ意味を持つoptionは`--
 non-TTYと`--noconfirm`ではqueryやpackage選択を行わず失敗します。
 
 source-build preferenceはmulti-targetの`add-src`、`edit-src`、`del-src`、`revert`と、
-target-lessの`list-src`で管理します。一時的な`build <pkg> [V=K...]`はremote packageを
-解決し、preferenceを保存しません。
+target-lessの`list-src`で管理します。`build <pkg> [V=K...]`はremote packageを
+解決し、今回指定したassignmentだけを使います。`build <pkg> --use-preference`は
+そのpackageの保存済みpreferenceを読みます。未登録、またはempty値を含む任意の
+`V=K`併用時はbuild前に失敗します。保存済みempty値は既存どおり省き、
+今回指定したempty値はforwardします。
 
 ### Reviewed AUR source workflow
 

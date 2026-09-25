@@ -355,6 +355,25 @@ assert_dry_run_rendered remote-build-details \
 assert_dry_run_rendered dry-run-sync-system-update \
     -Syu --dry-run
 
+# Issue #362: explicit reuse also reaches the AUR remote root in dry-run.
+setup_case dry-run-aur-build-with-preference
+export MOGUET_TEST_PACMAN_REPO_PACKAGES=official-only
+preference_dir=$XDG_CONFIG_HOME/moguet/source-build.d
+mkdir -p "$preference_dir"
+chmod 0700 "$XDG_CONFIG_HOME/moguet" "$preference_dir"
+printf 'SAVED_FLAGS=-O3\n' > "$preference_dir/clean-root"
+chmod 0600 "$preference_dir/clean-root"
+run_ok --dry-run build clean-root --use-preference
+assert_contains "Loading custom build flags from $preference_dir/clean-root." \
+    "$output_file"
+assert_contains "Unified plan:" "$output_file"
+assert_not_contains "Started Moguet v" "$output_file"
+assert_no_mutation_commands
+if [ -e "$XDG_STATE_HOME/moguet" ] || [ -e "$XDG_CACHE_HOME/moguet" ]; then
+    echo "explicit AUR dry-run prepared persistent state or cache" >&2
+    exit 1
+fi
+
 setup_case dry-run-local-build
 local_dry_run_source=$case_dir/local-source
 cp -a "$repo_root/tests/fixtures/unified-plan-local-blocked" \
@@ -582,7 +601,7 @@ setup_case help-operation
 run_ok --help
 assert_contains "USAGE" "$output_file"
 assert_contains \
-    "build <pkg> [V=K...] | build --local <directory> [V=K...]" \
+    "build [--use-preference] <pkg> [V=K...] | build --local <directory> [V=K...]" \
     "$output_file"
 assert_contains "upgrade-all" "$output_file"
 assert_contains "clean" "$output_file"
@@ -953,6 +972,53 @@ assert_select_rejected_pre_log select-end-of-options \
 assert_select_rejected_pre_log select-rmdeps \
     "Cannot combine --select and --rmdeps." \
     -S query --select --rmdeps
+
+# Issue #362: reuseとone-off assignmentはemptyを含めpre-logで排他にする。
+setup_case preference-assignment-conflict
+run_fail build clean-root --use-preference VALUE=one
+assert_contains \
+    "Option --use-preference cannot be combined with invocation-local environment assignments." \
+    "$output_file"
+assert_pre_log_exit
+
+setup_case preference-empty-assignment-conflict
+run_fail build clean-root --use-preference VALUE=
+assert_contains \
+    "Option --use-preference cannot be combined with invocation-local environment assignments." \
+    "$output_file"
+assert_pre_log_exit
+
+setup_case preference-dry-run-conflict
+run_fail --dry-run build clean-root --use-preference VALUE=
+assert_pre_log_exit
+
+setup_case preference-local-scope
+run_fail build --local . --use-preference
+assert_contains \
+    "Option --use-preference is supported only with remote build." \
+    "$output_file"
+assert_pre_log_exit
+
+setup_case preference-sync-scope
+run_fail -Syu --use-preference
+assert_contains \
+    "Option --use-preference is supported only with remote build." \
+    "$output_file"
+assert_pre_log_exit
+
+setup_case preference-operation-slot
+run_fail --use-preference build clean-root
+assert_contains \
+    "Option --use-preference is supported only with remote build." \
+    "$output_file"
+assert_pre_log_exit
+
+setup_case preference-duplicate-option
+run_fail build clean-root --use-preference --use-preference
+assert_contains \
+    "Option --use-preference may be specified only once for remote build." \
+    "$output_file"
+assert_pre_log_exit
 
 # Matrix N: `--local`はbuild所有のexact semantic optionとしてだけrouteし、
 # local rootへ触れる前にoperation / option / operand grammarを確定する。

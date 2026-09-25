@@ -426,7 +426,7 @@ The closed Moguet-owned and intercepted grammar is:
 
 <!-- CLI CANONICAL GRAMMAR BEGIN -->
 ```text
-build <pkg> [V=K...]
+build [--use-preference] <pkg> [V=K...]
 build --local <directory> [V=K...]
 upgrade
 upgrade-aur
@@ -478,6 +478,7 @@ moguet upgrade-all
 
 # Build and install one remote package or one local PKGBUILD root
 moguet build <pkg> [V=K...]
+moguet build <pkg> --use-preference
 moguet build --local <directory> [V=K...]
 
 # Inspect AUR dependencies and build order without building
@@ -711,7 +712,12 @@ choosing a package.
 
 Source-build preferences are managed with multi-target `add-src`, `edit-src`,
 `del-src`, and `revert`, plus target-less `list-src`. A one-off
-`build <pkg> [V=K...]` resolves a remote package and does not save a preference.
+`build <pkg> [V=K...]` resolves a remote package and uses only invocation-local
+assignments. `build <pkg> --use-preference` reads the saved source-build
+preference for that package. It fails before building if none is registered or
+if any `V=K` assignment (including an empty value) is also supplied. Saved
+empty values retain their existing omit behavior; invocation-local empty
+values are forwarded.
 
 ### Reviewed AUR source workflow
 

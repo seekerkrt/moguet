@@ -1546,9 +1546,11 @@ int RemoteSourceBuildResult::command_exit_status() const noexcept {
 RemoteSourceBuildResult build_source_target(
     const std::string& package_name,
     const SourceBuildEnvironment& custom_environment,
-    const AppConfig& config) {
+    const AppConfig& config,
+    SourceEnvironmentEmptyValuePolicy empty_value_policy) {
     RemoteSourceBuildPreparation preparation = prepare_remote_source_build(
-        package_name, custom_environment, config);
+        package_name, custom_environment, config,
+        empty_value_policy);
     if(const auto* blocked =
            std::get_if<RemoteSourceBuildPlanFailure>(&preparation);
        blocked != nullptr) {
@@ -1582,7 +1584,8 @@ RemoteSourceBuildResult build_source_target(
 RemoteSourceBuildPreparation prepare_remote_source_build(
     const std::string& package_name,
     const SourceBuildEnvironment& custom_environment,
-    const AppConfig& config) {
+    const AppConfig& config,
+    SourceEnvironmentEmptyValuePolicy empty_value_policy) {
     require_valid_package_name(package_name);
     ResolvedSourceBuildIdentity source =
         resolve_source_build_identity(package_name);
@@ -1620,12 +1623,12 @@ RemoteSourceBuildPreparation prepare_remote_source_build(
         }
         root_work_item->request.custom_environment = custom_environment;
         root_work_item->request.empty_value_policy =
-            SourceEnvironmentEmptyValuePolicy::Forward;
+            empty_value_policy;
         aur_build_plan.emplace(std::move(plan));
     } else {
         work_items.push_back(make_direct_source_build_work_item(
             source, custom_environment,
-            SourceEnvironmentEmptyValuePolicy::Forward, false, false,
+            empty_value_policy, false, false,
             ArtifactLifecycleIntent::PackageBaseSet,
             select_provider));
     }

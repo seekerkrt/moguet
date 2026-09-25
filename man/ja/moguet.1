@@ -108,10 +108,15 @@ assignmentだけを許し、extra bare build operandを拒否します。
 .na
 .\" PUBLIC COMMANDS BEGIN
 .TP
-.B "build <pkg> [V=K...] | build --local <directory> [V=K...]"
+.B "build [--use-preference] <pkg> [V=K...] | build --local <directory> [V=K...]"
 .B --local
 なしでは、source-build preferenceを保存せず、official repositoryまたはAURのpackageを
 1つsourceからbuildします。
+defaultでは今回指定したassignmentだけを使います。
+.B --use-preference
+を指定すると対象packageの保存済みpreferenceを読み、未登録または
+.B V=K
+との併用時はbuild前に失敗します。保存済みempty値は省き、今回指定したempty値はforwardします。
 .B --local
 を指定すると、exactly oneのuser所有directoryをlocal PackageBase sourceとして扱い、
 pathらしいpackage operandからそのsourceを推測しません。安全な既存

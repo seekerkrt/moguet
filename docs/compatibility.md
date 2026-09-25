@@ -45,7 +45,7 @@ grammarは次のとおりである。
 
 <!-- CLI CANONICAL GRAMMAR BEGIN -->
 ```text
-build <pkg> [V=K...]
+build [--use-preference] <pkg> [V=K...]
 build --local <directory> [V=K...]
 upgrade
 upgrade-aur
