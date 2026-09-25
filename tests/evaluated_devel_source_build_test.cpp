@@ -6376,8 +6376,9 @@ protected:
     static_assert(!std::is_constructible_v<Accepted, Closure, ExplicitConfirmationAcceptance>);
     static_assert(!std::is_invocable_v<decltype(review_pinned_submodule_closure), Closure, ExplicitConfirmationAcceptance>);
     static_assert(!std::is_invocable_v<EvaluatedDevelSourceBuildResult (*)(EvaluatedDevelSourceSelection), Accepted>);
+    std::optional<std::size_t> normal_zero_lines, normal_zero_bytes;
     const std::vector<std::string> cases{
-        "single", "normal", "nested", "siblings", "normal-siblings", "executable", "yes", "blank-then-yes", "freeze", "bounds-exact",
+        "single", "normal", "normal-zero", "normal-many", "nested", "siblings", "normal-siblings", "executable", "yes", "blank-then-yes", "freeze", "bounds-exact",
         "binary", "symlink", "entry-limit", "normal-entry-limit", "render-limit", "normal-render-limit", "render-failure",
         "write", "throw-write", "flush", "throw-flush", "prompt-flush", "decline", "no", "cancel", "normal-cancel", "cancel-word", "eof", "input-failure", "throw-input",
         "non-tty", "noconfirm", "nodiff", "config-skip", "recipe-token", "migration-token", "moved", "cleanup-failure", "destructor"};
@@ -6412,8 +6413,16 @@ protected:
             pins.emplace_back("deps/b", child.oid());
         }
         root.pin_tree(declaration, pins);
-        root.root_tag("review/lightweight");
-        const auto reviewed_tag = root.root_tag("review/annotated", "HEAD", true);
+        std::string reviewed_tag;
+        if(kind == "normal-many") {
+            for(unsigned tag = 0; tag < 114; ++tag)
+                root.root_tag("review/bulk/" + std::to_string(tag));
+        } else if(kind != "normal-zero") {
+            root.root_tag("review/lightweight");
+            reviewed_tag = root.root_tag("review/annotated", "HEAD", true);
+        }
+        const std::size_t expected_tag_count = kind == "normal-zero" ? 0U : kind == "normal-many" ? 114U
+                                                                                                  : 2U;
         const auto root_pin = root.oid(), child_pin = child.oid();
         ReviewedBuildFixture fixture("review-" + kind, root);
         auto context = fixture.make_context();
@@ -6464,6 +6473,7 @@ protected:
         const auto* retained_selection = &closure.selection();
         const auto* retained_nodes = &closure.nodes();
         const auto* retained_edges = &closure.edges();
+        const auto* retained_tags = &closure.root_tags();
         std::size_t inventory_entries = 0;
         for(const auto& node : closure.nodes())
             inventory_entries += node.inventory.entries.size();
@@ -6516,7 +6526,7 @@ protected:
             auto result = review_pinned_submodule_closure(std::move(closure), presentation_detail,
                                                           kind == "nodiff" || kind == "config-skip" ? ReviewPolicy::Skip : ReviewPolicy::Prompt, kind == "noconfirm");
             require(!closure.valid() && initial == 1, "Review duplicated selection ownership/evaluation");
-            const bool success = kind == "single" || kind == "normal" || kind == "nested" || kind == "siblings" || kind == "normal-siblings" || kind == "binary" ||
+            const bool success = kind == "single" || kind == "normal" || kind == "normal-zero" || kind == "normal-many" || kind == "nested" || kind == "siblings" || kind == "normal-siblings" || kind == "binary" ||
                                  kind == "executable" || kind == "yes" || kind == "blank-then-yes" ||
                                  kind == "freeze" || kind == "destructor" || kind == "bounds-exact";
             const auto rendered = buffer.str();
@@ -6524,6 +6534,7 @@ protected:
                 auto accepted = take_arm<Accepted>(result, "Complete review did not accept");
                 require(accepted.valid() && &accepted.closure().selection() == retained_selection &&
                             &accepted.closure().nodes() == retained_nodes && &accepted.closure().edges() == retained_edges &&
+                            &accepted.closure().root_tags() == retained_tags && accepted.closure().root_tags().size() == expected_tag_count &&
                             accepted.closure().selection().snapshot_identity() == snapshot && accepted.closure().nodes()[0].commit.value() == root_pin &&
                             accepted.closure().edges()[0].pin.value() == child_pin && fs::exists(object_root) && fs::exists(context_root),
                         "Accepted review lost whole owner/backing/lineage/pins");
@@ -6537,13 +6548,14 @@ protected:
                                               ? "root tree: " + accepted.closure().nodes()[0].tree.value()
                                               : "tree: " + accepted.closure().nodes()[0].tree.value()) != std::string::npos,
                         "Snapshot acceptance meaning/root identity omitted");
-                require(rendered.find("root tag count: 2") != std::string::npos &&
-                            rendered.find("root tag: refs/tags/review/lightweight") != std::string::npos &&
-                            rendered.find("root tag: refs/tags/review/annotated") != std::string::npos &&
-                            rendered.find("raw object: " + reviewed_tag) != std::string::npos &&
-                            rendered.find("peeled object: " + root_pin) != std::string::npos,
-                        "Review lost complete raw/peeled tag mapping");
+                require(rendered.find("root tag count: " + std::to_string(expected_tag_count)) != std::string::npos,
+                        "Review lost root tag count");
                 if(presentation_detail == PresentationDetail::Detailed) {
+                    require(rendered.find("root tag: refs/tags/review/lightweight") != std::string::npos &&
+                                rendered.find("root tag: refs/tags/review/annotated") != std::string::npos &&
+                                rendered.find("raw object: " + reviewed_tag) != std::string::npos &&
+                                rendered.find("peeled object: " + root_pin) != std::string::npos,
+                            "Detailed review lost complete raw/peeled tag mapping");
                     require(rendered.find("root X: " + root_pin) != std::string::npos &&
                                 rendered.find(child_pin) != std::string::npos && rendered.find("logical/A") != std::string::npos &&
                                 rendered.find("deps/a") != std::string::npos && rendered.find(".gitmodules") != std::string::npos &&
@@ -6559,6 +6571,19 @@ protected:
                             if(file.blob_size()) require(rendered.find("bytes: " + std::to_string(*file.blob_size())) != std::string::npos, "Detailed snapshot inventory omitted blob size");
                         }
                 } else {
+                    require(rendered.find("\nroot tag: ") == std::string::npos &&
+                                rendered.find("\nraw object: ") == std::string::npos &&
+                                rendered.find("\npeeled object: ") == std::string::npos,
+                            "Normal review listed root tag mapping");
+                    const auto lines = static_cast<std::size_t>(std::count(rendered.begin(), rendered.end(), '\n'));
+                    if(kind == "normal-zero") {
+                        normal_zero_lines = lines;
+                        normal_zero_bytes = rendered.size();
+                    }
+                    if(kind == "normal-many")
+                        require(normal_zero_lines && lines == *normal_zero_lines &&
+                                    normal_zero_bytes && rendered.size() <= *normal_zero_bytes + 64,
+                                "Normal review output grew with root tag cardinality");
                     std::uintmax_t expected_bytes = 0;
                     std::size_t expected_entries = 0, expected_submodules = 0;
                     for(const auto& node : accepted.closure().nodes())
@@ -6739,13 +6764,24 @@ prepare() {
         review.output = &output;
         review.interactive = true;
         set_pinned_closure_review_test_hooks(review);
-        auto reviewed = review_pinned_submodule_closure(std::move(closure), PresentationDetail::Detailed);
+        const auto presentation_detail = test.mutation == "annotated" ? PresentationDetail::Normal : PresentationDetail::Detailed;
+        auto reviewed = review_pinned_submodule_closure(std::move(closure), presentation_detail);
         auto accepted = take_arm<AcceptedPinnedSubmoduleClosure>(reviewed, "Tag acceptance failed");
-        for(const auto& tag : accepted.closure().root_tags()) {
-            require(output.str().find("root tag: " + tag.ref_name()) != std::string::npos &&
-                        output.str().find("raw object: " + tag.raw().value()) != std::string::npos &&
-                        (!tag.peeled() || output.str().find("peeled object: " + tag.peeled()->value()) != std::string::npos),
-                    "Incomplete tag review");
+        require(accepted.closure().root_tags().size() == mapping.size() &&
+                    output.str().find("root tag count: " + std::to_string(mapping.size())) != std::string::npos,
+                "Tag acceptance lost retained mapping or count");
+        if(presentation_detail == PresentationDetail::Normal) {
+            require(output.str().find("\nroot tag: ") == std::string::npos &&
+                        output.str().find("\nraw object: ") == std::string::npos &&
+                        output.str().find("\npeeled object: ") == std::string::npos,
+                    "Normal tag acceptance listed mapping");
+        } else {
+            for(const auto& tag : accepted.closure().root_tags()) {
+                require(output.str().find("root tag: " + tag.ref_name()) != std::string::npos &&
+                            output.str().find("raw object: " + tag.raw().value()) != std::string::npos &&
+                            (!tag.peeled() || output.str().find("peeled object: " + tag.peeled()->value()) != std::string::npos),
+                        "Incomplete detailed tag review");
+            }
         }
         accepted_phase = true;
         // Native makepkg has a fixture insteadOf rule. Removing that rule's

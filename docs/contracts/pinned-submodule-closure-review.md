@@ -27,14 +27,15 @@ code is malicious. The PKGBUILD, recipe-local patches, config and other owned
 recipe inputs retain their separate full content review semantics.
 
 Normal presentation includes the selected remote and selector, resolved root
-commit/tree, closure node count, inventory entry count, total regular/executable
-blob bytes, submodule count, and the complete root tag
-count/name/raw-OID/annotated-peeled-OID mapping. It does not list each file.
-`--details` retains each node's commit/tree/object format, every inventory
-entry's path/mode/object ID/blob size, and all submodule logical names, paths,
-URLs and exact parent pins.
+commit/tree, root tag count, closure node count, inventory entry count, total
+regular/executable blob bytes, and submodule count. It does not list individual
+root tags or files. `--details` shows the complete root tag
+name/raw-OID/annotated-peeled-OID mapping and retains each node's
+commit/tree/object format, every inventory entry's path/mode/object ID/blob
+size, and all submodule logical names, paths, URLs and exact parent pins.
 An explicit zero count represents the accepted empty namespace. Raw tag objects
-are retained; this presentation does not assert signature verification.
+and the complete mapping remain in the accepted closure in both modes; this
+presentation does not assert signature verification.
 Locators describe transport; parent Gitlinks own child revision authority.
 All displayed values are terminal-safe. Detailed presentation shows each
 occurrence even for reused children; Normal includes them in the counts.
@@ -46,8 +47,9 @@ materialization and common S4 retain their phase-point correlation.
 
 The inventory count is bounded by the existing 4A tree-record budget (262144),
 not the recipe content-review entry limit. Rendered presentation retains
-its 32 MiB bound, including escaping and framing. All selected metadata is rendered
-before any body is written; incomplete/oversized metadata cannot be accepted.
+its 32 MiB bound, including escaping and framing. All selected presentation
+fields are rendered before any body is written; an incomplete or oversized
+presentation cannot be accepted.
 Acquisition, materialization and build resource budgets remain independent.
 Symlinks remain unsupported by the current workspace. Invalid topology,
 ambiguous identity and unsupported transport remain fail-closed.
