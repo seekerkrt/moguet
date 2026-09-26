@@ -24,7 +24,6 @@ struct LocalRecipeCandidateAccess final {
 
 namespace {
 
-constexpr std::size_t MAX_PATCH_BYTES = 16U * 1024U * 1024U;
 constexpr std::size_t MAX_SERIES_BYTES = 64U * 1024U * 1024U;
 constexpr std::size_t MAX_SERIES_ENTRIES = 64;
 
@@ -40,7 +39,7 @@ struct InputCloser {
 std::optional<LocalRecipeCandidateFailureReason> validate_patch(
     const std::string& bytes) {
     using Reason = LocalRecipeCandidateFailureReason;
-    if(bytes.empty() || bytes.size() > MAX_PATCH_BYTES ||
+    if(bytes.empty() || bytes.size() > LOCAL_RECIPE_PATCH_MAX_BYTES ||
        bytes.find('\0') != std::string::npos || bytes.back() != '\n') {
         return Reason::InvalidMaterial;
     }
@@ -230,7 +229,7 @@ LocalSourceRoot apply_recipe_patch_series(
         throw std::invalid_argument("local-recipe-invalid-series");
     failure.patches.assign(patches.size(), LocalRecipePatchOutcome::NotAttempted);
     for(std::size_t i = 0; i < patches.size(); ++i) {
-        if(patches[i].bytes.size() > MAX_PATCH_BYTES || total > MAX_SERIES_BYTES - patches[i].bytes.size())
+        if(patches[i].bytes.size() > LOCAL_RECIPE_PATCH_MAX_BYTES || total > MAX_SERIES_BYTES - patches[i].bytes.size())
             throw std::invalid_argument("local-recipe-series-limit");
         total += patches[i].bytes.size();
         if(auto invalid = validate_patch(patches[i].bytes)) {
@@ -280,7 +279,7 @@ PreparedLocalRecipeBuild prepare_local_recipe_build(
             throw std::invalid_argument("local-recipe-invalid-series");
         for(std::size_t i = 0; i < patches.size(); ++i) {
             const auto& patch = patches[i];
-            if(patch.bytes.size() > MAX_PATCH_BYTES || total > MAX_SERIES_BYTES - patch.bytes.size())
+            if(patch.bytes.size() > LOCAL_RECIPE_PATCH_MAX_BYTES || total > MAX_SERIES_BYTES - patch.bytes.size())
                 throw std::invalid_argument("local-recipe-series-limit");
             total += patch.bytes.size();
             if(const auto invalid = validate_patch(patch.bytes)) {
