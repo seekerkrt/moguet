@@ -18,6 +18,7 @@
 #   add-patch <directory> <patch-directory> <patch-file>...
 #   update-patch <directory> <patch-directory> <patch-file>...
 #   del-patch <directory> <package-base>
+#   list-patch
 #   -G <pkg> [--output-dir=DIR]
 #   -Gp <pkg>
 #   -S --select [--needed] <query>
@@ -67,7 +68,7 @@ _moguet_find_operation() {
     local word
     for word in "${COMP_WORDS[@]:1:COMP_CWORD-1}"; do
         case "$word" in
-        -h|--help|-V|--version|build|upgrade|upgrade-aur|upgrade-all|clean|deps|plan|fetch|add-src|edit-src|list-src|del-src|revert|add-patch|update-patch|del-patch|-G|-Gp|-S|-Syu|-Su|-Ss|-Si|-Qua) printf '%s' "$word"; return 0 ;;
+        -h|--help|-V|--version|build|upgrade|upgrade-aur|upgrade-all|clean|deps|plan|fetch|add-src|edit-src|list-src|del-src|revert|add-patch|update-patch|del-patch|list-patch|-G|-Gp|-S|-Syu|-Su|-Ss|-Si|-Qua) printf '%s' "$word"; return 0 ;;
         esac
         _moguet_option_id "$word" >/dev/null && continue
         if [[ $word == -* ]]; then
@@ -182,6 +183,10 @@ _moguet_form_prefix_valid() {
             (( ${#operands[@]} <= 2 )) && return 0
             return 1
             ;;
+        list-patch:0)
+            (( ${#operands[@]} <= 0 )) && return 0
+            return 1
+            ;;
         -G:0)
             (( ${#operands[@]} <= 1 )) && return 0
             return 1
@@ -241,7 +246,7 @@ _moguet() {
     operation="$(_moguet_find_operation || true)"
 
     if [[ -z $operation ]]; then
-        candidates=(build upgrade upgrade-aur upgrade-all clean deps plan fetch add-src edit-src list-src del-src revert add-patch update-patch del-patch -G -Gp -S -Syu -Su -Ss -Si -Qua -h --help -V --version --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --rmdeps --select --aur --repo --details)
+        candidates=(build upgrade upgrade-aur upgrade-all clean deps plan fetch add-src edit-src list-src del-src revert add-patch update-patch del-patch list-patch -G -Gp -S -Syu -Su -Ss -Si -Qua -h --help -V --version --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --rmdeps --select --aur --repo --details)
     else
         case "$operation" in
         build)
@@ -362,6 +367,13 @@ _moguet() {
         del-patch)
             if _moguet_form_prefix_valid del-patch 0; then
                 candidates=(--noconfirm)
+            else
+                candidates=()
+            fi
+            ;;
+        list-patch)
+            if _moguet_form_prefix_valid list-patch 0; then
+                candidates=(--details)
             else
                 candidates=()
             fi

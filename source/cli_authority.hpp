@@ -26,6 +26,7 @@ enum class OperationId {
     AddPatch,
     UpdatePatch,
     DeletePatch,
+    ListPatch,
     Count,
 };
 
@@ -53,6 +54,7 @@ inline constexpr std::array<OperationSpec, static_cast<std::size_t>(OperationId:
         {OperationId::AddPatch, "add-patch", true},
         {OperationId::UpdatePatch, "update-patch", true},
         {OperationId::DeletePatch, "del-patch", true},
+        {OperationId::ListPatch, "list-patch", true},
     }};
 
 constexpr const OperationSpec& operation_spec(OperationId id) noexcept {
@@ -1111,7 +1113,7 @@ struct OperationFormSpec {
 
 // option_relations lists semantic effects for the form. Parser-global lexical
 // acceptance is deliberately separate and remains owned by GlobalOptionSpec.
-inline constexpr std::array<OperationFormSpec, 17> MOGUET_OPERATION_FORMS = {{
+inline constexpr std::array<OperationFormSpec, 18> MOGUET_OPERATION_FORMS = {{
     {OperationId::Build,
      "cli.build.remote",
      operand_with_trailing_assignments(OperandKind::Package),
@@ -1240,6 +1242,8 @@ inline constexpr std::array<OperationFormSpec, 17> MOGUET_OPERATION_FORMS = {{
      TargetPolicy::FixedSequence, operation_option_relations(consumed_option_relation(OptionId::NoConfirm))},
     {OperationId::DeletePatch, "cli.patch.delete", patch_forget_operands(),
      TargetPolicy::FixedSequence, operation_option_relations(consumed_option_relation(OptionId::NoConfirm))},
+    {OperationId::ListPatch, "cli.patch.list", no_operands(),
+     TargetPolicy::None, operation_option_relations(OptionId::Details)},
 }};
 
 struct OperationMetadata {
@@ -1345,6 +1349,9 @@ inline constexpr std::array<OperationMetadata,
         {OperationId::DeletePatch, operation_spec(OperationId::DeletePatch).token, no_token_aliases(),
          GrammarOwnership::MoguetOwned, OperationSemanticScope::SourceMaintenance,
          DryRunSupport::Unsupported, 16, 1, "exit.mutation", "cli.patch.delete"},
+        {OperationId::ListPatch, operation_spec(OperationId::ListPatch).token, no_token_aliases(),
+         GrammarOwnership::MoguetOwned, OperationSemanticScope::SourceMaintenance,
+         DryRunSupport::Unsupported, 17, 1, "exit.read-only-query", "cli.patch.list"},
     }};
 
 constexpr const OperationMetadata& operation_metadata(

@@ -145,6 +145,67 @@ void test_lifecycle() {
     f.original_unchanged();
 }
 
+void test_registry_discovery() {
+    Fixture f;
+    using Records = std::vector<LoadedPatchAssociation>;
+    expect(take<Records>(list_patch_associations()).empty(), "missing registry not empty");
+    expect(!fs::exists(f.config / "moguet"), "listing created config");
+    auto source = f.observe();
+    auto saved = take<LoadedPatchAssociation>(register_local_patch_association(source, f.material, {"two.patch", "one.patch"}));
+    bool material_read = false;
+    set_patch_association_test_hook([&](Point point, const fs::path&) {
+        if(point == Point::AfterMaterialOpen || point == Point::AfterMaterialRead ||
+           point == Point::AfterSeriesRead || point == Point::PartialRead) material_read = true;
+    });
+    auto listed = take<Records>(list_patch_associations());
+    expect(listed.size() == 1 && listed[0].identity() == saved.identity() &&
+               listed[0].material_root() == f.material && listed[0].entries() == saved.entries() &&
+               listed[0].schema_version() == 1,
+           "registry projection lost saved identity/order/digest/version");
+    expect(!material_read, "registry listing acquired material");
+    set_patch_association_test_hook({});
+    // Same PackageBase at another source remains a distinct association.
+    const auto earlier = f.root / "a-source";
+    fs::create_directory(earlier);
+    write(earlier / "PKGBUILD", RECIPE);
+    auto earlier_source = f.observe(earlier);
+    auto earlier_saved = f.registration(earlier_source);
+    const auto other = f.root / "z-source";
+    fs::create_directory(other);
+    auto other_recipe = RECIPE;
+    other_recipe.replace(other_recipe.find("association-base"), 16, "aaa-base");
+    write(other / "PKGBUILD", other_recipe);
+    auto other_source = f.observe(other);
+    auto other_saved = f.registration(other_source);
+    for(int attempt = 0; attempt < 3; ++attempt) {
+        listed = take<Records>(list_patch_associations());
+        expect(listed.size() == 3 && listed[0].identity() == other_saved.identity() &&
+                   listed[1].identity() == earlier_saved.identity() && listed[2].identity() == saved.identity(),
+               "registry order is not PackageBase then canonical source");
+    }
+    // External material and source are not read authorities for discovery.
+    write(f.material / "one.patch", "changed bytes");
+    expect(take<Records>(list_patch_associations())[2].entries() == saved.entries(), "listing followed changed digest");
+    fs::rename(f.material, f.root / "removed-material");
+    fs::rename(f.source, f.root / "removed-source");
+    expect(take<Records>(list_patch_associations()).size() == 3, "listing required surviving external paths");
+    fs::create_symlink(f.root / "removed-material", f.material);
+    expect(take<Records>(list_patch_associations()).size() == 3, "listing verified external symlink");
+    const auto path = local_patch_association_record_path(saved.identity());
+    const auto bytes = read(path);
+    fs::remove(path);
+    const auto residue = path.parent_path() / ("." + path.filename().string() + "-leftover");
+    write(residue, bytes, 0600);
+    expect_failure(list_patch_associations(), Kind::Unsafe);
+    fs::remove(residue);
+    write(path, bytes, 0600);
+    static_cast<void>(take<PatchAssociationForgotten>(forget_local_patch_association(
+        take<LoadedPatchAssociation>(read_local_patch_association(saved.identity())))));
+    static_cast<void>(take<PatchAssociationForgotten>(forget_local_patch_association(earlier_saved)));
+    static_cast<void>(take<PatchAssociationForgotten>(forget_local_patch_association(other_saved)));
+    expect(take<Records>(list_patch_associations()).empty(), "empty existing registry not empty");
+}
+
 void test_identity_and_strict_record() {
     Fixture f;
     auto source = f.observe();
@@ -157,6 +218,7 @@ void test_identity_and_strict_record() {
         const auto wrong_path = local_patch_association_record_path(identity);
         write(wrong_path, good, 0600);
         expect_failure(read_local_patch_association(identity), Kind::AssociationMismatch);
+        expect_failure(list_patch_associations(), Kind::AssociationMismatch);
         fs::remove(wrong_path);
     }
     const auto unknown = PackageBaseIdentity::make(PackageSourceIdentity::local(SourceLocationIdentity::unknown(SourceLocationKind::LocalPath)), "association-base");
@@ -164,6 +226,7 @@ void test_identity_and_strict_record() {
     for(const auto& bad : std::vector<std::string>{"", good.substr(0, good.size() / 2), good + "\n[unexpected]\nx=1\n", good + "\n[[patches]]\nfile='one.patch'\nsha256='bad'\n", "schema_version=1\nschema_version=1\n"}) {
         write(path, bad, 0600);
         expect_failure(read_local_patch_association(source.identity()), Kind::Corrupt);
+        expect_failure(list_patch_associations(), Kind::Corrupt);
     }
     std::string future = good;
     const auto version = future.find("schema_version = 1");
@@ -173,13 +236,16 @@ void test_identity_and_strict_record() {
         malformed.replace(version, 18, std::string("schema_version = ") + wrong_type);
         write(path, malformed, 0600);
         expect_failure(read_local_patch_association(source.identity()), Kind::Corrupt);
+        expect_failure(list_patch_associations(), Kind::Corrupt);
     }
     future.replace(version, 18, "schema_version = 9");
     write(path, future, 0600);
     expect_failure(read_local_patch_association(source.identity()), Kind::Unsupported);
+    expect_failure(list_patch_associations(), Kind::Unsupported);
     write(path, good, 0600);
     ::chmod(path.c_str(), 0644);
     expect_failure(read_local_patch_association(source.identity()), Kind::Unsafe);
+    expect_failure(list_patch_associations(), Kind::Unsafe);
     ::chmod(path.c_str(), 0600);
     fs::rename(path, path.string() + ".saved");
     fs::create_symlink(f.material / "one.patch", path);
@@ -399,6 +465,7 @@ void test_postcommit_lineage_refuses_cleanup() {
 int main() {
     try {
         test_lifecycle();
+        test_registry_discovery();
         test_identity_and_strict_record();
         test_material_failures();
         test_publication();

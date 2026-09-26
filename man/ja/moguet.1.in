@@ -96,7 +96,8 @@ assignmentだけを許し、extra bare build operandを拒否します。
 .BR upgrade-aur 、
 .BR upgrade-all 、
 .BR clean 、
-.B list-src
+.BR list-src 、
+.B list-patch
 はtarget operandを拒否します。
 .BR deps 、
 .BR plan 、
@@ -397,6 +398,17 @@ moguet/patches.dへ保存します。登録は自動適用や実行同意を意�
 material消失時も削除でき、未登録なら失敗します。user materialの削除・書換え・chmodはしません。
 .
 .TP
+.B "list-patch"
+保存associationのPackageBase、source kindとcanonical location、patch件数、material rootを
+PackageBase→source locationのbyte順で一覧します。--detailsではrecord schema version、
+保存済みpatch順のfile名と期待SHA-256 digestも表示します。どちらも外部source / material pathを
+open・存在確認せず、patch bytesのreadや再hashもしません。material消失・変更時にも一覧でき、
+materialの健全性を検証する表示ではありません。不正・非対応・unsafe・identity不一致のrecordは
+skipせず一覧全体を失敗させます。storeがない・空の場合は作成せず登録なしと表示します。
+patch customizationはExperimentalで、CLI・record schema・表示は変更され得ます。
+remote/AUR associationとupgradeの対話再利用は未対応です。
+.
+.TP
 .B "-S <pkg> | -S --select [--needed] <query>"
 packageをinstallします。
 Auto routingはofficial repositoryを優先し、適用可能なsource preferenceを尊重し、
@@ -537,6 +549,7 @@ allowlistではありません。repository-only
 .BR build 、
 .BR plan 、
 .BR deps 、
+.BR list-patch 、
 .BR "-S --select" 、
 .BR -Qua 、
 exact target-lessの

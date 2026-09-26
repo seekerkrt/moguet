@@ -443,6 +443,7 @@ revert <pkg>...
 add-patch <directory> <patch-directory> <patch-file>...
 update-patch <directory> <patch-directory> <patch-file>...
 del-patch <directory> <package-base>
+list-patch
 -G <pkg> [--output-dir=DIR]
 -Gp <pkg>
 -S --select [--needed] <query>
@@ -458,7 +459,7 @@ the repository-only form still accepts a compatible delegated pacman tail.
 Other pacman operation forms remain delegated open grammar, not a Moguet
 allowlist. The closed grammar rejects a second bare operand for remote or local
 `build`, and rejects target operands for `upgrade`, `upgrade-aur`,
-`upgrade-all`, `clean`, and `list-src`. Inspection and source-maintenance forms
+`upgrade-all`, `clean`, `list-src`, and `list-patch`. Inspection and source-maintenance forms
 shown with `...` keep their multi-target behavior.
 
 ```bash
@@ -838,6 +839,21 @@ advanced completion are future work; the shipped completion is limited to the
 public CLI schema.
 
 ### Local recipe patches
+
+Patch customization is **Experimental**; its CLI, record schema and presentation may
+change during dogfooding. Safety and failure semantics remain strict.
+
+`moguet list-patch` discovers saved associations without selecting or applying them.
+Normal output shows one row per association: PackageBase, source kind and canonical
+source location, patch count, and material root. Rows sort by PackageBase then source
+location (bytewise); patch order within each saved series is preserved.
+`moguet list-patch --details` also shows the record schema version, ordered patch
+filenames and **saved expected** SHA-256 digests. Neither form opens or checks external
+source/material paths, reads patch bytes, or recomputes material digests. Missing or
+changed material does not prevent listing; listing does not certify material health.
+Malformed, unsupported, unsafe or mismatched registry records stop the command with
+an error instead of being skipped. A missing/empty registry is reported without
+creating it. Remote/AUR associations and interactive upgrade reuse remain future slices.
 
 Use `moguet add-patch <directory> <patch-directory> <patch-file>...` to associate
 an ordered series of Git unified text patches with a local source's canonical

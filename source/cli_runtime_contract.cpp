@@ -102,6 +102,7 @@ DiagnosticOperation diagnostic_operation(OperationId operation) noexcept {
         case OperationId::AddPatch:
         case OperationId::UpdatePatch:
         case OperationId::DeletePatch:
+        case OperationId::ListPatch:
             return DiagnosticOperation::PatchCustomization;
         case OperationId::Count:
             return DiagnosticOperation::CliParsing;
@@ -427,6 +428,16 @@ CliInvocationValidation validate_cli_invocation_contract(
                token.role == CliTokenRole::OpaqueOperand || token.role == CliTokenRole::EndOfOptions ||
                (token.role == CliTokenRole::MoguetGlobalOption && token.value == "--noconfirm")) continue;
             return invalid_invocation(contract, {CliInvocationIssueKind::InvalidPatchLifecycle, parsed.operation, token.value, TargetPolicy::FixedSequence, OperandKind::Directory},
+                                      DiagnosticClass::Unsupported, DiagnosticOperation::PatchCustomization);
+        }
+    }
+
+    if(contract.operation && contract.operation->id == OperationId::ListPatch) {
+        for(const auto& token : parsed.tokens) {
+            if(token.role == CliTokenRole::Operation || token.role == CliTokenRole::Target ||
+               token.role == CliTokenRole::OpaqueOperand || token.role == CliTokenRole::EndOfOptions ||
+               (token.role == CliTokenRole::MoguetGlobalOption && token.value == cli_authority::global_option_spec(cli_authority::GlobalOptionId::Details).token)) continue;
+            return invalid_invocation(contract, {CliInvocationIssueKind::InvalidPatchLifecycle, parsed.operation, token.value, TargetPolicy::None, OperandKind::None},
                                       DiagnosticClass::Unsupported, DiagnosticOperation::PatchCustomization);
         }
     }

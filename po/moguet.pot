@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.10.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 00:45+0900\n"
+"POT-Creation-Date: 2026-09-26 10:14+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -3640,6 +3640,28 @@ msgstr ""
 msgid "Evaluate patched {} metadata with {}?"
 msgstr ""
 
+msgid "No patch customizations registered."
+msgstr ""
+
+msgid "Registered patch customizations:"
+msgstr ""
+
+#, c++-format
+msgid "  {}  {}:{}  patches={}  material={}"
+msgstr ""
+
+#, c++-format
+msgid "    Record schema version: {}"
+msgstr ""
+
+msgid "    Ordered patches (saved expected SHA-256; material not checked):"
+msgstr ""
+
+#. TRANSLATORS: Placeholders are the saved position, patch filename and expected digest, not a current material observation.
+#, c++-format
+msgid "      {}. {}  SHA-256={}"
+msgstr ""
+
 #, c++-format
 msgid "Forgot patch association for {}; user material was preserved."
 msgstr ""
@@ -5999,6 +6021,9 @@ msgstr ""
 msgid "Explicitly replace a local patch association and its expected digests"
 msgstr ""
 
+msgid "List saved patch associations without checking external material"
+msgstr ""
+
 msgid "Forget only the association record; preserve user patch material"
 msgstr ""
 
@@ -6065,7 +6090,7 @@ msgstr ""
 
 #. TRANSLATORS: The placeholders are literal supported CLI forms.
 #, c++-format
-msgid "For remote {}, {}, {}, {}, {}, {}, {}, {}, and {}; changes presentation only, not execution"
+msgid "For remote {}, {}, {}, {}, {}, {}, {}, {}, {}, and {}; changes presentation only, not execution"
 msgstr ""
 
 msgid "Show this help message and exit"

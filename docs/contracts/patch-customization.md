@@ -115,6 +115,30 @@ PackageBase変更は明示rebindとし、similar nameへの追随、rename推測
 postpatchのPackageBaseとordered child identityはprepatchと一致を要求する。version、dependency、
 build optionの変更はfresh metadataで扱う。split childrenは既存local selection / install reasonを維持する。
 
+### Issue #649 Slice 1: registry discovery
+
+`list-patch` / `list-patch --details`はassociation registryのread-only consumerであり、
+material acquisition / selection / execution consentではない。local-onlyのv1 recordを既存
+`LoadedPatchAssociation`（typed `PackageBaseIdentity`、material root、ordered entries）として読み、
+同じstrict TOML decoder / key照合 / filesystem safety / failure taxonomyを使う。
+新しいparser、database、remote schema、source frameworkは追加しない。
+
+既存`PresentationDetail::Normal` / `Detailed`を使う。Normalは1 associationにつきPackageBase、
+source kind・canonical location、patch件数、material rootの1行。Detailedは受理済みrecord schema
+version、series順のfile名・保存済みexpected SHA-256も表示する。terminal-facing pathは共通escapeを使い、
+identityへの逆流はない。record間はPackageBase→canonical source locationのbyte順、series内は保存順である。
+
+readはno-create。shared lock下でstoreのentryを列挙し、全recordの読取りが成功してから表示する。
+missing store / empty storeだけを登録なしとする。recordの破損・非対応version / source kind・unsafe・
+key不一致・観測中の消失/変更・I/O failureは全体failureとなり、skipやpartial successへ丸めない。
+専用namespace内のdot fileは残留publication artifactとしてUnsafe、`.toml`以外はCorruptとして停止する。
+source / materialの存在確認、open、bytes read、material SHA-256再計算はNormal / Detailedともに行わない。
+保存済みexpected digestはactual material healthの観測ではない。登録後にmaterialやsourceが消えても
+registry discoveryは可能である。strict acquisitionは既存の明示build selection等が所有する。
+
+Patch customizationはExperimental（[#649](https://github.com/seekerkrt/moguet/issues/649)）。
+remote/AUR association、upgrade-family対話consumer、material health checkはこのSliceに含まない。
+
 ### Production Slice 2: association / persistence / strict acquisition
 
 配置は`${XDG_CONFIG_HOME:-$HOME/.config}/moguet/patches.d/<key>.toml`。keyはdomain-separatedな

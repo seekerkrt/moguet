@@ -23,10 +23,11 @@
     "-Qua": "Check AUR and foreign-package updates",
     "add-patch": "Register ordered PKGBUILD patch references for one local source; never auto-apply",
     "update-patch": "Explicitly update a local patch association, order and expected digests",
-    "del-patch": "Forget a local patch association without deleting user material"
+    "del-patch": "Forget a local patch association without deleting user material",
+    "list-patch": "List saved patch associations without checking external material"
   },
   "options": {
-    "--details": "Show detailed diagnostic and provenance information for remote build, plan, deps, -S --select, -Qua, -Syu/-Su, upgrade-aur/all, and --dry-run -S; presentation only",
+    "--details": "Show detailed diagnostic and provenance information for remote build, plan, deps, -S --select, -Qua, -Syu/-Su, upgrade-aur/all, --dry-run -S, and list-patch; presentation only",
     "-h": "Show the help message and exit",
     "--help": "Show the help message and exit",
     "-V": "Show version information and exit",

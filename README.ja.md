@@ -381,6 +381,7 @@ revert <pkg>...
 add-patch <directory> <patch-directory> <patch-file>...
 update-patch <directory> <patch-directory> <patch-file>...
 del-patch <directory> <package-base>
+list-patch
 -G <pkg> [--output-dir=DIR]
 -Gp <pkg>
 -S --select [--needed] <query>
@@ -395,7 +396,7 @@ exact target-less `-Syu` / `-Su` formはMoguetがinterceptするsemantic route�
 repository-only formはcompatibleなdelegated pacman tailを引き続き受理します。
 その他のpacman operation formは、Moguetのallowlistではなくdelegated open grammarのまま
 です。closed grammarはremote / local `build`の2つ目のbare operandを拒否し、`upgrade`、
-`upgrade-aur`、`upgrade-all`、`clean`、`list-src`のtarget operandを拒否します。`...`を
+`upgrade-aur`、`upgrade-all`、`clean`、`list-src`、`list-patch`のtarget operandを拒否します。`...`を
 示したinspection / source-maintenance formはmulti-target behaviorを維持します。
 
 ```bash
@@ -713,6 +714,19 @@ packageをdependencyへ降格しません。runtime stateを使うpackage-name c
 補完はfuture workであり、同梱completionはpublic CLI schemaに限定します。
 
 ### Local recipe patch
+
+Patch customizationは**Experimental**です。CLI・record schema・表示はdogfoodで変更され得ますが、
+safetyとfailure semanticsは厳密に維持します。
+
+`moguet list-patch`は保存associationを一覧し、選択・適用はしません。Normalではassociationごとに
+PackageBase、source kindとcanonical source location、patch件数、material rootを1行で表示します。
+行はPackageBase→source locationのbyte順で安定化し、series内は保存済みpatch順を維持します。
+`moguet list-patch --details`ではrecord schema version、ordered patch file名と**保存済み期待値**の
+SHA-256 digestも表示します。どちらも外部source / material pathのopen・存在確認、patch bytesの
+read、material digest再計算を行いません。materialが消失・変更されていても一覧でき、materialの
+健全性を保証する表示ではありません。壊れた・非対応・unsafe・identity不一致のregistry recordは
+skipせずcommand全体をerrorで停止します。storeがない場合も作成せず登録なしと表示します。
+remote/AUR associationとupgradeの対話再利用は後続Sliceです。
 
 `moguet add-patch <directory> <patch-directory> <patch-file>...`で、local sourceの
 canonical pathとPackageBaseにorderedなGit unified text patch seriesを関連付けます。

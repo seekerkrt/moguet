@@ -62,6 +62,7 @@ revert <pkg>...
 add-patch <directory> <patch-directory> <patch-file>...
 update-patch <directory> <patch-directory> <patch-file>...
 del-patch <directory> <package-base>
+list-patch
 -G <pkg> [--output-dir=DIR]
 -Gp <pkg>
 -S --select [--needed] <query>
@@ -74,7 +75,7 @@ del-patch <directory> <package-base>
 
 remote / local `build`はprimary operandをexactly oneだけ取り、その後には`V=K`
 assignmentだけを許すため、extra bare operandを拒否する。`upgrade`、`upgrade-aur`、
-`upgrade-all`、`clean`、`list-src`はtarget-lessであり、target operandを拒否する。一方、
+`upgrade-all`、`clean`、`list-src`、`list-patch`はtarget-lessであり、target operandを拒否する。一方、
 `deps`、`plan`、`fetch`と`add-src`、`edit-src`、`del-src`、`revert`は表示どおり
 multi-targetを維持する。`add-src`ではpackage itemが後続assignmentのscopeを開始する。
 
@@ -454,6 +455,9 @@ dependency edgeはmetadata trust boundaryで構成したtyped requirement、inst
 
 `add-patch <directory> <patch-directory> <patch-file>...`、`update-patch`の同形、
 `del-patch <directory> <package-base>`をclosed grammarとして公開する。
+`list-patch` / `list-patch --details`で保存recordを一覧する。Normalはassociationの概要、Detailedは
+保存順のfile名・expected digest・schema versionを追加し、外部materialのopen・存在確認・再hashはしない。
+不正recordはskipせず一覧全体を失敗させる。表示順とread契約は[patch contract](contracts/patch-customization.md)を正とする。
 `build --local --use-patches <directory> [V=K...]`だけが保存associationを明示選択する。
 通常local buildはpatch storeを読まず、登録・選択・実行同意を分離する。
 selectionのremote使用・誤配置・重複・attached value、`--edit` / `--dry-run`との併用はpre-logで拒否する。

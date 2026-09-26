@@ -18,6 +18,7 @@
 #   add-patch <directory> <patch-directory> <patch-file>...
 #   update-patch <directory> <patch-directory> <patch-file>...
 #   del-patch <directory> <package-base>
+#   list-patch
 #   -G <pkg> [--output-dir=DIR]
 #   -Gp <pkg>
 #   -S --select [--needed] <query>
@@ -109,7 +110,7 @@ end
 function __moguet_operation
     for word in (commandline -opc)[2..-1]
         switch $word
-        case '-h' '--help' '-V' '--version' 'build' 'upgrade' 'upgrade-aur' 'upgrade-all' 'clean' 'deps' 'plan' 'fetch' 'add-src' 'edit-src' 'list-src' 'del-src' 'revert' 'add-patch' 'update-patch' 'del-patch' '-G' '-Gp' '-S' '-Syu' '-Su' '-Ss' '-Si' '-Qua'
+        case '-h' '--help' '-V' '--version' 'build' 'upgrade' 'upgrade-aur' 'upgrade-all' 'clean' 'deps' 'plan' 'fetch' 'add-src' 'edit-src' 'list-src' 'del-src' 'revert' 'add-patch' 'update-patch' 'del-patch' 'list-patch' '-G' '-Gp' '-S' '-Syu' '-Su' '-Ss' '-Si' '-Qua'
             echo $word
             return 0
         end
@@ -201,6 +202,9 @@ function __moguet_form_prefix_valid --argument-names expected_operation form_ind
         case 'del-patch:0'
             test (count $operands) -le 2; and return 0
             return 1
+        case 'list-patch:0'
+            test (count $operands) -le 0; and return 0
+            return 1
         case '-G:0'
             test (count $operands) -le 1; and return 0
             return 1
@@ -291,6 +295,9 @@ function __moguet_operation_allows --argument-names option_id
         case 'del-patch'
             __moguet_form_prefix_valid 'del-patch' 0; or return 1
             contains -- $option_id 4; and return 0; or return 1
+        case 'list-patch'
+            __moguet_form_prefix_valid 'list-patch' 0; or return 1
+            contains -- $option_id 20; and return 0; or return 1
         case '-G'
             __moguet_form_prefix_valid '-G' 0; or return 1
             contains -- $option_id 16; and return 0; or return 1
@@ -402,6 +409,7 @@ complete -c moguet -f -n '__moguet_no_operation' -a 'revert' -d 'Remove preferen
 complete -c moguet -f -n '__moguet_no_operation' -a 'add-patch' -d 'Register ordered PKGBUILD patch references for one local source; never auto-apply'
 complete -c moguet -f -n '__moguet_no_operation' -a 'update-patch' -d 'Explicitly update a local patch association, order and expected digests'
 complete -c moguet -f -n '__moguet_no_operation' -a 'del-patch' -d 'Forget a local patch association without deleting user material'
+complete -c moguet -f -n '__moguet_no_operation' -a 'list-patch' -d 'List saved patch associations without checking external material'
 complete -c moguet -f -n '__moguet_no_operation' -a '-G' -d 'Export one AUR PackageBase repository without building or installing'
 complete -c moguet -f -n '__moguet_no_operation' -a '-Gp' -d 'Print one AUR PackageBase PKGBUILD without keeping a checkout'
 complete -c moguet -f -n '__moguet_no_operation' -a '-S' -d 'Install packages'
@@ -427,7 +435,7 @@ complete -c moguet -f -n '__moguet_candidate_available 9' -a '--rmdeps' -d 'Prev
 complete -c moguet -f -n '__moguet_candidate_available 10' -a '--select' -d 'Interactively select source-aware package candidates for plain -S'
 complete -c moguet -f -n '__moguet_candidate_available 11' -a '--aur' -d 'Limit supported sync operations to AUR'
 complete -c moguet -f -n '__moguet_candidate_available 12' -a '--repo' -d 'Use only official binary repositories; with -Syu / -Su, run the repository system upgrade only'
-complete -c moguet -f -n '__moguet_candidate_available 20' -a '--details' -d 'Show detailed diagnostic and provenance information for remote build, plan, deps, -S --select, -Qua, -Syu/-Su, upgrade-aur/all, and --dry-run -S; presentation only'
+complete -c moguet -f -n '__moguet_candidate_available 20' -a '--details' -d 'Show detailed diagnostic and provenance information for remote build, plan, deps, -S --select, -Qua, -Syu/-Su, upgrade-aur/all, --dry-run -S, and list-patch; presentation only'
 complete -c moguet -f -n '__moguet_candidate_available 15' -a '--local' -d 'Use one local PKGBUILD directory as the build root'
 complete -c moguet -f -n '__moguet_candidate_available 21' -a '--use-preference' -d 'Use the saved source-build preference for one remote build; conflicts with V=K assignments'
 complete -c moguet -f -n '__moguet_candidate_available 22' -a '--use-patches' -d 'Explicitly select saved recipe patches for build --local; requires metadata evaluation consent'

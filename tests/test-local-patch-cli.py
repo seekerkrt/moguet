@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Public local patch workflow, real Git/makepkg/libalpm; install is a sealed-input fixture."""
 import io
+import ctypes
+import hashlib
 import difflib
 import json
 import os
@@ -193,6 +195,15 @@ with tempfile.TemporaryDirectory(prefix='moguet-patch-cli-') as temporary:
             time.sleep(.02)
         rpc='http://127.0.0.1:'+port.read_text().strip()+'/rpc/'
         case=Case(root/'journey', rpc)
+        for args in (['list-patch'], ['list-patch', '--details'], ['--details', 'list-patch', '--details']):
+            require('No patch customizations registered.' in case.run(args), 'empty registry diagnostic missing')
+            require(not (case.root/'config/moguet/patches.d').exists(), 'listing created registry')
+            require(not list((case.root/'state').iterdir()) and not list((case.root/'cache').iterdir()), 'listing created state/cache')
+        for option in ('--json', '--check', '--local', '--details=yes', '--use-patches', '--noconfirm', '--noedit', '--dry-run', '--repo'):
+            case.run(['list-patch', option], ok=False)
+            case.no_build()
+        for args in (['list-patch', 'unexpected'], ['list-patch', '--', '--details']):
+            case.run(args, ok=False)
         original=case.source.joinpath('PKGBUILD').read_bytes()
         original_srcinfo=case.source.joinpath('.SRCINFO').read_bytes()
         material_before={p.name:p.read_bytes() for p in case.material.iterdir()}
@@ -201,6 +212,74 @@ with tempfile.TemporaryDirectory(prefix='moguet-patch-cli-') as temporary:
         require({p.name:p.read_bytes() for p in case.material.iterdir()}==material_before, 'registration modified user material')
         record=next((case.root/'config/moguet/patches.d').glob('*.toml'))
         saved=record.read_bytes()
+        # Observe filesystem reads from the actual CLI, without a production hook.
+        # Linux inotify watches source/material roots and bytes; listing may only read config.
+        libc=ctypes.CDLL(None, use_errno=True)
+        watch_fd=libc.inotify_init1(os.O_NONBLOCK | os.O_CLOEXEC)
+        require(watch_fd>=0, 'inotify initialization failed')
+        try:
+            for path in (case.source, case.source/'PKGBUILD', case.material, case.material/'one.patch', case.material/'two.patch'):
+                require(libc.inotify_add_watch(watch_fd, os.fsencode(path), 0x1 | 0x20)>=0, 'inotify watch failed')
+            normal=case.run(['list-patch'])
+            detailed=case.run(['list-patch', '--details'])
+            try: events=os.read(watch_fd, 65536)
+            except BlockingIOError: events=b''
+            require(not events, 'registry listing opened/read external source or patch material')
+        finally:
+            os.close(watch_fd)
+        case.no_build()
+        require(not case.eval_log.read_text(), 'listing evaluated recipe')
+        require('patch-cli-base' in normal and f'local:{case.source}' in normal and
+                f'patches=2' in normal and f'material={case.material}' in normal, 'normal projection incomplete')
+        for name, contents in material_before.items():
+            digest=hashlib.sha256(contents).hexdigest()
+            require(name not in normal and digest not in normal, 'normal leaked per-patch detail')
+            require(name in detailed and digest in detailed, 'details lost saved expected digest')
+        require('Record schema version: 1' in detailed and 'saved expected SHA-256; material not checked' in detailed, 'details misrepresented record data')
+        require(detailed.index('1. one.patch')<detailed.index('2. two.patch'), 'details sorted saved series')
+        require(record.stem not in normal and 'schema' not in normal, 'normal leaked internal record fields')
+        require(case.run(['--details', 'list-patch', '--details'])==detailed, 'details placement/idempotence drifted')
+        # Missing, unreadable, changed or nonregular material never becomes a listing error.
+        material_file=case.material/'one.patch'
+        material_file.write_text('changed material')
+        require(case.run(['list-patch', '--details'])==detailed, 'listing rehashed changed material')
+        material_file.unlink()
+        require(case.run(['list-patch'])==normal, 'listing checked missing patch')
+        os.mkfifo(material_file)
+        require(case.run(['list-patch', '--details'])==detailed, 'listing opened FIFO material')
+        material_file.unlink(); material_file.write_bytes(material_before['one.patch'])
+        case.material.chmod(0)
+        try: require(case.run(['list-patch'])==normal, 'listing required material access')
+        finally: case.material.chmod(0o755)
+        for contents, diagnostic in ((b'invalid toml [', 'corrupt'),
+                (saved.replace(b'schema_version = 1', b'schema_version = 99'), 'unsupported'),
+                (saved.replace(b"source_kind = 'local'", b"source_kind = 'aur'"), 'unsupported')):
+            require(contents!=saved, 'bad-record fixture did not change')
+            record.write_bytes(contents)
+            text=case.run(['list-patch'], ok=False)
+            require(diagnostic in text and 'No patch customizations' not in text and 'Registered patch' not in text, 'bad registry was skipped or partially displayed')
+        record.write_bytes(saved)
+        require(case.run(['list-patch'])==normal, 'listing was nondeterministic')
+        header, *series = saved.split(b'[[patches]]')
+        require(len(series)==2, 'ordered-series fixture shape changed')
+        record.write_bytes(header+b'[[patches]]'+series[1]+b'[[patches]]'+series[0])
+        reversed_details=case.run(['list-patch', '--details'])
+        require(reversed_details.index('1. two.patch')<reversed_details.index('2. one.patch'), 'listing sorted the saved patch series')
+        record.write_bytes(saved)
+        extra_sources=[]
+        for directory, base in [('z-source','aaa-base'), ('a-source','patch-cli-base')]:
+            source=case.root/directory
+            write(source/'PKGBUILD', RECIPE.replace('patch-cli-base',base))
+            case.run(['add-patch',source,case.material,'one.patch'],tty=True)
+            extra_sources.append((source,base))
+        multiple=case.run(['list-patch'])
+        require(multiple.index('aaa-base')<multiple.index(f'local:{case.root/"a-source"}')<multiple.index(f'local:{case.source}'), 'multiple associations are not deterministically ordered')
+        require(case.run(['list-patch'])==multiple, 'multiple listing was nondeterministic')
+        for source,base in extra_sources:
+            case.run(['del-patch',source,base])
+        require(case.run(['list-patch'])==normal, 'listing changed existing association')
+
+
         require('already registered' in case.run(['add-patch', case.source, case.material, 'one.patch'], ok=False, tty=True), 'duplicate register not rejected')
         case.no_build()
         # Poison the selected record: plain local build must not consult it.

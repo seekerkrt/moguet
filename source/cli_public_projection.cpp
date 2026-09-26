@@ -109,6 +109,7 @@ constexpr std::array PUBLIC_OPERATION_ORDER = {
     OperationId::AddPatch,
     OperationId::UpdatePatch,
     OperationId::DeletePatch,
+    OperationId::ListPatch,
 };
 
 constexpr std::array PUBLIC_SPECIAL_OPERATION_ORDER = {

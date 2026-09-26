@@ -457,6 +457,7 @@ void test_rich_cli_option_and_ownership_contract() {
             &operation_form(operation_metadata(OperationId::Build), 0).option_relations,
             &operation_form(operation_metadata(OperationId::Plan), 0).option_relations,
             &operation_form(operation_metadata(OperationId::Deps), 0).option_relations,
+            &operation_form(operation_metadata(OperationId::ListPatch), 0).option_relations,
             &special_operation_spec(SpecialOperationId::SyncSelect).option_relations}) {
         const OptionRelationContract* relation = relations->find(OptionId::Details);
         expect(

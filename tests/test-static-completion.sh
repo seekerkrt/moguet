@@ -41,7 +41,7 @@ assert_reply() {
 
 root_candidates=(
     build upgrade upgrade-aur upgrade-all clean deps plan fetch
-    add-src edit-src list-src del-src revert add-patch update-patch del-patch
+    add-src edit-src list-src del-src revert add-patch update-patch del-patch list-patch
     -G -Gp -S -Syu -Su -Ss -Si -Qua
     -h --help -V --version
     --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode=
@@ -151,6 +151,13 @@ assert_reply "forget extra operand後は閉じる"
 
 run_completion moguet clean ""
 assert_reply "cleanのroute-owned option" --noconfirm
+
+run_completion moguet list-patch ""
+assert_reply "list-patchはdetailsだけを提示" --details
+run_completion moguet list-patch --details ""
+assert_reply "list-patchのdetailsはrepeat-idempotent" --details
+run_completion moguet list-patch unexpected ""
+assert_reply "list-patch extra operand後は閉じる"
 
 run_completion moguet list-src ""
 assert_reply "list-srcはoptionを持たない"

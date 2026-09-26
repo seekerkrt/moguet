@@ -637,6 +637,7 @@ DryRunOperation classify_dry_run_operation(
         case cli_authority::OperationId::AddPatch:
         case cli_authority::OperationId::UpdatePatch:
         case cli_authority::OperationId::DeletePatch:
+        case cli_authority::OperationId::ListPatch:
         case cli_authority::OperationId::Count:
             return DryRunOperation::Unsupported;
     }

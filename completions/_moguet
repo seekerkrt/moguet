@@ -19,6 +19,7 @@
 #   add-patch <directory> <patch-directory> <patch-file>...
 #   update-patch <directory> <patch-directory> <patch-file>...
 #   del-patch <directory> <package-base>
+#   list-patch
 #   -G <pkg> [--output-dir=DIR]
 #   -Gp <pkg>
 #   -S --select [--needed] <query>
@@ -74,7 +75,7 @@ _moguet_find_operation() {
     for (( index=2; index<CURRENT; ++index )); do
         word=$words[index]
         case "$word" in
-        -h|--help|-V|--version|build|upgrade|upgrade-aur|upgrade-all|clean|deps|plan|fetch|add-src|edit-src|list-src|del-src|revert|add-patch|update-patch|del-patch|-G|-Gp|-S|-Syu|-Su|-Ss|-Si|-Qua) REPLY=$word; return 0 ;;
+        -h|--help|-V|--version|build|upgrade|upgrade-aur|upgrade-all|clean|deps|plan|fetch|add-src|edit-src|list-src|del-src|revert|add-patch|update-patch|del-patch|list-patch|-G|-Gp|-S|-Syu|-Su|-Ss|-Si|-Qua) REPLY=$word; return 0 ;;
         esac
         _moguet_option_id "$word" && continue
         if [[ $word == -* ]]; then
@@ -186,6 +187,10 @@ _moguet_form_prefix_valid() {
             ;;
         del-patch:0)
             (( ${#operands[@]} <= 2 )) && return 0
+            return 1
+            ;;
+        list-patch:0)
+            (( ${#operands[@]} <= 0 )) && return 0
             return 1
             ;;
         -G:0)
@@ -367,6 +372,13 @@ _moguet_collect_candidates() {
                 reply=()
             fi
             ;;
+        list-patch)
+            if _moguet_form_prefix_valid list-patch 0; then
+                reply=(--details)
+            else
+                reply=()
+            fi
+            ;;
         -G)
             if _moguet_form_prefix_valid -G 0; then
                 reply=(--output-dir=)
@@ -450,6 +462,7 @@ _moguet_description() {
         add-patch) REPLY='Register ordered PKGBUILD patch references for one local source; never auto-apply' ;;
         update-patch) REPLY='Explicitly update a local patch association, order and expected digests' ;;
         del-patch) REPLY='Forget a local patch association without deleting user material' ;;
+        list-patch) REPLY='List saved patch associations without checking external material' ;;
         -G) REPLY='Export one AUR PackageBase repository without building or installing' ;;
         -Gp) REPLY='Print one AUR PackageBase PKGBUILD without keeping a checkout' ;;
         -S) REPLY='Install packages' ;;
@@ -475,7 +488,7 @@ _moguet_description() {
         --select) REPLY='Interactively select source-aware package candidates for plain -S' ;;
         --aur) REPLY='Limit supported sync operations to AUR' ;;
         --repo) REPLY='Use only official binary repositories; with -Syu / -Su, run the repository system upgrade only' ;;
-        --details) REPLY='Show detailed diagnostic and provenance information for remote build, plan, deps, -S --select, -Qua, -Syu/-Su, upgrade-aur/all, and --dry-run -S; presentation only' ;;
+        --details) REPLY='Show detailed diagnostic and provenance information for remote build, plan, deps, -S --select, -Qua, -Syu/-Su, upgrade-aur/all, --dry-run -S, and list-patch; presentation only' ;;
         --local) REPLY='Use one local PKGBUILD directory as the build root' ;;
         --use-preference) REPLY='Use the saved source-build preference for one remote build; conflicts with V=K assignments' ;;
         --use-patches) REPLY='Explicitly select saved recipe patches for build --local; requires metadata evaluation consent' ;;
@@ -492,7 +505,7 @@ _moguet() {
     operation=$REPLY
 
     if [[ -z $operation ]]; then
-        candidates=(build upgrade upgrade-aur upgrade-all clean deps plan fetch add-src edit-src list-src del-src revert add-patch update-patch del-patch -G -Gp -S -Syu -Su -Ss -Si -Qua -h --help -V --version --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --rmdeps --select --aur --repo --details)
+        candidates=(build upgrade upgrade-aur upgrade-all clean deps plan fetch add-src edit-src list-src del-src revert add-patch update-patch del-patch list-patch -G -Gp -S -Syu -Su -Ss -Si -Qua -h --help -V --version --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --rmdeps --select --aur --repo --details)
     else
         _moguet_collect_candidates "$operation"
         candidates=("${reply[@]}")

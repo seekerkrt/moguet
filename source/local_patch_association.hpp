@@ -70,6 +70,8 @@ public:
     const PackageBaseIdentity& identity() const noexcept;
     const std::filesystem::path& material_root() const noexcept;
     const std::vector<PatchMaterialEntry>& entries() const noexcept;
+    // The version accepted by the strict record decoder, not material health.
+    int schema_version() const noexcept;
 };
 
 class AcquiredLocalRecipeSeries final {
@@ -98,6 +100,10 @@ std::variant<ObservedLocalPatchSource, PatchAssociationFailure> observe_local_pa
 
 // Reader is no-create. Value identity selects a record, not execution consent.
 PatchAssociationReadResult read_local_patch_association(const PackageBaseIdentity& identity);
+// Complete registry snapshot or failure, ordered by PackageBase then source
+// location. Reuses the strict record reader; never opens source/material paths
+// or creates the store. A missing store is an empty registry, not a bad record.
+std::variant<std::vector<LoadedPatchAssociation>, PatchAssociationFailure> list_patch_associations();
 PatchAssociationWriteResult register_local_patch_association(
     const ObservedLocalPatchSource& source, const std::filesystem::path& material_root,
     const std::vector<std::string>& ordered_files);
