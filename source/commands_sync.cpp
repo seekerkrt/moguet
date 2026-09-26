@@ -1012,6 +1012,10 @@ RootPackageInstallPreparation prepare_root_package_install(
         std::vector<ProductionSourceBuildWorkItem> work_items =
             prepare_aur_source_build_work_items(
                 plan, false, prepared.needed);
+        for(auto& work_item : work_items) {
+            work_item.request.suppress_review_recipe_edit_capture =
+                parsed.source_selection == PackageSourceSelection::Auto;
+        }
         // Do not prepare/seed a cache here. execute activates it only after
         // the selected repository transaction succeeds.
         prepared.source_invocation =
@@ -1458,6 +1462,8 @@ SyncInstallPreparation prepare_sync_install(
                     source_selection == PackageSourceSelection::Auto,
                     source_sync_options.needed);
             for(auto& work_item : aur_work_items) {
+                work_item.request.suppress_review_recipe_edit_capture =
+                    source_selection == PackageSourceSelection::Auto;
                 const std::size_t root_index =
                     earliest_root_index_for_source_build_work_item(
                         aur_build_plan.value(), work_item);

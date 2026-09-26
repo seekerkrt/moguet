@@ -10,6 +10,7 @@
 #include "separated_package_base_source_build.hpp"
 #include "source_environment.hpp"
 
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -123,6 +124,45 @@ struct SourceBuildExecutionResult {
 preflight_reviewed_source_fatal_state_for_production(
     const SourceBuildRequest& request);
 
+// Frozen bytes from one ordinary reviewed AUR editor invocation, minted only
+// after the existing Proceed acceptance and post-snapshot revalidation. This
+// is neither persistent save consent nor a generic recipe/tree snapshot.
+class ReviewRecipeEditCorrelation final {
+    AurReviewedSourceReviewIdentity identity_;
+    std::uintmax_t checkout_device_;
+    std::uintmax_t checkout_inode_;
+    std::string baseline_pkgbuild_;
+    std::string accepted_pkgbuild_;
+
+    ReviewRecipeEditCorrelation(AurReviewedSourceReviewIdentity identity,
+                                std::uintmax_t checkout_device,
+                                std::uintmax_t checkout_inode,
+                                std::string baseline_pkgbuild,
+                                std::string accepted_pkgbuild) noexcept;
+    friend struct SourceBuildPreparationAccess;
+
+public:
+    ReviewRecipeEditCorrelation(const ReviewRecipeEditCorrelation&) = delete;
+    ReviewRecipeEditCorrelation& operator=(const ReviewRecipeEditCorrelation&) = delete;
+    ReviewRecipeEditCorrelation(ReviewRecipeEditCorrelation&&) noexcept = default;
+    ReviewRecipeEditCorrelation& operator=(ReviewRecipeEditCorrelation&&) = delete;
+    const AurReviewedSourceReviewIdentity& identity() const noexcept {
+        return identity_;
+    }
+    std::uintmax_t checkout_device() const noexcept {
+        return checkout_device_;
+    }
+    std::uintmax_t checkout_inode() const noexcept {
+        return checkout_inode_;
+    }
+    const std::string& baseline_pkgbuild() const noexcept {
+        return baseline_pkgbuild_;
+    }
+    const std::string& accepted_pkgbuild() const noexcept {
+        return accepted_pkgbuild_;
+    }
+};
+
 // checkout/update-check/reviewとprivate artifact rootを一度だけ通過した
 // execution capability。raw pathはpreparation/executor ownerへ閉じる。
 class PreparedSourceBuildNeedsBuild final {
@@ -131,15 +171,18 @@ class PreparedSourceBuildNeedsBuild final {
     std::optional<ValidatedPrivateCacheRoot> artifact_root_;
     bool rebuild_ = false;
     bool clean_build_ = false;
+    std::optional<ReviewRecipeEditCorrelation> accepted_recipe_edit_;
 
     PreparedSourceBuildNeedsBuild(
         ProductionArtifactSourceTree source_tree,
         ValidatedPrivateCacheRoot artifact_root,
         bool rebuild,
-        bool clean_build) noexcept
+        bool clean_build,
+        std::optional<ReviewRecipeEditCorrelation> accepted_recipe_edit) noexcept
         : source_tree_(std::move(source_tree)),
           artifact_root_(std::move(artifact_root)), rebuild_(rebuild),
-          clean_build_(clean_build) {
+          clean_build_(clean_build),
+          accepted_recipe_edit_(std::move(accepted_recipe_edit)) {
     }
 
     explicit PreparedSourceBuildNeedsBuild(PreparedReviewedDevelSourceBuildExecution devel) noexcept : devel_(std::move(devel)) {
@@ -169,6 +212,12 @@ public:
         return source_tree_ ? std::optional<ProductionSourceBuildProvenance>(source_tree_->provenance()) : std::nullopt;
     }
 
+    // Empty for no editor, byte-identical PKGBUILD (including .install-only
+    // edits), and every route outside ordinary reviewed AUR.
+    const std::optional<ReviewRecipeEditCorrelation>& accepted_recipe_edit() const noexcept {
+        return accepted_recipe_edit_;
+    }
+
 #if defined(MOGUET_ENABLE_SYSTEM_SOURCE_UPGRADE_TEST_HOOKS) || \
     defined(MOGUET_ENABLE_UPGRADE_ALL_OPERATION_TEST_HOOKS)
     static PreparedSourceBuildNeedsBuild
@@ -189,6 +238,8 @@ prepared_source_build_provenance_for_test(
     const PreparedSourceBuildNeedsBuild& prepared);
 
 using ReviewedSourceBeforePublicationHookForTest = void (*)();
+void set_reviewed_recipe_after_snapshot_hook_for_test(
+    ReviewedSourceBeforePublicationHookForTest hook);
 void set_reviewed_source_before_publication_hook_for_test(
     ReviewedSourceBeforePublicationHookForTest hook);
 #endif

@@ -42,4 +42,7 @@ struct SourceBuildRequest {
     // Current #564 ordinary update activation only; explicit/standalone routes keep their scope.
     bool ordinary_devel_package_base = false;
     std::shared_ptr<AurUpgradePatchCandidate> upgrade_patch;
+    // Auto -S remains outside #650 capture. Suppresses only the additional
+    // PKGBUILD byte reads; existing review/editor/build behavior is unchanged.
+    bool suppress_review_recipe_edit_capture = false;
 };

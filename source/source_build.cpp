@@ -50,6 +50,17 @@
 
 namespace fs = std::filesystem;
 
+ReviewRecipeEditCorrelation::ReviewRecipeEditCorrelation(
+    AurReviewedSourceReviewIdentity identity,
+    std::uintmax_t checkout_device,
+    std::uintmax_t checkout_inode,
+    std::string baseline_pkgbuild,
+    std::string accepted_pkgbuild) noexcept
+    : identity_(std::move(identity)), checkout_device_(checkout_device),
+      checkout_inode_(checkout_inode), baseline_pkgbuild_(std::move(baseline_pkgbuild)),
+      accepted_pkgbuild_(std::move(accepted_pkgbuild)) {
+}
+
 struct PreparedSourceBuildExecutionCapabilities {
     ProductionArtifactSourceTree source_tree;
     ValidatedPrivateCacheRoot artifact_root;
@@ -58,6 +69,13 @@ struct PreparedSourceBuildExecutionCapabilities {
 };
 
 struct SourceBuildPreparationAccess {
+    static ReviewRecipeEditCorrelation accept_recipe_edit(
+        AurReviewedSourceReviewIdentity identity,
+        const ValidatedCachePath& checkout,
+        std::string baseline, std::string accepted) noexcept {
+        return ReviewRecipeEditCorrelation(std::move(identity), checkout.device(), checkout.inode(),
+                                           std::move(baseline), std::move(accepted));
+    }
     static PreparedSourceBuildNeedsBuild make(PreparedReviewedDevelSourceBuildExecution devel) noexcept {
         return PreparedSourceBuildNeedsBuild(std::move(devel));
     }
@@ -65,10 +83,11 @@ struct SourceBuildPreparationAccess {
         ProductionArtifactSourceTree source_tree,
         ValidatedPrivateCacheRoot artifact_root,
         bool rebuild,
-        bool clean_build) noexcept {
+        bool clean_build,
+        std::optional<ReviewRecipeEditCorrelation> accepted_recipe_edit) noexcept {
         return PreparedSourceBuildNeedsBuild(
             std::move(source_tree), std::move(artifact_root), rebuild,
-            clean_build);
+            clean_build, std::move(accepted_recipe_edit));
     }
 };
 
@@ -203,6 +222,12 @@ namespace {
 #ifdef MOGUET_ENABLE_REVIEWED_SOURCE_PRODUCTION_TEST_HOOKS
 ReviewedSourceBeforePublicationHookForTest
     g_reviewed_source_before_publication_hook;
+ReviewedSourceBeforePublicationHookForTest g_reviewed_recipe_after_snapshot_hook;
+
+void notify_reviewed_recipe_after_snapshot_for_test() {
+    auto hook = std::exchange(g_reviewed_recipe_after_snapshot_hook, nullptr);
+    if(hook) hook();
+}
 
 void notify_reviewed_source_before_publication_for_test() {
     ReviewedSourceBeforePublicationHookForTest hook =
@@ -211,6 +236,8 @@ void notify_reviewed_source_before_publication_for_test() {
     if(hook != nullptr) hook();
 }
 #else
+void notify_reviewed_recipe_after_snapshot_for_test() {
+}
 void notify_reviewed_source_before_publication_for_test() {
 }
 #endif
@@ -466,7 +493,8 @@ void log_review_targets(const fs::path& pkg_dir, const std::vector<fs::path>& in
 bool review_build_files(
     const ValidatedCachePath& checkout,
     const AppConfig& config,
-    const std::function<int(const std::string&)>& run_checkout_command) {
+    const std::function<int(const std::string&)>& run_checkout_command,
+    const std::function<void()>& before_first_editor) {
     const fs::path& pkg_dir = checkout.canonical_path();
     std::vector<fs::path> install_scripts =
         require_safe_persistent_checkout_descendants(checkout);
@@ -493,6 +521,7 @@ bool review_build_files(
     if(std::holds_alternative<ConfirmationAccepted>(
            edit_pkgbuild_confirmation)) {
         require_safe_persistent_checkout_review_targets(checkout, install_scripts);
+        if(before_first_editor) before_first_editor();
         if(run_checkout_command(
                build_editor_command(config.editor, "PKGBUILD")) != 0) {
             throw std::runtime_error(localization::translate_message(
@@ -519,6 +548,7 @@ bool review_build_files(
         if(std::holds_alternative<ConfirmationAccepted>(
                edit_install_confirmation)) {
             require_safe_persistent_checkout_review_targets(checkout, install_scripts);
+            if(!editor_invoked && before_first_editor) before_first_editor();
             if(run_checkout_command(
                    build_editor_command(
                        config.editor, install_script)) != 0) {
@@ -699,6 +729,58 @@ using AurCheckoutAuthority = std::variant<
     AurCompatibilityCheckout,
     AcceptedReviewedSourceCheckout,
     AlreadyReviewedSourceCheckout>;
+
+// Stack-local pending bytes never escape on editor failure or Proceed decline.
+// There is no reusable pre-edit capability or caller-supplied invocation ID.
+struct PendingReviewRecipeEdit {
+    AurReviewedSourceReviewIdentity identity;
+    std::uintmax_t checkout_device;
+    std::uintmax_t checkout_inode;
+    std::string baseline;
+};
+
+[[noreturn]] void stop_review_recipe_correlation(
+    TrustedGitPinnedCheckoutFailureReason reason) {
+    stop_reviewed_source_route(
+        ReviewedSourceProductionFailureStage::EditorOverlayObservation,
+        ReviewedSourceProductionFailureReason::OverlayObservationFailure,
+        TrustedGitPinnedCheckoutFailure{reason, TrustedGitPinnedCheckoutStage::OverlayObservation,
+                                        std::nullopt, 0, 0, std::nullopt});
+}
+
+void require_review_recipe_lineage(
+    const PendingReviewRecipeEdit& pending,
+    const AurCheckoutAuthority& authority,
+    const SourceBuildRequest& request,
+    const ValidatedCachePath& checkout) {
+    std::visit([&](const auto& reviewed) {
+        if constexpr(std::is_same_v<std::decay_t<decltype(reviewed)>, AurCompatibilityCheckout>) {
+            stop_review_recipe_correlation(TrustedGitPinnedCheckoutFailureReason::InvalidCapability);
+        } else {
+            if(!reviewed.valid() || pending.identity != reviewed.identity() ||
+               pending.checkout_device != reviewed.checkout_device() ||
+               pending.checkout_inode != reviewed.checkout_inode() ||
+               pending.checkout_device != checkout.device() || pending.checkout_inode != checkout.inode() ||
+               request.aur_review_identity != std::optional<PackageBaseIdentity>{pending.identity.package_base()} ||
+               request.checkout_name != pending.identity.package_base().package_base() ||
+               !remote_url_matches_expected(request.git_url, pending.identity.canonical_git_remote())) {
+                stop_review_recipe_correlation(TrustedGitPinnedCheckoutFailureReason::InvalidCapability);
+            }
+            reviewed.require_unchanged_checkout_identity();
+        }
+    },
+               authority);
+}
+
+std::string read_review_recipe_bytes(const ValidatedCachePath& checkout) {
+    auto read = trusted_git_read_review_pkgbuild(checkout);
+    if(auto* failure = std::get_if<TrustedGitPinnedCheckoutFailure>(&read)) {
+        stop_reviewed_source_route(
+            ReviewedSourceProductionFailureStage::EditorOverlayObservation,
+            ReviewedSourceProductionFailureReason::OverlayObservationFailure, std::move(*failure));
+    }
+    return std::get<std::string>(std::move(read));
+}
 
 ReviewedSourceCompatibilityBuildReason review_bypass_reason(
     const AppConfig& config) {
@@ -1344,6 +1426,7 @@ MakepkgBuildOptions resolve_makepkg_build_options(
 struct PreparedSourceBuildCheckout {
     ReviewedProductionSourceExecution source_tree;
     MakepkgBuildOptions makepkg_options;
+    std::optional<ReviewRecipeEditCorrelation> accepted_recipe_edit;
 };
 
 using SourceBuildCheckoutPreparation =
@@ -1596,6 +1679,7 @@ SourceBuildCheckoutPreparation prepare_source_build_checkout(
     MakepkgBuildOptions makepkg_options;
     bool editor_invoked = false;
     std::optional<ReviewedSourceEditorOverlayProof> editor_overlay;
+    std::optional<ReviewRecipeEditCorrelation> accepted_recipe_edit;
     const auto run_checkout_command =
         [&aur_authority, &package_base_lease](
             const std::string& command) {
@@ -1707,9 +1791,12 @@ SourceBuildCheckoutPreparation prepare_source_build_checkout(
         }
 
         std::optional<ReviewedSourceEditorBoundary> editor_boundary;
-        if(aur_authority.has_value() &&
-           !std::holds_alternative<AurCompatibilityCheckout>(
-               aur_authority.value())) {
+        const bool capture_recipe_edit = aur_authority.has_value() &&
+                                         !std::holds_alternative<AurCompatibilityCheckout>(*aur_authority) &&
+                                         !request.authoritative_devel_update && !request.devel_tracking_bootstrap &&
+                                         !request.ordinary_devel_package_base && !request.upgrade_patch &&
+                                         !request.suppress_review_recipe_edit_capture;
+        const auto begin_editor_boundary = [&] {
             ReviewedSourceEditorBoundaryResult boundary =
                 begin_aur_editor_boundary(aur_authority.value());
             if(auto* failure =
@@ -1725,8 +1812,34 @@ SourceBuildCheckoutPreparation prepare_source_build_checkout(
             editor_boundary.emplace(
                 std::get<ReviewedSourceEditorBoundary>(
                     std::move(boundary)));
+        };
+        if(aur_authority.has_value() &&
+           !std::holds_alternative<AurCompatibilityCheckout>(*aur_authority) && !capture_recipe_edit) {
+            begin_editor_boundary();
         }
 
+        std::optional<PendingReviewRecipeEdit> pending_recipe_edit;
+        std::function<void()> before_first_editor;
+        if(capture_recipe_edit) {
+            before_first_editor = [&] {
+                std::visit([&](const auto& reviewed) {
+                    if constexpr(!std::is_same_v<std::decay_t<decltype(reviewed)>, AurCompatibilityCheckout>) {
+                        pending_recipe_edit.emplace(PendingReviewRecipeEdit{
+                            reviewed.identity(), reviewed.checkout_device(), reviewed.checkout_inode(), {}});
+                    }
+                },
+                           *aur_authority);
+                require_review_recipe_lineage(*pending_recipe_edit, *aur_authority, request, pkg_path);
+                pending_recipe_edit->baseline = read_review_recipe_bytes(pkg_path);
+                // Prove the exact clean target at the editor boundary, after
+                // prompt input and the stable read, not from an old display blob.
+                begin_editor_boundary();
+                require_review_recipe_lineage(*pending_recipe_edit, *aur_authority, request, pkg_path);
+                if(read_review_recipe_bytes(pkg_path) != pending_recipe_edit->baseline) {
+                    stop_review_recipe_correlation(TrustedGitPinnedCheckoutFailureReason::OverlayMismatch);
+                }
+            };
+        }
         if(request.upgrade_patch) {
             if(!execution_intent) throw std::logic_error(localization::translate_message("Selected patch has no recipe preparation intent."));
             request.upgrade_patch->apply_before_sealing(pkg_path, *execution_intent,
@@ -1735,8 +1848,14 @@ SourceBuildCheckoutPreparation prepare_source_build_checkout(
             // Additional editor mutation would invalidate the fresh metadata.
             editor_invoked = true;
         } else {
-            editor_invoked = review_build_files(pkg_path, config, run_checkout_command);
+            editor_invoked = review_build_files(pkg_path, config, run_checkout_command, before_first_editor);
         }
+        std::optional<std::string> post_recipe_bytes;
+        if(pending_recipe_edit) {
+            require_review_recipe_lineage(*pending_recipe_edit, *aur_authority, request, pkg_path);
+            post_recipe_bytes.emplace(read_review_recipe_bytes(pkg_path));
+        }
+        if(capture_recipe_edit && !editor_boundary) begin_editor_boundary();
         if(editor_boundary.has_value()) {
             ReviewedSourceEditorOverlayProofResult sealed =
                 seal_aur_editor_boundary(
@@ -1757,8 +1876,20 @@ SourceBuildCheckoutPreparation prepare_source_build_checkout(
                 std::get<ReviewedSourceEditorOverlayProof>(
                     std::move(sealed)));
         }
+        if(pending_recipe_edit) notify_reviewed_recipe_after_snapshot_for_test();
         confirm_after_build_file_edit(
             pkg_path.canonical_path(), config, editor_invoked);
+        if(pending_recipe_edit) {
+            require_review_recipe_lineage(*pending_recipe_edit, *aur_authority, request, pkg_path);
+            if(read_review_recipe_bytes(pkg_path) != *post_recipe_bytes) {
+                stop_review_recipe_correlation(TrustedGitPinnedCheckoutFailureReason::OverlayMismatch);
+            }
+            if(pending_recipe_edit->baseline != *post_recipe_bytes) {
+                accepted_recipe_edit.emplace(SourceBuildPreparationAccess::accept_recipe_edit(
+                    std::move(pending_recipe_edit->identity), pkg_path,
+                    std::move(pending_recipe_edit->baseline), std::move(*post_recipe_bytes)));
+            }
+        }
         makepkg_options = resolve_makepkg_build_options(".", config);
     }
 
@@ -1791,7 +1922,7 @@ SourceBuildCheckoutPreparation prepare_source_build_checkout(
                                                                         InvocationLocal
                                                                   : ReviewedSourceEditorOverlayStatus::None);
     return PreparedSourceBuildCheckout{
-        std::move(source_tree), makepkg_options};
+        std::move(source_tree), makepkg_options, std::move(accepted_recipe_edit)};
 }
 
 void require_package_base_source_build_request(
@@ -2048,10 +2179,15 @@ SourceBuildPreparationOutcome prepare_source_build_for_execution(
     return SourceBuildPreparationAccess::make(
         std::get<ProductionArtifactSourceTree>(std::move(checkout.source_tree)), std::move(artifact_root),
         checkout.makepkg_options.rebuild,
-        checkout.makepkg_options.clean_build);
+        checkout.makepkg_options.clean_build, std::move(checkout.accepted_recipe_edit));
 }
 
 #ifdef MOGUET_ENABLE_REVIEWED_SOURCE_PRODUCTION_TEST_HOOKS
+void set_reviewed_recipe_after_snapshot_hook_for_test(
+    ReviewedSourceBeforePublicationHookForTest hook) {
+    g_reviewed_recipe_after_snapshot_hook = hook;
+}
+
 void set_reviewed_source_before_publication_hook_for_test(
     ReviewedSourceBeforePublicationHookForTest hook) {
     g_reviewed_source_before_publication_hook = hook;

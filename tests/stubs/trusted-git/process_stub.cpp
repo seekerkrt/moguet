@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <variant>
 
 namespace {
 
@@ -242,6 +243,16 @@ TrustedGitPinnedCheckoutOverlayObservationResult
 observe_clean_trusted_git_pinned_checkout_overlay(
     const TrustedGitPinnedCheckout&,
     const ReviewedSourcePackageBaseLease&) {
+    return TrustedGitPinnedCheckoutFailure{
+        TrustedGitPinnedCheckoutFailureReason::InvalidCapability,
+        TrustedGitPinnedCheckoutStage::OverlayObservation,
+        std::nullopt, 0, 0, std::nullopt};
+}
+
+std::variant<std::string, TrustedGitPinnedCheckoutFailure>
+trusted_git_read_review_pkgbuild(const ValidatedCachePath&) {
+    // This profile cannot mint reviewed checkout authority. Never synthesize
+    // recipe bytes if the review-local capture path is reached unexpectedly.
     return TrustedGitPinnedCheckoutFailure{
         TrustedGitPinnedCheckoutFailureReason::InvalidCapability,
         TrustedGitPinnedCheckoutStage::OverlayObservation,

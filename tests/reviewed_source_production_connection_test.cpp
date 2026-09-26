@@ -14,7 +14,9 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -339,7 +341,7 @@ class TemporaryTree final {
 public:
     TemporaryTree() {
         std::string pattern =
-            "/tmp/moguet-reviewed-source-production-XXXXXX";
+            (fs::temp_directory_path() / "moguet-reviewed-source-production-XXXXXX").string();
         std::vector<char> writable(pattern.begin(), pattern.end());
         writable.push_back('\0');
         char* created = mkdtemp(writable.data());
@@ -429,6 +431,37 @@ void mutate_checkout_after_publication(
             "ignored-production-race.tmp",
         std::ios::binary | std::ios::trunc);
     output << "post-publication mutation\n";
+}
+
+class ReviewAnswers final {
+    std::istringstream answers_;
+    std::streambuf* original_;
+
+public:
+    explicit ReviewAnswers(std::string answers)
+        : answers_(std::move(answers)), original_(std::cin.rdbuf(answers_.rdbuf())) {
+        std::cin.clear();
+    }
+    ~ReviewAnswers() {
+        std::cin.rdbuf(original_);
+        std::cin.clear();
+    }
+};
+
+std::string read_bytes(const fs::path& path) {
+    std::ifstream input(path, std::ios::binary);
+    require(static_cast<bool>(input), "Cannot read fixture bytes");
+    return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+}
+
+std::string g_recipe_fault_command;
+SourceBuildRequest* g_recipe_fault_request = nullptr;
+std::optional<PackageBaseIdentity> g_recipe_fault_identity;
+bool g_recipe_fault_invoked = false;
+void mutate_after_recipe_snapshot() {
+    g_recipe_fault_invoked = true;
+    if(!g_recipe_fault_command.empty()) run(g_recipe_fault_command);
+    if(g_recipe_fault_request) g_recipe_fault_request->aur_review_identity = g_recipe_fault_identity;
 }
 
 } // namespace
@@ -544,6 +577,12 @@ int main() {
                 std::get_if<PreparedSourceBuildNeedsBuild>(&outcome);
             require(prepared != nullptr,
                     "Accepted production review did not prepare a build");
+            const auto& edit = prepared->accepted_recipe_edit();
+            require(edit && edit->baseline_pkgbuild() == "pkgname=reviewed-production-fixture\npkgver=2\npkgrel=1\n" &&
+                        edit->accepted_pkgbuild() == edit->baseline_pkgbuild() + "# invocation-local editor overlay\n" &&
+                        edit->identity().package_base() == aur_identity() && edit->identity().target_revision() == target &&
+                        edit->checkout_device() == checkout.device() && edit->checkout_inode() == checkout.inode(),
+                    "Accepted PKGBUILD bytes or source/target/checkout correlation differs");
             const ProductionSourceBuildProvenance& provenance =
                 prepared_source_build_provenance_for_test(*prepared);
             require(
@@ -761,6 +800,7 @@ int main() {
                     &compatibility_outcome);
             require(compatibility != nullptr,
                     "No-diff compatibility route did not prepare a build");
+            require(!compatibility->accepted_recipe_edit(), "Compatibility route captured a recipe edit");
             const ProductionSourceBuildProvenance& compatibility_provenance =
                 prepared_source_build_provenance_for_test(*compatibility);
             require(
@@ -941,6 +981,7 @@ int main() {
                 &no_op_outcome);
             require(no_op != nullptr,
                     "No-op editor did not prepare reviewed build");
+            require(!no_op->accepted_recipe_edit(), "No-op editor minted an accepted PKGBUILD edit");
             const ProductionSourceBuildProvenance& provenance =
                 prepared_source_build_provenance_for_test(*no_op);
             require(provenance.review_status ==
@@ -959,10 +1000,142 @@ int main() {
         }
         static_cast<void>(conflict_target);
 
+        // Continue in the same small real-Git fixture. Each preparation owns a
+        // fresh local pre/post pair; scripted stdin changes only prompt answers.
+        write_file(work / "fixture.install", "# install script\n");
+        run("/usr/bin/git -C " + shell_quote(work) + " add fixture.install");
+        const auto install_target = publish_upstream_version(9, "install-only");
+        write_file(editor, "#!/bin/sh\nfor target do :; done\nprintf '# install edit\\n' >>\"$target\"\n",
+                   fs::perms::owner_all);
+        {
+            ReviewAnswers answers("y\nn\ny\ny\n");
+            auto outcome = prepare_source_build_for_execution(request(), std::string(PACKAGE_BASE),
+                                                              SourceBuildUpdatePolicy::AlwaysBuild, cache_root, reviewed_config(editor));
+            auto& prepared = std::get<PreparedSourceBuildNeedsBuild>(outcome);
+            require(!prepared.accepted_recipe_edit(), ".install-only edit minted a PKGBUILD correlation");
+            require(read_bytes(checkout.path() / "fixture.install") == "# install script\n# install edit\n",
+                    ".install-only editor did not actually edit the script");
+            require_loaded_state(install_target, 6);
+        }
+
+        const auto atomic_target = publish_upstream_version(10, "atomic-editor");
+        // Include CRLF and a missing final newline to prove raw byte ownership.
+        write_file(work / "PKGBUILD", read_bytes(work / "PKGBUILD") + "# exact baseline\r\n# no final newline");
+        run("/usr/bin/git -C " + shell_quote(work) + " add PKGBUILD");
+        run("/usr/bin/git -C " + shell_quote(work) + " commit -q -m exact-bytes");
+        run("/usr/bin/git -C " + shell_quote(work) + " push -q " + shell_quote(remote) + " main");
+        const auto exact_target = SourceRevisionIdentity::git_commit(capture(
+            "/usr/bin/git -C " + shell_quote(work) + " rev-parse HEAD"));
+        const std::string exact_baseline = read_bytes(work / "PKGBUILD");
+        write_file(editor,
+                   "#!/bin/sh\nfor target do :; done\ncat \"$target\" >\"$target.new\"\n"
+                   "printf '\\n# atomic edit\\r\\n' >>\"$target.new\"\nmv \"$target.new\" \"$target\"\n",
+                   fs::perms::owner_all);
+        {
+            ReviewAnswers answers("y\ny\nn\ny\n");
+            auto outcome = prepare_source_build_for_execution(request(), std::string(PACKAGE_BASE),
+                                                              SourceBuildUpdatePolicy::AlwaysBuild, cache_root, reviewed_config(editor));
+            const auto& edit = std::get<PreparedSourceBuildNeedsBuild>(outcome).accepted_recipe_edit();
+            require(edit && edit->baseline_pkgbuild() == exact_baseline &&
+                        edit->accepted_pkgbuild() == exact_baseline + "\n# atomic edit\r\n" &&
+                        edit->identity().target_revision() == exact_target,
+                    "Atomic replace lost exact bytes or reused a previous revision baseline");
+            require_loaded_state(exact_target, 7);
+            write_file(checkout.path() / "PKGBUILD", "# later filesystem contents\n");
+            require(edit->baseline_pkgbuild() == exact_baseline &&
+                        edit->accepted_pkgbuild() == exact_baseline + "\n# atomic edit\r\n",
+                    "Correlation did not own frozen pre/post bytes");
+        }
+        static_cast<void>(atomic_target);
+
+        {
+            SourceBuildRequest auto_sync_request = request();
+            auto_sync_request.suppress_review_recipe_edit_capture = true;
+            g_recipe_fault_invoked = false;
+            set_reviewed_recipe_after_snapshot_hook_for_test(mutate_after_recipe_snapshot);
+            ReviewAnswers answers("y\nn\ny\n");
+            auto outcome = prepare_source_build_for_execution(auto_sync_request, std::string(PACKAGE_BASE),
+                                                              SourceBuildUpdatePolicy::AlwaysBuild, cache_root, reviewed_config(editor));
+            const auto& prepared = std::get<PreparedSourceBuildNeedsBuild>(outcome);
+            require(!prepared.accepted_recipe_edit() && !g_recipe_fault_invoked &&
+                        read_bytes(checkout.path() / "PKGBUILD") == exact_baseline + "\n# atomic edit\r\n",
+                    "Auto sync capture exclusion changed accepted editor behavior or captured bytes");
+            set_reviewed_recipe_after_snapshot_hook_for_test(nullptr);
+        }
+
+        for(const std::string response : {"n\n", "q\n", ""}) {
+            bool stopped = false;
+            try {
+                ReviewAnswers answers("y\nn\n" + response);
+                static_cast<void>(prepare_source_build_for_execution(request(), std::string(PACKAGE_BASE),
+                                                                     SourceBuildUpdatePolicy::AlwaysBuild, cache_root, reviewed_config(editor)));
+            } catch(const ConfirmationOperationStopped&) {
+                stopped = true;
+            }
+            require(stopped, "Proceed decline/cancel/EOF returned accepted recipe authority");
+            require_loaded_state(exact_target, 7);
+        }
+        write_file(editor, "#!/bin/sh\nexit 75\n", fs::perms::owner_all);
+        {
+            bool stopped = false;
+            try {
+                ReviewAnswers answers("y\n");
+                static_cast<void>(prepare_source_build_for_execution(request(), std::string(PACKAGE_BASE),
+                                                                     SourceBuildUpdatePolicy::AlwaysBuild, cache_root, reviewed_config(editor)));
+            } catch(const std::exception& error) {
+                stopped = std::string(error.what()).find("Editor failed.") != std::string::npos;
+            }
+            require(stopped, "Failed editor returned accepted recipe authority");
+            require_loaded_state(exact_target, 7);
+        }
+
+        write_file(editor, "#!/bin/sh\nfor target do :; done\nprintf '\\n# accepted edit\\n' >>\"$target\"\n",
+                   fs::perms::owner_all);
+        const auto expect_recipe_fault = [&](const std::string& command,
+                                             std::optional<PackageBaseIdentity> mismatch = std::nullopt) {
+            SourceBuildRequest current = request();
+            g_recipe_fault_command = command;
+            g_recipe_fault_request = mismatch ? &current : nullptr;
+            g_recipe_fault_identity = std::move(mismatch);
+            g_recipe_fault_invoked = false;
+            set_reviewed_recipe_after_snapshot_hook_for_test(mutate_after_recipe_snapshot);
+            bool stopped = false;
+            try {
+                ReviewAnswers answers("y\nn\ny\n");
+                static_cast<void>(prepare_source_build_for_execution(current, std::string(PACKAGE_BASE),
+                                                                     SourceBuildUpdatePolicy::AlwaysBuild, cache_root, reviewed_config(editor)));
+            } catch(const ReviewedSourceProductionError&) {
+                stopped = true;
+            } catch(const TrustedCacheError&) {
+                stopped = true;
+            }
+            set_reviewed_recipe_after_snapshot_hook_for_test(nullptr);
+            g_recipe_fault_request = nullptr;
+            require(g_recipe_fault_invoked && stopped, "Post-snapshot drift/mismatch was not exercised or returned accepted recipe authority");
+            require_loaded_state(exact_target, 7);
+        };
+        expect_recipe_fault("printf '\\n# late mutation\\n' >>" + shell_quote(checkout.path() / "PKGBUILD"));
+        expect_recipe_fault("/usr/bin/git -C " + shell_quote(checkout.path()) + " checkout -q --force HEAD^");
+        expect_recipe_fault({}, PackageBaseIdentity::make(aur_identity().source(), "different-base"));
+        expect_recipe_fault({}, PackageBaseIdentity::make(PackageSourceIdentity::aur(
+                                                              SourceLocationIdentity::known_git_remote("https://aur.archlinux.org/different-source.git")),
+                                                          std::string(PACKAGE_BASE)));
+        expect_recipe_fault("/usr/bin/git -C " + shell_quote(checkout.path()) +
+                            " remote set-url origin https://aur.archlinux.org/different-source.git");
+        run("/usr/bin/git -C " + shell_quote(checkout.path()) + " remote set-url origin " + std::string(CANONICAL_REMOTE));
+        expect_recipe_fault("mv " + shell_quote(checkout.path() / "PKGBUILD") + " " + shell_quote(tree.path() / "unsafe-recipe") +
+                            " && ln -s " + shell_quote(tree.path() / "unsafe-recipe") + " " + shell_quote(checkout.path() / "PKGBUILD"));
+        fs::remove(checkout.path() / "PKGBUILD");
+        fs::rename(tree.path() / "unsafe-recipe", checkout.path() / "PKGBUILD");
+        // Named root replacement is rejected even if the contents are copied.
+        expect_recipe_fault("mv " + shell_quote(checkout.path()) + " " + shell_quote(tree.path() / "old-checkout") +
+                            " && cp -a " + shell_quote(tree.path() / "old-checkout") + " " + shell_quote(checkout.path()));
+
         std::cout << "reviewed source production connection tests passed\n";
         return 0;
     } catch(const std::exception& error) {
         set_reviewed_source_before_publication_hook_for_test(nullptr);
+        set_reviewed_recipe_after_snapshot_hook_for_test(nullptr);
         reset_reviewed_source_state_store_test_hooks();
         std::cerr << "reviewed source production connection test failure: "
                   << error.what() << '\n';
