@@ -473,3 +473,35 @@ customized authoritative develのrecipe lineage、build proof、publication/次�
 case-local bare Git/RPC、real makepkg、sealed-input install observationを使う。actual host package transactionを行わない。
 recipe A→current upstream B→saved series再適用、fresh dependencies、3 route、No zero-I/O、strict failures、
 multiple independent selection、dry-run/targetless zero-read、forced/ordinary authoritative拒否を対象とする。
+
+## Issue #650 Slice 2: invocation-local generated recipe patch
+
+`generate_recipe_patch()`はSlice 1の`ReviewRecipeEditCorrelation`だけをproduction inputとし、
+同じobjectのfrozen baseline / accepted PKGBUILD bytesからpatchを生成する内部seamである。
+original checkout、package名による再取得、`.SRCINFO`、editor後のmutable filesystemはdiff authorityにしない。
+相関objectはcontents-onlyであり、file mode snapshotや他fileの編集を生成対象へ追加しない。
+
+private invocation-owned directoryを`/ramdisk`へ作成し、利用不可の場合だけ`/tmp`へfallbackする。
+baseline / acceptedを同一modeの`a/PKGBUILD` / `b/PKGBUILD`として書き、system Gitの
+`diff --no-index --no-prefix`へexplicit argvで渡す。algorithmはmyers、contextは3、indent heuristic、
+external diff、textconv、rename、colorを無効化し、full index / text出力を指定する。
+完全なchild environmentとrepositoryless設定、global/system config / attributes遮断、autocrlf無効化により
+利用者のGit設定をgeneration authorityへ入れない。出力はtrim・EOL・encoding・final newline補正をしない。
+
+Gitのstdoutとstderrを合計16 MiB以内、30秒のbounded processでcaptureする。差分のexit 1だけを
+受理し、capture overflow、cancellation、launch / I/O / timeout / 異常終了はtyped failureとする。
+異なるfrozen bytesへのexit 0もfailureである。診断混入を含む出力は既存shape validatorを通す。
+empty、NUL、他path、multi-file、create/delete/rename/mode/binary framing、contextのないhunkは成功にしない。
+
+validator通過後、exact baselineのprivate copyへ`apply_recipe_patch_series()`でcheck / applyし、
+結果のPKGBUILDをaccepted bytesとbyte-for-byte比較する。一致とowned temporary cleanupの成功後だけ、
+source/target identityとpatch bytesをowningなimmutable `GeneratedRecipePatch`として返す。
+同じ入力bytesは`RecipePatchNoChange`であり、空patchをconsumerへ流さない。
+shape拒否、apply失敗、reproduction mismatch、cleanup失敗をfallbackやrepairで成功へ変換しない。
+apply失敗とbaseline/result bytes不一致は別reasonとし、private recipeのsnapshot/I/O失敗は既存
+`LocalSourceRootFailure`またはsystem errorを保持する。未知のvalidator/process内部exceptionは
+Git終了失敗へ分類せず、causeを持つ`InternalFailure`としてcleanup後に返す。
+
+このseamはreview/build runtimeへ未接続であり、編集だけで自動生成しない。save consent / prompt、
+destination、material publication、registration、#363 producer接続はSlice 3の未実装scopeである。
+#649 production route、metadata replan、authoritative devel customizationは変更しない。

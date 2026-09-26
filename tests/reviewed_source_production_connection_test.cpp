@@ -1,5 +1,6 @@
 #include "app_config.hpp"
 #include "cache_authority.hpp"
+#include "generated_recipe_patch.hpp"
 #include "reviewed_source_pinned_build.hpp"
 #include "reviewed_source_production_outcome.hpp"
 #include "reviewed_source_state_store.hpp"
@@ -583,6 +584,12 @@ int main() {
                         edit->identity().package_base() == aur_identity() && edit->identity().target_revision() == target &&
                         edit->checkout_device() == checkout.device() && edit->checkout_inode() == checkout.inode(),
                     "Accepted PKGBUILD bytes or source/target/checkout correlation differs");
+            const auto generated = generate_recipe_patch(*edit);
+            const auto* patch = std::get_if<GeneratedRecipePatch>(&generated);
+            require(patch && patch->identity() == edit->identity() &&
+                        !validate_local_recipe_patch(patch->bytes()) &&
+                        read_bytes(checkout.canonical_path() / "PKGBUILD") == edit->accepted_pkgbuild(),
+                    "Slice 1 frozen correlation did not produce a verified patch or original recipe changed");
             const ProductionSourceBuildProvenance& provenance =
                 prepared_source_build_provenance_for_test(*prepared);
             require(
@@ -1045,6 +1052,11 @@ int main() {
             require(edit->baseline_pkgbuild() == exact_baseline &&
                         edit->accepted_pkgbuild() == exact_baseline + "\n# atomic edit\r\n",
                     "Correlation did not own frozen pre/post bytes");
+            const auto generated = generate_recipe_patch(*edit);
+            require(std::holds_alternative<GeneratedRecipePatch>(generated) &&
+                        std::get<GeneratedRecipePatch>(generated).identity() == edit->identity() &&
+                        read_bytes(checkout.path() / "PKGBUILD") == "# later filesystem contents\n",
+                    "Generator reopened mutable checkout instead of using frozen recipe bytes");
         }
         static_cast<void>(atomic_target);
 

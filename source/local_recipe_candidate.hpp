@@ -15,6 +15,9 @@ struct LocalRecipePatch {
     std::string bytes;
 };
 
+// Shared single-material bound for acquisition, generation and shape checking.
+inline constexpr std::size_t LOCAL_RECIPE_PATCH_MAX_BYTES = 16U * 1024U * 1024U;
+
 enum class LocalRecipePatchOutcome { NotAttempted,
                                      Applied,
                                      Failed };
