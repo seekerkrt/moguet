@@ -457,6 +457,9 @@ dependency edgeはmetadata trust boundaryで構成したtyped requirement、inst
 `del-patch <directory> <package-base>`をclosed grammarとして公開する。
 `list-patch` / `list-patch --details`で保存recordを一覧する。Normalはassociationの概要、Detailedは
 保存順のfile名・expected digest・schema versionを追加し、外部materialのopen・存在確認・再hashはしない。
+local v1とAUR専用v2を混在でき、AUR sourceのnetwork / 存在確認も行わない。
+AUR登録・更新は既存resolved source authorityを受けるinternal APIのみで、public creation UXは後続Sliceとする。
+exact lookupもregistry全体をstrictに読み、unknown identity / 不正recordをabsenceにしない。
 不正recordはskipせず一覧全体を失敗させる。表示順とread契約は[patch contract](contracts/patch-customization.md)を正とする。
 `build --local --use-patches <directory> [V=K...]`だけが保存associationを明示選択する。
 通常local buildはpatch storeを読まず、登録・選択・実行同意を分離する。

@@ -720,13 +720,15 @@ safetyとfailure semanticsは厳密に維持します。
 
 `moguet list-patch`は保存associationを一覧し、選択・適用はしません。Normalではassociationごとに
 PackageBase、source kindとcanonical source location、patch件数、material rootを1行で表示します。
-行はPackageBase→source locationのbyte順で安定化し、series内は保存済みpatch順を維持します。
+行はPackageBase→source kind（local、AUR）→source locationのbyte順で安定化し、series内は保存済みpatch順を維持します。
 `moguet list-patch --details`ではrecord schema version、ordered patch file名と**保存済み期待値**の
 SHA-256 digestも表示します。どちらも外部source / material pathのopen・存在確認、patch bytesの
 read、material digest再計算を行いません。materialが消失・変更されていても一覧でき、materialの
 健全性を保証する表示ではありません。壊れた・非対応・unsafe・identity不一致のregistry recordは
 skipせずcommand全体をerrorで停止します。storeがない場合も作成せず登録なしと表示します。
-remote/AUR associationとupgradeの対話再利用は後続Sliceです。
+local v1とAUR v2のassociationを混在して一覧できます。AURはcanonical Git URLと解決済みPackageBaseで
+識別し、listingからremoteへ接続しません。AUR登録・更新は現在internal APIです。public creation UXと
+upgradeの対話再利用は後続Sliceに残し、既存patch commandの登録対象はlocal sourceのままです。
 
 `moguet add-patch <directory> <patch-directory> <patch-file>...`で、local sourceの
 canonical pathとPackageBaseにorderedなGit unified text patch seriesを関連付けます。

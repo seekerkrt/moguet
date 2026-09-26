@@ -4,7 +4,8 @@
 
 **Production Slice 1–3のinitial local recipe consumerを実装済み。**
 [Issue #363 current body](https://github.com/seekerkrt/moguet/issues/363)をrequirements SSOTとする。
-以下は実装済みlocal contractとDesign Gateの比較根拠である。remote / other text / source payloadは将来consumerとする。
+以下は実装済みlocal contractとDesign Gateの比較根拠である。#649 Slice 2でAUR associationを追加した。
+remote適用 / other text / source payloadは将来consumerとする。
 [#627 requirements reset](https://github.com/seekerkrt/moguet/issues/627)に従い、過去の
 profile / snapshot foundationを要求へ戻さない。requirementsはIssue、具体的な
 patch contractはこの文書、上位原則は[decisions](../decisions.md)と[stance](../project-stance.md)が所有する。
@@ -126,7 +127,8 @@ material acquisition / selection / execution consentではない。local-onlyの
 既存`PresentationDetail::Normal` / `Detailed`を使う。Normalは1 associationにつきPackageBase、
 source kind・canonical location、patch件数、material rootの1行。Detailedは受理済みrecord schema
 version、series順のfile名・保存済みexpected SHA-256も表示する。terminal-facing pathは共通escapeを使い、
-identityへの逆流はない。record間はPackageBase→canonical source locationのbyte順、series内は保存順である。
+identityへの逆流はない。record間はPackageBase→source kind（local、AUR）→canonical source locationのbyte順、
+series内は保存順である。local同士の既存順序は変わらない。
 
 readはno-create。shared lock下でstoreのentryを列挙し、全recordの読取りが成功してから表示する。
 missing store / empty storeだけを登録なしとする。recordの破損・非対応version / source kind・unsafe・
@@ -138,6 +140,64 @@ registry discoveryは可能である。strict acquisitionは既存の明示build
 
 Patch customizationはExperimental（[#649](https://github.com/seekerkrt/moguet/issues/649)）。
 remote/AUR association、upgrade-family対話consumer、material health checkはこのSliceに含まない。
+
+### Issue #649 Slice 2: AUR association
+
+この拡張はAURのassociation保存・発見までであり、upgradeへの接続・適用・確認は追加しない。
+registration presence != selection != execution consentを維持する。
+
+**Identity authority:** `resolve_source_build_identity()`のAUR exact metadataから得たKnown PackageBaseと、
+`ResolvedAurSourceBuildIdentity`内の`SourceCheckoutIdentity`が所有するcanonical Git URLを使う。
+`aur_patch_association_identity()`はrequested childとPackageBaseをそれぞれ検証し、既存の
+`PackageBaseIdentity`（Aur + Known GitRemote + PackageBase）へread-onlyに投影する。
+canonical URLは`https://aur.archlinux.org/<PackageBase>.git`であり、既存checkout ownerの生成値と
+exact一致を要求する。URL alias、任意Git hosting、repository sourceを一般化して受理しない。
+child、provider、display/search labelをPackageBaseへ補完せず、derived `aur:<base>` keyの逆parseもしない。
+split siblingsは解決済みPackageBaseを共有する。release / revisionはdurable keyに含めない。
+
+#355のgeneric root / provider / update projectionが返すUnknown locationはそのままInvalidIdentityで停止する。
+Slice 3のconsumerはcurrent exact source resolutionを通してKnown identityを得てから
+`read_patch_association(const PackageBaseIdentity&)`へ渡す必要がある。generic Unknownへ既定URLを注入する
+bridgeは認めない。Known URLとPackageBaseの不整合はAssociationMismatchであり、未登録へ丸めない。
+identity equalityはapply可能性、current recipe metadata、review acceptance、execution consentを証明しない。
+
+**Version boundary:** local v1 decoder / writer / key bytesを維持し、AUR専用v2を同じnamespaceへ追加する。
+v1の`local_source`はlocal absolute path専用であり、remote URLを同fieldへ入れると意味が曖昧になるためversionを分ける。
+v2はexact integer `schema_version=2`、`source_kind='aur'`、`source_url`、`package_base`、
+`material_root`、`patches`の6 fieldだけを受ける。material / ordered entriesの契約はv1と同じである。
+v1にはlocal、v2にはAURしか許さず、同じlocal identityの別version表現を作らない。
+version別decoderを明示し、unknown version/source kindはUnsupported、field/type不正はCorruptで停止する。
+読み書きはlocal v1を自動rewriteせず、startup migrationやgeneric migration frameworkを持たない。
+旧binaryはAUR v2をUnsupportedとして拒否するため、mixed registryは旧binaryへ後方可読ではない。
+
+filenameは以下のbytesを既存SHA-256でhashしたlowercase hex + `.toml`である。
+`NUL`は1 byteの区切りで、field内のNULはidentity validatorが拒否する。表示文字列を入力にはしない。
+
+```text
+local v1: moguet-local-recipe-patch-v1 NUL canonical-local-path NUL PackageBase
+AUR   v2: moguet-aur-recipe-patch-v2 NUL aur NUL canonical-Git-URL NUL PackageBase
+```
+
+strict decodeは実filenameと本文identity由来keyを常に照合する。別名で置いたduplicate/conflicting recordも
+key mismatchとして失敗し、skipしない。local A / local B / AURの同名PackageBaseは別associationである。
+`read_patch_association()`とlocal互換entryは同じcomplete registry snapshotを読み、exact identityだけを返す。
+安全に読めたregistryに該当identityがない場合だけAbsentとし、他keyの破損・非対応・unsafe・I/O error、
+観測中の消失/変更もlookup全体のfailureとする。一覧も同じsnapshotを使う。
+Normal / Detailedともsource/materialのopen・read・再hash、RPC、Git、network、remote存在確認を行わない。
+Detailedのversionは各recordのdecoderが受理した1または2を示す。
+
+**Production write API:** `register_aur_patch_association()` / `update_aur_patch_association()`は
+`ResolvedAurSourceBuildIdentity`と利用者管理materialを受け、既存strict acquisition / digest固定 /
+atomic publicationを再利用する。callerがcurrent resolutionと明示保存意図を確立することが前提であり、
+API自体はsource取得・recipe評価・patch適用を行わない。updateはprevious observationとexact identityを要求する。
+`forget_patch_association()`はlocal/AUR双方のstrict reader tokenを受け、recordだけを削除する。
+local register/update wrapperは引き続き`ObservedLocalPatchSource`のfresh評価とfilesystem guardを要求する。
+local acquisition APIはAUR入力を拒否し、AURをlocal candidateへ渡すconsumerを先行導入しない。
+
+**Public surface:** `list-patch`はlocal/AURを混在表示するが、add/update/deleteのCLI grammarはlocal専用のまま。
+directory入力とlocal metadata評価の契約へremote source selectionを混ぜず、AUR creation UXはSlice 3 / #650へ残す。
+上記APIはproduction buildへ含まれ、後続の明示registration producerが利用できる。test専用のmodelではない。
+自動適用、remembered selection、upgrade confirmation、targetless `-Syu` / `-Su`変更、#362の変更は含まない。
 
 ### Production Slice 2: association / persistence / strict acquisition
 

@@ -1,4 +1,5 @@
 #include "local_patch_association.hpp"
+#include "source_install.hpp"
 #include "trusted_cache_test_support.hpp"
 
 #include <cstdlib>
@@ -204,6 +205,168 @@ void test_registry_discovery() {
     static_cast<void>(take<PatchAssociationForgotten>(forget_local_patch_association(earlier_saved)));
     static_cast<void>(take<PatchAssociationForgotten>(forget_local_patch_association(other_saved)));
     expect(take<Records>(list_patch_associations()).empty(), "empty existing registry not empty");
+}
+
+void test_aur_lifecycle_and_mixed_registry() {
+    Fixture f;
+    using Records = std::vector<LoadedPatchAssociation>;
+    const ResolvedAurSourceBuildIdentity source("association-child", "association-base");
+    const auto identity = take<PackageBaseIdentity>(aur_patch_association_identity(source));
+    const auto sibling = take<PackageBaseIdentity>(aur_patch_association_identity(
+        ResolvedAurSourceBuildIdentity("another-child", "association-base")));
+    expect(identity == sibling && *identity.source().location().value() == "https://aur.archlinux.org/association-base.git",
+           "AUR identity depends on child or lost checkout authority");
+    expect(std::holds_alternative<PatchAssociationAbsent>(read_patch_association(identity)), "AUR initial lookup not absent");
+    expect(!fs::exists(f.config / "moguet"), "AUR lookup created registry");
+    const auto path = patch_association_record_path(identity);
+    // Independent SHA-256 fixture: domain NUL kind NUL canonical URL NUL base.
+    expect(path.filename() == "9e5f05cc3709ab356d506f185a24291e9298e63f1a95ed375b0024de78963860.toml", "AUR key derivation changed");
+    auto saved = take<LoadedPatchAssociation>(register_aur_patch_association(source, f.material, {"two.patch", "one.patch"}));
+    auto loaded = take<LoadedPatchAssociation>(read_patch_association(sibling));
+    expect(loaded.identity() == identity && loaded.schema_version() == 2 && loaded.entries() == saved.entries(), "AUR round trip failed");
+    const auto raw = read(path);
+    expect(raw.find("local_source") == std::string::npos && raw.find("before") == std::string::npos, "AUR record mixed local identity/material bytes");
+    expect_failure(register_aur_patch_association(source, f.material, {"one.patch"}), Kind::AlreadyExists);
+    expect_failure(read_local_patch_association(identity), Kind::InvalidIdentity);
+    expect_failure(acquire_local_patch_series(loaded), Kind::InvalidIdentity);
+    expect_failure(forget_local_patch_association(loaded), Kind::InvalidIdentity);
+
+    auto local = f.observe();
+    auto local_saved = f.registration(local);
+    const auto local_path = local_patch_association_record_path(local.identity());
+    const auto local_raw = read(local_path);
+    expect(path != local_path && local_saved.schema_version() == 1, "local/AUR namespace collision");
+    const auto earlier = f.root / "a-source";
+    fs::create_directory(earlier);
+    write(earlier / "PKGBUILD", RECIPE);
+    auto earlier_source = f.observe(earlier);
+    auto earlier_saved = f.registration(earlier_source);
+    expect(take<LoadedPatchAssociation>(read_patch_association(local.identity())).identity() == local.identity(), "AUR shadowed local source");
+    expect(take<LoadedPatchAssociation>(read_patch_association(earlier_source.identity())).identity() == earlier_source.identity(), "different local sources collapsed");
+    bool material_read = false;
+    set_patch_association_test_hook([&](Point point, const fs::path&) {
+        if(point == Point::AfterMaterialOpen || point == Point::AfterMaterialRead || point == Point::AfterSeriesRead || point == Point::PartialRead)
+            material_read = true;
+    });
+    write(f.material / "one.patch", "changed material");
+    for(int attempt = 0; attempt < 3; ++attempt) {
+        auto records = take<Records>(list_patch_associations());
+        expect(records.size() == 3 && records[0].identity() == earlier_saved.identity() &&
+                   records[1].identity() == local.identity() && records[2].identity() == identity,
+               "mixed registry order/identity changed");
+        expect(records[2].entries() == saved.entries(), "listing followed changed material digest");
+        static_cast<void>(take<LoadedPatchAssociation>(read_patch_association(identity)));
+    }
+    expect(!material_read, "listing/lookup acquired external material");
+    set_patch_association_test_hook({});
+    expect(read(local_path) == local_raw, "AUR lifecycle rewrote v1");
+    expect_failure(update_aur_patch_association(source, local_saved, f.material, {"two.patch"}), Kind::AssociationMismatch);
+    auto updated = take<LoadedPatchAssociation>(update_aur_patch_association(source, saved, f.material, {"two.patch"}));
+    expect(updated.entries().size() == 1 && updated.entries()[0] == saved.entries()[0], "AUR explicit update failed");
+    expect_failure(update_aur_patch_association(source, saved, f.material, {"two.patch"}), Kind::ConcurrentChange);
+    expect_failure(forget_patch_association(saved), Kind::ConcurrentChange);
+    fs::rename(f.material, f.root / "removed-material");
+    fs::rename(f.source, f.root / "removed-source");
+    expect(take<Records>(list_patch_associations()).size() == 3, "mixed listing required source/material existence");
+    static_cast<void>(take<PatchAssociationForgotten>(forget_patch_association(updated)));
+    expect(std::holds_alternative<PatchAssociationAbsent>(read_patch_association(identity)), "AUR forget left association");
+    expect(read(local_path) == local_raw, "AUR forget changed v1");
+    expect(fs::exists(f.root / "removed-material/two.patch"), "AUR forget removed material");
+}
+
+void test_v1_persisted_fixture() {
+    Fixture f;
+    // A pre-extension record/key independent of the current encoder. Its source
+    // and material deliberately do not exist: lookup/listing are metadata-only.
+    const auto identity = PackageBaseIdentity::make(PackageSourceIdentity::local(
+                                                        SourceLocationIdentity::known_local_path("/fixture/source")),
+                                                    "association-base");
+    const auto path = local_patch_association_record_path(identity);
+    expect(path.filename() == "ceab57aa04b8037dbe00f1f83ea28edfbb081f1bb2ea408fd052bd5461bb7b36.toml", "local v1 key changed");
+    fs::create_directories(path.parent_path());
+    fs::permissions(path.parent_path(), fs::perms::owner_all);
+    fs::permissions(path.parent_path().parent_path(), fs::perms::owner_all);
+    const std::string raw = "schema_version=1\nsource_kind='local'\nlocal_source='/fixture/source'\npackage_base='association-base'\nmaterial_root='/fixture/material'\n[[patches]]\nfile='saved.patch'\nsha256='" + std::string(64, 'a') + "'\n";
+    write(path, raw, 0600);
+    expect(take<LoadedPatchAssociation>(read_local_patch_association(identity)).schema_version() == 1, "old local record no longer decodes");
+    expect(take<std::vector<LoadedPatchAssociation>>(list_patch_associations())[0].identity() == identity, "old local record no longer lists");
+    expect(read(path) == raw, "reader migrated v1 fixture");
+}
+
+void test_aur_identity_failures() {
+    Fixture f;
+    const auto aur = [](SourceLocationIdentity location, std::string base = "association-base") {
+        return PackageBaseIdentity::make(PackageSourceIdentity::aur(std::move(location)), std::move(base));
+    };
+    for(const auto& name : {"association-child", "provider-name", "display-label"}) {
+        expect_failure(read_patch_association(aur(SourceLocationIdentity::unknown(SourceLocationKind::GitRemote), name)), Kind::InvalidIdentity);
+        expect_failure(aur_patch_association_identity(ResolvedAurSourceBuildIdentity(name, "")), Kind::InvalidIdentity);
+        // Holding a URL for the actual base does not turn a child/provider
+        // label into that PackageBase, even if no record has been saved yet.
+        expect_failure(read_patch_association(aur(SourceLocationIdentity::known_git_remote("https://aur.archlinux.org/association-base.git"), name)), Kind::AssociationMismatch);
+    }
+    expect_failure(aur_patch_association_identity(ResolvedAurSourceBuildIdentity("bad/name", "association-base")), Kind::InvalidIdentity);
+    expect_failure(aur_patch_association_identity(ResolvedAurSourceBuildIdentity("child", "../base")), Kind::InvalidIdentity);
+    expect_failure(read_patch_association(aur(SourceLocationIdentity::unavailable(SourceLocationKind::GitRemote, IdentityUnavailableReason::ObservationFailed))), Kind::InvalidIdentity);
+    for(const auto& url : {"https://example.org/association-base.git", "http://aur.archlinux.org/association-base.git", "https://aur.archlinux.org/association-base", "https://aur.archlinux.org/other-base.git", "https://aur.archlinux.org/association-base.git/"})
+        expect_failure(read_patch_association(aur(SourceLocationIdentity::known_git_remote(url))), Kind::AssociationMismatch);
+    const auto repository = PackageBaseIdentity::make(PackageSourceIdentity::repository("core", SourceLocationIdentity::known_git_remote("https://aur.archlinux.org/association-base.git")), "association-base");
+    expect_failure(read_patch_association(repository), Kind::InvalidIdentity);
+    expect(!fs::exists(f.config / "moguet"), "invalid identity caused registry mutation");
+}
+
+void test_aur_strict_registry() {
+    Fixture f;
+    const ResolvedAurSourceBuildIdentity source("child", "association-base");
+    const auto saved = take<LoadedPatchAssociation>(register_aur_patch_association(source, f.material, {"one.patch"}));
+    const auto path = patch_association_record_path(saved.identity());
+    const auto good = read(path);
+    const auto absent = take<PackageBaseIdentity>(aur_patch_association_identity(ResolvedAurSourceBuildIdentity("child", "absent-base")));
+    expect(std::holds_alternative<PatchAssociationAbsent>(read_patch_association(absent)), "valid unrelated record prevents true absence");
+    const auto replace = [&](const std::string& from, const std::string& to) {
+        auto bytes = good;
+        const auto pos = bytes.find(from);
+        expect(pos != std::string::npos, "malformed fixture replacement missed");
+        bytes.replace(pos, from.size(), to);
+        return bytes;
+    };
+    const std::vector<std::pair<std::string, Kind>> bad_records{
+        {"invalid [", Kind::Corrupt}, {good.substr(0, good.size() / 2), Kind::Corrupt}, {good + "\n[unexpected]\nx=1\n", Kind::Corrupt}, {replace("schema_version = 2", "schema_version = true"), Kind::Corrupt}, {replace("schema_version = 2", "schema_version = 2.0"), Kind::Corrupt}, {replace("schema_version = 2", "schema_version = '2'"), Kind::Corrupt}, {replace("schema_version = 2", "schema_version = 99"), Kind::Unsupported}, {replace("schema_version = 2", "schema_version = 1"), Kind::Unsupported}, {replace("source_kind = 'aur'", "source_kind = 'local'"), Kind::Unsupported}, {replace("source_kind = 'aur'", "source_kind = 'git'"), Kind::Unsupported}, {replace("source_url", "local_source"), Kind::Corrupt}, {replace("https://aur.archlinux.org/association-base.git", "https://aur.archlinux.org/other.git"), Kind::AssociationMismatch}, {replace("package_base = 'association-base'", "package_base = 'child'"), Kind::AssociationMismatch}, {replace("file = 'one.patch'", "file = '../one.patch'"), Kind::Corrupt}, {replace("source_url =", "source_url = 1\nsource_url ="), Kind::Corrupt}};
+    for(const auto& [bytes, kind] : bad_records) {
+        write(path, bytes, 0600);
+        expect_failure(read_patch_association(saved.identity()), kind);
+        expect_failure(read_patch_association(absent), kind);
+        expect_failure(list_patch_associations(), kind);
+    }
+    write(path, good, 0600);
+    const auto wrong_path = patch_association_record_path(absent);
+    write(wrong_path, good, 0600);
+    expect_failure(read_patch_association(saved.identity()), Kind::AssociationMismatch);
+    expect_failure(list_patch_associations(), Kind::AssociationMismatch);
+    fs::remove(path);
+    expect_failure(read_patch_association(saved.identity()), Kind::AssociationMismatch);
+    fs::remove(wrong_path);
+    write(path, good, 0600);
+    ::chmod(path.c_str(), 0644);
+    expect_failure(read_patch_association(absent), Kind::Unsafe);
+    ::chmod(path.c_str(), 0600);
+    fail_patch_association_operation_for_test(Point::AfterRecordRead);
+    expect_failure(read_patch_association(absent), Kind::IoFailure);
+    for(const auto point : {Point::AfterRegistryEnumeration, Point::AfterRecordRead}) {
+        set_patch_association_test_hook([&](Point observed, const fs::path&) {
+            if(observed == point) fs::remove(path);
+        });
+        // Unlink after open violates the existing config nlink safety guard;
+        // disappearance before open is an observed concurrent registry change.
+        expect_failure(read_patch_association(absent), point == Point::AfterRecordRead ? Kind::Unsafe : Kind::ConcurrentChange);
+        set_patch_association_test_hook({});
+        write(path, good, 0600);
+    }
+    set_patch_association_test_hook([&](Point point, const fs::path&) {
+        if(point == Point::AfterRecordRead) write(path, good + "\n", 0600);
+    });
+    expect_failure(list_patch_associations(), Kind::ConcurrentChange);
+    set_patch_association_test_hook({});
 }
 
 void test_identity_and_strict_record() {
@@ -466,6 +629,10 @@ int main() {
     try {
         test_lifecycle();
         test_registry_discovery();
+        test_aur_lifecycle_and_mixed_registry();
+        test_v1_persisted_fixture();
+        test_aur_identity_failures();
+        test_aur_strict_registry();
         test_identity_and_strict_record();
         test_material_failures();
         test_publication();

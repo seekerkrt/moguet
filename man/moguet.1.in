@@ -439,14 +439,16 @@ registration fails. User material is never removed, rewritten or chmodded.
 .TP
 .B "list-patch"
 List saved patch associations: PackageBase, source kind and canonical location, patch count,
-and material root, ordered by PackageBase then source location (bytewise).
+and material root, ordered by PackageBase, source kind (local then AUR), then source location (bytewise).
 With --details, also show the record schema version, ordered filenames and saved expected
 SHA-256 digests. Neither form opens or checks external source/material paths or rehashes
 patch bytes. Missing or changed material does not prevent listing; material health is not verified.
 Malformed, unsupported, unsafe or mismatched registry records fail the whole listing; they are
 never silently skipped. An absent/empty registry is reported without creating it.
 Patch customization is Experimental; CLI, record schema and presentation may change.
-Remote/AUR associations and interactive upgrade reuse are not supported yet.
+Local v1 and AUR v2 records can coexist. AUR identity uses the canonical Git URL and
+resolved PackageBase; listing does not contact the remote. AUR registration/update are
+internal APIs; public creation UX and interactive upgrade reuse remain future work.
 .
 .TP
 .B "-S <pkg> | -S --select [--needed] <query>"

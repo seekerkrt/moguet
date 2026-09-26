@@ -998,12 +998,13 @@ int cmd_patch_association(const ParsedCliArguments& parsed, const AppConfig& con
                 const auto& identity = record.identity();
                 const auto source = terminal_safe_text::escape_utf8(*identity.source().location().value());
                 const auto material = terminal_safe_text::escape_utf8(record.material_root().string());
-                // Schema v1 accepts only local sources. Keep the complete typed
-                // identity in the read model; these strings are display-only.
+                // Strict decoding admits local v1 and AUR v2 only. These
+                // strings are presentation, never lookup authority.
+                const auto kind = identity.source().kind() == PackageSourceKind::Local ? "local" : "aur";
                 // TRANSLATORS: Placeholders are PackageBase, source kind, source location, patch count, and material root.
                 std::cout << localization::format_translated_message(
                                  "  {}  {}:{}  patches={}  material={}",
-                                 terminal_safe_text::escape_utf8(identity.package_base()), "local", source, record.entries().size(), material)
+                                 terminal_safe_text::escape_utf8(identity.package_base()), kind, source, record.entries().size(), material)
                           << '\n';
                 if(config.presentation_detail != PresentationDetail::Detailed) continue;
                 std::cout << localization::format_translated_message("    Record schema version: {}", record.schema_version()) << '\n';

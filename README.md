@@ -845,7 +845,7 @@ change during dogfooding. Safety and failure semantics remain strict.
 
 `moguet list-patch` discovers saved associations without selecting or applying them.
 Normal output shows one row per association: PackageBase, source kind and canonical
-source location, patch count, and material root. Rows sort by PackageBase then source
+source location, patch count, and material root. Rows sort by PackageBase, source kind (local then AUR), then source
 location (bytewise); patch order within each saved series is preserved.
 `moguet list-patch --details` also shows the record schema version, ordered patch
 filenames and **saved expected** SHA-256 digests. Neither form opens or checks external
@@ -853,7 +853,10 @@ source/material paths, reads patch bytes, or recomputes material digests. Missin
 changed material does not prevent listing; listing does not certify material health.
 Malformed, unsupported, unsafe or mismatched registry records stop the command with
 an error instead of being skipped. A missing/empty registry is reported without
-creating it. Remote/AUR associations and interactive upgrade reuse remain future slices.
+creating it. Local v1 and AUR v2 associations can coexist. AUR records identify the
+canonical AUR Git URL and resolved PackageBase; listing never contacts that remote.
+AUR registration/update are currently internal APIs. Public creation UX and interactive
+upgrade reuse remain future slices; the existing patch commands still register local sources.
 
 Use `moguet add-patch <directory> <patch-directory> <patch-file>...` to associate
 an ordered series of Git unified text patches with a local source's canonical
