@@ -7,6 +7,8 @@
 #include <system_error>
 #include <variant>
 
+class ResolvedAurSourceBuildIdentity;
+
 enum class PatchAssociationFailureKind {
     Missing,
     Changed,
@@ -59,10 +61,11 @@ struct PatchMaterialEntry {
 class LoadedPatchAssociation final {
     struct Observation;
     std::shared_ptr<const Observation> observation_;
+    int schema_version_;
     PackageBaseIdentity identity_;
     std::filesystem::path material_root_;
     std::vector<PatchMaterialEntry> entries_;
-    LoadedPatchAssociation(std::shared_ptr<const Observation>, PackageBaseIdentity,
+    LoadedPatchAssociation(std::shared_ptr<const Observation>, int, PackageBaseIdentity,
                            std::filesystem::path, std::vector<PatchMaterialEntry>);
     friend struct PatchAssociationAccess;
 
@@ -98,12 +101,30 @@ std::variant<ObservedLocalPatchSource, PatchAssociationFailure> observe_local_pa
     LocalSourceRoot original, const ValidatedCacheRoot& cache_root,
     SourceBuildEnvironment environment);
 
-// Reader is no-create. Value identity selects a record, not execution consent.
+// Pure projection of resolved AUR checkout authority. No RPC, URL guessing from
+// a child/provider label, source existence check, or execution consent.
+std::variant<PackageBaseIdentity, PatchAssociationFailure> aur_patch_association_identity(
+    const ResolvedAurSourceBuildIdentity& source);
+
+// No-create exact lookup in a completely validated registry. Unknown identity
+// and registry failure are distinct from genuine absence. No material I/O.
+PatchAssociationReadResult read_patch_association(const PackageBaseIdentity& identity);
+// Compatibility entry point for the local consumer; rejects non-local input.
 PatchAssociationReadResult read_local_patch_association(const PackageBaseIdentity& identity);
 // Complete registry snapshot or failure, ordered by PackageBase then source
-// location. Reuses the strict record reader; never opens source/material paths
+// kind (local, aur) and location. Never opens source/material paths
 // or creates the store. A missing store is an empty registry, not a bad record.
 std::variant<std::vector<LoadedPatchAssociation>, PatchAssociationFailure> list_patch_associations();
+// Caller supplies current resolved source authority and explicit save/update
+// intent. Registration is not patch selection or permission to execute recipes.
+PatchAssociationWriteResult register_aur_patch_association(
+    const ResolvedAurSourceBuildIdentity& source, const std::filesystem::path& material_root,
+    const std::vector<std::string>& ordered_files);
+PatchAssociationWriteResult update_aur_patch_association(
+    const ResolvedAurSourceBuildIdentity& source, const LoadedPatchAssociation& previous,
+    const std::filesystem::path& material_root, const std::vector<std::string>& ordered_files);
+std::variant<PatchAssociationForgotten, PatchAssociationFailure> forget_patch_association(
+    const LoadedPatchAssociation& previous);
 PatchAssociationWriteResult register_local_patch_association(
     const ObservedLocalPatchSource& source, const std::filesystem::path& material_root,
     const std::vector<std::string>& ordered_files);
@@ -118,6 +139,7 @@ std::variant<PatchAssociationForgotten, PatchAssociationFailure> forget_local_pa
 PatchAssociationAcquireResult acquire_local_patch_series(const LoadedPatchAssociation& association);
 
 // Display/diagnostic path only, never a filesystem capability.
+std::filesystem::path patch_association_record_path(const PackageBaseIdentity& identity);
 std::filesystem::path local_patch_association_record_path(const PackageBaseIdentity& identity);
 
 #ifdef MOGUET_ENABLE_PATCH_ASSOCIATION_TEST_HOOKS
@@ -125,6 +147,8 @@ enum class PatchAssociationTestPoint {
     AfterMaterialOpen,
     AfterMaterialRead,
     AfterSeriesRead,
+    AfterRecordRead,
+    AfterRegistryEnumeration,
     BeforePublication,
     BeforeWrite,
     BeforeFileSync,

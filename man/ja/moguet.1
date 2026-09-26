@@ -400,13 +400,15 @@ material消失時も削除でき、未登録なら失敗します。user materia
 .TP
 .B "list-patch"
 保存associationのPackageBase、source kindとcanonical location、patch件数、material rootを
-PackageBase→source locationのbyte順で一覧します。--detailsではrecord schema version、
+PackageBase→source kind（local、AUR）→source locationのbyte順で一覧します。--detailsではrecord schema version、
 保存済みpatch順のfile名と期待SHA-256 digestも表示します。どちらも外部source / material pathを
 open・存在確認せず、patch bytesのreadや再hashもしません。material消失・変更時にも一覧でき、
 materialの健全性を検証する表示ではありません。不正・非対応・unsafe・identity不一致のrecordは
 skipせず一覧全体を失敗させます。storeがない・空の場合は作成せず登録なしと表示します。
 patch customizationはExperimentalで、CLI・record schema・表示は変更され得ます。
-remote/AUR associationとupgradeの対話再利用は未対応です。
+local v1とAUR v2のrecordを混在して一覧できます。AURはcanonical Git URLと解決済みPackageBaseで
+識別し、listingからremoteへ接続しません。AUR登録・更新はinternal APIであり、public creation UXと
+upgradeの対話再利用は後続作業です。
 .
 .TP
 .B "-S <pkg> | -S --select [--needed] <query>"

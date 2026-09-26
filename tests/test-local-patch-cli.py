@@ -279,6 +279,37 @@ with tempfile.TemporaryDirectory(prefix='moguet-patch-cli-') as temporary:
             case.run(['del-patch',source,base])
         require(case.run(['list-patch'])==normal, 'listing changed existing association')
 
+        # Independent persisted AUR v2 fixture: production writers are covered
+        # by the component test; public listing consumes mixed historical data.
+        aur_url='https://aur.archlinux.org/patch-cli-base.git'
+        aur_key=hashlib.sha256(b'moguet-aur-recipe-patch-v2\0aur\0'+aur_url.encode()+b'\0patch-cli-base').hexdigest()
+        aur_record=record.parent/(aur_key+'.toml')
+        aur_bytes=("schema_version=2\nsource_kind='aur'\nsource_url='"+aur_url+"'\n"
+                   "package_base='patch-cli-base'\nmaterial_root='"+str(case.material)+"'\n"
+                   "[[patches]]\nfile='one.patch'\nsha256='"+hashlib.sha256(material_before['one.patch']).hexdigest()+"'\n")
+        write(aur_record, aur_bytes, 0o600)
+        watch_fd=libc.inotify_init1(os.O_NONBLOCK | os.O_CLOEXEC)
+        require(watch_fd>=0, 'mixed inotify initialization failed')
+        try:
+            for path in (case.source, case.material, case.material/'one.patch'):
+                require(libc.inotify_add_watch(watch_fd, os.fsencode(path), 0x1 | 0x20)>=0, 'mixed watch failed')
+            # No process lookup is needed, and RPC cannot resolve this source.
+            inert_env={'PATH':'/nonexistent', 'MOGUET_TEST_AUR_RPC_BASE_URL':'http://127.0.0.1:1/rpc/'}
+            mixed=case.run(['list-patch'], env=inert_env)
+            mixed_details=case.run(['list-patch','--details'], env=inert_env)
+            require(mixed.index('local:')<mixed.index('aur:'+aur_url), 'mixed source kind/order lost')
+            require('Record schema version: 1' in mixed_details and 'Record schema version: 2' in mixed_details, 'mixed schema detail lost')
+            require(case.run(['list-patch'], env=inert_env)==mixed, 'mixed listing nondeterministic')
+            try: events=os.read(watch_fd, 65536)
+            except BlockingIOError: events=b''
+            require(not events, 'mixed listing accessed external source/material')
+        finally:
+            os.close(watch_fd)
+        case.no_build()
+        require(not case.eval_log.read_text() and not case.command_log.read_text(), 'mixed listing executed source commands')
+        require(record.read_bytes()==saved and aur_record.read_text()==aur_bytes, 'mixed listing rewrote records')
+        aur_record.unlink()
+
 
         require('already registered' in case.run(['add-patch', case.source, case.material, 'one.patch'], ok=False, tty=True), 'duplicate register not rejected')
         case.no_build()
