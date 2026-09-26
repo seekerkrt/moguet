@@ -987,6 +987,37 @@ int cmd_patch_association(const ParsedCliArguments& parsed, const AppConfig& con
     using Op = cli_authority::OperationId;
     try {
         const auto operation = cli_authority::find_moguet_operation(parsed.operation)->id;
+        if(operation == Op::ListPatch) {
+            const auto records = require_patch_result<std::vector<LoadedPatchAssociation>>(list_patch_associations());
+            if(records.empty()) {
+                std::cout << localization::translate_message("No patch customizations registered.") << '\n';
+                return 0;
+            }
+            std::cout << localization::translate_message("Registered patch customizations:") << '\n';
+            for(const auto& record : records) {
+                const auto& identity = record.identity();
+                const auto source = terminal_safe_text::escape_utf8(*identity.source().location().value());
+                const auto material = terminal_safe_text::escape_utf8(record.material_root().string());
+                // Schema v1 accepts only local sources. Keep the complete typed
+                // identity in the read model; these strings are display-only.
+                // TRANSLATORS: Placeholders are PackageBase, source kind, source location, patch count, and material root.
+                std::cout << localization::format_translated_message(
+                                 "  {}  {}:{}  patches={}  material={}",
+                                 terminal_safe_text::escape_utf8(identity.package_base()), "local", source, record.entries().size(), material)
+                          << '\n';
+                if(config.presentation_detail != PresentationDetail::Detailed) continue;
+                std::cout << localization::format_translated_message("    Record schema version: {}", record.schema_version()) << '\n';
+                std::cout << localization::translate_message("    Ordered patches (saved expected SHA-256; material not checked):") << '\n';
+                for(std::size_t i = 0; i < record.entries().size(); ++i) {
+                    const auto& entry = record.entries()[i];
+                    // TRANSLATORS: Placeholders are the saved position, patch filename and expected digest, not a current material observation.
+                    std::cout << localization::format_translated_message("      {}. {}  SHA-256={}",
+                                                                         i + 1, terminal_safe_text::escape_utf8(entry.file), entry.sha256)
+                              << '\n';
+                }
+            }
+            return 0;
+        }
         if(operation == Op::DeletePatch) {
             require_valid_package_name(parsed.targets.at(1));
             // A canonical identity reference is sufficient to forget config;

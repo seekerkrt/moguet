@@ -254,7 +254,8 @@ int run_moguet(int argc, char* argv[]) {
     const auto* patch_operation = cli_authority::find_moguet_operation(parsed.operation);
     if(patch_operation && (patch_operation->id == cli_authority::OperationId::AddPatch ||
                            patch_operation->id == cli_authority::OperationId::UpdatePatch ||
-                           patch_operation->id == cli_authority::OperationId::DeletePatch)) {
+                           patch_operation->id == cli_authority::OperationId::DeletePatch ||
+                           patch_operation->id == cli_authority::OperationId::ListPatch)) {
         // Config lifecycle has no default state-log side effect. Its closed
         // runtime grammar has already rejected unrelated options/operands.
         return cmd_patch_association(parsed, g_config);
@@ -924,6 +925,8 @@ void print_help() {
                                                                       "Register ordered {} patches from a user-maintained directory; do not enable automatic application", "PKGBUILD"));
     print_help_entry(cli_operation_syntax(OperationId::UpdatePatch), localization::translate_message(
                                                                          "Explicitly replace a local patch association and its expected digests"));
+    print_help_entry(cli_operation_syntax(OperationId::ListPatch), localization::translate_message(
+                                                                       "List saved patch associations without checking external material"));
     print_help_entry(cli_operation_syntax(OperationId::DeletePatch), localization::translate_message(
                                                                          "Forget only the association record; preserve user patch material"));
     print_help_continuation(localization::format_translated_message(
@@ -994,8 +997,8 @@ void print_help() {
             "Show detailed diagnostic and provenance information"));
     print_help_continuation(localization::format_translated_message(
         // TRANSLATORS: The placeholders are literal supported CLI forms.
-        "For remote {}, {}, {}, {}, {}, {}, {}, {}, and {}; changes presentation only, not execution",
-        "build", "plan", "deps", "-S --select", "-Qua", "-Syu / -Su", "upgrade-aur", "upgrade-all", "--dry-run -S"));
+        "For remote {}, {}, {}, {}, {}, {}, {}, {}, {}, and {}; changes presentation only, not execution",
+        "build", "plan", "deps", "-S --select", "-Qua", "-Syu / -Su", "upgrade-aur", "upgrade-all", "--dry-run -S", "list-patch"));
     print_help_entry(
         cli_option_syntax(OptionId::Help),
         localization::translate_message(

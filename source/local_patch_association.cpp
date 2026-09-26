@@ -62,6 +62,7 @@ constexpr std::size_t MAX_RECORD = 65536;
 constexpr std::size_t MAX_PATCH = 16U * 1024U * 1024U;
 constexpr std::size_t MAX_SERIES = 64U * 1024U * 1024U;
 constexpr std::size_t MAX_ENTRIES = 64;
+constexpr int RECORD_SCHEMA_VERSION = 1;
 
 class Failure final : public std::exception {
 public:
@@ -333,7 +334,7 @@ std::string encode(const PackageBaseIdentity& identity, const fs::path& root,
     toml::array patches;
     for(const auto& entry : entries)
         patches.push_back(toml::table{{"file", entry.file}, {"sha256", entry.sha256}});
-    const toml::table record{{"schema_version", 1}, {"source_kind", "local"}, {"local_source", *identity.source().location().value()}, {"package_base", identity.package_base()}, {"material_root", root.string()}, {"patches", std::move(patches)}};
+    const toml::table record{{"schema_version", RECORD_SCHEMA_VERSION}, {"source_kind", "local"}, {"local_source", *identity.source().location().value()}, {"package_base", identity.package_base()}, {"material_root", root.string()}, {"patches", std::move(patches)}};
     std::ostringstream output;
     output << record << '\n';
     auto bytes = output.str();
@@ -346,12 +347,12 @@ std::string encode(const PackageBaseIdentity& identity, const fs::path& root,
     }
     return bytes;
 }
-LoadedPatchAssociation decode(const PackageBaseIdentity& expected, const fs::path& path, const OpenFile& raw) {
+LoadedPatchAssociation decode(const fs::path& path, const OpenFile& raw, const PackageBaseIdentity* expected = nullptr) {
     try {
         const auto table = toml::parse(raw.bytes);
         const auto version = table["schema_version"].value_exact<std::int64_t>();
         if(!version) fail(Kind::Corrupt, path);
-        if(*version != 1) fail(Kind::Unsupported, path);
+        if(*version != RECORD_SCHEMA_VERSION) fail(Kind::Unsupported, path);
         const auto kind = table["source_kind"].value<std::string>();
         if(!kind) fail(Kind::Corrupt, path);
         if(*kind != "local") fail(Kind::Unsupported, path);
@@ -362,7 +363,9 @@ LoadedPatchAssociation decode(const PackageBaseIdentity& expected, const fs::pat
         if(table.size() != 6 || !source || !base || !root || !patches ||
            !absolute_path(*source) || !absolute_path(*root)) fail(Kind::Corrupt, path);
         auto identity = PackageBaseIdentity::make(PackageSourceIdentity::local(SourceLocationIdentity::known_local_path(*source)), *base);
-        if(identity != expected) fail(Kind::AssociationMismatch, path);
+        // Both exact lookup and discovery must bind the decoded identity to
+        // its actual registry key. No source/material filesystem lookup here.
+        if(path.filename() != record_leaf(identity) || (expected && identity != *expected)) fail(Kind::AssociationMismatch, path);
         std::vector<PatchMaterialEntry> entries;
         std::vector<std::string> names;
         for(const auto& patch : *patches) {
@@ -405,13 +408,13 @@ struct LockedDirectory {
     }
 };
 
-void require_no_residue(LockedDirectory& directory, const std::string& leaf) {
+std::vector<std::string> directory_names(LockedDirectory& directory) {
     Descriptor scan(::openat(directory.fd(), ".", O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW));
     if(scan.get() < 0) fail(Kind::IoFailure, directory.directory.path(), errno);
     std::unique_ptr<DIR, DirectoryCloser> stream(::fdopendir(scan.get()));
     if(!stream) fail(Kind::IoFailure, directory.directory.path(), errno);
     static_cast<void>(scan.release());
-    std::optional<fs::path> residue;
+    std::vector<std::string> names;
     int read_error = 0;
     while(true) {
         errno = 0;
@@ -420,15 +423,18 @@ void require_no_residue(LockedDirectory& directory, const std::string& leaf) {
             read_error = errno;
             break;
         }
-        if(std::string_view(entry->d_name).starts_with("." + leaf + "-")) {
-            residue = directory.directory.path() / entry->d_name;
-            break;
-        }
+        const std::string name = entry->d_name;
+        if(name != "." && name != "..") names.push_back(name);
     }
     const int close_result = ::closedir(stream.release());
-    if(residue) fail(Kind::Unsafe, *residue);
     if(read_error || close_result != 0) fail(Kind::IoFailure, directory.directory.path(), read_error ? read_error : errno);
     directory.directory.require_unchanged_identity();
+    std::sort(names.begin(), names.end());
+    return names;
+}
+void require_no_residue(LockedDirectory& directory, const std::string& leaf) {
+    for(const auto& name : directory_names(directory))
+        if(name.starts_with("." + leaf + "-")) fail(Kind::Unsafe, directory.directory.path() / name);
 }
 std::optional<OpenFile> read_record(LockedDirectory& directory, const std::string& leaf) {
     require_no_residue(directory, leaf);
@@ -513,7 +519,7 @@ PatchAssociationWriteResult publish(const ObservedLocalPatchSource& source,
         PatchAssociationAccess::require_outside_source(source, store.directory.device(), store.directory.inode());
         const auto path = paths.directory / leaf;
         auto current = read_record(store, leaf);
-        if(current) static_cast<void>(decode(source.identity(), path, *current));
+        if(current) static_cast<void>(decode(path, *current, &source.identity()));
         if(previous) {
             if(previous->identity() != source.identity()) fail(Kind::AssociationMismatch, path);
             require_previous(*previous, path, current);
@@ -565,7 +571,7 @@ PatchAssociationWriteResult publish(const ObservedLocalPatchSource& source,
         store.directory.require_unchanged_identity();
         auto published = read_record(store, leaf);
         if(!published || published->bytes != contents || !same_object(published->status, temporary->status)) fail(Kind::ConcurrentChange, path);
-        return decode(source.identity(), path, *published);
+        return decode(path, *published, &source.identity());
     } catch(...) {
         auto failure = map_exception();
         if(committed) failure.kind = Kind::PublicationUncertain;
@@ -615,6 +621,9 @@ const fs::path& LoadedPatchAssociation::material_root() const noexcept {
 }
 const std::vector<PatchMaterialEntry>& LoadedPatchAssociation::entries() const noexcept {
     return entries_;
+}
+int LoadedPatchAssociation::schema_version() const noexcept {
+    return RECORD_SCHEMA_VERSION;
 }
 AcquiredLocalRecipeSeries::AcquiredLocalRecipeSeries(PackageBaseIdentity identity, std::vector<LocalRecipePatch> patches)
     : identity_(std::move(identity)), patches_(std::move(patches)) {
@@ -691,10 +700,49 @@ PatchAssociationReadResult read_local_patch_association(const PackageBaseIdentit
         LockedDirectory store(std::move(*existing), false);
         auto raw = read_record(store, leaf);
         if(!raw) return PatchAssociationAbsent{};
-        auto loaded = decode(identity, store.directory.path() / leaf, *raw);
+        auto loaded = decode(store.directory.path() / leaf, *raw, &identity);
         revalidate_file(store.fd(), leaf, store.directory.path() / leaf, *raw, true);
         store.directory.require_unchanged_identity();
         return loaded;
+    } catch(...) {
+        return map_exception();
+    }
+}
+std::variant<std::vector<LoadedPatchAssociation>, PatchAssociationFailure> list_patch_associations() {
+    try {
+        auto existing = xdg_directory_safety::open_existing_directory(xdg_paths::resolve_patch_associations_process_environment());
+        if(!existing) return std::vector<LoadedPatchAssociation>{};
+        LockedDirectory store(std::move(*existing), false);
+        const auto initial = status_of(store.fd(), store.directory.path());
+        const auto names = directory_names(store);
+        std::vector<LoadedPatchAssociation> records;
+        for(const auto& name : names) {
+            const auto path = store.directory.path() / name;
+            // A retained publication file cannot become silent absence even
+            // when its final record is gone. This namespace contains records only.
+            if(name.starts_with('.')) fail(Kind::Unsafe, path);
+            if(!name.ends_with(".toml")) fail(Kind::Corrupt, path);
+            auto raw = open_file(store.fd(), name, path, MAX_RECORD, true);
+            if(!raw) fail(Kind::ConcurrentChange, path);
+            records.push_back(decode(path, *raw));
+            revalidate_file(store.fd(), name, path, *raw, true);
+        }
+        // Do not return a partial/mixed snapshot after an observed registry
+        // change. The shared directory lock excludes cooperative writers.
+        for(const auto& record : records) {
+            const auto& observed = PatchAssociationAccess::observation(record);
+            const auto named = named_status(store.fd(), observed.path.filename().string(), observed.path);
+            if(!named || !same_file(observed.status, *named)) fail(Kind::ConcurrentChange, observed.path);
+        }
+        if(!same_file(initial, status_of(store.fd(), store.directory.path())))
+            fail(Kind::ConcurrentChange, store.directory.path());
+        store.directory.require_unchanged_identity();
+        std::sort(records.begin(), records.end(), [](const auto& a, const auto& b) {
+            if(a.identity().package_base() != b.identity().package_base())
+                return a.identity().package_base() < b.identity().package_base();
+            return *a.identity().source().location().value() < *b.identity().source().location().value();
+        });
+        return records;
     } catch(...) {
         return map_exception();
     }
@@ -716,7 +764,7 @@ PatchAssociationAcquireResult acquire_local_patch_series(const LoadedPatchAssoci
         LockedDirectory store(std::move(*existing), false);
         auto raw = read_record(store, leaf);
         if(!raw) fail(Kind::Missing, paths.directory / leaf);
-        auto loaded = decode(association.identity(), paths.directory / leaf, *raw);
+        auto loaded = decode(paths.directory / leaf, *raw, &association.identity());
         require_previous(association, paths.directory / leaf, raw);
         std::vector<std::string> names;
         for(const auto& entry : loaded.entries())
@@ -743,7 +791,7 @@ std::variant<PatchAssociationForgotten, PatchAssociationFailure> forget_local_pa
         LockedDirectory store(std::move(*existing), true);
         const auto path = store.directory.path() / leaf;
         auto current = read_record(store, leaf);
-        if(current) static_cast<void>(decode(previous.identity(), path, *current));
+        if(current) static_cast<void>(decode(path, *current, &previous.identity()));
         require_previous(previous, path, current);
         const auto temp = temporary_leaf(leaf);
         PATCH_EVENT(BeforePublication, path);

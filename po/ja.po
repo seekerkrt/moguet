@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.10.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 00:45+0900\n"
+"POT-Creation-Date: 2026-09-26 10:14+0900\n"
 "PO-Revision-Date: 2026-09-19 17:53+0900\n"
 "Last-Translator: Moguet contributors\n"
 "Language-Team: Japanese\n"
@@ -3632,6 +3632,28 @@ msgstr "{}のpatch seriesを選択しました: {}件。"
 msgid "Evaluate patched {} metadata with {}?"
 msgstr "{}のpatch後metadataを{}で評価しますか？"
 
+msgid "No patch customizations registered."
+msgstr "登録済みpatch customizationはありません。"
+
+msgid "Registered patch customizations:"
+msgstr "登録済みpatch customization:"
+
+#, c++-format
+msgid "  {}  {}:{}  patches={}  material={}"
+msgstr "  {}  {}:{}  patch件数={}  material={}"
+
+#, c++-format
+msgid "    Record schema version: {}"
+msgstr "    record schema version: {}"
+
+msgid "    Ordered patches (saved expected SHA-256; material not checked):"
+msgstr "    保存順のpatch（保存済み期待SHA-256。materialは未検証）:"
+
+#. TRANSLATORS: Placeholders are the saved position, patch filename and expected digest, not a current material observation.
+#, c++-format
+msgid "      {}. {}  SHA-256={}"
+msgstr "      {}. {}  SHA-256={}"
+
 #, c++-format
 msgid "Forgot patch association for {}; user material was preserved."
 msgstr "{}のpatch associationを削除しました。user materialは保持しています。"
@@ -5991,6 +6013,9 @@ msgstr "user-maintained directoryの{} patchを順序指定で登録する。自
 msgid "Explicitly replace a local patch association and its expected digests"
 msgstr "local patch associationと期待digestを明示的に置換する"
 
+msgid "List saved patch associations without checking external material"
+msgstr "外部materialを検証せず保存済みpatch associationを一覧"
+
 msgid "Forget only the association record; preserve user patch material"
 msgstr "association recordだけを削除しuser patch materialを保持する"
 
@@ -6057,8 +6082,8 @@ msgstr "詳細な診断情報と由来情報を表示"
 
 #. TRANSLATORS: The placeholders are literal supported CLI forms.
 #, c++-format
-msgid "For remote {}, {}, {}, {}, {}, {}, {}, {}, and {}; changes presentation only, not execution"
-msgstr "リモート{}、{}、{}、{}、{}、{}、{}、{}、{}で使用可能。表示だけを変更し、実行動作は変えません"
+msgid "For remote {}, {}, {}, {}, {}, {}, {}, {}, {}, and {}; changes presentation only, not execution"
+msgstr "リモート{}、{}、{}、{}、{}、{}、{}、{}、{}、{}で使用可能。表示だけを変更し、実行動作は変えません"
 
 msgid "Show this help message and exit"
 msgstr "このヘルプを表示して終了"

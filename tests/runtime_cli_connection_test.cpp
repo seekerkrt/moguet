@@ -265,7 +265,7 @@ void test_operand_contract_connection() {
 
     for(const char* operation : {
             "upgrade", "upgrade-aur", "upgrade-all", "clean",
-            "list-src"}) {
+            "list-src", "list-patch"}) {
         expect_valid(
             invocation(operation),
             std::string{operation} + " targetless");
@@ -359,6 +359,8 @@ void test_runtime_help_connection() {
                   std::string{"edit-src <pkg>..."}},
         std::pair{OperationId::ListSources,
                   std::string{"list-src"}},
+        std::pair{OperationId::ListPatch,
+                  std::string{"list-patch"}},
         std::pair{OperationId::DeleteSource,
                   std::string{"del-src <pkg>..."}},
         std::pair{OperationId::Revert,
@@ -388,6 +390,7 @@ void test_runtime_help_connection() {
         "add-patch <directory> <patch-directory> <patch-file>...",
         "update-patch <directory> <patch-directory> <patch-file>...",
         "del-patch <directory> <package-base>",
+        "list-patch",
         "-G <pkg> [--output-dir=DIR]",
         "-Gp <pkg>",
         "-S --select [--needed] <query>",

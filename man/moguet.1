@@ -97,8 +97,9 @@ and rejects target operands for
 .BR upgrade-aur ,
 .BR upgrade-all ,
 .BR clean ,
+.BR list-src ,
 and
-.BR list-src .
+.BR list-patch .
 .BR deps ,
 .BR plan ,
 .BR fetch ,
@@ -436,6 +437,18 @@ PKGBUILD or opening material. Missing material does not prevent forgetting; miss
 registration fails. User material is never removed, rewritten or chmodded.
 .
 .TP
+.B "list-patch"
+List saved patch associations: PackageBase, source kind and canonical location, patch count,
+and material root, ordered by PackageBase then source location (bytewise).
+With --details, also show the record schema version, ordered filenames and saved expected
+SHA-256 digests. Neither form opens or checks external source/material paths or rehashes
+patch bytes. Missing or changed material does not prevent listing; material health is not verified.
+Malformed, unsupported, unsafe or mismatched registry records fail the whole listing; they are
+never silently skipped. An absent/empty registry is reported without creating it.
+Patch customization is Experimental; CLI, record schema and presentation may change.
+Remote/AUR associations and interactive upgrade reuse are not supported yet.
+.
+.TP
 .B "-S <pkg> | -S --select [--needed] <query>"
 Install packages.
 Auto routing uses official repositories first, honors an applicable source
@@ -597,6 +610,7 @@ remote
 .BR build ,
 .BR plan ,
 .BR deps ,
+.BR list-patch ,
 .BR "-S --select" ,
 .BR -Qua ,
 exact target-less
