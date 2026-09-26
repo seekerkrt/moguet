@@ -233,6 +233,10 @@ public:
         return std::get_if<ResolvedRepositorySourceBuildIdentity>(&source_);
     }
 
+    const ResolvedAurSourceBuildIdentity* aur_identity() const noexcept {
+        return std::get_if<ResolvedAurSourceBuildIdentity>(&source_);
+    }
+
     bool operator==(const ResolvedSourceBuildIdentity&) const = default;
 
 private:
@@ -1141,3 +1145,7 @@ struct SourceInvocationExecutionTestHooks {
 };
 void set_source_invocation_execution_test_hooks(SourceInvocationExecutionTestHooks hooks);
 #endif
+
+ProductionSourceBuildWorkItem prepare_registered_recipe_source_build_work_item(
+    const ResolvedSourceBuildIdentity& identity, SourceBuildEnvironment environment,
+    const ProviderSelectionCallback& select_provider, const AurRecipeMetadataSet& recipes);

@@ -461,7 +461,7 @@ local v1とAUR専用v2を混在でき、AUR sourceのnetwork / 存在確認も�
 AUR登録・更新は既存resolved source authorityを受けるinternal APIのみで、public creation UXは後続Sliceとする。
 exact lookupもregistry全体をstrictに読み、unknown identity / 不正recordをabsenceにしない。
 不正recordはskipせず一覧全体を失敗させる。表示順とread契約は[patch contract](contracts/patch-customization.md)を正とする。
-`build --local --use-patches <directory> [V=K...]`だけが保存associationを明示選択する。
+localでは`build --local --use-patches <directory> [V=K...]`が保存associationを明示選択する。
 通常local buildはpatch storeを読まず、登録・選択・実行同意を分離する。
 selectionのremote使用・誤配置・重複・attached value、`--edit` / `--dry-run`との併用はpre-logで拒否する。
 `--use-preference`は従来どおりremote専用。lifecycleは余分なoperand / optionをmutation前に拒否する。
@@ -469,6 +469,32 @@ selectionのremote使用・誤配置・重複・attached value、`--edit` / `--d
 `--noconfirm` / non-TTYは評価同意を代替しない。forgetは明示PackageBaseによってrecipe評価を避ける。
 strict material取得後の同一owned bytesをfresh candidateへ適用し、postpatch metadataから既存buildへ渡す。
 選択後のfailureにstock fallbackはない。詳細は[patch contract](contracts/patch-customization.md)を正とする。
+
+### Upgrade-familyのAUR patch選択（Experimental）
+
+actual `upgrade` / `upgrade-aur` / `upgrade-all`は、exact current AUR sourceとKnown PackageBaseの確定後に
+保存associationをstrict lookupする。associationなしはpromptもmaterial取得もなくstockへ進む。
+発見時はPackageBaseごとにdefault-No確認を行い、No・空入力・non-TTY・`--noconfirm`はmaterialを
+open/read/hashせずstockへ進む。recordは変更しない。registry failureはabsenceへ丸めない。
+Yesだけがdigest検証済みの同一owned bytesをfresh current upstream candidateへ適用し、fresh metadataから
+batch planを作る。追加editor overlayは合成せず、upstream review・patch前後metadata評価・build確認を分離する。
+
+custom recipeではdependencyを知るためにrecipe自体の準備が必要であるため、上記の一般的なpreflight-before-Git規則に
+限定例外を設ける。query-level blockerは候補mutation前に判定し、explicit Yes後のrecipe-only clone/review/evaluationだけを
+最終batch planより前に許す。`upgrade` / `upgrade-all`の登録sourceではsystem transactionより前に行う場合がある。
+shared provider transaction・build・installは最終plan後、package transactionの既存順で実行する。
+post-system installed/devel observationとOnlyIfUpdated判定は実行時に維持し、準備時のskip/build判定を流用しない。
+fresh child集合外のrequired targetやenvironment drift、candidate変更、material/apply/metadata/plan/build/cleanup failureはhard stopであり、
+stock fallback・automatic repair・先行transactionのrollbackは行わない。
+
+既存no-overlay proofを持つauthoritative develとの組合せは非対応。forced intentと、ordinary version updateでも
+未改変current upstream recipe・install policyからauthoritativeを選ぶ場合の双方をYesで停止する。
+判定にpatch後overlayを使ってLegacyへ黙って降格しない。Noはstock authoritative経路を変更しない。
+customized devel recipe/build/provenance supportは別follow-upである。
+
+dry-runはstock planのread-only観測でありpatch storeを読まず、選択・candidate取得・評価へ進まない。
+exact targetless `-Su` / `-Syu`、Auto `-S`、plain remote/local buildのpatch-store zero-readを維持する。
+public AUR creation UXは#650へ残し、CLI grammar / completion / #362 preference selectionは変えない。
 
 ## Remote source-build PackageBase summary
 

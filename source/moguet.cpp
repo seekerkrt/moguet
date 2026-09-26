@@ -23,6 +23,7 @@
 #include "commands_source_maintenance.hpp"
 #include "commands_sync.hpp"
 #include "commands_upgrade_all.hpp"
+#include "diagnostic_projection.hpp"
 #include "dry_run.hpp"
 #include "interactive_confirmation.hpp"
 #include "localization.hpp"
@@ -438,6 +439,11 @@ int run_moguet(int argc, char* argv[]) {
                 return cmd_upgrade_aur(
                     std::move(*prepared_aur_update), g_config);
             }
+        } catch(const ConfirmationOperationStopped& stop) {
+            if(aur_update_diagnostic_capture) aur_update_diagnostic_capture->replay();
+            report_runtime_diagnostic(project_confirmation_diagnostic(stop.result(), DiagnosticOperation::UpgradeAur, DiagnosticPhase::Preflight, {}),
+                                      confirmation_stop_diagnostic(stop.result()));
+            return 1;
         } catch(const std::exception& error) {
             if(aur_update_diagnostic_capture.has_value()) {
                 aur_update_diagnostic_capture->replay();
@@ -931,6 +937,11 @@ void print_help() {
                                                                          "Forget only the association record; preserve user patch material"));
     print_help_continuation(localization::format_translated_message(
         "Use {} with {} to select saved patches; require explicit metadata evaluation consent and stop if customization fails", cli_authority::USE_PATCHES_OPTION, "build --local"));
+    print_help_continuation(localization::format_translated_message(
+        "Experimental: {}, {} and {} offer saved {} recipe patches with a No default; noninteractive use keeps stock recipes",
+        "upgrade", "upgrade-aur", "upgrade-all", "AUR"));
+    print_help_continuation(localization::translate_message(
+        "Patch Yes requires fresh metadata and never falls back; authoritative devel customization is unsupported"));
     std::cout << std::endl;
     print_help_section(
         localization::format_translated_message(

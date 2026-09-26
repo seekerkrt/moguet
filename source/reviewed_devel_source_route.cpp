@@ -7,15 +7,12 @@
 namespace {
 // Syntax only selects an execution path. This does not mint evaluated source
 // metadata; S4 revalidates/evaluates the reviewed pin before any S5 operation.
-bool selects_reviewed_devel_execution(const ValidatedCachePath& checkout,
-                                      const ReviewedDevelSourceBuildIntent* intent,
-                                      bool overlay) {
+bool selects_reviewed_devel_recipe(const std::string& contents,
+                                   const ReviewedDevelSourceBuildIntent* intent,
+                                   bool overlay) {
     if(!intent) return false;
     if(intent->request.authoritative_devel_update || intent->request.devel_tracking_bootstrap) return true;
     if(overlay || intent->request.needed || intent->rm_deps || intent->required_targets.size() != 1) return false;
-    std::ifstream file(checkout.canonical_path() / ".SRCINFO");
-    if(!file) return false;
-    std::string contents((std::istreambuf_iterator<char>(file)), {});
     const auto parsed = parse_srcinfo_source_metadata(contents);
     const auto package = parse_local_package_metadata(contents);
     if(!parsed.is_success() || !package.is_success() || package.metadata()->children.size() != 1) return false;
@@ -41,8 +38,23 @@ bool selects_reviewed_devel_execution(const ValidatedCachePath& checkout,
     if(desired == DesiredInstallReason::Explicit && metadata && metadata->reason == InstalledPackageReason::Dependency) return false;
     return true;
 }
+bool selects_reviewed_devel_execution(const ValidatedCachePath& checkout,
+                                      const ReviewedDevelSourceBuildIntent* intent,
+                                      bool overlay) {
+    if(!intent) return false;
+    if(intent->request.authoritative_devel_update || intent->request.devel_tracking_bootstrap) return true;
+    // Preserve the stock skip routes before opening generated metadata.
+    if(overlay || intent->request.needed || intent->rm_deps || intent->required_targets.size() != 1) return false;
+    std::ifstream file(checkout.canonical_path() / ".SRCINFO");
+    if(!file) return false;
+    return selects_reviewed_devel_recipe(std::string(std::istreambuf_iterator<char>(file), {}), intent, overlay);
+}
 
 } // namespace
+bool requires_authoritative_devel_recipe(const std::string& upstream_srcinfo,
+                                         const ReviewedDevelSourceBuildIntent& intent) {
+    return selects_reviewed_devel_recipe(upstream_srcinfo, &intent, false);
+}
 ReviewedProductionSourceExecution select_normal_reviewed_source_execution(
     const ValidatedCachePath& checkout, PinnedReviewedSourceBuild pin,
     ProductionReviewedSourceOutcome outcome, std::optional<ReviewedSourceAbnormalStateReason> abnormal,

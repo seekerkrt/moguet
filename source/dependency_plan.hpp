@@ -413,6 +413,10 @@ BuildPlan resolve_build_plan_for_preflight(const std::vector<std::string>& targe
 BuildPlan resolve_build_plan_for_preflight(
     const std::vector<std::string>& targets,
     const ProviderSelectionCallback& select_provider);
+BuildPlan resolve_recipe_build_plan(
+    const std::vector<std::string>& targets,
+    const AurRecipeMetadataSet& recipes,
+    const ProviderSelectionCallback& select_provider);
 BuildPlan resolve_fetch_plan(const std::string& target);
 BuildPlan resolve_fetch_plan(
     const std::string& target,

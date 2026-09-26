@@ -1,3 +1,4 @@
+#include "aur_upgrade_patch.hpp"
 #include "filtered_aur_update_operation.hpp"
 
 #include "dependency_spec.hpp"
@@ -1808,7 +1809,7 @@ PreparedFilteredAurUpdateOperation prepare_filtered_aur_update_operation(
     DevelRequiresCheckPolicy devel_requires_check_policy,
     SavedSourcePreferencePolicy saved_source_preference_policy,
     const AppConfig& config,
-    std::optional<ValidatedCacheRoot> cache_root) {
+    std::optional<ValidatedCacheRoot> cache_root, UpgradePatchPolicy patch_policy) {
     PreparedFilteredAurUpdateOperation operation;
     operation.devel_requires_check_policy =
         devel_requires_check_policy;
@@ -1826,10 +1827,27 @@ PreparedFilteredAurUpdateOperation prepare_filtered_aur_update_operation(
         explicit_sources, operation.target_adapter.planner_targets);
 
     build_filtered_update_plan(operation);
-    operation.preflight = resolve_aur_update_execution_preflight(
-        operation.filtered_update_plan,
-        devel_requires_check_policy,
-        provider_selection_callback(config));
+    AurUpgradePatchSet patches;
+    const bool discover_patches = patch_policy == UpgradePatchPolicy::Interactive &&
+                                  prepare_aur_upgrade_patch_roots(patches, operation.filtered_update_plan, config);
+    for(std::size_t pass = 0;; ++pass) {
+        patches.require_unchanged();
+        operation.preflight = patches.metadata().empty()
+                                  ? resolve_aur_update_execution_preflight(operation.filtered_update_plan, devel_requires_check_policy, provider_selection_callback(config))
+                                  : resolve_aur_update_execution_preflight_with_recipes(operation.filtered_update_plan, devel_requires_check_policy, provider_selection_callback(config), patches.metadata());
+        if(!discover_patches || !operation.preflight.build_plan) break;
+        // Apply the existing external-satisfaction authority before discovery:
+        // a PackageBase completed by the registered phase is not a new source
+        // build candidate, even when it appears in the raw dependency graph.
+        std::vector<FilteredAurUpdateOperationIssue> discovery_issues;
+        auto discovery_adapter = adapt_build_plan(*operation.preflight.build_plan, operation.target_correlations, discovery_issues);
+        auto discovery_plan = complete_upgrade_all_build_unit_plan(operation.upgrade_all_plan, discovery_adapter.build_units);
+        map_selected_execution_indices(discovery_plan, discovery_adapter.correlations, discovery_issues);
+        auto discovery_selection = make_build_unit_selection(discovery_plan, discovery_adapter.correlations, discovery_issues);
+        if(!discovery_issues.empty() ||
+           !prepare_aur_upgrade_patch_dependencies(patches, *operation.preflight.build_plan, discovery_selection, config)) break;
+        if(pass >= 63) throw std::runtime_error(localization::translate_message("Saved patch dependency preparation exceeded the candidate limit."));
+    }
     correlate_preflight(operation);
 
     BuildUnitAdapterResult build_adapter;
@@ -1879,6 +1897,9 @@ PreparedFilteredAurUpdateOperation prepare_filtered_aur_update_operation(
         seed_aur_update_source_build_cache(
             operation.preparation.value(), cache_root.value());
     }
+    patches.require_unchanged();
+    attach_aur_upgrade_patch_candidates(*operation.preparation, patches);
+    patches.finish_preparation();
     return operation;
 }
 

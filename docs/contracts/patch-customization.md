@@ -5,7 +5,7 @@
 **Production Slice 1–3のinitial local recipe consumerを実装済み。**
 [Issue #363 current body](https://github.com/seekerkrt/moguet/issues/363)をrequirements SSOTとする。
 以下は実装済みlocal contractとDesign Gateの比較根拠である。#649 Slice 2でAUR associationを追加した。
-remote適用 / other text / source payloadは将来consumerとする。
+ordinary AURのupgrade-family適用は#649 Slice 3で追加する。other text / source payloadは将来consumerとする。
 [#627 requirements reset](https://github.com/seekerkrt/moguet/issues/627)に従い、過去の
 profile / snapshot foundationを要求へ戻さない。requirementsはIssue、具体的な
 patch contractはこの文書、上位原則は[decisions](../decisions.md)と[stance](../project-stance.md)が所有する。
@@ -396,3 +396,80 @@ consumer / association単体testはtyped failure・race・cleanupのfocused evid
 
 remote、selected recipe-associated text、source payloadはそれぞれ別のauthority確認を要する。
 initial local journeyの未完了項目として扱わない。source payload適用は前述のmakepkg lifecycleが所有する。
+
+
+## Issue #649 Slice 3: ordinary AUR upgrade consumer
+
+### Routeとauthority
+
+対象はactual `upgrade`、`upgrade-aur`、`upgrade-all`のAUR source build。official binary/repository source、
+Auto `-S`、exact targetless `-Su` / `-Syu`、plain remote/local build、dry-runにはpatch discoveryを追加しない。
+CLI optionやpublic AUR creation commandは追加せず、producerは#650へ残す。Experimentalを維持する。
+
+`upgrade`は登録preference sourceのsingular AUR lifecycle、`upgrade-aur`はforeign inventoryからの
+PackageBase batch lifecycleであり、`upgrade-all`はsystem/登録source後にfresh queryしたfiltered batchを使う。
+candidate/material lifecycleは共通化するが、required child、install reason、registered split拒否、transaction/resultの
+責務は既存ownerに残す。local builderの全child/Explicit意味をAURへ持ち込まない。
+
+exact source resolutionが返す`ResolvedAurSourceBuildIdentity`から既存のassociation projectionを使う。
+canonical URLとKnown PackageBaseがないchild/provider/search/display labelではlookupしない。
+complete strict registry readでexact identityがない場合だけabsence。corrupt/unsupported/unsafe/key mismatch/I/Oは停止する。
+選択はinvocation内のexact PackageBaseごとに一度であり、別PackageBaseへのYes再利用・durable remembered choiceはない。
+依存graphの再構成でも同じcandidate/回答を保持する。
+
+### No、Yes、非対話
+
+既存`request_confirmation`のdefault Noを使用する。interactive empty、explicit No、`--noconfirm`、non-TTYは
+Declinedとしてstockを選び、material root/filesのopen/read/digest検証を行わず、associationも変更しない。
+No/absenceではcustom candidate用のinstalled-state queryも追加せず、stockのquery順序とfailure authorityを維持する。
+batch側のsaved preference取得もYes後に限定する。No/absenceでは既存のgraph preflightとtyped preference preparationが順序を所有する。
+EOF/cancel/input failureをNoへ丸めない。YesはExplicitTokenだけを許し、upstream reviewやrecipe評価同意の代替にしない。
+
+Yes後にのみ明示AUR acquisition入口でloaded record observationを再照合し、保存expected SHA-256を検証する。
+全seriesを取得した同一owned bytesをcheck/applyへ渡し、digest後のpath再openやmaterial自動追随を行わない。
+local acquisition入口のlocal-only guard、local v1/AUR v2 persistence、listing external-material zero-readを維持する。
+通常run-log開始前にrecipe preparationが必要なrouteでは、Yes後にpreflightの診断captureをflushし、
+clone/review/evaluationのcommandを実行前にconsoleへ表示する。通常run-logの開始境界は既存ownerに残す。
+
+### Current candidateとmetadata
+
+invocation-ownedなfresh parentとnested cacheにcurrent AUR checkoutを作り、既存upstream review/materialization/leaseを使う。
+古いpatched candidateやpersistent checkoutをcustom入力としてreuseしない。shared PKGBUILD-only ordered applyは#363の
+shape guardとGit check/applyを使い、prepatch/modified snapshot、PackageBase/ordered childrenを照合する。
+required childrenがcurrent baselineに存在することも要求する。追加editor mutationはseriesと合成しない。
+pre/post metadata評価は別々のno-default consentを要求し、既存read-only previewを利用する。
+
+fresh evaluationのeffective architecture、base継承/child overrideを反映してchildごとのdependency/Provides/relationを
+planner inputへ投影する。`EvaluatedRecipe` originを明示し、semantic package sourceはAURを維持する。
+AurClientのRPC cacheを更新せず、root/recursive exact/provider discovery/provider refreshに同じinvocation-local inputを渡す。
+選択baseのfresh child集合にないchildを古いRPCから補完しない。required targetがfresh child集合外の場合やenvironmentが変わった場合は
+保持metadataを流用せず停止する。saved preferenceのOmitとplain localのForwardを変えない。
+
+query-level blockerはcandidate mutation前に処理する。explicit Yesのrecipe-only preparationは最終dependency plan前に
+必要であり、登録sourceではsystem transactionより前に行う場合がある。これはstock preflight-before-Git規則の限定例外。
+全candidateの選択/fresh metadataを反映したgraphが確定するまでshared provider transaction/build/installへ進めない。
+package transaction順とpartial outcomeは既存通りで、system failure後にbuild/installを開始しない。
+登録sourceのOnlyIfUpdated判定はretained current upstream versionとpost-system installed snapshot/baselineを使って実行時に行う。
+upstream更新がないためのnormal skipと、patch failure後のstock fallbackを区別する。
+
+candidate生成とartifactのownerを分け、build failure時のretained artifactをsource cleanupで削除しない。
+prepared slotは一度だけconsumeし、plan採用/依存mutation/build境界でsnapshotを照合する。
+primary failureとcleanup diagnostic、install成功後のcleanup failureを分離し、unused候補も明示cleanupする。
+Yes後のmaterial/identity/apply/metadata/plan/build/cleanup failureはすべてhard failureで、stock/Legacy/local retryはない。
+
+### Authoritative develの非対応境界
+
+このSliceはS3/S4/S5/S6のno-overlay/reviewed provenance proofを拡張しない。
+forced `authoritative_devel_update` / bootstrap intentはYesで明示停止する。
+ordinary version updateでも、未改変current upstreamと既存environment/install policyがauthoritative executionを選ぶ場合は停止する。
+patchをoverlayとして付けた後のselectorだけに頼らず、未改変snapshotで判定し、final required-child shapeでも再確認する。
+Noはmaterial取得なしで既存stock authoritative経路を継続する。suffix名だけで判定しない。
+custom recipeを未改変と偽装する、proof guardを外す、Legacyへ暗黙降格することは認めない。
+customized authoritative develのrecipe lineage、build proof、publication/次回assessmentは別follow-up designとする。
+
+### Validation
+
+既存local association/candidate regressionに加え、production-linked CLIとisolated XDG/ALPM、PTY、
+case-local bare Git/RPC、real makepkg、sealed-input install observationを使う。actual host package transactionを行わない。
+recipe A→current upstream B→saved series再適用、fresh dependencies、3 route、No zero-I/O、strict failures、
+multiple independent selection、dry-run/targetless zero-read、forced/ordinary authoritative拒否を対象とする。

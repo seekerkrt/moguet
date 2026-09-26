@@ -104,6 +104,10 @@ void ScopedLoggerDiagnosticCapture::replay() {
     }
 }
 
+void Logger::flush_diagnostic_capture() {
+    if(active_diagnostic_capture != nullptr) active_diagnostic_capture->replay();
+}
+
 bool Logger::capture_diagnostic(
     LoggerDiagnosticLevel level, const std::string& message,
     const std::string& command_presentation) {

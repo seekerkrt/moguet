@@ -1,3 +1,4 @@
+#include "aur_upgrade_patch.hpp"
 #include "source_install.hpp"
 
 #include "invocation_owned_cleanup_adapter.hpp"
@@ -96,7 +97,8 @@ DesiredInstallReason resolve_source_target_reason(
     const ProviderSelectionCallback& select_provider,
     std::vector<ProvidedDependency>& selected_repository_providers,
     std::optional<std::vector<std::string>>&
-        configured_repository_order) {
+        configured_repository_order,
+    const AurRecipeMetadataSet* recipes = nullptr) {
     if(source.source_kind() != SourceBuildSourceKind::Aur) {
         return DesiredInstallReason::Explicit;
     }
@@ -104,8 +106,9 @@ DesiredInstallReason resolve_source_target_reason(
     // POLICY(#174,#268): dependency graph全体のRPC schemaを解決してから
     // route固有のexecutable guardへ進む。registered source upgradeのlegacy
     // singular ownerだけはsplit selection guardを維持する。
-    BuildPlan plan = resolve_build_plan(
-        source.requested_name(), select_provider);
+    BuildPlan plan = recipes && !recipes->empty()
+                         ? resolve_recipe_build_plan({source.requested_name()}, *recipes, select_provider)
+                         : resolve_build_plan(source.requested_name(), select_provider);
     configured_repository_order = plan.configured_repository_order;
     if(lifecycle_intent == ArtifactLifecycleIntent::PackageBaseSet) {
         require_executable_build_plan(source.requested_name(), plan);
@@ -426,7 +429,7 @@ ProductionSourceBuildWorkItem make_direct_source_build_work_item(
     bool only_if_updated,
     bool needed,
     ArtifactLifecycleIntent lifecycle_intent,
-    const ProviderSelectionCallback& select_provider) {
+    const ProviderSelectionCallback& select_provider, const AurRecipeMetadataSet* recipes = nullptr) {
     ProductionSourceBuildWorkItem work_item;
     work_item.request.package_name = source.requested_name();
     work_item.request.checkout_name = source.package_base();
@@ -443,7 +446,7 @@ ProductionSourceBuildWorkItem make_direct_source_build_work_item(
     DesiredInstallReason reason = resolve_source_target_reason(
         source, lifecycle_intent, select_provider,
         work_item.selected_repository_providers,
-        work_item.configured_repository_order);
+        work_item.configured_repository_order, recipes);
     work_item.required_targets.push_back(RequiredPackageArtifactTarget{
         source.package_base(), source.requested_name(), reason});
     work_item.required_target_provenance =
@@ -1269,6 +1272,8 @@ SelectedRepositoryProviderTransactionResult
 execute_selected_repository_provider_transaction(
     const PreparedProductionSourceBuildInvocation& invocation,
     const AppConfig& config) {
+    for(const auto& item : invocation.work_items)
+        if(item.request.upgrade_patch) item.request.upgrade_patch->require_matches(item);
     PreparedSelectedRepositoryProviderTransaction prepared =
         prepare_selected_repository_provider_transaction(invocation);
     SelectedRepositoryProviderTransactionResult result =
@@ -1679,6 +1684,16 @@ ProductionSourceBuildWorkItem prepare_registered_source_build_work_item(
         select_provider);
 }
 
+ProductionSourceBuildWorkItem prepare_registered_recipe_source_build_work_item(
+    const ResolvedSourceBuildIdentity& identity, SourceBuildEnvironment environment,
+    const ProviderSelectionCallback& select_provider, const AurRecipeMetadataSet& recipes) {
+    if(identity.source_kind() != SourceBuildSourceKind::Aur)
+        throw std::logic_error(localization::format_translated_message("Recipe patch work item requires {} identity.", "AUR"));
+    return make_direct_source_build_work_item(identity, std::move(environment),
+                                              SourceEnvironmentEmptyValuePolicy::Omit, true, false,
+                                              ArtifactLifecycleIntent::SingularCompatibility, select_provider, &recipes);
+}
+
 std::vector<ProductionSourceBuildWorkItem> prepare_aur_source_build_work_items(
     const BuildPlan& plan,
     bool use_source_build_preferences,
@@ -1755,10 +1770,30 @@ execute_prepared_package_base_source_build_work_item_typed(
             "Target package(s): {}",
             join_required_package_names(work_item.required_targets)));
     }
-    return execute_source_build_package_base_typed(
-        work_item.request, work_item.required_targets,
-        require_prepared_cache_root(work_item),
-        database_paths, config);
+    try {
+        auto result = execute_source_build_package_base_typed(
+            work_item.request, work_item.required_targets,
+            require_prepared_cache_root(work_item), database_paths, config);
+        if(work_item.request.upgrade_patch) {
+            try {
+                work_item.request.upgrade_patch->cleanup();
+            } catch(const std::exception& error) {
+                if(auto* completed = std::get_if<PackageBaseSourceBuildExecutionResult>(&result))
+                    throw SeparatedPackageBaseSourceBuildCleanupError(std::move(*completed), error.what());
+                throw;
+            }
+        }
+        return result;
+    } catch(...) {
+        if(work_item.request.upgrade_patch) {
+            try {
+                work_item.request.upgrade_patch->cleanup();
+            } catch(const std::exception& error) {
+                Logger::warn_noexcept([&] { return std::string(error.what()); });
+            }
+        }
+        throw;
+    }
 }
 
 #ifndef MOGUET_ENABLE_SOURCE_INVOCATION_EXECUTION_TEST_HOOKS
@@ -1859,10 +1894,21 @@ SourceBuildExecutionResult execute_prepared_source_build_work_item_typed(
     }
 
     try {
-        return execute_source_build_typed(
+        auto result = execute_source_build_typed(
             work_item.request, require_prepared_cache_root(work_item),
-            target.desired_reason,
-            database_paths, config);
+            target.desired_reason, database_paths, config);
+        if(work_item.request.upgrade_patch) {
+            try {
+                work_item.request.upgrade_patch->cleanup();
+            } catch(const std::exception& error) {
+                if(result.production_outcome && (result.status == SourceBuildExecutionStatus::Installed || result.status == SourceBuildExecutionStatus::SkippedAsNeeded))
+                    throw SeparatedSourceBuildCleanupError(
+                        result.status == SourceBuildExecutionStatus::Installed ? ArtifactInstallExecutionOutcome::Installed : ArtifactInstallExecutionOutcome::SkippedAsNeeded,
+                        *result.production_outcome, error.what());
+                throw;
+            }
+        }
+        return result;
     } catch(const ReviewedSourceProductionError&) {
         throw;
     } catch(const SeparatedSourceBuildPhaseError&) {

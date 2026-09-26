@@ -165,6 +165,10 @@ public:
         PreparedSourceBuildNeedsBuild&&) = delete;
     ~PreparedSourceBuildNeedsBuild() = default;
 
+    std::optional<ProductionSourceBuildProvenance> recipe_provenance() const {
+        return source_tree_ ? std::optional<ProductionSourceBuildProvenance>(source_tree_->provenance()) : std::nullopt;
+    }
+
 #if defined(MOGUET_ENABLE_SYSTEM_SOURCE_UPGRADE_TEST_HOOKS) || \
     defined(MOGUET_ENABLE_UPGRADE_ALL_OPERATION_TEST_HOOKS)
     static PreparedSourceBuildNeedsBuild

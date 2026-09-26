@@ -7,6 +7,7 @@
 #include "cli_parser.hpp"
 #include "cli_runtime_contract.hpp"
 #include "commands_aur_update.hpp"
+#include "diagnostic_projection.hpp"
 #include "interactive_confirmation.hpp"
 #include "localization.hpp"
 #include "logging.hpp"
@@ -1777,7 +1778,11 @@ void print_aggregate_issues_and_diagnostics(
             aggregate_phase_label(issue.phase), issue.diagnostic));
     }
 
-    if(!has_typed_aur_execution_snapshot &&
+    if(result.aur.preparation_confirmation) {
+        report_runtime_diagnostic(project_confirmation_diagnostic(*result.aur.preparation_confirmation, DiagnosticOperation::UpgradeAll, DiagnosticPhase::Preflight, {}),
+                                  confirmation_stop_diagnostic(*result.aur.preparation_confirmation));
+    }
+    if(!has_typed_aur_execution_snapshot && !result.aur.preparation_confirmation &&
        result.aur.diagnostic.has_value() && !result.aur.diagnostic->empty()) {
         const bool already_reported = std::any_of(
             result.issues.begin(), result.issues.end(),
@@ -1989,7 +1994,7 @@ std::vector<std::string> validate_upgrade_all_invocation(
 int cmd_upgrade_all(const AppConfig& config) {
     try {
         UpgradeAllOperationPreparation preparation =
-            prepare_upgrade_all_operation(config);
+            prepare_upgrade_all_operation(config, UpgradePatchPolicy::Interactive);
         UpgradeAllOperationResult result =
             std::holds_alternative<PreparedUpgradeAllOperation>(
                 preparation)
@@ -2001,7 +2006,9 @@ int cmd_upgrade_all(const AppConfig& config) {
 
         print_operation_result(result, config.presentation_detail);
         return result.is_success() ? 0 : 1;
-    } catch(const ConfirmationOperationStopped&) {
+    } catch(const ConfirmationOperationStopped& stop) {
+        report_runtime_diagnostic(project_confirmation_diagnostic(stop.result(), DiagnosticOperation::UpgradeAll, DiagnosticPhase::Preflight, {}),
+                                  confirmation_stop_diagnostic(stop.result()));
         return 1;
     } catch(const std::exception& error) {
         Logger::error(localization::format_translated_message(

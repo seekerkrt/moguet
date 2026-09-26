@@ -88,6 +88,13 @@ LocalSourceBuildMetadata evaluate_local_source_metadata(
     const LocalSourceRoot& source_root,
     SourceBuildEnvironment source_environment,
     std::string effective_architecture) {
+    return evaluate_recipe_metadata(source_root, std::move(source_environment),
+                                    std::move(effective_architecture), SourceEnvironmentEmptyValuePolicy::Forward);
+}
+
+LocalSourceBuildMetadata evaluate_recipe_metadata(
+    const LocalSourceRoot& source_root, SourceBuildEnvironment source_environment,
+    std::string effective_architecture, SourceEnvironmentEmptyValuePolicy empty_policy) {
     require_unclaimed_artifact_pkgdest(source_environment);
     source_root.require_unchanged_identity();
 
@@ -95,14 +102,14 @@ LocalSourceBuildMetadata evaluate_local_source_metadata(
     const std::vector<std::string> assignment_words =
         materialize_source_build_environment_assignment_words(
             source_environment,
-            SourceEnvironmentEmptyValuePolicy::Forward);
+            empty_policy);
     command_words.insert(
         command_words.end(), assignment_words.begin(),
         assignment_words.end());
     const std::string command =
         serialize_source_build_environment(
             source_environment,
-            SourceEnvironmentEmptyValuePolicy::Forward) +
+            empty_policy) +
         shell_words::join(command_words);
     Logger::raw_cmd(command);
     ExplicitProcessInvocation invocation{

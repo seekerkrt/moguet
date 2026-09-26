@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.10.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 10:14+0900\n"
+"POT-Creation-Date: 2026-09-26 14:43+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -652,6 +652,135 @@ msgstr ""
 
 #, c++-format
 msgid "{} {} response validation failed for {}: duplicate response {} {}"
+msgstr ""
+
+msgid "Saved recipe patches are not supported by authoritative devel execution. Update stopped; no stock or legacy fallback was attempted."
+msgstr ""
+
+msgid "missing patch material or association"
+msgstr ""
+
+msgid "patch material digest changed"
+msgstr ""
+
+msgid "unsafe patch customization"
+msgstr ""
+
+msgid "corrupt patch association"
+msgstr ""
+
+msgid "unsupported patch association"
+msgstr ""
+
+msgid "invalid patch material"
+msgstr ""
+
+msgid "patch association identity mismatch"
+msgstr ""
+
+msgid "patch association changed during the operation"
+msgstr ""
+
+msgid "patch customization I/O failure"
+msgstr ""
+
+#, c++-format
+msgid "Saved patch customization failed: {} ({}). Update stopped."
+msgstr ""
+
+#, c++-format
+msgid "Evaluate patched {} metadata with {}?"
+msgstr ""
+
+#. TRANSLATORS: The placeholders are the literal PKGBUILD artifact name and makepkg option.
+#, c++-format
+msgid "Evaluate {} metadata with {}?"
+msgstr ""
+
+msgid "Patched recipe dependency metadata is invalid."
+msgstr ""
+
+#, c++-format
+msgid "Patched recipe changed {} or child identity."
+msgstr ""
+
+msgid "Saved patch candidate cleanup failed."
+msgstr ""
+
+#, c++-format
+msgid "Invalid {} patch candidate lifecycle."
+msgstr ""
+
+msgid "Current upstream recipe does not match the saved patch association."
+msgstr ""
+
+#, c++-format
+msgid "Saved recipe patch application failed: {}. Update stopped; no stock fallback was attempted."
+msgstr ""
+
+#, c++-format
+msgid "{} patch candidate already cleaned."
+msgstr ""
+
+msgid "Installed package state changed after patch candidate preparation. Update stopped."
+msgstr ""
+
+msgid "Patch candidate identity or build environment changed after metadata evaluation."
+msgstr ""
+
+#, c++-format
+msgid "{} patch candidate is unavailable or already consumed."
+msgstr ""
+
+msgid "Selected patch candidate has no fresh metadata."
+msgstr ""
+
+#, c++-format
+msgid "Saved patch candidate cleanup failed: {}. Inspect the retained workspace: {}"
+msgstr ""
+
+#, c++-format
+msgid "Current {} source identity changed before patch discovery."
+msgstr ""
+
+#, c++-format
+msgid "{} patch source identity changed."
+msgstr ""
+
+#, c++-format
+msgid "Saved patch customization found for {}."
+msgstr ""
+
+#, c++-format
+msgid "Apply saved patch customization to this update of {}?"
+msgstr ""
+
+#, c++-format
+msgid "Registered {} install reason is unknown."
+msgstr ""
+
+#, c++-format
+msgid "Conflicting evaluated {} child identity."
+msgstr ""
+
+#, c++-format
+msgid "{} patch discovery requires exact update metadata."
+msgstr ""
+
+#, c++-format
+msgid "{} update install reason is unknown."
+msgstr ""
+
+#, c++-format
+msgid "{} patch discovery lost build-unit selection correlation."
+msgstr ""
+
+#, c++-format
+msgid "{} patch discovery build-unit identity mismatch."
+msgstr ""
+
+#, c++-format
+msgid "{} patch discovery received an unknown build-unit selection."
 msgstr ""
 
 msgid "explicit"
@@ -3438,11 +3567,6 @@ msgstr ""
 msgid "Local metadata evaluation is required for {}: {}."
 msgstr ""
 
-#. TRANSLATORS: The placeholders are the literal PKGBUILD artifact name and makepkg option.
-#, c++-format
-msgid "Evaluate {} metadata with {}?"
-msgstr ""
-
 #, c++-format
 msgid "Local package {} does not support architecture {}."
 msgstr ""
@@ -3613,18 +3737,6 @@ msgstr ""
 msgid "Patch {} failed; later patches were not attempted."
 msgstr ""
 
-#, c++-format
-msgid "Show {} for read-only review?"
-msgstr ""
-
-#, c++-format
-msgid "{} is too large for inline review. Inspect it externally and decline the preview on the next invocation."
-msgstr ""
-
-#, c++-format
-msgid "Read-only {} candidate:"
-msgstr ""
-
 msgid "Selected patches require source identity evaluation and pre/post patch metadata evaluation in owned candidates. Editor overlays are not used."
 msgstr ""
 
@@ -3634,10 +3746,6 @@ msgstr ""
 
 #, c++-format
 msgid "Selected patch series for {}: {} patch(es)."
-msgstr ""
-
-#, c++-format
-msgid "Evaluate patched {} metadata with {}?"
 msgstr ""
 
 msgid "No patch customizations registered."
@@ -3818,6 +3926,18 @@ msgstr ""
 
 #, c++-format
 msgid "{} cache is empty."
+msgstr ""
+
+#, c++-format
+msgid "Show {} for read-only review?"
+msgstr ""
+
+#, c++-format
+msgid "{} is too large for inline review. Inspect it externally and decline the preview on the next invocation."
+msgstr ""
+
+#, c++-format
+msgid "Read-only {} candidate:"
 msgstr ""
 
 #, c++-format
@@ -5224,6 +5344,13 @@ msgstr ""
 msgid "{} package metadata constraint projection failed: {}"
 msgstr ""
 
+msgid "Selected recipe child does not support the effective architecture."
+msgstr ""
+
+#, c++-format
+msgid "Current recipe child identity differs from {} metadata; no {} fallback for the selected {}."
+msgstr ""
+
 #, c++-format
 msgid "{} provider candidate changed during dependency resolution: {}"
 msgstr ""
@@ -5306,6 +5433,10 @@ msgstr ""
 
 #, c++-format
 msgid "Provider candidate changed during dependency resolution: {}"
+msgstr ""
+
+#, c++-format
+msgid "Invalid evaluated {} recipe plan input."
 msgstr ""
 
 msgid "already absent"
@@ -5732,6 +5863,9 @@ msgstr ""
 msgid "{} entry has an unknown classification."
 msgstr ""
 
+msgid "Saved patch dependency preparation exceeded the candidate limit."
+msgstr ""
+
 #. TRANSLATORS: {} is the literal service name "AUR".
 #, c++-format
 msgid "Prepared filtered {} update operation is invalid or has already been consumed."
@@ -6029,6 +6163,13 @@ msgstr ""
 
 #, c++-format
 msgid "Use {} with {} to select saved patches; require explicit metadata evaluation consent and stop if customization fails"
+msgstr ""
+
+#, c++-format
+msgid "Experimental: {}, {} and {} offer saved {} recipe patches with a No default; noninteractive use keeps stock recipes"
+msgstr ""
+
+msgid "Patch Yes requires fresh metadata and never falls back; authoritative devel customization is unsupported"
 msgstr ""
 
 #. TRANSLATORS: The placeholder is the literal pacman program identity.
@@ -7877,6 +8018,9 @@ msgstr ""
 msgid "Update status is unknown because {} is missing or incomplete. Continue to review/build?"
 msgstr ""
 
+msgid "Selected patch has no recipe preparation intent."
+msgstr ""
+
 #, c++-format
 msgid "Applying custom build flags: {}"
 msgstr ""
@@ -7915,6 +8059,12 @@ msgstr ""
 
 #, c++-format
 msgid "{} set source-build multiple request must not expose a singular package name."
+msgstr ""
+
+msgid "Selected patch has no execution intent."
+msgstr ""
+
+msgid "Selected patch update lost installed snapshot."
 msgstr ""
 
 msgid "Devel tracking bootstrap observations changed; no build was started."
@@ -8059,6 +8209,10 @@ msgid "Repository source-build identity has no repository name."
 msgstr ""
 
 msgid "Remote source-build plan was rejected without a blocking detail."
+msgstr ""
+
+#, c++-format
+msgid "Recipe patch work item requires {} identity."
 msgstr ""
 
 #, c++-format

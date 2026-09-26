@@ -299,6 +299,7 @@ moguet_add_focused_ctest_alias(
 )
 moguet_add_focused_ctest_alias(test-source-build TESTS cli.source_build)
 moguet_add_focused_ctest_alias(test-local-patch-cli TESTS cli.local_patch)
+moguet_add_focused_ctest_alias(test-upgrade-patch-cli TESTS cli.upgrade_patch cli.upgrade_patch_bootstrap)
 moguet_add_focused_ctest_alias(test-source-selection TESTS cli.source_selection)
 moguet_add_focused_ctest_alias(test-needed-contract TESTS cli.needed_contract)
 moguet_add_focused_ctest_alias(test-pkgbuild-export TESTS cli.pkgbuild_export)

@@ -4,6 +4,7 @@ source/artifact_install_executor.cpp
 source/artifact_install_plan.cpp
 source/artifact_workspace.cpp
 source/aur_rpc.cpp
+source/aur_upgrade_patch.cpp
 source/aur_update_cli_presentation.cpp
 source/aur_update_execution_preflight.cpp
 source/aur_update_execution_preparation.cpp
@@ -19,6 +20,7 @@ source/cli_runtime_contract.cpp
 source/commands_aur_update.cpp
 source/commands_inspect.cpp
 source/commands_source_maintenance.cpp
+source/recipe_patch_review.cpp
 source/commands_sync.cpp
 source/commands_upgrade_all.cpp
 source/dependency_plan.cpp

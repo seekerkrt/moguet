@@ -117,6 +117,59 @@ def project(helper, command, paths):
     return projected
 
 
+def update_native_fixture_database(projected):
+    """Opt-in makepkg fixture effect after a successful fake install.
+
+    Only a marked case-local ALPM database beside the existing archive/log
+    observation directory is writable. This never invokes a package manager.
+    """
+    if os.environ.get('MOGUET_TEST_PATCH_NATIVE_DB') != '1':
+        return
+    root = Path(os.environ['MOGUET_TEST_COMMAND_LOG']).parent
+    require(root == Path(os.environ['XDG_CACHE_HOME']).parent and
+            (root/'native-db-fixture').read_text() == 'moguet-upgrade-patch-cli\n',
+            'unmarked native fixture database')
+    local = root/'db/local'
+    require(local.resolve(strict=True) == local and (local/'ALPM_DB_VERSION').read_text().strip() == '9',
+            'unsafe native fixture database')
+    for argument in projected[projected.index('--')+1:]:
+        archive_path = root/'archives'/Path(argument).name
+        with tarfile.open(archive_path) as archive:
+            fields = {}
+            for line in archive.extractfile('.PKGINFO').read().decode().splitlines():
+                if ' = ' in line:
+                    key, value = line.split(' = ', 1)
+                    fields.setdefault(key, []).append(value)
+        name, version = fields['pkgname'][0], fields['pkgver'][0]
+        require(re.fullmatch(r'[a-zA-Z0-9@_+.-]+', name) and
+                re.fullmatch(r'[a-zA-Z0-9:~_+.-]+', version), 'unsafe native fixture identity')
+        directive = '1' if '--asdeps' in projected else '0' if '--asexplicit' in projected else None
+        reason = directive or '0'
+        for old in local.glob(name+'-*'):
+            require(old.is_dir() and old.resolve() == old and not old.is_symlink(), 'unsafe old fixture record')
+            text = (old/'desc').read_text()
+            if directive is None:
+                previous_reason = text.split('%REASON%\n', 1)[1].split('\n', 1)[0]
+                require(previous_reason in ('0', '1'), 'unknown prior fixture reason')
+                reason = previous_reason
+            shutil.rmtree(old)
+        values = {'NAME': [name], 'BASE': fields.get('pkgbase', [name]), 'VERSION': [version],
+                  'ARCH': fields.get('arch', ['any']), 'REASON': [reason], 'DESC': ['fixture'],
+                  'DEPENDS': fields.get('depend', []), 'PROVIDES': fields.get('provides', [])}
+        record = local/(name+'-'+version)
+        record.mkdir()
+        (record/'desc').write_text(''.join('%'+key+'%\n'+'\n'.join(value)+'\n\n'
+                                          for key, value in values.items() if value))
+    if os.environ.get('MOGUET_TEST_PATCH_CANDIDATE_CLEANUP_FAILURE') == '1':
+        candidates = list((root/'cache/moguet').glob('.local-source-workspace~*'))
+        require(len(candidates) == 1 and candidates[0].resolve() == candidates[0],
+                'ambiguous cleanup-failure fixture candidate')
+        # The cleanup owner can safely unlink FIFOs and restore directory
+        # modes. Displace its root after installation to invalidate the actual
+        # retained name/inode authority instead.
+        candidates[0].rename(candidates[0].with_name(candidates[0].name+'.cleanup-displaced'))
+
+
 def main():
     try:
         stub = selected_stub()
@@ -124,7 +177,10 @@ def main():
         projected = project(sys.argv[1], sys.argv[2], sys.argv[3:])
         # The stub only logs/updates case-local fixtures; it never execs pacman.
         # Use an absolute interpreter and allowlisted script, never PATH sudo.
-        return subprocess.run(["/bin/sh", str(stub), *projected], check=False).returncode
+        code = subprocess.run(["/bin/sh", str(stub), *projected], check=False).returncode
+        if code == 0:
+            update_native_fixture_database(projected)
+        return code
     except (OSError, ValueError) as error:
         print(f"legacy install test adapter refused: {error}", file=sys.stderr)
         return 125

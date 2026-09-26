@@ -92,6 +92,7 @@ class LocalSourceWorkspace final {
         const LocalSourceRoot& source_root,
         const ValidatedCacheRoot& cache_root);
     friend struct LocalSourceBuildAccess;
+    friend LocalSourceWorkspace create_aur_patch_workspace(const ValidatedCacheRoot& cache_root);
 
 public:
     LocalSourceWorkspace(const LocalSourceWorkspace&) = delete;
@@ -110,6 +111,10 @@ public:
 LocalSourceWorkspace materialize_local_source_workspace(
     const LocalSourceRoot& source_root,
     const ValidatedCacheRoot& cache_root);
+
+// Empty invocation-owned parent for a fresh AUR recipe checkout. Uses the same
+// retained-directory cleanup authority as local recipe candidates.
+LocalSourceWorkspace create_aur_patch_workspace(const ValidatedCacheRoot& cache_root);
 
 // workspace作成前にretained identityとsource tree全体をmutation-freeで検査する。
 // materializationもrace対策として実行直前に同じ境界を再確認する。

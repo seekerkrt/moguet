@@ -1697,6 +1697,12 @@ AurUpdateExecutionPreflight resolve_aur_update_execution_preflight(
     const AurUpdatePlan& update_plan,
     DevelRequiresCheckPolicy devel_requires_check_policy,
     const ProviderSelectionCallback& select_provider) {
+    return resolve_aur_update_execution_preflight_with_recipes(update_plan, devel_requires_check_policy, select_provider, {});
+}
+
+AurUpdateExecutionPreflight resolve_aur_update_execution_preflight_with_recipes(
+    const AurUpdatePlan& update_plan, DevelRequiresCheckPolicy devel_requires_check_policy,
+    const ProviderSelectionCallback& select_provider, const AurRecipeMetadataSet& recipes) {
     AurUpdateExecutionPreflight preflight;
     preflight.devel_requires_check_policy =
         devel_requires_check_policy;
@@ -1803,8 +1809,8 @@ AurUpdateExecutionPreflight resolve_aur_update_execution_preflight(
     }
 
     // POLICY(#267): invocation全体で一度だけ解決し、candidate順とexecution順を混ぜない。
-    preflight.build_plan = resolve_build_plan_for_preflight(
-        candidate_names, select_provider);
+    preflight.build_plan = recipes.empty() ? resolve_build_plan_for_preflight(candidate_names, select_provider)
+                                           : resolve_recipe_build_plan(candidate_names, recipes, select_provider);
     inspect_combined_build_plan_consistency(preflight, candidates);
     std::vector<AttributedBuildPlanIssue> attributed_issues =
         inspect_build_plan(preflight.build_plan.value());

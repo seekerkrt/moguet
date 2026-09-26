@@ -218,6 +218,50 @@ void PreparedLocalRecipeBuild::require_unchanged_identity() const {
     build_.request_.metadata.require_matches(build_.request_.source_root);
 }
 
+LocalSourceRoot apply_recipe_patch_series(
+    const LocalSourceRoot& before, const std::vector<LocalRecipePatch>& patches,
+    LocalRecipeCandidateFailure& failure) {
+    using Phase = LocalRecipeCandidatePhase;
+    using Reason = LocalRecipeCandidateFailureReason;
+    before.require_unchanged_identity();
+    auto expected = before.pkgbuild();
+    std::size_t total = 0;
+    if(patches.empty() || patches.size() > MAX_SERIES_ENTRIES)
+        throw std::invalid_argument("local-recipe-invalid-series");
+    failure.patches.assign(patches.size(), LocalRecipePatchOutcome::NotAttempted);
+    for(std::size_t i = 0; i < patches.size(); ++i) {
+        if(patches[i].bytes.size() > MAX_PATCH_BYTES || total > MAX_SERIES_BYTES - patches[i].bytes.size())
+            throw std::invalid_argument("local-recipe-series-limit");
+        total += patches[i].bytes.size();
+        if(auto invalid = validate_patch(patches[i].bytes)) {
+            failure.reason = *invalid;
+            failure.rejected_patch_index = i;
+            throw std::invalid_argument("local-recipe-patch-shape-rejected");
+        }
+    }
+    // Each snapshot expires only after a successful, known PKGBUILD mutation.
+    for(std::size_t i = 0; i < patches.size(); ++i) {
+        failure.phase = Phase::Apply;
+        failure.reason = Reason::CandidateChanged;
+        failure.patches[i] = LocalRecipePatchOutcome::Failed;
+        auto current = open_local_source_root(before.canonical_path(), true);
+        if(current.directory_identity() != before.directory_identity() || current.pkgbuild() != expected)
+            throw std::runtime_error("local-recipe-prepatch-changed");
+        apply_patch(patches[i], current, failure);
+        failure.reason = Reason::CandidateChanged;
+        auto next = open_local_source_root(before.canonical_path(), true);
+        if(next.directory_identity() != before.directory_identity())
+            throw std::runtime_error("local-recipe-candidate-identity-changed");
+        if(next.pkgbuild().identity.mode != before.pkgbuild().identity.mode)
+            LocalRecipeCandidateAccess::restore_recipe_mode(next, before.pkgbuild().identity.mode);
+        expected = open_local_source_root(before.canonical_path(), true).pkgbuild();
+        failure.patches[i] = LocalRecipePatchOutcome::Applied;
+    }
+    auto modified = open_local_source_root(before.canonical_path(), true);
+    if(modified.pkgbuild() != expected) throw std::runtime_error("local-recipe-modified-candidate-changed");
+    return modified;
+}
+
 PreparedLocalRecipeBuild prepare_local_recipe_build(
     LocalSourceRoot original, ValidatedCacheRoot cache_root,
     SourceBuildEnvironment environment, std::vector<LocalRecipePatch> patches,
@@ -261,7 +305,6 @@ PreparedLocalRecipeBuild prepare_local_recipe_build(
         failure.candidate_path = workspace->path();
         LocalSourceRoot before = open_local_source_root(workspace->path(), true);
         const LocalSourceFileSnapshot prepatch = before.pkgbuild();
-        LocalSourceFileSnapshot expected = prepatch;
         failure.phase = Phase::PrepatchMetadata;
         failure.reason = Reason::MetadataFailure;
         const auto baseline = evaluate_local_source_metadata(before, environment, architecture);
@@ -275,34 +318,9 @@ PreparedLocalRecipeBuild prepare_local_recipe_build(
         if(expected_source && *expected_source != identity)
             throw std::runtime_error("local-recipe-association-mismatch");
 
-        // Each root snapshot expires on successful apply. Reopen only after a
-        // known tool success; a failed/unknown mutator never produces authority.
-        for(std::size_t i = 0; i < patches.size(); ++i) {
-            failure.phase = Phase::Apply;
-            failure.reason = Reason::CandidateChanged;
-            failure.patches[i] = LocalRecipePatchOutcome::Failed;
-            workspace->require_unchanged_identity();
-            LocalSourceRoot current = open_local_source_root(workspace->path(), true);
-            if(current.pkgbuild() != expected)
-                throw std::runtime_error("local-recipe-prepatch-changed");
-            apply_patch(patches[i], current, failure);
-            failure.reason = Reason::CandidateChanged;
-            workspace->require_unchanged_identity();
-            LocalSourceRoot next = open_local_source_root(workspace->path(), true);
-            if(next.directory_identity() != before.directory_identity())
-                throw std::runtime_error("local-recipe-candidate-identity-changed");
-            // Git may recreate a 0600 file as 0644. Retain the original recipe
-            // mode through this owned, descriptor-validated replacement only.
-            if(next.pkgbuild().identity.mode != prepatch.identity.mode)
-                LocalRecipeCandidateAccess::restore_recipe_mode(next, prepatch.identity.mode);
-            expected = open_local_source_root(workspace->path(), true).pkgbuild();
-            failure.patches[i] = LocalRecipePatchOutcome::Applied;
-        }
-        failure.phase = Phase::PostpatchMetadata;
-        failure.reason = Reason::CandidateChanged;
-        LocalSourceRoot modified = open_local_source_root(workspace->path(), true);
-        if(modified.pkgbuild() != expected)
-            throw std::runtime_error("local-recipe-modified-candidate-changed");
+        workspace->require_unchanged_identity();
+        LocalSourceRoot modified = apply_recipe_patch_series(before, patches, failure);
+        workspace->require_unchanged_identity();
         if(review_modified) {
             failure.phase = Phase::Review;
             failure.reason = Reason::ReviewStopped;
