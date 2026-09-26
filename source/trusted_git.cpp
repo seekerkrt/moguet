@@ -1544,7 +1544,7 @@ read_overlay_regular_file(
         return pinned_checkout_boundary_failure(manifest.stage);
     }
     manifest.aggregate_regular_bytes += expected_size;
-    return reviewed_source_sha256_content_identity(content);
+    return content;
 }
 
 std::variant<std::string, TrustedGitPinnedCheckoutFailure>
@@ -1683,7 +1683,8 @@ scan_overlay_filesystem_directory(
                        child_path,
                        OverlayFilesystemEntryKind::RegularFile,
                        named_status,
-                       std::get<std::string>(std::move(content))})) {
+                       reviewed_source_sha256_content_identity(
+                           std::get<std::string>(content))})) {
                 return failure;
             }
             continue;
@@ -3631,6 +3632,35 @@ int clone_persistent_checkout(
 }
 
 } // namespace
+
+std::variant<std::string, TrustedGitPinnedCheckoutFailure>
+trusted_git_read_review_pkgbuild(const ValidatedCachePath& checkout) {
+    constexpr auto stage = TrustedGitPinnedCheckoutStage::OverlayObservation;
+    ValidatedCachePath current = revalidate_trusted_cache_path(
+        checkout, CachePathRequirement::ExistingDirectory);
+    auto retained = retain_trusted_cache_directory(current);
+    retained.require_unchanged_identity();
+    OwnedFileDescriptor root(::open(
+        current.canonical_path().c_str(),
+        O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW));
+    struct stat root_status{};
+    struct stat named_status{};
+    if(!root.valid() || ::fstat(root.get(), &root_status) != 0 ||
+       static_cast<std::uintmax_t>(root_status.st_dev) != current.device() ||
+       static_cast<std::uintmax_t>(root_status.st_ino) != current.inode() ||
+       ::fstatat(root.get(), "PKGBUILD", &named_status, AT_SYMLINK_NOFOLLOW) != 0 ||
+       !S_ISREG(named_status.st_mode)) {
+        return pinned_checkout_boundary_failure(stage);
+    }
+    // Reuse only the bounded stable regular-file reader, not the whole-root
+    // manifest policy. Each read proves its own inode; editor atomic save may
+    // legitimately replace that inode between the pre/post reads.
+    OverlayFilesystemManifestState read_state;
+    read_state.stage = stage;
+    auto result = read_overlay_regular_file(root.get(), "PKGBUILD", named_status, read_state);
+    retained.require_unchanged_identity();
+    return result;
+}
 
 int trusted_git_clone_persistent_checkout(
     const ValidatedCachePath& destination,

@@ -337,6 +337,11 @@ using TrustedGitPinnedCheckoutOverlayObservationResult = std::variant<
     TrustedGitPinnedCheckoutOverlayObservation,
     TrustedGitPinnedCheckoutFailure>;
 
+// Owning exact bytes of the root regular PKGBUILD only. No Git operation or
+// descendant inventory; the review route supplies source/target authority.
+[[nodiscard]] std::variant<std::string, TrustedGitPinnedCheckoutFailure>
+trusted_git_read_review_pkgbuild(const ValidatedCachePath& checkout);
+
 // Hash-verified bytes for every entry in one exact reviewed commit tree.
 // The capability is intentionally opaque outside the invocation-owned context
 // mint: callers may inspect its identity, but cannot extract/recombine raw
