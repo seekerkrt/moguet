@@ -54,6 +54,13 @@ struct LocalRecipeCandidateFailure {
     std::optional<ConfirmationResult> review_stop = std::nullopt;
 };
 
+// Shared PKGBUILD-only operation over an already isolated, caller-owned recipe
+// directory. The caller retains the workspace owner and metadata/review policy.
+// Returns the exact modified snapshot; never reopens external patch material.
+LocalSourceRoot apply_recipe_patch_series(
+    const LocalSourceRoot& before, const std::vector<LocalRecipePatch>& patches,
+    LocalRecipeCandidateFailure& failure);
+
 // Optional public composition gate over the exact modified snapshot. No
 // persistence or UI policy belongs to the candidate owner itself.
 using LocalRecipeReviewCallback = std::function<ConfirmationResult(const LocalSourceFileSnapshot&)>;

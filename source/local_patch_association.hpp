@@ -138,6 +138,10 @@ std::variant<PatchAssociationForgotten, PatchAssociationFailure> forget_local_pa
 // A fresh record observation is required; a stale update token is rejected.
 PatchAssociationAcquireResult acquire_local_patch_series(const LoadedPatchAssociation& association);
 
+// Selected AUR consumer only. Rechecks the exact loaded registry observation
+// and returns the same digest-verified owned bytes used by the recipe consumer.
+PatchAssociationAcquireResult acquire_aur_patch_series(const LoadedPatchAssociation& association);
+
 // Display/diagnostic path only, never a filesystem capability.
 std::filesystem::path patch_association_record_path(const PackageBaseIdentity& identity);
 std::filesystem::path local_patch_association_record_path(const PackageBaseIdentity& identity);

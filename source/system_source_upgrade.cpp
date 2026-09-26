@@ -1,3 +1,4 @@
+#include "aur_upgrade_patch.hpp"
 #include "system_source_upgrade.hpp"
 
 #include "app_config.hpp"
@@ -1393,7 +1394,7 @@ void PreparedSystemSourceUpgrade::set_unexpected_exception_for_test(
 
 SystemSourceUpgradePreparation prepare_system_source_upgrade(
     const AppConfig& config,
-    const SystemSourceUpgradeEventObserver& observer) {
+    const SystemSourceUpgradeEventObserver& observer, UpgradePatchPolicy patch_policy) {
     SystemSourceUpgradePreparationState state;
     state.snapshot.options = snapshot_options(config);
 
@@ -1629,13 +1630,50 @@ SystemSourceUpgradePreparation prepare_system_source_upgrade(
         aur_package_names.push_back(
             resolved_identities[source_position]->requested_name());
     }
+    AurUpgradePatchSet patches;
     if(!aur_package_names.empty()) {
         try {
-            state.aur_invocation_plan.emplace(resolve_build_plan(
-                aur_package_names, select_provider));
+            const bool has_static_source_blocker = std::any_of(resolved_identities.begin(), resolved_identities.end(), [](const auto& source) {
+                                                       return source && source->aur_identity() && source->has_distinct_package_base();
+                                                   }) ||
+                                                   std::any_of(state.snapshot.registered_sources.begin(), state.snapshot.registered_sources.end(), [](const auto& source) {
+                                                       return source.environment && source.environment->defines("PKGDEST");
+                                                   });
+            if(patch_policy == UpgradePatchPolicy::Interactive && !has_static_source_blocker) {
+                struct PatchDraft {
+                    const ResolvedAurSourceBuildIdentity* source;
+                    SourceBuildRequest request;
+                };
+                std::vector<PatchDraft> drafts;
+                for(std::size_t index = 0; index < resolved_identities.size(); ++index) {
+                    if(!resolved_identities[index] || !resolved_identities[index]->aur_identity()) continue;
+                    const auto& source = *resolved_identities[index];
+                    // Preserve the registered route's existing singular boundary.
+                    // Its normal work-item owner reports the established split error.
+                    if(source.has_distinct_package_base()) continue;
+                    SourceBuildRequest request;
+                    request.package_name = source.requested_name();
+                    request.checkout_name = source.package_base();
+                    request.git_url = source.git_url();
+                    request.custom_environment = *state.snapshot.registered_sources[index].environment;
+                    request.only_if_updated = true;
+                    drafts.push_back({source.aur_identity(), std::move(request)});
+                }
+                for(auto& draft : drafts) {
+                    const auto& source = *draft.source;
+                    patches.consider(source, std::move(draft.request),
+                                     {{source.checkout().package_base(), source.requested_name(), DesiredInstallReason::Explicit}}, config);
+                }
+            }
+            patches.require_unchanged();
+            state.aur_invocation_plan.emplace(patches.metadata().empty()
+                                                  ? resolve_build_plan(aur_package_names, select_provider)
+                                                  : resolve_recipe_build_plan(aur_package_names, patches.metadata(), select_provider));
             require_executable_install_plan(
                 join_package_names(aur_package_names),
                 state.aur_invocation_plan.value());
+        } catch(const ConfirmationOperationStopped&) {
+            throw;
         } catch(const std::exception& error) {
             const std::size_t source_position =
                 first_aur_source_position.value();
@@ -1684,10 +1722,11 @@ SystemSourceUpgradePreparation prepare_system_source_upgrade(
         try {
             correlation.work_item_index = source_work_items.size();
             ProductionSourceBuildWorkItem work_item =
-                prepare_registered_source_build_work_item(
-                    resolved_identities[source_position].value(),
-                    source.environment.value(),
-                    select_provider);
+                !patches.metadata().empty() && resolved_identities[source_position]->aur_identity()
+                    ? prepare_registered_recipe_source_build_work_item(*resolved_identities[source_position], *source.environment,
+                                                                       select_provider, patches.metadata())
+                    : prepare_registered_source_build_work_item(*resolved_identities[source_position], *source.environment, select_provider);
+            patches.attach(work_item);
             source.required_target_provenance =
                 work_item.required_target_provenance;
             source.artifact_lifecycle_intent =

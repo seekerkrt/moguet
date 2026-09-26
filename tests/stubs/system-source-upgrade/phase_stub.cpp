@@ -122,6 +122,11 @@ ResolvedSourceBuildIdentity default_identity(
 
 } // namespace
 
+bool SourceBuildEnvironment::defines(const std::string& key) const {
+    return std::any_of(ordered_assignments.begin(), ordered_assignments.end(),
+                       [&](const auto& assignment) { return assignment.key == key; });
+}
+
 ProviderSelectionCallback provider_selection_callback(const AppConfig&) {
     return g_state.provider_selector;
 }
@@ -1049,4 +1054,16 @@ SourceBuildExecutionResult execute_prepared_source_build_work_item_typed(
                 "Registered AUR singular execution received a PackageBase script.");
     }
     throw std::logic_error("Unknown scripted source execution kind.");
+}
+
+BuildPlan resolve_recipe_build_plan(const std::vector<std::string>&,
+                                    const AurRecipeMetadataSet&,
+                                    const ProviderSelectionCallback&) {
+    throw std::logic_error("This query fixture has no evaluated recipe metadata.");
+}
+
+ProductionSourceBuildWorkItem prepare_registered_recipe_source_build_work_item(
+    const ResolvedSourceBuildIdentity&, SourceBuildEnvironment,
+    const ProviderSelectionCallback&, const AurRecipeMetadataSet&) {
+    throw std::logic_error("This source fixture has no evaluated recipe metadata.");
 }

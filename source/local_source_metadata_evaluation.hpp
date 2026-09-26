@@ -16,3 +16,9 @@ LocalSourceBuildMetadata evaluate_local_source_metadata(
     const LocalSourceRoot& source_root,
     SourceBuildEnvironment source_environment,
     std::string effective_architecture);
+
+// Remote recipe candidates retain their existing Omit/Forward environment
+// policy. Evaluation does not select or load saved preferences.
+LocalSourceBuildMetadata evaluate_recipe_metadata(
+    const LocalSourceRoot& source_root, SourceBuildEnvironment source_environment,
+    std::string effective_architecture, SourceEnvironmentEmptyValuePolicy empty_policy);

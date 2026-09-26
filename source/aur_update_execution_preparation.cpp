@@ -1,3 +1,4 @@
+#include "aur_upgrade_patch.hpp"
 #include "aur_update_execution_preparation.hpp"
 #include "devel_tracking_bootstrap.hpp"
 
@@ -2226,4 +2227,11 @@ AurUpdateSourceBuildObservation observe_aur_update_source_build_preparation(
     return observe_aur_update_source_build_preparation(
         preflight, build_unit_selection, devel_requires_check_policy,
         saved_source_preference_policy, needed, config);
+}
+
+void attach_aur_upgrade_patch_candidates(AurUpdateSourceBuildPreparation& preparation,
+                                         const AurUpgradePatchSet& patches) {
+    if(!preparation.is_prepared() || !preparation.invocation) return;
+    for(auto& item : preparation.invocation->production_invocation_.work_items)
+        patches.attach(item);
 }

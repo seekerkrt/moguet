@@ -855,8 +855,31 @@ Malformed, unsupported, unsafe or mismatched registry records stop the command w
 an error instead of being skipped. A missing/empty registry is reported without
 creating it. Local v1 and AUR v2 associations can coexist. AUR records identify the
 canonical AUR Git URL and resolved PackageBase; listing never contacts that remote.
-AUR registration/update are currently internal APIs. Public creation UX and interactive
-upgrade reuse remain future slices; the existing patch commands still register local sources.
+AUR registration/update are currently internal APIs; public creation UX remains with
+review-edit patch capture. The existing patch commands still register local sources.
+
+`upgrade`, `upgrade-aur`, and `upgrade-all` discover saved AUR associations after exact
+source resolution and ask `Apply saved patch customization to this update of <PackageBase>? [y/N]` for each PackageBase.
+No, an empty answer, non-TTY input, and `--noconfirm` use the stock path without opening
+or hashing patch material. The association remains unchanged. Registry corruption is
+an error, not absence. Yes acquires and verifies the complete series, applies it to a
+fresh current-upstream candidate, and uses fresh metadata for the combined dependency
+plan. Upstream review and explicit pre/postpatch metadata-evaluation consent remain
+separate. Additional editor changes are not combined with the selected series.
+Any selected customization failure stops; there is no stock/Legacy fallback or repair.
+
+Custom recipe preparation can clone, review and evaluate before the final dependency
+plan, including before the system phase of `upgrade`. Package transactions retain their
+existing order; later failure does not roll back an earlier transaction. Required children outside the fresh child set or a changed build
+environment invalidate the prepared candidate. Dry-run observes only the
+stock plan and neither selects nor evaluates patches. Exact target-less `-Su` / `-Syu`,
+Auto `-S`, plain remote build and plain local build do not discover saved patches.
+
+Saved patches with **authoritative devel execution are unsupported**. Yes stops for
+both forced GitRevision/bootstrap intent and ordinary version updates whose unmodified
+current recipe and install policy select authoritative execution. Adding an overlay
+never silently downgrades that route to Legacy. No preserves the stock devel route.
+Customization-aware devel proof/provenance is a separate follow-up.
 
 Use `moguet add-patch <directory> <patch-directory> <patch-file>...` to associate
 an ordered series of Git unified text patches with a local source's canonical

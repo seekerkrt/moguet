@@ -448,7 +448,26 @@ never silently skipped. An absent/empty registry is reported without creating it
 Patch customization is Experimental; CLI, record schema and presentation may change.
 Local v1 and AUR v2 records can coexist. AUR identity uses the canonical Git URL and
 resolved PackageBase; listing does not contact the remote. AUR registration/update are
-internal APIs; public creation UX and interactive upgrade reuse remain future work.
+internal APIs; public creation UX remains with review-edit patch capture.
+.PP
+Experimental saved AUR patches are discovered by upgrade, upgrade-aur and upgrade-all
+using the exact canonical source URL and PackageBase. Each PackageBase has its own
+[y/N] selection. No, empty input, non-TTY
+and --noconfirm continue with the stock path without acquiring or hashing material.
+Yes verifies the saved series and reapplies the same owned bytes to a fresh current
+upstream candidate. Fresh modified metadata drives the combined dependency plan.
+Upstream review and explicit metadata evaluation consent remain separate; additional
+editor changes are not combined. Any selected-path failure stops without stock or
+Legacy fallback. Registry failure is never treated as absence.
+.PP
+Selected recipe preparation may precede the system transaction; build/install
+transaction order and partial outcomes remain unchanged. Dry-run observes the stock
+plan without patch selection/evaluation. Exact target-less -Su/-Syu, Auto -S and plain
+build do not discover patches. Authoritative devel plus saved patches is unsupported:
+Yes stops both forced GitRevision/bootstrap updates and ordinary version updates
+whose unmodified recipe/install policy select authoritative execution. No preserves
+the stock route. An overlay never silently downgrades authoritative execution.
+
 .
 .TP
 .B "-S <pkg> | -S --select [--needed] <query>"

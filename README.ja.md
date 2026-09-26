@@ -727,8 +727,27 @@ read、material digest再計算を行いません。materialが消失・変更�
 健全性を保証する表示ではありません。壊れた・非対応・unsafe・identity不一致のregistry recordは
 skipせずcommand全体をerrorで停止します。storeがない場合も作成せず登録なしと表示します。
 local v1とAUR v2のassociationを混在して一覧できます。AURはcanonical Git URLと解決済みPackageBaseで
-識別し、listingからremoteへ接続しません。AUR登録・更新は現在internal APIです。public creation UXと
-upgradeの対話再利用は後続Sliceに残し、既存patch commandの登録対象はlocal sourceのままです。
+識別し、listingからremoteへ接続しません。AUR登録・更新は現在internal APIであり、public creation UXは
+review-edit patch capture側に残します。既存patch commandの登録対象はlocal sourceのままです。
+
+`upgrade` / `upgrade-aur` / `upgrade-all`はexact source解決後にAUR associationを発見し、
+PackageBaseごとに今回の適用を`[y/N]`で尋ねます。No、空入力、non-TTY、`--noconfirm`では
+materialをopen・read・hashせずstock経路へ進み、associationを変更しません。registry破損は
+未登録とは区別して停止します。Yesではseries全体をstrict取得・digest検証し、freshなcurrent
+upstream candidateへ再適用します。変更後のfresh metadataからcombined dependency planを作ります。
+upstream reviewとpatch前後の明示的metadata評価同意は別に維持し、選択seriesへ追加editor編集を
+合成しません。Yes後のfailureは停止し、stock / Legacy fallbackやautomatic repairは行いません。
+
+custom recipeのclone・review・metadata評価は最終dependency planより前に行い、`upgrade`では
+system phaseより前に行う場合があります。package transactionの順序は維持し、先行transactionを
+rollbackしません。required childがfreshなchild集合外の場合やenvironmentが変わった場合はprepared candidateを失効させます。
+dry-runはstock planだけを観測し、patch選択・評価を行いません。exact targetless `-Su` / `-Syu`、
+Auto `-S`、plain remote build、plain local buildではsaved patchを発見しません。
+
+**authoritative devel executionとsaved patchの組合せは非対応**です。forced GitRevision / bootstrap
+intentと、通常version更新でも未改変current recipe・install policyからauthoritativeを選ぶ場合の
+双方で、Yesは明示停止します。overlay追加によってLegacyへ黙って降格しません。Noは既存stock
+のdevel経路を維持します。customization対応のdevel proof / provenanceは別follow-upです。
 
 `moguet add-patch <directory> <patch-directory> <patch-file>...`で、local sourceの
 canonical pathとPackageBaseにorderedなGit unified text patch seriesを関連付けます。

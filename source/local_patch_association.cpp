@@ -836,9 +836,10 @@ PatchAssociationWriteResult update_local_patch_association(const ObservedLocalPa
                                                            const LoadedPatchAssociation& previous, const fs::path& root, const std::vector<std::string>& names) {
     return publish(source.identity(), &source, &previous, root, names);
 }
-PatchAssociationAcquireResult acquire_local_patch_series(const LoadedPatchAssociation& association) {
+namespace {
+PatchAssociationAcquireResult acquire_selected_patch_series(const LoadedPatchAssociation& association) {
     try {
-        require_local_identity(association.identity());
+        require_identity(association.identity());
         const auto leaf = record_leaf(association.identity());
         const auto paths = xdg_paths::resolve_patch_associations_process_environment();
         auto existing = xdg_directory_safety::open_existing_directory(paths);
@@ -855,6 +856,28 @@ PatchAssociationAcquireResult acquire_local_patch_series(const LoadedPatchAssoci
         revalidate_file(store.fd(), leaf, paths.directory / leaf, *raw, true);
         store.directory.require_unchanged_identity();
         return PatchAssociationAccess::acquired(loaded.identity(), std::move(material.patches));
+    } catch(...) {
+        return map_exception();
+    }
+}
+
+} // namespace
+
+PatchAssociationAcquireResult acquire_local_patch_series(const LoadedPatchAssociation& association) {
+    try {
+        require_local_identity(association.identity());
+        return acquire_selected_patch_series(association);
+    } catch(...) {
+        return map_exception();
+    }
+}
+
+PatchAssociationAcquireResult acquire_aur_patch_series(const LoadedPatchAssociation& association) {
+    try {
+        require_identity(association.identity());
+        if(association.identity().source().kind() != PackageSourceKind::Aur)
+            fail(Kind::InvalidIdentity, {});
+        return acquire_selected_patch_series(association);
     } catch(...) {
         return map_exception();
     }

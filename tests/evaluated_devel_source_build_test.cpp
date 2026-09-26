@@ -1,3 +1,6 @@
+#ifdef MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
+#include "aur_upgrade_patch.hpp"
+#endif
 #ifdef MOGUET_ENABLE_PINNED_SUBMODULE_CLOSURE_TEST_HOOKS
 #include "pinned_submodule_closure.hpp"
 #include "logging.hpp"
@@ -3959,6 +3962,43 @@ done
             }
             AppConfig config;
             config.user_config.review.diff = mode == "diff-skip" ? ReviewPolicy::Skip : ReviewPolicy::Prompt;
+            if(mode == "patch-selection") {
+                // Obtain a real trial from the existing offline observer fixture;
+                // no fake trial pointer or execution proof is manufactured.
+                const auto observed_trial = observe_devel_tracking_bootstrap(child);
+                require(std::holds_alternative<std::shared_ptr<const DevelTrackingBootstrapTrial>>(observed_trial), "patch bootstrap trial missing");
+                const auto trial = std::get<std::shared_ptr<const DevelTrackingBootstrapTrial>>(observed_trial);
+                const auto material = runtime.path() / "recipe-patches";
+                fs::create_directory(material);
+                write_file(material / "one.patch", "diff --git a/PKGBUILD b/PKGBUILD\n--- a/PKGBUILD\n+++ b/PKGBUILD\n@@ -1,2 +1,2 @@\n context\n-before\n+after\n");
+                ResolvedAurSourceBuildIdentity source(fixture.package_name(), fixture.package_base());
+                const auto saved = register_aur_patch_association(source, material, {"one.patch"});
+                require(std::holds_alternative<LoadedPatchAssociation>(saved), "patch bootstrap association registration failed");
+                fs::remove(material / "one.patch");
+                auto intent = fixture.execution_intent({"/", db});
+                intent.request.devel_tracking_bootstrap = trial;
+                AurUpgradePatchSet declined;
+                require(!declined.consider(source, intent.request, intent.required_targets, config) && declined.metadata().empty(),
+                        "bootstrap patch No acquired missing material or changed stock intent");
+                require(intent.request.devel_tracking_bootstrap == trial && !intent.request.upgrade_patch,
+                        "bootstrap patch No changed authoritative intent");
+                AurUpgradePatchSet selected;
+                bool unsupported = false;
+                try {
+                    selected.consider(source, intent.request, intent.required_targets, config);
+                } catch(const std::runtime_error& error) {
+                    unsupported = std::string(error.what()).find("not supported by authoritative devel execution") != std::string::npos;
+                }
+                require(unsupported && selected.metadata().empty(), "bootstrap patch Yes fell through or acquired material before rejecting unsupported intent");
+                require(package_builds == 0 && acquisition_creations == 0 && prepare_calls == 0 && execute_calls == 0,
+                        "bootstrap patch selection started execution");
+                const auto retained = read_patch_association(child.package_base());
+                require(std::holds_alternative<LoadedPatchAssociation>(retained) &&
+                            std::get<LoadedPatchAssociation>(retained).entries() == std::get<LoadedPatchAssociation>(saved).entries(),
+                        "bootstrap patch selection changed association");
+                std::cout << "S553 production patch-selection PASS\n";
+                return;
+            }
             std::vector<std::string> argument_values{"moguet", "-Syu", "--noedit"};
             if(mode == "nodiff") argument_values.push_back("--nodiff");
             if(mode == "noconfirm") argument_values.push_back("--noconfirm");

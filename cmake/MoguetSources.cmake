@@ -11,6 +11,8 @@ set(MOGUET_PRODUCTION_SOURCES
     source/artifact_workspace.cpp
     source/aur_constraint_metadata.cpp
     source/aur_rpc.cpp
+    source/aur_upgrade_patch.cpp
+    source/recipe_patch_review.cpp
     source/aur_update_cli_presentation.cpp
     source/aur_update_execution_preflight.cpp
     source/aur_update_execution_preparation.cpp

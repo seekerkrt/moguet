@@ -407,8 +407,20 @@ materialの健全性を検証する表示ではありません。不正・非対
 skipせず一覧全体を失敗させます。storeがない・空の場合は作成せず登録なしと表示します。
 patch customizationはExperimentalで、CLI・record schema・表示は変更され得ます。
 local v1とAUR v2のrecordを混在して一覧できます。AURはcanonical Git URLと解決済みPackageBaseで
-識別し、listingからremoteへ接続しません。AUR登録・更新はinternal APIであり、public creation UXと
-upgradeの対話再利用は後続作業です。
+識別し、listingからremoteへ接続しません。AUR登録・更新はinternal APIであり、public creation UXはreview-edit patch capture側に残します。
+.PP
+Experimentalなsaved AUR patchはupgrade、upgrade-aur、upgrade-allでexact source URLとPackageBaseから発見し、
+PackageBaseごとに[y/N]で今回の適用を確認します。No、空入力、non-TTY、--noconfirmではmaterialを取得・hashせず
+stock経路へ進み、associationを保持します。Yesでは保存series全体をstrict取得・digest検証し、同じowned bytesを
+freshなcurrent upstream candidateへ再適用します。freshな変更後metadataからcombined dependency planを生成します。
+upstream reviewと明示metadata評価同意は別に維持し、追加editor編集は合成しません。Yes後failureにstock / Legacy
+fallbackはありません。registry failureを未登録へ丸めません。
+.PP
+選択済みrecipe準備はsystem transactionより前に行う場合があります。build/install transaction順とpartial outcomeは
+維持します。dry-runはstock planだけを観測し、patch選択・評価を行いません。exact targetless -Su/-Syu、Auto -S、
+plain buildはpatchを発見しません。authoritative develとの組合せは非対応で、forced GitRevision/bootstrapと、通常version
+更新でも未改変recipe・install policyからauthoritativeを選ぶ場合の双方でYesは停止します。Noはstock経路を維持し、
+overlay追加によるLegacyへの黙示降格は行いません。
 .
 .TP
 .B "-S <pkg> | -S --select [--needed] <query>"

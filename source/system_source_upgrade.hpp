@@ -552,7 +552,7 @@ using SystemSourceUpgradePreparation = std::variant<
 
 SystemSourceUpgradePreparation prepare_system_source_upgrade(
     const AppConfig& config,
-    const SystemSourceUpgradeEventObserver& observer = {});
+    const SystemSourceUpgradeEventObserver& observer = {}, UpgradePatchPolicy patch_policy = UpgradePatchPolicy::Ignore);
 
 // by-value consumeにより、呼び出し元capabilityをmutation前にinvalid化する。
 // shared_cache_root keeps one actual-execution authority across the nested

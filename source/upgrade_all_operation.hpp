@@ -234,6 +234,9 @@ struct UpgradeAllAurPhaseResult {
     std::optional<UpgradeAllNotAttemptedReason> not_attempted_reason;
     std::optional<FilteredAurUpdateExecutionResult> operation_result;
     std::optional<std::string> diagnostic;
+    // A recipe selection/evaluation stop occurs before a filtered execution
+    // result exists. Keep its typed reason and the already completed phases.
+    std::optional<ConfirmationResult> preparation_confirmation = std::nullopt;
 };
 
 // duplicate targetはplanner-local indexとoriginal query indexの両方を保持する。
@@ -332,7 +335,7 @@ class PreparedUpgradeAllAurPreflight final {
     void prepare_filtered_operation_stage(
         const UpgradeAllOperationPreparedSnapshot& prepared,
         const AppConfig& config,
-        std::optional<ValidatedCacheRoot> cache_root);
+        std::optional<ValidatedCacheRoot> cache_root, UpgradePatchPolicy patch_policy = UpgradePatchPolicy::Ignore);
 
     UpgradeAllForeignInventoryPhaseResult foreign_inventory_;
     std::optional<AurUpdateQueryResult> aur_query_result_;
@@ -340,6 +343,7 @@ class PreparedUpgradeAllAurPreflight final {
     std::vector<UpgradeAllOperationIssue> issues_;
     UpgradeAllOperationPhase stopped_phase_ = UpgradeAllOperationPhase::None;
     std::optional<std::string> diagnostic_;
+    std::optional<ConfirmationResult> preparation_confirmation_;
 
     friend PreparedUpgradeAllAurPreflight
     prepare_upgrade_all_aur_preflight(
@@ -359,6 +363,10 @@ public:
     PreparedUpgradeAllAurPreflight& operator=(
         PreparedUpgradeAllAurPreflight&&) = delete;
     ~PreparedUpgradeAllAurPreflight() noexcept = default;
+
+    const std::optional<ConfirmationResult>& preparation_confirmation() const noexcept {
+        return preparation_confirmation_;
+    }
 
     [[nodiscard]] bool has_filtered_operation() const noexcept {
         return filtered_operation_.has_value();
@@ -407,7 +415,7 @@ using UpgradeAllOperationPreparation = std::variant<
     UpgradeAllOperationResult>;
 
 UpgradeAllOperationPreparation prepare_upgrade_all_operation(
-    const AppConfig& config);
+    const AppConfig& config, UpgradePatchPolicy patch_policy = UpgradePatchPolicy::Ignore);
 
 PreparedUpgradeAllAurPreflight prepare_upgrade_all_aur_preflight(
     const UpgradeAllOperationPreparedSnapshot& prepared,

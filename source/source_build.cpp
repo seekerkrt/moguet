@@ -1,3 +1,4 @@
+#include "aur_upgrade_patch.hpp"
 #include "source_build.hpp"
 
 #include "app_config.hpp"
@@ -1196,8 +1197,8 @@ std::optional<std::string> read_srcinfo_version(const fs::path& pkg_dir) {
     return pkgver + "-" + pkgrel;
 }
 
-UpdateCheckResult check_update_status(
-    const std::string& pkg_name, const fs::path& pkg_dir,
+UpdateCheckResult check_update_version(
+    const std::string& pkg_name, const std::optional<std::string>& new_ver,
     const SourceInstalledSnapshot& installed_snapshot,
     const std::optional<SourceUpdateBaseline>& update_baseline) {
     const std::optional<std::string>& installed_version =
@@ -1208,7 +1209,6 @@ UpdateCheckResult check_update_status(
 
     // POLICY: upgrade の pre-review 更新判定では PKGBUILD を評価しない。
     // 既存 .SRCINFO が読めない場合は呼び出し元で対話確認または skip へ進める。
-    std::optional<std::string> new_ver = read_srcinfo_version(pkg_dir);
     if(!new_ver.has_value()) return UpdateCheckResult::Unknown;
 
     std::string cmp_cmd = "vercmp " + shell_words::quote(new_ver.value()) + " " + shell_words::quote(installed_version.value()) + " 2>/dev/null";
@@ -1252,6 +1252,13 @@ UpdateCheckResult check_update_status(
 
     Logger::info(up_to_date_diagnostic(pkg_name, installed_version.value()));
     return UpdateCheckResult::UpToDate;
+}
+
+UpdateCheckResult check_update_status(
+    const std::string& pkg_name, const fs::path& pkg_dir,
+    const SourceInstalledSnapshot& installed_snapshot,
+    const std::optional<SourceUpdateBaseline>& update_baseline) {
+    return check_update_version(pkg_name, read_srcinfo_version(pkg_dir), installed_snapshot, update_baseline);
 }
 
 bool has_local_package_artifact(const fs::path& pkg_dir) {
@@ -1720,8 +1727,16 @@ SourceBuildCheckoutPreparation prepare_source_build_checkout(
                     std::move(boundary)));
         }
 
-        editor_invoked = review_build_files(
-            pkg_path, config, run_checkout_command);
+        if(request.upgrade_patch) {
+            if(!execution_intent) throw std::logic_error(localization::translate_message("Selected patch has no recipe preparation intent."));
+            request.upgrade_patch->apply_before_sealing(pkg_path, *execution_intent,
+                                                        should_run_reviewed_source_route(config), read_srcinfo_version("."), config);
+            // The selected series is the complete invocation-local overlay.
+            // Additional editor mutation would invalidate the fresh metadata.
+            editor_invoked = true;
+        } else {
+            editor_invoked = review_build_files(pkg_path, config, run_checkout_command);
+        }
         if(editor_boundary.has_value()) {
             ReviewedSourceEditorOverlayProofResult sealed =
                 seal_aur_editor_boundary(
@@ -1883,6 +1898,36 @@ SourceBuildPreparationOutcome prepare_source_build_for_execution(
     const ValidatedCacheRoot& cache_root,
     const AppConfig& config,
     const ReviewedDevelSourceBuildIntent* execution_intent) {
+    if(request.upgrade_patch && !request.upgrade_patch->is_preparing()) {
+        if(!execution_intent) throw std::logic_error(localization::translate_message("Selected patch has no execution intent."));
+        request.upgrade_patch->require_unchanged();
+        // Candidate preparation never decides whether the post-system source
+        // update is needed. Reuse the existing version/baseline policy here.
+        if(update_policy == SourceBuildUpdatePolicy::OnlyIfUpdated) {
+            if(!request.installed_snapshot) throw std::logic_error(localization::translate_message("Selected patch update lost installed snapshot."));
+            const auto status = check_update_version(request.package_name, request.upgrade_patch->upstream_version(),
+                                                     *request.installed_snapshot, request.update_baseline);
+            if(status == UpdateCheckResult::UpToDate)
+                return SourceBuildUpToDate{up_to_date_diagnostic(request.package_name, *request.installed_snapshot->installed_version),
+                                           request.upgrade_patch->provenance()};
+            if(status == UpdateCheckResult::Unknown) {
+                auto answer = request_confirmation(localization::format_translated_message(
+                                                       "Update status is unknown because {} is missing or incomplete. Continue to review/build?", ".SRCINFO"),
+                                                   ConfirmationDefault::No, config.no_confirm);
+                if(const auto* declined = std::get_if<ConfirmationDeclined>(&answer)) {
+                    const auto reason = declined->origin == ConfirmationDecisionOrigin::NoConfirm
+                                            ? SourceBuildUpdateStatusUnknownSkipReason::NoConfirm
+                                        : declined->origin == ConfirmationDecisionOrigin::NonInteractiveDefault
+                                            ? SourceBuildUpdateStatusUnknownSkipReason::NonInteractiveStdin
+                                            : SourceBuildUpdateStatusUnknownSkipReason::UserDeclined;
+                    return SourceBuildUpdateStatusUnknownSkipped{reason, unknown_update_skip_diagnostic(request.package_name, reason),
+                                                                 request.upgrade_patch->provenance()};
+                }
+                if(!std::holds_alternative<ConfirmationAccepted>(answer)) throw ConfirmationOperationStopped(std::move(answer));
+            }
+        }
+        return request.upgrade_patch->consume(request, *execution_intent);
+    }
     if(request.devel_tracking_bootstrap &&
        (!execution_intent || execution_intent->request.devel_tracking_bootstrap != request.devel_tracking_bootstrap ||
         update_policy != SourceBuildUpdatePolicy::AlwaysBuild || !should_run_reviewed_source_route(config) ||
@@ -1961,7 +2006,8 @@ SourceBuildPreparationOutcome prepare_source_build_for_execution(
                 }
             }
             return prepare_source_build_checkout(
-                request, display_name, update_policy, cache_root,
+                request, display_name, update_policy,
+                request.upgrade_patch ? request.upgrade_patch->recipe_cache() : cache_root,
                 std::move(reviewed_state_preflight), config, execution_intent, nullptr);
         } catch(const BootstrapRecipeAcquisitionError&) {
             throw;

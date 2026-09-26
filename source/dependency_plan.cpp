@@ -31,6 +31,17 @@ enum class BuildPlanResolutionMode {
     CaptureOrdinaryFailures
 };
 
+struct BuildPlanResolutionContext {
+    BuildPlanResolutionMode mode;
+    const AurRecipeMetadataSet* recipes = nullptr;
+    BuildPlanResolutionContext(BuildPlanResolutionMode value,
+                               const AurRecipeMetadataSet* input = nullptr) : mode(value), recipes(input) {
+    }
+    bool operator==(BuildPlanResolutionMode value) const {
+        return mode == value;
+    }
+};
+
 struct BuildPlanResolutionFailureContext {
     BuildPlan& plan;
     RootTargetIdentity root;
@@ -69,13 +80,23 @@ AurPackageInfo require_typed_aur_package_info(AurPackageInfo package) {
 }
 
 std::optional<AurPackageInfo> query_aur_package_info(
-    const std::string& package_name, BuildPlanResolutionMode mode,
+    const std::string& package_name, BuildPlanResolutionContext mode,
     bool require_authoritative_metadata = false) {
+    if(mode.recipes) {
+        const auto found = mode.recipes->find(package_name);
+        if(found != mode.recipes->end()) {
+            if(!found->second.recipe_architecture_supported) throw std::runtime_error(localization::translate_message("Selected recipe child does not support the effective architecture."));
+            return found->second;
+        }
+    }
     std::optional<AurPackageInfo> package =
         mode == BuildPlanResolutionMode::CaptureOrdinaryFailures ||
                 require_authoritative_metadata
             ? AurClient::info_strict(package_name)
             : AurClient::info(package_name);
+    if(package && mode.recipes && std::any_of(mode.recipes->begin(), mode.recipes->end(), [&](const auto& selected) {
+           return selected.second.PackageBase == package->PackageBase;
+       })) throw std::runtime_error(localization::format_translated_message("Current recipe child identity differs from {} metadata; no {} fallback for the selected {}.", "AUR", "RPC", "PackageBase"));
     if(package.has_value()) {
         package = require_typed_aur_package_info(std::move(package.value()));
     }
@@ -382,7 +403,8 @@ const RepositoryExactPackage* repository_provider_observation(
 ProviderCandidateDiscovery find_aur_providers(
     const std::string& dependency_name,
     BuildPlanResolutionFailureContext* failure_context = nullptr,
-    bool require_complete_candidates = false) {
+    bool require_complete_candidates = false,
+    const AurRecipeMetadataSet* recipes = nullptr) {
     ProviderCandidateDiscovery discovery;
     if(!is_valid_package_name(dependency_name)) return discovery;
 
@@ -412,13 +434,23 @@ ProviderCandidateDiscovery find_aur_providers(
             ObservedVersionUnknownReason::MetadataQueryFailure;
         return discovery;
     }
+    if(recipes) {
+        for(const auto& [name, metadata] : *recipes) {
+            if(metadata.recipe_architecture_supported && aur_provider_from_metadata(metadata, dependency_name)) add_unique_value(candidates, name);
+        }
+    }
     for(const auto& candidate : candidates) {
+        if(recipes) {
+            const auto selected = recipes->find(candidate);
+            if(selected != recipes->end() && !selected->second.recipe_architecture_supported) continue;
+        }
         std::optional<AurPackageInfo> info;
         try {
-            info = use_strict_query
-                       ? AurClient::info_strict(candidate)
-                       : AurClient::info(candidate);
+            info = query_aur_package_info(candidate,
+                                          {use_strict_query ? BuildPlanResolutionMode::CaptureOrdinaryFailures : BuildPlanResolutionMode::Legacy, recipes});
         } catch(const AurRpcResponseError&) {
+            throw;
+        } catch(const AurConstraintMetadataProjectionError&) {
             throw;
         } catch(const std::exception& e) {
             discovery.is_complete = false;
@@ -478,7 +510,8 @@ ProviderCandidateDiscovery find_dependency_providers(
     const std::string& dependency_name,
     BuildPlanResolutionFailureContext* failure_context = nullptr,
     bool require_authoritative_candidates = false,
-    BuildPlan* repository_configuration_authority = nullptr) {
+    BuildPlan* repository_configuration_authority = nullptr,
+    const AurRecipeMetadataSet* recipes = nullptr) {
     static_cast<void>(require_authoritative_candidates);
     StrictRepositoryProvidersQueryResult result =
         query_repository_providers_strict(dependency_name);
@@ -520,7 +553,7 @@ ProviderCandidateDiscovery find_dependency_providers(
     }
     return find_aur_providers(
         dependency_name, failure_context,
-        require_authoritative_candidates);
+        require_authoritative_candidates, recipes);
 }
 
 void add_dependency(
@@ -1370,7 +1403,7 @@ void collect_aur_build_plan(
     std::set<std::string>& visiting_package_names,
     const std::vector<PackageRole>& roles,
     const RootTargetIdentity& root, int depth, int max_depth,
-    bool traverse_aur_providers, BuildPlanResolutionMode resolution_mode,
+    bool traverse_aur_providers, BuildPlanResolutionContext resolution_mode,
     const ProviderSelectionCallback& select_provider,
     const std::set<std::string>& local_package_bases,
     const std::set<std::string>& local_package_names,
@@ -1394,7 +1427,7 @@ void resolve_build_plan_dependency(
     std::set<std::string>& visited_package_names,
     std::set<std::string>& visiting_package_names,
     const RootTargetIdentity& root, int depth, int max_depth,
-    bool traverse_aur_providers, BuildPlanResolutionMode resolution_mode,
+    bool traverse_aur_providers, BuildPlanResolutionContext resolution_mode,
     const ProviderSelectionCallback& select_provider,
     const std::set<std::string>& local_package_bases,
     const std::set<std::string>& local_package_names,
@@ -1562,7 +1595,7 @@ void resolve_build_plan_dependency(
     ProviderCandidateDiscovery provider_discovery =
         find_dependency_providers(
             dep_name, &dependency_failure_context,
-            true, &plan);
+            true, &plan, resolution_mode.recipes);
     if(!provider_discovery.is_complete) {
         add_incomplete_provider_candidate_set(
             plan, dependency, provider_discovery);
@@ -1624,8 +1657,10 @@ void resolve_build_plan_dependency(
                     *consumer, provider, provider_evaluation};
                 std::optional<AurPackageInfo> current_info;
                 try {
-                    current_info = AurClient::info_strict(provider.package_name);
+                    current_info = query_aur_package_info(provider.package_name, resolution_mode, true);
                 } catch(const AurRpcResponseError&) {
+                    throw;
+                } catch(const AurConstraintMetadataProjectionError&) {
                     throw;
                 } catch(const std::exception& error) {
                     add_resolution_failure(
@@ -1809,7 +1844,7 @@ void collect_aur_build_plan(
     std::set<std::string>& visiting_package_names,
     const std::vector<PackageRole>& roles,
     const RootTargetIdentity& root, int depth, int max_depth,
-    bool traverse_aur_providers, BuildPlanResolutionMode resolution_mode,
+    bool traverse_aur_providers, BuildPlanResolutionContext resolution_mode,
     const ProviderSelectionCallback& select_provider,
     const std::set<std::string>& local_package_bases,
     const std::set<std::string>& local_package_names,
@@ -1932,7 +1967,7 @@ void collect_aur_build_plan(
 
 BuildPlan resolve_build_plan_once(
     const std::vector<std::string>& targets,
-    BuildPlanResolutionMode resolution_mode,
+    BuildPlanResolutionContext resolution_mode,
     const ProviderSelectionCallback& select_provider) {
     if(targets.empty()) {
         throw std::invalid_argument(localization::translate_message(
@@ -2173,7 +2208,7 @@ auto resolve_with_provider_interaction(
 
 BuildPlan resolve_build_plan_with_interaction(
     const std::vector<std::string>& targets,
-    BuildPlanResolutionMode resolution_mode,
+    BuildPlanResolutionContext resolution_mode,
     const ProviderSelectionCallback& select_provider) {
     const auto resolve_once = [&targets, resolution_mode](
                                   const ProviderSelectionCallback& selector) {
@@ -2405,4 +2440,17 @@ BuildPlan resolve_fetch_plan(
 void finalize_build_plan_constraints(BuildPlan& plan) {
     project_build_plan_constraint_conflicts(plan);
     require_constructible_build_plan_constraints(plan);
+}
+
+BuildPlan resolve_recipe_build_plan(
+    const std::vector<std::string>& targets, const AurRecipeMetadataSet& recipes,
+    const ProviderSelectionCallback& select_provider) {
+    for(const auto& [name, package] : recipes) {
+        if(name != package.Name || package.metadata_origin != AurPackageMetadataOrigin::EvaluatedRecipe ||
+           !package.constraint_metadata || package.constraint_metadata->package_name != name ||
+           package.constraint_metadata->package_base != package.PackageBase)
+            throw std::invalid_argument(localization::format_translated_message("Invalid evaluated {} recipe plan input.", "AUR"));
+    }
+    return resolve_build_plan_with_interaction(targets,
+                                               {BuildPlanResolutionMode::CaptureOrdinaryFailures, &recipes}, select_provider);
 }

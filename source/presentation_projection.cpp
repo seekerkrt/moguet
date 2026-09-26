@@ -1455,7 +1455,18 @@ PresentationProjection project_upgrade_all_presentation_with_operation_state(
             {}, diagnostic.diagnostic));
     }
 
-    if(result.aur.diagnostic.has_value()) {
+    if(result.aur.preparation_confirmation) {
+        const auto diagnostic = project_confirmation_diagnostic(
+            *result.aur.preparation_confirmation, DiagnosticOperation::UpgradeAll,
+            DiagnosticPhase::Preflight, {});
+        items.push_back(make_upgrade_all_attention_item(
+            std::nullopt, std::nullopt,
+            UpgradeAllPresentationBoundaryReason::AurPhaseDiagnostic,
+            UpgradeAllOperationPhase::AurPreparation, DiagnosticSourceKind::Aur,
+            diagnostic.required_action, diagnostic.classification,
+            diagnostic.blocking_decision != DiagnosticBlockingDecision::NonBlocking,
+            false, {}, result.aur.diagnostic));
+    } else if(result.aur.diagnostic.has_value()) {
         const UpgradeAllOperationPhase phase =
             result.stopped_phase == UpgradeAllOperationPhase::None
                 ? UpgradeAllOperationPhase::AurPreparation

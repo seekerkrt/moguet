@@ -66,6 +66,18 @@ moguet_add_ctest(
     COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test-local-patch-cli.py" "$<TARGET_FILE:moguet-local-patch-cli-test>"
 )
 set_tests_properties(cli.local_patch PROPERTIES TIMEOUT 180)
+moguet_add_ctest(
+    NAME cli.upgrade_patch
+    TARGETS moguet-local-patch-cli-test
+    COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test-upgrade-patch-cli.py" "$<TARGET_FILE:moguet-local-patch-cli-test>"
+)
+set_tests_properties(cli.upgrade_patch PROPERTIES TIMEOUT 420)
+moguet_add_ctest(
+    NAME cli.upgrade_patch_bootstrap
+    TARGETS devel-tracking-bootstrap-test
+    COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test-devel-tracking-bootstrap.py" "$<TARGET_FILE:devel-tracking-bootstrap-test>" patch-selection
+)
+set_tests_properties(cli.upgrade_patch_bootstrap PROPERTIES TIMEOUT 120)
 _moguet_add_direct_ctest(cpp.package_identifier package-identifier-test)
 _moguet_add_direct_ctest(
     cpp.source_package_identity

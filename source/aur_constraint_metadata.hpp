@@ -19,9 +19,10 @@ struct AurProviderCapabilityMetadata {
     bool operator==(const AurProviderCapabilityMetadata&) const = default;
 };
 
-// AUR RPC package metadata projected at the response trust boundary. The raw
-// strings remain available for existing consumers, while Slice 4 consumers use
-// these owned values without reparsing dependency or Provides expressions.
+// AUR package metadata projected at the RPC response or explicitly evaluated
+// recipe boundary. The owning AurPackageInfo preserves that distinct origin;
+// package/version source identity remains AUR. Downstream consumers use these
+// owned values without reparsing dependency or Provides expressions.
 struct AurPackageConstraintMetadata {
     std::string package_name;
     std::string package_base;

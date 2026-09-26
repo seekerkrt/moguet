@@ -67,6 +67,7 @@ CMAKE_FOCUSED_ALIASES := \
 	test-local-recipe-candidate \
 	test-local-patch-association \
 	test-local-patch-cli \
+	test-upgrade-patch-cli \
 	test-user-config \
 	test-package-identifier \
 	test-source-package-identity \

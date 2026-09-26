@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.10.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 10:14+0900\n"
+"POT-Creation-Date: 2026-09-26 14:43+0900\n"
 "PO-Revision-Date: 2026-09-19 17:53+0900\n"
 "Last-Translator: Moguet contributors\n"
 "Language-Team: Japanese\n"
@@ -647,6 +647,135 @@ msgstr "{} {} の {} に対する応答を検証できませんでした: 応答
 #, c++-format
 msgid "{} {} response validation failed for {}: duplicate response {} {}"
 msgstr "{} {} の {} に対する応答を検証できませんでした: 応答の {} {} が重複しています"
+
+msgid "Saved recipe patches are not supported by authoritative devel execution. Update stopped; no stock or legacy fallback was attempted."
+msgstr "authoritative devel実行では保存済みrecipe patchを使用できません。更新を停止しました。stock / Legacyへの切替はしていません。"
+
+msgid "missing patch material or association"
+msgstr "patch materialまたはassociationがありません"
+
+msgid "patch material digest changed"
+msgstr "patch materialのdigestが変わっています"
+
+msgid "unsafe patch customization"
+msgstr "patch customizationの安全条件を満たしていません"
+
+msgid "corrupt patch association"
+msgstr "patch associationが壊れています"
+
+msgid "unsupported patch association"
+msgstr "非対応のpatch associationです"
+
+msgid "invalid patch material"
+msgstr "patch materialが不正です"
+
+msgid "patch association identity mismatch"
+msgstr "patch associationの識別情報が一致しません"
+
+msgid "patch association changed during the operation"
+msgstr "操作中にpatch associationが変更されました"
+
+msgid "patch customization I/O failure"
+msgstr "patch customizationの入出力に失敗しました"
+
+#, c++-format
+msgid "Saved patch customization failed: {} ({}). Update stopped."
+msgstr "保存済みpatch customizationを使用できません: {} ({})。更新を停止しました。"
+
+#, c++-format
+msgid "Evaluate patched {} metadata with {}?"
+msgstr "{}のpatch後metadataを{}で評価しますか？"
+
+#. TRANSLATORS: The placeholders are the literal PKGBUILD artifact name and makepkg option.
+#, c++-format
+msgid "Evaluate {} metadata with {}?"
+msgstr "{}メタデータを{}で評価しますか？"
+
+msgid "Patched recipe dependency metadata is invalid."
+msgstr "patch後recipeの依存metadataが不正です。"
+
+#, c++-format
+msgid "Patched recipe changed {} or child identity."
+msgstr "patch後recipeで{}またはchildの識別情報が変わりました。"
+
+msgid "Saved patch candidate cleanup failed."
+msgstr "保存済みpatch candidateのcleanupに失敗しました。"
+
+#, c++-format
+msgid "Invalid {} patch candidate lifecycle."
+msgstr "{} patch candidateの処理順序が不正です。"
+
+msgid "Current upstream recipe does not match the saved patch association."
+msgstr "current upstream recipeが保存済みpatch associationと一致しません。"
+
+#, c++-format
+msgid "Saved recipe patch application failed: {}. Update stopped; no stock fallback was attempted."
+msgstr "保存済みrecipe patchの適用に失敗しました: {}。更新を停止しました。stockへの切替はしていません。"
+
+#, c++-format
+msgid "{} patch candidate already cleaned."
+msgstr "{} patch candidateは既にcleanup済みです。"
+
+msgid "Installed package state changed after patch candidate preparation. Update stopped."
+msgstr "patch candidateの準備後にinstalled packageの状態が変わりました。更新を停止しました。"
+
+msgid "Patch candidate identity or build environment changed after metadata evaluation."
+msgstr "metadata評価後にpatch candidateの識別情報またはbuild環境が変わりました。"
+
+#, c++-format
+msgid "{} patch candidate is unavailable or already consumed."
+msgstr "{} patch candidateを利用できないか、既に使用済みです。"
+
+msgid "Selected patch candidate has no fresh metadata."
+msgstr "選択済みpatch candidateにfresh metadataがありません。"
+
+#, c++-format
+msgid "Saved patch candidate cleanup failed: {}. Inspect the retained workspace: {}"
+msgstr "保存済みpatch candidateのcleanupに失敗しました: {}。保持されたworkspaceを確認してください: {}"
+
+#, c++-format
+msgid "Current {} source identity changed before patch discovery."
+msgstr "patchの発見前にcurrent {} sourceの識別情報が変わりました。"
+
+#, c++-format
+msgid "{} patch source identity changed."
+msgstr "{} patch sourceの識別情報が変わりました。"
+
+#, c++-format
+msgid "Saved patch customization found for {}."
+msgstr "{}の保存済みpatch customizationが見つかりました。"
+
+#, c++-format
+msgid "Apply saved patch customization to this update of {}?"
+msgstr "今回の{}の更新に保存済みpatch customizationを適用しますか？"
+
+#, c++-format
+msgid "Registered {} install reason is unknown."
+msgstr "登録済み{} sourceのinstall reasonが不明です。"
+
+#, c++-format
+msgid "Conflicting evaluated {} child identity."
+msgstr "評価済み{} childの識別情報が競合しています。"
+
+#, c++-format
+msgid "{} patch discovery requires exact update metadata."
+msgstr "{} patchの発見にはexactな更新metadataが必要です。"
+
+#, c++-format
+msgid "{} update install reason is unknown."
+msgstr "{}更新のinstall reasonが不明です。"
+
+#, c++-format
+msgid "{} patch discovery lost build-unit selection correlation."
+msgstr "{} patchの発見時にbuild unitと選択結果の対応が失われました。"
+
+#, c++-format
+msgid "{} patch discovery build-unit identity mismatch."
+msgstr "{} patchの発見時にbuild unitの識別情報が一致しません。"
+
+#, c++-format
+msgid "{} patch discovery received an unknown build-unit selection."
+msgstr "{} patchの発見で不明なbuild unit選択を受け取りました。"
 
 msgid "explicit"
 msgstr "明示指定"
@@ -3430,11 +3559,6 @@ msgstr "ローカルソースメタデータは安全でないため評価でき
 msgid "Local metadata evaluation is required for {}: {}."
 msgstr "{}にはローカルメタデータの評価が必要です: {}。"
 
-#. TRANSLATORS: The placeholders are the literal PKGBUILD artifact name and makepkg option.
-#, c++-format
-msgid "Evaluate {} metadata with {}?"
-msgstr "{}メタデータを{}で評価しますか？"
-
 #, c++-format
 msgid "Local package {} does not support architecture {}."
 msgstr "ローカルパッケージ {} はアーキテクチャ {} をサポートしていません。"
@@ -3605,18 +3729,6 @@ msgstr "この呼出しが所有するrecipe candidateを準備できません�
 msgid "Patch {} failed; later patches were not attempted."
 msgstr "patch {}が失敗しました。後続patchは試行していません。"
 
-#, c++-format
-msgid "Show {} for read-only review?"
-msgstr "read-only reviewのため{}を表示しますか？"
-
-#, c++-format
-msgid "{} is too large for inline review. Inspect it externally and decline the preview on the next invocation."
-msgstr "{}が大きすぎるためinline表示できません。外部で内容を確認し、次の呼出しでpreviewを辞退してください。"
-
-#, c++-format
-msgid "Read-only {} candidate:"
-msgstr "read-only {} candidate:"
-
 msgid "Selected patches require source identity evaluation and pre/post patch metadata evaluation in owned candidates. Editor overlays are not used."
 msgstr "選択patchにはowned candidateでのsource identity評価とpatch前後のmetadata評価が必要です。editor overlayは使いません。"
 
@@ -3627,10 +3739,6 @@ msgstr "patch登録ではowned candidateで{}を1回評価します。buildやin
 #, c++-format
 msgid "Selected patch series for {}: {} patch(es)."
 msgstr "{}のpatch seriesを選択しました: {}件。"
-
-#, c++-format
-msgid "Evaluate patched {} metadata with {}?"
-msgstr "{}のpatch後metadataを{}で評価しますか？"
 
 msgid "No patch customizations registered."
 msgstr "登録済みpatch customizationはありません。"
@@ -3811,6 +3919,18 @@ msgstr "{}キャッシュの削除をスキップしました。"
 #, c++-format
 msgid "{} cache is empty."
 msgstr "{}キャッシュは空です。"
+
+#, c++-format
+msgid "Show {} for read-only review?"
+msgstr "read-only reviewのため{}を表示しますか？"
+
+#, c++-format
+msgid "{} is too large for inline review. Inspect it externally and decline the preview on the next invocation."
+msgstr "{}が大きすぎるためinline表示できません。外部で内容を確認し、次の呼出しでpreviewを辞退してください。"
+
+#, c++-format
+msgid "Read-only {} candidate:"
+msgstr "read-only {} candidate:"
 
 #, c++-format
 msgid "Foreign package inventory is unavailable; installed annotations are omitted: {}"
@@ -5216,6 +5336,13 @@ msgstr "予期しない{}コマンドの失敗です: 不明な例外です。"
 msgid "{} package metadata constraint projection failed: {}"
 msgstr "{}パッケージメタデータの制約projectionに失敗しました: {}"
 
+msgid "Selected recipe child does not support the effective architecture."
+msgstr "選択recipeのchildは実効architectureに対応していません。"
+
+#, c++-format
+msgid "Current recipe child identity differs from {} metadata; no {} fallback for the selected {}."
+msgstr "現在のrecipeのchild identityが{} metadataと異なります。{}から選択した{}へfallbackしません。"
+
 #, c++-format
 msgid "{} provider candidate changed during dependency resolution: {}"
 msgstr "依存関係の解決中に{}プロバイダー候補が変更されました: {}"
@@ -5299,6 +5426,10 @@ msgstr "以前に選択したプロバイダーは、依存関係 {} の候補�
 #, c++-format
 msgid "Provider candidate changed during dependency resolution: {}"
 msgstr "依存関係の解決中にプロバイダー候補が変更されました: {}"
+
+#, c++-format
+msgid "Invalid evaluated {} recipe plan input."
+msgstr "評価済み{} recipeのplan入力が不正です。"
 
 msgid "already absent"
 msgstr "すでに存在しません"
@@ -5724,6 +5855,9 @@ msgstr "不明な{}更新分類です"
 msgid "{} entry has an unknown classification."
 msgstr "{}エントリに不明な分類があります。"
 
+msgid "Saved patch dependency preparation exceeded the candidate limit."
+msgstr "保存済みpatchの依存準備がcandidate件数の上限を超えました。"
+
 #. TRANSLATORS: {} is the literal service name "AUR".
 #, c++-format
 msgid "Prepared filtered {} update operation is invalid or has already been consumed."
@@ -6022,6 +6156,13 @@ msgstr "association recordだけを削除しuser patch materialを保持する"
 #, c++-format
 msgid "Use {} with {} to select saved patches; require explicit metadata evaluation consent and stop if customization fails"
 msgstr "{}を{}で使い保存patchを選択する。metadata評価の明示同意を要求しcustomization失敗時は停止する"
+
+#, c++-format
+msgid "Experimental: {}, {} and {} offer saved {} recipe patches with a No default; noninteractive use keeps stock recipes"
+msgstr "Experimental: {}、{}、{}では保存済み{} recipe patchの適用を既定Noで確認します。非対話ではstock recipeを使用します"
+
+msgid "Patch Yes requires fresh metadata and never falls back; authoritative devel customization is unsupported"
+msgstr "patchのYes選択後はfresh metadataを使い、fallbackしません。authoritative develのcustomizationは非対応です"
 
 #. TRANSLATORS: The placeholder is the literal pacman program identity.
 #, c++-format
@@ -7872,6 +8013,9 @@ msgstr "レビュー前の {} 評価をスキップします。"
 msgid "Update status is unknown because {} is missing or incomplete. Continue to review/build?"
 msgstr "{} が存在しないか不完全なため、更新状態が不明です。レビューとビルドを続行しますか？"
 
+msgid "Selected patch has no recipe preparation intent."
+msgstr "選択済みpatchにrecipe準備のintentがありません。"
+
 #, c++-format
 msgid "Applying custom build flags: {}"
 msgstr "カスタムビルドフラグを適用します: {}"
@@ -7911,6 +8055,12 @@ msgstr "{} セットのソースビルドで、単一要求の識別情報に整
 #, c++-format
 msgid "{} set source-build multiple request must not expose a singular package name."
 msgstr "{} セットの複数対象ソースビルド要求で、単一のパッケージ名を公開してはいけません。"
+
+msgid "Selected patch has no execution intent."
+msgstr "選択済みpatchに実行のintentがありません。"
+
+msgid "Selected patch update lost installed snapshot."
+msgstr "選択済みpatchによる更新でinstalled snapshotが失われました。"
 
 msgid "Devel tracking bootstrap observations changed; no build was started."
 msgstr "devel追跡の初期化に使う観測結果が変更されたため、ビルドを開始しませんでした。"
@@ -8055,6 +8205,10 @@ msgstr "リポジトリsource-build識別情報にリポジトリ名がありま
 
 msgid "Remote source-build plan was rejected without a blocking detail."
 msgstr "blocking detailがないままremote source-build planが拒否されました。"
+
+#, c++-format
+msgid "Recipe patch work item requires {} identity."
+msgstr "recipe patchのwork itemには{}の識別情報が必要です。"
 
 #, c++-format
 msgid "{} required artifact target projection failed before source-build work-item preparation."
@@ -10210,6 +10364,9 @@ msgstr "{}のデフォルト状態ログを段階{}で安全に使用できま�
 msgid "Unknown state log error code."
 msgstr "不明な状態ログエラーコードです。"
 
+#~ msgid "Apply it to this update?"
+#~ msgstr "今回の更新に適用しますか？"
+
 #, c++-format
 #~ msgid "Select a provider from [{}], or press {} / enter {} to cancel:"
 #~ msgstr "[{}] からプロバイダーを選択してください。取り消すには {} を押すか {} を入力してください："
@@ -10374,9 +10531,6 @@ msgstr "不明な状態ログエラーコードです。"
 
 #~ msgid "Interactive package selection has an unknown input gate."
 #~ msgstr "対話形式のパッケージ選択の入力ゲートが不明です。"
-
-#~ msgid "package state changed"
-#~ msgstr "パッケージ状態が変更されました"
 
 #~ msgid "package state change unknown"
 #~ msgstr "パッケージ状態の変更は不明です"
