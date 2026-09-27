@@ -1503,6 +1503,32 @@ void test_selection_mixed_reason_metadata_and_phase_failures_are_typed() {
                diagnostic + ": category differs");
     }
 
+    RecipePatchSaveFailure save_failure{RecipePatchSaveStage::Registration};
+    save_failure.retained_material = "/user/patches/verified.patch";
+    save_failure.association = PatchAssociationFailure{PatchAssociationFailureKind::Changed,
+                                                       save_failure.retained_material,
+                                                       {},
+                                                       std::nullopt,
+                                                       std::nullopt};
+    const auto save_result = run_one_multiple_failure("scripted recipe patch save failure",
+                                                      [save_failure](execution_stub::ExpectedExecution expected) {
+                                                          execution_stub::enqueue_recipe_patch_save_failure(std::move(expected), save_failure);
+                                                      });
+    expect_typed_failure_base(save_result, "scripted recipe patch save failure", "save failure");
+    const auto save_snapshot = require_failure_detail<AurUpdateSourceBuildFailureSnapshot>(
+        save_result.work_item_results.front(), "save failure");
+    expect(save_snapshot.failure_exception != nullptr && save_snapshot.category == AurUpdateSourceBuildFailureCategory::PatchCustomizationSave,
+           "Save failure lost typed exception/category at AUR aggregate");
+    bool save_retained = false;
+    try {
+        std::rethrow_exception(save_snapshot.failure_exception);
+    } catch(const RecipePatchSaveError& error) {
+        save_retained = error.failure().stage == RecipePatchSaveStage::Registration &&
+                        error.failure().association->kind == PatchAssociationFailureKind::Changed &&
+                        error.failure().retained_material == save_failure.retained_material;
+    }
+    expect(save_retained, "AUR aggregate flattened save integrity/partial outcome");
+
     const PackageBaseIdentity reviewed_package_base =
         PackageBaseIdentity::make(
             PackageSourceIdentity::aur(

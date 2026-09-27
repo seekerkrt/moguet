@@ -536,12 +536,8 @@ moguet_add_ctest(
     NAME cpp.reviewed_source_production_connection
     TARGETS reviewed-source-production-connection-test
     COMMAND
-        sh -c
-        [=[
-printf 'y\ny\ny\nn\ny\ny\ny\ny\ny\ny\ny\n' |
-    script -qec "$1" /dev/null
-]=]
-        sh "$<TARGET_FILE:reviewed-source-production-connection-test>"
+        python3 "${PROJECT_SOURCE_DIR}/tests/run-with-pty.py" --no-input --timeout 180 --
+        "$<TARGET_FILE:reviewed-source-production-connection-test>"
 )
 
 moguet_add_ctest(

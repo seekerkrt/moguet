@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.10.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 14:43+0900\n"
+"POT-Creation-Date: 2026-09-27 09:18+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -6149,6 +6149,10 @@ msgid "LOCAL RECIPE PATCHES"
 msgstr ""
 
 #, c++-format
+msgid "Experimental: accepted ordinary reviewed {} edits can be saved with separate default-No consent to an explicit existing patch directory"
+msgstr ""
+
+#, c++-format
 msgid "Register ordered {} patches from a user-maintained directory; do not enable automatic application"
 msgstr ""
 
@@ -8100,6 +8104,55 @@ msgstr ""
 
 #, c++-format
 msgid "{} set source-build unexpectedly produced an update-status result."
+msgstr ""
+
+msgid "Saving patch customization for authoritative devel builds is unsupported; build stopped."
+msgstr ""
+
+msgid "Patch directory is empty, unsafe or unavailable; build stopped."
+msgstr ""
+
+msgid "Recipe patch generation or exact reproduction verification failed; build stopped."
+msgstr ""
+
+msgid "Accepted recipe identity validation failed; build stopped."
+msgstr ""
+
+msgid "Generated patch publication or integrity verification failed; build stopped."
+msgstr ""
+
+msgid "Patch association registration failed; build stopped."
+msgstr ""
+
+msgid "patch material or association already exists"
+msgstr ""
+
+msgid "recipe identity evaluation failed"
+msgstr ""
+
+msgid "patch registration commit is uncertain"
+msgstr ""
+
+#, c++-format
+msgid "Patch customization failure: {} ({})."
+msgstr ""
+
+#, c++-format
+msgid "Patch material and registration are complete at {}. Current build continuation stopped."
+msgstr ""
+
+#, c++-format
+msgid "Published patch material remains at {}. Registration is incomplete or uncertain."
+msgstr ""
+
+msgid "Patch directory:"
+msgstr ""
+
+msgid "Save this edit as patch customization?"
+msgstr ""
+
+#, c++-format
+msgid "Saved patch customization: {}"
 msgstr ""
 
 #, c++-format

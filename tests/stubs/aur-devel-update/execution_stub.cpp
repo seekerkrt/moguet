@@ -7,6 +7,11 @@ PreparedReviewedDevelSourceBuildExecution::~PreparedReviewedDevelSourceBuildExec
 bool PreparedReviewedDevelSourceBuildExecution::valid() const noexcept {
     return false;
 }
+bool requires_authoritative_devel_recipe(const std::string&, const ReviewedDevelSourceBuildIntent&) {
+    // Legacy-only fixtures do not classify ordinary authoritative recipes.
+    // The production CLI uses the real selector and owns that regression.
+    return false;
+}
 ReviewedProductionSourceExecution select_normal_reviewed_source_execution(const ValidatedCachePath& checkout, PinnedReviewedSourceBuild pin,
                                                                           ProductionReviewedSourceOutcome outcome, std::optional<ReviewedSourceAbnormalStateReason> abnormal, const ReviewedDevelSourceBuildIntent* intent, InvocationOwnedRecipeAcquisition* acquisition) {
     if(acquisition) throw std::logic_error("Legacy fixture received recipe acquisition.");

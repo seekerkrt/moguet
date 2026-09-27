@@ -79,6 +79,7 @@ set(MOGUET_PRODUCTION_SOURCES
     source/local_patch_association.cpp
     source/local_recipe_candidate.cpp
     source/generated_recipe_patch.cpp
+    source/review_recipe_patch_save.cpp
     source/local_source_build.cpp
     source/local_source_build_dependency_preparation.cpp
     source/local_source_install.cpp

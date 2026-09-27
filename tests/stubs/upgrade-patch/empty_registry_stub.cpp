@@ -1,7 +1,20 @@
 #include "aur_upgrade_patch.hpp"
 #include "source_install.hpp"
+#include "review_recipe_patch_save.hpp"
+#include "app_config.hpp"
 
 #include <stdexcept>
+
+#ifndef MOGUET_TEST_RECIPE_PATCH_SAVE
+// Pure execution fixtures have no persistent-save owner. They cannot report a
+// saved customization or silently exercise publication through a fake store.
+void save_review_recipe_edit(const ReviewRecipeEditCorrelation* edit, bool unsupported,
+                             const SourceBuildRequest&, const ValidatedCachePath&, const ValidatedCacheRoot&,
+                             const AppConfig& config, const ReviewedDevelSourceBuildIntent*) {
+    if((edit || unsupported) && !config.no_confirm)
+        throw std::logic_error("Pure execution fixture reached persistent recipe save interaction.");
+}
+#endif
 
 // Legacy pure runner/planner fixtures have no patch registry. This replacement
 // models only absence, and cannot fabricate or execute a selected candidate.

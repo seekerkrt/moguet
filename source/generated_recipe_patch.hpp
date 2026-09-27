@@ -67,6 +67,8 @@ using RecipePatchGenerationResult = std::variant<
 // Component-only input/transport seam; absent from production construction.
 using RecipePatchDiffProcessForTest = std::function<BoundedCapturedProcessResult(
     const ExplicitProcessInvocation&, const BoundedProcessPolicy&)>;
+// Production-correlation regression only; absent from production builds.
+void set_recipe_patch_diff_process_for_test(RecipePatchDiffProcessForTest process);
 RecipePatchGenerationResult generate_recipe_patch_for_test(
     const AurReviewedSourceReviewIdentity& identity,
     const std::string& baseline, const std::string& accepted,

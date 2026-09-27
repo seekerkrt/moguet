@@ -1,6 +1,7 @@
 #include "artifact_install_executor.hpp"
 #include "cache_authority.hpp"
 #include "system_source_upgrade.hpp"
+#include "review_recipe_patch_save.hpp"
 #include "stubs/system-source-upgrade/phase_stub.hpp"
 #include "unified_plan_projection.hpp"
 
@@ -1341,6 +1342,43 @@ void test_partial_source_completion() {
     stub::require_script_consumed();
 }
 
+void test_save_failure_preserves_registered_source_partial_outcome() {
+    stub::reset();
+    stub::set_source_identity("second", ResolvedSourceBuildIdentity(ResolvedAurSourceBuildIdentity("second", "second")));
+    const std::vector<std::string> packages = {"first", "second", "third"};
+    const auto config = full_option_config();
+    auto prepared = prepare_sources(packages, config);
+    enqueue_post_metadata(packages);
+    stub::enqueue_source_success(source_execution(SourceBuildExecutionStatus::Installed));
+    RecipePatchSaveFailure save{RecipePatchSaveStage::Registration};
+    save.retained_material = "/user/material/verified.patch";
+    save.association = PatchAssociationFailure{PatchAssociationFailureKind::PublicationUncertain,
+                                               "/registry/record.toml",
+                                               {},
+                                               std::nullopt,
+                                               std::nullopt};
+    stub::enqueue_source_exception(std::make_exception_ptr(RecipePatchSaveError(save, "scripted save registration uncertain")));
+    const auto result = execute_prepared_system_source_upgrade(std::move(prepared), config, OBSERVER);
+    expect(result.status == SystemSourceUpgradeStatus::StoppedOnSourceFailure &&
+               result.system.status == SystemUpgradePhaseStatus::Completed &&
+               result.registered_source_results[0].status == RegisteredSourceUpgradeStatus::Updated &&
+               result.registered_source_results[2].status == RegisteredSourceUpgradeStatus::NotAttempted,
+           "Save failure lost completed prefix or executed suffix");
+    const auto* failure = std::get_if<RegisteredSourceBuildFailureSnapshot>(&result.registered_source_results[1].failure_detail);
+    expect(failure && failure->failure_exception && failure->category == RegisteredSourceBuildFailureCategory::PatchCustomizationSave,
+           "Registered source lost typed save failure/category");
+    bool retained = false;
+    try {
+        std::rethrow_exception(failure->failure_exception);
+    } catch(const RecipePatchSaveError& error) {
+        retained = error.failure().stage == RecipePatchSaveStage::Registration &&
+                   error.failure().retained_material == save.retained_material &&
+                   error.failure().association->kind == PatchAssociationFailureKind::PublicationUncertain;
+    }
+    expect(retained, "Registered source flattened save partial outcome");
+    stub::require_script_consumed();
+}
+
 void test_registered_package_base_success_retains_typed_aggregate() {
     const SystemSourceUpgradeResult result =
         execute_registered_repository_case(
@@ -2554,6 +2592,8 @@ int main() {
             "preference enumeration failure blocks",
             test_preference_enumeration_failure_blocks,
             completed_cases);
+        run_case("save failure preserves committed prefix and typed material outcome",
+                 test_save_failure_preserves_registered_source_partial_outcome, completed_cases);
         std::cout << "system/source upgrade tests: " << completed_cases
                   << " scenarios passed\n";
         return 0;

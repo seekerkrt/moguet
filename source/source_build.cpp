@@ -1,4 +1,5 @@
 #include "aur_upgrade_patch.hpp"
+#include "review_recipe_patch_save.hpp"
 #include "source_build.hpp"
 
 #include "app_config.hpp"
@@ -55,10 +56,13 @@ ReviewRecipeEditCorrelation::ReviewRecipeEditCorrelation(
     std::uintmax_t checkout_device,
     std::uintmax_t checkout_inode,
     std::string baseline_pkgbuild,
-    std::string accepted_pkgbuild) noexcept
+    std::string accepted_pkgbuild,
+    std::optional<std::string> upstream_srcinfo,
+    std::optional<LocalSourceRootFailure> upstream_srcinfo_failure) noexcept
     : identity_(std::move(identity)), checkout_device_(checkout_device),
       checkout_inode_(checkout_inode), baseline_pkgbuild_(std::move(baseline_pkgbuild)),
-      accepted_pkgbuild_(std::move(accepted_pkgbuild)) {
+      accepted_pkgbuild_(std::move(accepted_pkgbuild)), upstream_srcinfo_(std::move(upstream_srcinfo)),
+      upstream_srcinfo_failure_(std::move(upstream_srcinfo_failure)) {
 }
 
 struct PreparedSourceBuildExecutionCapabilities {
@@ -72,9 +76,12 @@ struct SourceBuildPreparationAccess {
     static ReviewRecipeEditCorrelation accept_recipe_edit(
         AurReviewedSourceReviewIdentity identity,
         const ValidatedCachePath& checkout,
-        std::string baseline, std::string accepted) noexcept {
+        std::string baseline, std::string accepted,
+        std::optional<std::string> upstream_srcinfo,
+        std::optional<LocalSourceRootFailure> upstream_srcinfo_failure) noexcept {
         return ReviewRecipeEditCorrelation(std::move(identity), checkout.device(), checkout.inode(),
-                                           std::move(baseline), std::move(accepted));
+                                           std::move(baseline), std::move(accepted),
+                                           std::move(upstream_srcinfo), std::move(upstream_srcinfo_failure));
     }
     static PreparedSourceBuildNeedsBuild make(PreparedReviewedDevelSourceBuildExecution devel) noexcept {
         return PreparedSourceBuildNeedsBuild(std::move(devel));
@@ -737,6 +744,8 @@ struct PendingReviewRecipeEdit {
     std::uintmax_t checkout_device;
     std::uintmax_t checkout_inode;
     std::string baseline;
+    std::optional<std::string> upstream_srcinfo = std::nullopt;
+    std::optional<LocalSourceRootFailure> upstream_srcinfo_failure = std::nullopt;
 };
 
 [[noreturn]] void stop_review_recipe_correlation(
@@ -1831,6 +1840,9 @@ SourceBuildCheckoutPreparation prepare_source_build_checkout(
                            *aur_authority);
                 require_review_recipe_lineage(*pending_recipe_edit, *aur_authority, request, pkg_path);
                 pending_recipe_edit->baseline = read_review_recipe_bytes(pkg_path);
+                const auto upstream = open_local_source_root(pkg_path.canonical_path(), true);
+                if(const auto* metadata = upstream.metadata().file()) pending_recipe_edit->upstream_srcinfo = metadata->contents;
+                if(const auto* failure = upstream.metadata().unsafe_failure()) pending_recipe_edit->upstream_srcinfo_failure = *failure;
                 // Prove the exact clean target at the editor boundary, after
                 // prompt input and the stable read, not from an old display blob.
                 begin_editor_boundary();
@@ -1838,6 +1850,7 @@ SourceBuildCheckoutPreparation prepare_source_build_checkout(
                 if(read_review_recipe_bytes(pkg_path) != pending_recipe_edit->baseline) {
                     stop_review_recipe_correlation(TrustedGitPinnedCheckoutFailureReason::OverlayMismatch);
                 }
+                if(!upstream.metadata().unsafe_failure()) upstream.require_unchanged_identity();
             };
         }
         if(request.upgrade_patch) {
@@ -1887,11 +1900,21 @@ SourceBuildCheckoutPreparation prepare_source_build_checkout(
             if(pending_recipe_edit->baseline != *post_recipe_bytes) {
                 accepted_recipe_edit.emplace(SourceBuildPreparationAccess::accept_recipe_edit(
                     std::move(pending_recipe_edit->identity), pkg_path,
-                    std::move(pending_recipe_edit->baseline), std::move(*post_recipe_bytes)));
+                    std::move(pending_recipe_edit->baseline), std::move(*post_recipe_bytes),
+                    std::move(pending_recipe_edit->upstream_srcinfo), std::move(pending_recipe_edit->upstream_srcinfo_failure)));
             }
         }
         makepkg_options = resolve_makepkg_build_options(".", config);
     }
+
+    // Persistence belongs to the preparation/execution boundary, after the
+    // editor's existing acceptance and cwd restoration. Scope-excluded routes
+    // neither capture nor offer Save. Devel overlays only offer a hard-stop
+    // unsupported Yes; No keeps their existing execution-selection behavior.
+    const bool unsupported_save_edit = !request.suppress_review_recipe_edit_capture && !request.ordinary_devel_package_base && !request.upgrade_patch &&
+                                       editor_overlay && editor_overlay->status() == ReviewedSourceEditorOverlayStatus::InvocationLocal &&
+                                       (request.authoritative_devel_update || request.devel_tracking_bootstrap);
+    if(unsupported_save_edit) save_review_recipe_edit(nullptr, true, request, pkg_path, build_root, config, execution_intent);
 
     const std::string custom_environment = serialize_source_build_environment(
         request.custom_environment, request.empty_value_policy);
@@ -1921,6 +1944,8 @@ SourceBuildCheckoutPreparation prepare_source_build_checkout(
                                                                   ? ReviewedSourceEditorOverlayStatus::
                                                                         InvocationLocal
                                                                   : ReviewedSourceEditorOverlayStatus::None);
+    if(accepted_recipe_edit) save_review_recipe_edit(&*accepted_recipe_edit, false,
+                                                     request, pkg_path, build_root, config, execution_intent);
     return PreparedSourceBuildCheckout{
         std::move(source_tree), makepkg_options, std::move(accepted_recipe_edit)};
 }
@@ -2143,6 +2168,8 @@ SourceBuildPreparationOutcome prepare_source_build_for_execution(
         } catch(const BootstrapRecipeAcquisitionError&) {
             throw;
         } catch(const ReviewedSourceProductionError&) {
+            throw;
+        } catch(const RecipePatchSaveError&) {
             throw;
         } catch(const TrustedCacheError&) {
             throw;

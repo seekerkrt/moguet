@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.10.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 14:43+0900\n"
+"POT-Creation-Date: 2026-09-27 09:18+0900\n"
 "PO-Revision-Date: 2026-09-19 17:53+0900\n"
 "Last-Translator: Moguet contributors\n"
 "Language-Team: Japanese\n"
@@ -6141,6 +6141,10 @@ msgid "LOCAL RECIPE PATCHES"
 msgstr "LOCAL RECIPE PATCH"
 
 #, c++-format
+msgid "Experimental: accepted ordinary reviewed {} edits can be saved with separate default-No consent to an explicit existing patch directory"
+msgstr "Experimental: 通常review済み{}のaccepted editは別のdefault-No同意と明示した既存patch directoryへ保存できます"
+
+#, c++-format
 msgid "Register ordered {} patches from a user-maintained directory; do not enable automatic application"
 msgstr "user-maintained directoryの{} patchを順序指定で登録する。自動適用は有効にしない"
 
@@ -8096,6 +8100,55 @@ msgstr "{} のソース取得またはビルド準備に失敗しました: {}"
 #, c++-format
 msgid "{} set source-build unexpectedly produced an update-status result."
 msgstr "{} セットのソースビルドが予期せず更新状態結果を生成しました。"
+
+msgid "Saving patch customization for authoritative devel builds is unsupported; build stopped."
+msgstr "authoritative devel buildのpatch customization保存は非対応です。buildを停止しました。"
+
+msgid "Patch directory is empty, unsafe or unavailable; build stopped."
+msgstr "patch directoryが空、unsafe、または利用できません。buildを停止しました。"
+
+msgid "Recipe patch generation or exact reproduction verification failed; build stopped."
+msgstr "recipe patch生成またはexact reproduction検証に失敗しました。buildを停止しました。"
+
+msgid "Accepted recipe identity validation failed; build stopped."
+msgstr "accepted recipeのidentity検証に失敗しました。buildを停止しました。"
+
+msgid "Generated patch publication or integrity verification failed; build stopped."
+msgstr "生成patchの公開またはintegrity検証に失敗しました。buildを停止しました。"
+
+msgid "Patch association registration failed; build stopped."
+msgstr "patch association登録に失敗しました。buildを停止しました。"
+
+msgid "patch material or association already exists"
+msgstr "patch materialまたはassociationが既に存在します"
+
+msgid "recipe identity evaluation failed"
+msgstr "recipe identity評価に失敗しました"
+
+msgid "patch registration commit is uncertain"
+msgstr "patch登録commitは不確実です"
+
+#, c++-format
+msgid "Patch customization failure: {} ({})."
+msgstr "patch customizationの失敗: {} ({})。"
+
+#, c++-format
+msgid "Patch material and registration are complete at {}. Current build continuation stopped."
+msgstr "{}のpatch material公開と登録は完了しています。今回のbuild継続を停止しました。"
+
+#, c++-format
+msgid "Published patch material remains at {}. Registration is incomplete or uncertain."
+msgstr "公開済みpatch materialは{}に残っています。登録は未完了または不確実です。"
+
+msgid "Patch directory:"
+msgstr "patch directory:"
+
+msgid "Save this edit as patch customization?"
+msgstr "今回の編集をpatch customizationとして保存しますか？"
+
+#, c++-format
+msgid "Saved patch customization: {}"
+msgstr "patch customizationを保存しました: {}"
 
 #, c++-format
 msgid "Registered source upgrade does not support split {} preference {} from {} {}; this route requires a singular package identity."

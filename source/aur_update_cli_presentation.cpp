@@ -85,6 +85,11 @@ std::string source_build_failure_summary(
         case AurUpdateSourceBuildFailureCategory::InstallTransaction:
             return localization::translate_message(
                 "install transaction failure");
+        case AurUpdateSourceBuildFailureCategory::PatchCustomizationSave:
+            // Save failure diagnostics carry the two commit-point facts. The
+            // Normal summary must not hide retained material behind a generic
+            // build/install label; the typed exception remains in the snapshot.
+            return failure.diagnostic;
         case AurUpdateSourceBuildFailureCategory::Other:
             return localization::translate_message("build or install failure");
     }

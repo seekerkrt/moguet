@@ -1,3 +1,4 @@
+#include "review_recipe_patch_save.hpp"
 #include "aur_upgrade_patch.hpp"
 #include "system_source_upgrade.hpp"
 
@@ -2588,6 +2589,17 @@ SystemSourceUpgradeResult execute_prepared_system_source_upgrade(
                 return result;
             } catch(const ConfirmationOperationStopped&) {
                 throw;
+            } catch(const RecipePatchSaveError& error) {
+                source_result.status = RegisteredSourceUpgradeStatus::Failed;
+                source_result.failure_kind = RegisteredSourceUpgradeFailureKind::BuildOrInstallFailed;
+                source_result.package_state_change = PackageStateChange::Unknown;
+                source_result.diagnostic = error.what();
+                source_result.failure_detail = RegisteredSourceBuildFailureSnapshot{
+                    RegisteredSourceBuildFailureCategory::PatchCustomizationSave, error.what(), std::nullopt, std::current_exception()};
+                add_source_diagnostic(error.what(), true);
+                result.status = SystemSourceUpgradeStatus::StoppedOnSourceFailure;
+                result.stopped_phase = SystemSourceUpgradePhase::RegisteredSource;
+                return result;
             } catch(const std::exception& error) {
                 source_result.status = RegisteredSourceUpgradeStatus::Failed;
                 source_result.failure_kind =

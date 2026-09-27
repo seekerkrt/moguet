@@ -458,7 +458,16 @@ dependency edgeはmetadata trust boundaryで構成したtyped requirement、inst
 `list-patch` / `list-patch --details`で保存recordを一覧する。Normalはassociationの概要、Detailedは
 保存順のfile名・expected digest・schema versionを追加し、外部materialのopen・存在確認・再hashはしない。
 local v1とAUR専用v2を混在でき、AUR sourceのnetwork / 存在確認も行わない。
-AUR登録・更新は既存resolved source authorityを受けるinternal APIのみで、public creation UXは後続Sliceとする。
+AUR登録・更新は既存resolved source authorityを受けるinternal APIを使う。#650の通常review済みAUR編集は、
+existing Proceed acceptance後に別の `Save this edit as patch customization? [y/N]` から明示保存できる。
+No・empty・--noconfirm・non-TTYはpatch生成・公開・registry I/Oなしでsame accepted editを継続する。
+Yes後だけdefaultなしのpatch directoryを入力し、command-start cwdからrelativeを解決する。
+safe existing user-owned directory、no-overwrite、register-only、expected generated digestのcommitまでの保持を要求する。
+既存associationへのimplicit append/update/replace、future Apply同意への流用はない。Yes後failureはnonzero停止し、
+公開済みmaterialを残してregistry未変更/uncertain、両commit後ならその完了factを保持する。
+compatibility、official/local、Auto -S、targetless、dry-runへsaveを起動しない。
+authoritative devel + Yesはhard stop、判断にはpre-editor upstream metadataを使う。
+metadata評価には別の明示同意が必要で、今回のmanual-edit planは再構成しない。
 exact lookupもregistry全体をstrictに読み、unknown identity / 不正recordをabsenceにしない。
 不正recordはskipせず一覧全体を失敗させる。表示順とread契約は[patch contract](contracts/patch-customization.md)を正とする。
 localでは`build --local --use-patches <directory> [V=K...]`が保存associationを明示選択する。
@@ -493,8 +502,9 @@ stock fallback・automatic repair・先行transactionのrollbackは行わない�
 customized devel recipe/build/provenance supportは別follow-upである。
 
 dry-runはstock planのread-only観測でありpatch storeを読まず、選択・candidate取得・評価へ進まない。
-exact targetless `-Su` / `-Syu`、Auto `-S`、plain remote/local buildのpatch-store zero-readを維持する。
-public AUR creation UXは#650へ残し、CLI grammar / completion / #362 preference selectionは変えない。
+exact targetless `-Su` / `-Syu`、Auto `-S`、plain remote/local buildにはsaved patchの自動選択を追加しない。
+plain reviewed AUR buildで#650のSave Yesを選んだ場合だけproducerがduplicate/registrationのregistryを利用する。
+CLI grammar / completion / #362 preference selectionは変えない。
 
 ## Remote source-build PackageBase summary
 

@@ -1,3 +1,4 @@
+#include "review_recipe_patch_save.hpp"
 #include "aur_update_execution_runner.hpp"
 #include "app_config.hpp"
 #include "devel_tracking_bootstrap.hpp"
@@ -1048,6 +1049,14 @@ execute_prepared_aur_update_source_build_invocation(
             // Preserve the completed prefix and untouched suffix without turning
             // operation cancellation into an ordinary executor return.
             throw AurUpdateExecutionCancelled(std::move(result));
+        } catch(const RecipePatchSaveError& error) {
+            work_item_result.status = AurUpdateWorkItemExecutionStatus::Failed;
+            work_item_result.failure_kind = AurUpdateWorkItemFailureKind::BuildOrInstallFailed;
+            work_item_result.failure_detail = AurUpdateSourceBuildFailureSnapshot{
+                AurUpdateSourceBuildFailureCategory::PatchCustomizationSave, error.what(), std::nullopt, std::current_exception()};
+            work_item_result.diagnostic = error.what();
+            result.status = AurUpdateInvocationExecutionStatus::StoppedOnWorkItemFailure;
+            return result;
         } catch(const std::exception& error) {
             work_item_result.status = AurUpdateWorkItemExecutionStatus::Failed;
             work_item_result.failure_kind =

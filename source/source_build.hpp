@@ -9,6 +9,7 @@
 #include "reviewed_source_production_failure.hpp"
 #include "separated_package_base_source_build.hpp"
 #include "source_environment.hpp"
+#include "local_source_root.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -133,12 +134,16 @@ class ReviewRecipeEditCorrelation final {
     std::uintmax_t checkout_inode_;
     std::string baseline_pkgbuild_;
     std::string accepted_pkgbuild_;
+    std::optional<std::string> upstream_srcinfo_;
+    std::optional<LocalSourceRootFailure> upstream_srcinfo_failure_;
 
     ReviewRecipeEditCorrelation(AurReviewedSourceReviewIdentity identity,
                                 std::uintmax_t checkout_device,
                                 std::uintmax_t checkout_inode,
                                 std::string baseline_pkgbuild,
-                                std::string accepted_pkgbuild) noexcept;
+                                std::string accepted_pkgbuild,
+                                std::optional<std::string> upstream_srcinfo,
+                                std::optional<LocalSourceRootFailure> upstream_srcinfo_failure) noexcept;
     friend struct SourceBuildPreparationAccess;
 
 public:
@@ -160,6 +165,14 @@ public:
     }
     const std::string& accepted_pkgbuild() const noexcept {
         return accepted_pkgbuild_;
+    }
+    // Pre-editor fact only. Save Yes uses the existing devel selector; the
+    // mutable edited .SRCINFO is never unmodified-upstream authority.
+    const std::optional<std::string>& upstream_srcinfo() const noexcept {
+        return upstream_srcinfo_;
+    }
+    const std::optional<LocalSourceRootFailure>& upstream_srcinfo_failure() const noexcept {
+        return upstream_srcinfo_failure_;
     }
 };
 

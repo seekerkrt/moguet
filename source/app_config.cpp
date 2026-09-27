@@ -23,6 +23,10 @@ std::string resolve_editor_from_environment() {
 AppConfig make_app_config(
     UserConfig final_user_config, bool no_confirm, bool rm_deps,
     PresentationDetail presentation_detail) {
+    // A missing cwd must not abort unrelated CLI operations. Only an explicit
+    // save uses this snapshot and fails closed if resolution was unavailable.
+    std::error_code cwd_error;
+    auto command_start_directory = std::filesystem::current_path(cwd_error);
     return AppConfig{
         std::move(final_user_config),
         no_confirm,
@@ -30,7 +34,8 @@ AppConfig make_app_config(
         resolve_editor_from_environment(),
         make_provider_selection_session(no_confirm),
         {},
-        presentation_detail};
+        presentation_detail,
+        std::move(command_start_directory)};
 }
 
 ProviderSelectionCallback provider_selection_callback(const AppConfig& config) {

@@ -4,6 +4,7 @@
 #include "interactive_confirmation.hpp"
 #include "source_install.hpp"
 #include "trusted_cache.hpp"
+#include "review_recipe_patch_save.hpp"
 
 #include <cstddef>
 #include <optional>
@@ -117,6 +118,7 @@ void enqueue_transaction_failure(
 void enqueue_confirmation_stop(ExpectedExecution expected, ConfirmationResult result);
 
 void enqueue_unknown_failure(ExpectedExecution expected);
+void enqueue_recipe_patch_save_failure(ExpectedExecution expected, RecipePatchSaveFailure failure);
 
 void fail_repository_provider_transaction(std::string diagnostic);
 void fail_cache_activation(TrustedCacheFailure failure);

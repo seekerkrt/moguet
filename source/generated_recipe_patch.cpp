@@ -30,6 +30,9 @@ struct RecipePatchGenerationAccess final {
 namespace {
 namespace fs = std::filesystem;
 using Reason = RecipePatchGenerationFailureReason;
+#ifdef MOGUET_ENABLE_GENERATED_RECIPE_PATCH_TEST_HOOKS
+RecipePatchDiffProcessForTest g_diff_process_for_test;
+#endif
 
 class Descriptor final {
     int fd_;
@@ -232,10 +235,16 @@ RecipePatchGenerationResult generate_frozen_recipe_patch(
 } // namespace
 
 RecipePatchGenerationResult generate_recipe_patch(const ReviewRecipeEditCorrelation& edit) {
+#ifdef MOGUET_ENABLE_GENERATED_RECIPE_PATCH_TEST_HOOKS
+    if(g_diff_process_for_test) return generate_frozen_recipe_patch(edit.identity(), edit.baseline_pkgbuild(), edit.accepted_pkgbuild(), g_diff_process_for_test);
+#endif
     return generate_frozen_recipe_patch(edit.identity(), edit.baseline_pkgbuild(), edit.accepted_pkgbuild(), capture_bounded_explicit_process_output_raw);
 }
 
 #ifdef MOGUET_ENABLE_GENERATED_RECIPE_PATCH_TEST_HOOKS
+void set_recipe_patch_diff_process_for_test(RecipePatchDiffProcessForTest process) {
+    g_diff_process_for_test = std::move(process);
+}
 RecipePatchGenerationResult generate_recipe_patch_for_test(
     const AurReviewedSourceReviewIdentity& identity, const std::string& baseline,
     const std::string& accepted, const RecipePatchDiffProcessForTest& process) {

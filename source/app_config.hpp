@@ -6,6 +6,7 @@
 #include "user_config.hpp"
 
 #include <memory>
+#include <filesystem>
 #include <string>
 
 // typed user configとinvocation-only optionを1回の実行で参照する境界。
@@ -17,6 +18,8 @@ struct AppConfig {
     std::shared_ptr<ProviderSelectionSession> provider_selection;
     ProviderCandidatePresenterFactory provider_candidate_presenter_factory;
     PresentationDetail presentation_detail = PresentationDetail::Normal;
+    // Fixed before any checkout WorkDirGuard; save destinations resolve here.
+    std::filesystem::path command_start_directory;
 };
 
 // load / composition済みのfinal configをproduction consumer向けに一度だけ束ねる。
