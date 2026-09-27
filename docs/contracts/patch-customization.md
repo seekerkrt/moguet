@@ -520,7 +520,11 @@ ExplicitTokenのYesだけをsave intentとする。No、empty、--noconfirm、no
 入らずsame accepted editのstock manual buildを継続する。unsupported persistent patch shapeはNoで評価しない。
 piped yesを昇格せず、q-family/EOF/InputFailureは既存typed confirmation stopとして伝える。
 
-Yes後だけdefaultなしの `Patch directory:` を入力する。既存directoryのみ、command-start cwdからrelativeを解決し、
+Yes後だけdefaultなしのpatch directory promptを入力する。promptとDestination failure診断、helpで
+absolute pathまたはcommand-start cwd基準のrelative path、および`~`非展開を明示する。
+shellを経由せず、`~`をHOMEへ展開しない。`~user`解決や`$HOME`等のenvironment variable展開も行わない。
+既存directoryのみを受理し、自動作成しない。
+absolute pathを受理し、command-start cwdからrelativeを解決して、
 control/NUL/backslash/..、symlink、ownership/mode、cache/checkout/registry内部およびregistryを包含するrootを拒否する。
 既存MaterialDirectoryがrootから全lineageをpin/revalidateする。解決失敗はYesでhard stop、Noへcwd failureを波及させない。
 complete no-create registry lookupでduplicateをpublication前に拒否し、registry writerでもraceを再確認する。

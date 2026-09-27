@@ -929,6 +929,8 @@ void print_help() {
     print_help_section(localization::translate_message("LOCAL RECIPE PATCHES"));
     print_help_continuation(localization::format_translated_message(
         "Experimental: accepted ordinary reviewed {} edits can be saved with separate default-No consent to an explicit existing patch directory", "AUR"));
+    print_help_continuation(localization::translate_message(
+        "Use an existing patch directory with an absolute path or a path relative to the command's starting directory; '~' is not expanded."));
     print_help_entry(cli_operation_syntax(OperationId::AddPatch), localization::format_translated_message(
                                                                       "Register ordered {} patches from a user-maintained directory; do not enable automatic application", "PKGBUILD"));
     print_help_entry(cli_operation_syntax(OperationId::UpdatePatch), localization::translate_message(

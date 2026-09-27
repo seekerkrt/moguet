@@ -412,7 +412,8 @@ local v1とAUR v2のrecordを混在して一覧できます。AURはcanonical Gi
 PKGBUILD編集後にProceed with build?をacceptしたnormal reviewed ordinary AUR経路は、
 Save this edit as patch customization? [y/N]で別の保存同意を求めます。No、空入力、--noconfirm、non-TTYでは
 patch生成・公開・登録をせず今回のaccepted editで継続します。piped yesは保存許可になりません。
-Yes後だけPatch directory:を入力します。defaultはなく、command開始cwd基準の相対pathを使えます。
+Yes後だけdefaultなしでpatch directoryを入力します。絶対パス、またはコマンド開始時の作業ディレクトリ基準の相対パスを使えます。
+この入力はshellを経由せず、~をHOMEへ展開しません。~userの解決や$HOME等の環境変数展開も行いません。保存先の自動作成はしません。
 cache・checkout・registry外の既存user-owned directoryだけを受理し、unsafe path、symlink、owner・permission違反は拒否します。
 生成したGit PKGBUILD patchはaccepted bytesのexact reproductionを検証し、別の明示makepkg --printsrcinfo同意で
 owned copy内のsource identityだけをfresh確認します。今回のdependency planは再構成しません。

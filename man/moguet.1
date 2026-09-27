@@ -453,9 +453,11 @@ internal APIs. Ordinary reviewed AUR edits can create an association through exp
 After editing PKGBUILD and accepting Proceed with build?, the normal reviewed ordinary
 AUR route asks Save this edit as patch customization? [y/N]. No, empty input,
 --noconfirm and non-TTY input continue the accepted edit without patch generation or
-persistence. Piped yes is not save permission. Yes asks Patch directory: with no default.
-Use an existing user-owned directory outside cache, checkout and registry; relative paths
-use command-start cwd. Unsafe paths, symlinks, ownership/permission violations are refused.
+persistence. Piped yes is not save permission. Yes asks for a patch directory with no default.
+Use an existing user-owned directory outside cache, checkout and registry. Absolute paths
+are accepted; relative paths use command-start cwd. The input does not pass through a shell:
+~ and ~user are not expanded, and environment variables such as $HOME are not substituted.
+The destination is not created automatically. Unsafe paths, symlinks, ownership/permission violations are refused.
 The generated Git PKGBUILD patch must reproduce the accepted bytes exactly. Separate
 explicit makepkg --printsrcinfo consent validates source identity in an owned copy without
 replanning the current build. Publication never overwrites, and registration retains the

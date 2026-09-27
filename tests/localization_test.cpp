@@ -66,6 +66,10 @@ int main(int argc, char* argv[]) {
               << '\n';
     std::cout << "prompt="
               << localization::translate_message("Rebuild package?") << '\n';
+    std::cout << "patch_directory_prompt="
+              << localization::translate_message("Patch directory (absolute path or relative to the command's starting directory; '~' is not expanded):") << '\n';
+    std::cout << "patch_directory_rule="
+              << localization::translate_message("Use an existing patch directory with an absolute path or a path relative to the command's starting directory; '~' is not expanded.") << '\n';
     std::cout << "soname_class_32="
               << localization::translate_message("[SONAME: 32-bit]") << '\n';
     std::cout << "soname_class_64="

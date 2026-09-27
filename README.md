@@ -862,9 +862,11 @@ After editing `PKGBUILD` and accepting `Proceed with build?`, a normal reviewed 
 AUR build asks `Save this edit as patch customization? [y/N]`. No or an empty answer
 continues with the accepted edit without generating, publishing or registering a patch.
 `--noconfirm` and non-TTY input use safe No; piped `yes` is not save permission.
-Yes asks `Patch directory:` with no default. Choose an existing directory you own,
-outside the cache, source checkout and registry. Relative paths resolve from the
-command's starting directory. Symlinks, unsafe permissions and traversal paths are rejected.
+Yes asks for a patch directory with no default. Choose an existing directory you own,
+outside the cache, source checkout and registry. Absolute paths are accepted; relative
+paths resolve from the command's starting directory. This input does not pass through
+a shell: `~`, `~user` and environment variables such as `$HOME` are not expanded.
+Moguet does not create the destination. Symlinks, unsafe permissions and traversal paths are rejected.
 
 Yes generates and byte-exactly verifies a Git `PKGBUILD` patch. A separate explicit
 `makepkg --printsrcinfo` consent confirms the accepted source identity in an owned copy;
