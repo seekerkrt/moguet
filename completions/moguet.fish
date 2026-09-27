@@ -232,7 +232,23 @@ function __moguet_form_prefix_valid --argument-names expected_operation form_ind
     return 1
 end
 
+function __moguet_option_context
+    set -l pending false
+    for word in (commandline -opc)[2..-1]
+        set word (string unescape -- "$word"); or return 1
+        if test $pending = true; set pending false; continue; end
+        switch $word
+            case '--'
+                return 1
+            case '--arch' '--assume-installed' '--cachedir' '--color' '--config' '--dbpath' '--gpgdir' '--hookdir' '--ignore' '--ignoregroup' '--logfile' '--overwrite' '--print-format' '--root' '--sysroot' '-b' '-r'
+                set pending true
+        end
+    end
+    test $pending = false
+end
+
 function __moguet_operation_allows --argument-names option_id
+    __moguet_option_context; or return 1
     set -l operation (__moguet_operation)
     if test "$operation" = '-Qua'; and test "$option_id" = 20; return 0; end
     if test "$operation" = '-S'; and test "$option_id" = 20; and __moguet_has_option_id 5; return 0; end
@@ -401,6 +417,7 @@ function __moguet_candidate_available --argument-names option_id
 end
 
 function __moguet_no_operation
+    __moguet_option_context; or return 1
     not __moguet_operation >/dev/null
 end
 

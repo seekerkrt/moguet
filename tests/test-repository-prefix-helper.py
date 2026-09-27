@@ -35,10 +35,13 @@ with tempfile.TemporaryDirectory(prefix="moguet-prefix-", dir=os.environ.get("TM
     expect(result.returncode == 0 and len(result.stdout.splitlines()) == 256, "exact count boundary rejected")
     result, _ = run("pass\n", "[")
     expect(result.returncode == 0 and not result.stdout, "empty success lost")
+    result, _ = run("pass\n", "a" * 256)
+    expect(result.returncode == 0 and not result.stdout, "exact prefix byte boundary rejected")
     for body in (
         "print('chromium'); raise SystemExit(7)\n",
         "print('bad name')\n", "print('z'); print('a')\n",
         "print('a'); print('a')\n", "print('a', end='')\n",
+        "print('')\n", "import sys; sys.stdout.buffer.write(b'chro\\x00mium\\n')\n",
         "[print(f'pkg{i:04}') for i in range(257)]\n",
         "print('a' * 65536)\n",
     ):

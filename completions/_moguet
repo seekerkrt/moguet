@@ -638,6 +638,20 @@ _moguet_typed_values() {
     return 0
 }
 
+_moguet_option_context() {
+    local word pending=false
+    local index
+    for ((index=2; index<CURRENT; ++index)); do
+        word=${(Q)words[index]}
+        if [[ $pending == true ]]; then pending=false; continue; fi
+        case "$word" in
+        --) return 1 ;;
+        --arch|--assume-installed|--cachedir|--color|--config|--dbpath|--gpgdir|--hookdir|--ignore|--ignoregroup|--logfile|--overwrite|--print-format|--root|--sysroot|-b|-r) pending=true ;;
+        esac
+    done
+    [[ $pending == false ]]
+}
+
 _moguet_query_context() {
     local seen=false pending=false word index
     for ((index=2; index<CURRENT; ++index)); do
@@ -663,6 +677,7 @@ _moguet() {
     local -a words=("${words[@]}")
     local -a candidates filtered described described_intercepted_pacman described_moguet_owned described_upstream_delegated
     local ownership
+    _moguet_option_context || return 0
     case "$cur" in
     --build-mode=*)
         # Applicability and agreement consume the same logical prior words.

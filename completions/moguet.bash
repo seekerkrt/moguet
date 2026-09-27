@@ -346,6 +346,21 @@ _moguet_typed_values() {
     return 0
 }
 
+_moguet_option_context() {
+    local word pending=false
+    local -a COMP_WORDS=("${COMP_WORDS[@]}")
+    local COMP_CWORD=$COMP_CWORD
+    _moguet_logical_words || return 1
+    for word in "${COMP_WORDS[@]:1:COMP_CWORD-1}"; do
+        if [[ $pending == true ]]; then pending=false; continue; fi
+        case "$word" in
+        --) return 1 ;;
+        --arch|--assume-installed|--cachedir|--color|--config|--dbpath|--gpgdir|--hookdir|--ignore|--ignoregroup|--logfile|--overwrite|--print-format|--root|--sysroot|-b|-r) pending=true ;;
+        esac
+    done
+    [[ $pending == false ]]
+}
+
 _moguet_query_context() {
     local seen=false pending=false word index
     for word in "${COMP_WORDS[@]:1:COMP_CWORD-1}"; do
@@ -370,6 +385,8 @@ _moguet() {
     local -a COMP_WORDS=("${COMP_WORDS[@]}")
     local COMP_CWORD=$COMP_CWORD
     local -a candidates filtered
+    COMPREPLY=()
+    _moguet_option_context || return 0
     cur="${COMP_WORDS[COMP_CWORD]}"
     _moguet_current_word
     case "$REPLY" in

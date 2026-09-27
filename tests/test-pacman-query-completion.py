@@ -38,7 +38,9 @@ assert snapshot.options == tuple(sorted(snapshot.options, key=lambda item: item.
 assert upstream.parse_query_help(raw) == snapshot.options
 version_input = (upstream.SNAPSHOT_DIRECTORY / "version.txt").read_bytes()
 for invalid in (version_input.replace(b"Pacman v7.", b"Pacman v8."),
-                version_input.replace(b"Pacman v", b"unknown v"), version_input + b"\r"):
+                version_input.replace(b"Pacman v", b"unknown v"), version_input + b"\r",
+                version_input + b"\xc3\xa9", version_input * 2,
+                version_input + b"x" * upstream.MAX_INPUT_BYTES):
     try:
         upstream.parse_version(invalid)
     except upstream.ProjectionError:
@@ -63,10 +65,15 @@ for malformed in (
     raw.replace(b"options:", b"localized options:"),
     raw.replace(b"  -b,", b"   -b,"),
     raw[:-1], raw + b"\0", raw.replace(b"  -b,", b"\t-b,"),
+    raw + b"\xc3\xa9",
     raw + b"x" * upstream.MAX_INPUT_BYTES,
     help_input(*(row("--fixture" + str(i)) for i in range(upstream.MAX_OPTIONS + 1))),
 ):
     rejected(malformed)
+# Isolate the token guard from the stricter record guard. Actual accepted
+# records can have at most two tokens and only 52 distinct short spellings.
+with patch.object(upstream, "MAX_OPTIONS", upstream.MAX_TOKENS + 1):
+    rejected(help_input(*(row("--fixture" + str(i)) for i in range(upstream.MAX_TOKENS + 1))))
 
 schema = load_schema()
 collision = next(item for item in schema.query_tokens if item.token == "--noconfirm")
@@ -93,9 +100,11 @@ with tempfile.TemporaryDirectory(prefix="moguet-pacman-capture-", dir=os.environ
         with patch.object(upstream, "PACMAN_PATH", str(executable)):
             return upstream.capture(("-Q", "--help"))
     assert capture_body("sys.stdout.write(os.environ['LC_ALL'])\n") == b"C"
+    assert len(capture_body(f"sys.stdout.write('x' * {upstream.MAX_INPUT_BYTES})\n")) == upstream.MAX_INPUT_BYTES
     for body in ("sys.stdout.write('partial'); sys.exit(1)\n",
                  "sys.stderr.write('diagnostic')\n",
                  "sys.stdout.write('x' * 20000)\n",
+                 "sys.stderr.write('x' * 20000)\n",
                  "time.sleep(5)\n"):
         try:
             capture_body(body)
@@ -118,6 +127,8 @@ with tempfile.TemporaryDirectory(prefix="moguet-pacman-capture-", dir=os.environ
     original_metadata = (directory / "capture.json").read_text()
     for changed in (original_metadata.replace('"locale": "C"', '"locale": "ja_JP"'),
                     original_metadata.replace('"operation": "-Q"', '"operation": "-S"'),
+                    original_metadata.replace('"schema": 1', '"schema": true'),
+                    original_metadata.replace('"schema": 1', '"schema": 1.0'),
                     original_metadata.replace('"schema": 1', '"schema": 1, "schema": 1'),
                     '[]'):
         (directory / "capture.json").write_text(changed)
@@ -127,5 +138,43 @@ with tempfile.TemporaryDirectory(prefix="moguet-pacman-capture-", dir=os.environ
             pass
         else:
             raise AssertionError("invalid snapshot identity accepted")
+    import json, hashlib
+    original = json.loads(original_metadata)
+    def snapshot_rejected():
+        try:
+            upstream.load_snapshot(directory)
+        except (upstream.ProjectionError, OSError, ValueError):
+            return
+        raise AssertionError("invalid/missing snapshot accepted")
+    for name in ("capture.json", "help.txt", "version.txt"):
+        shutil.rmtree(directory)
+        shutil.copytree(upstream.SNAPSHOT_DIRECTORY, directory)
+        (directory / name).unlink()
+        snapshot_rejected()
+        shutil.copytree(upstream.SNAPSHOT_DIRECTORY, directory, dirs_exist_ok=True)
+        (directory / name).write_bytes(b"x" * (upstream.MAX_INPUT_BYTES + 1))
+        snapshot_rejected()
+    for changed_help, changed_version in ((raw.replace(b"options:", b"unexpected:"), version_input),
+                                         (raw, version_input.replace(b"Pacman v7.", b"Pacman v8.")),
+                                         (raw, version_input.replace(b"Pacman v", b"unknown v"))):
+        metadata = original | {"help_sha256": hashlib.sha256(changed_help).hexdigest(),
+                               "version_sha256": hashlib.sha256(changed_version).hexdigest()}
+        (directory / "capture.json").write_text(json.dumps(metadata))
+        (directory / "help.txt").write_bytes(changed_help)
+        (directory / "version.txt").write_bytes(changed_version)
+        snapshot_rejected()
+    shutil.copytree(upstream.SNAPSHOT_DIRECTORY, directory, dirs_exist_ok=True)
+    (directory / "capture.json").write_text('{broken json')
+    snapshot_rejected()
+    shutil.copytree(upstream.SNAPSHOT_DIRECTORY, directory, dirs_exist_ok=True)
+    (directory / "version.txt").write_bytes(version_input + b"changed")
+    snapshot_rejected()
+    with patch.object(upstream, "PACMAN_PATH", str(root / "missing-pacman")):
+        try:
+            upstream.capture(("--version",))
+        except OSError:
+            pass
+        else:
+            raise AssertionError("absent host pacman became a capture")
 
 print(f"pacman-query projection fixture/budgets/collision/reproducibility: PASS; {len(snapshot.options)} records, {len(tokens)} raw tokens")

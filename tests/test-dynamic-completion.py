@@ -221,9 +221,23 @@ def query_scenarios(schema):
     ]
 
 
+def option_context_scenarios(schema):
+    # The shared lexical projection supplies arity/marker expectations. This
+    # closes the option-looking value gap without inferring pacman semantics.
+    marker, = (token for token, _ in schema.parser_boundaries)
+    cases = [("root marker", [marker, "--ne"], ())]
+    cases += [("marker " + op.token, [op.token, marker, "--ne"], ())
+              for op in schema.operations]
+    for token, _ in schema.lexical_value_options:
+        cases.append(("pending " + token, ["-S", token, "--ne"], ()))
+        cases.append(("marker consumed as value " + token, ["-S", token, marker, "--ne"], ("--needed",)))
+    return cases
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--adapters", type=Path, help="existing bound adapters for staged proof")
+    parser.add_argument("--results", type=Path, help="write canonical semantic test results outside tracked sources")
     options = parser.parse_args()
     for shell in ("bash", "zsh", "fish"):
         assert shutil.which(shell), f"required shell unavailable: {shell}"
@@ -240,10 +254,16 @@ if mode == "nonzero":
     print("chromium"); print("provider-garbage", file=sys.stderr); sys.exit(1)
 if mode == "timeout":
     time.sleep(0.5); print("provider-garbage", file=sys.stderr); sys.exit(1)
+if mode == "exact-count":
+    for i in range(256): print("ch%03d" % i)
+    sys.exit(0)
+if mode == "exact-bytes":
+    print("ch" + "x" * 65533); sys.exit(0)
 bad = {"invalid": b"chromium\\nprovider:garbage\\n", "duplicate": b"chromium\\nchromium\\n",
        "unordered": b"chromium\\nch++\\n", "partial": b"chromium", "blank": b"chromium\\n\\n",
        "nul": b"chro\\x00mium\\n", "overflow": b"ch" + b"x"*65536 + b"\\n",
-       "too-many": b"".join(("ch%03d\\n" % i).encode() for i in range(257))}
+       "too-many": b"".join(("ch%03d\\n" % i).encode() for i in range(257)),
+       "wrong-prefix": b"chromium\\nzzz-not-the-prefix\\n"}
 if mode in bad: sys.stdout.buffer.write(bad[mode]); sys.exit(0)
 for name in names:
     if name.startswith(sys.argv[1]): print(name)
@@ -267,6 +287,8 @@ for name in names:
         schema = load_schema()
         option, aliases, value_cases = typed_scenarios(schema)
         query_cases = query_scenarios(schema)
+        lexical_cases = option_context_scenarios(schema)
+        report = {"schema": 1, "snapshot_sha256": schema.query_input_sha256, "shells": {}}
         if options.adapters:
             # Existing staged paths are exercised with the real provider by verifier;
             # fixture protocol matrix uses canonical generation with a fixture binding.
@@ -276,6 +298,12 @@ for name in names:
                 print(f"{shell}: existing bound adapter actual local chromium PASS")
             return
         for shell, adapter in files.items():
+            rows = []
+            def record(family, label, args, expected, count, actual):
+                assert len(actual) == len(set(actual)), (shell, family, label, "duplicate token", actual)
+                rows.append(dict(family=family, label=label, argv=args,
+                                 expected=None if expected is None else sorted(expected),
+                                 tokens=sorted(actual), helper_calls=count))
             for label, args, count, expected in SCENARIOS:
                 calls.write_text("")
                 actual = run(shell, adapter, args, "ok", env)
@@ -284,6 +312,7 @@ for name in names:
                     assert json.loads(calls.read_text()) == args[-1], (shell, label, calls.read_text())
                 if expected is not None:
                     assert set(actual) == set(expected), (shell, label, actual, expected)
+                record("package", label, args, expected, count, actual)
             for label, args, expected in value_cases:
                 calls.write_text("")
                 actual = run(shell, adapter, args, "ok", env)
@@ -294,6 +323,7 @@ for name in names:
                     assert not set(actual).intersection(option.allowed_values + tuple(option.completion_token + v for v in option.allowed_values)), (shell, label, actual)
                 else:
                     assert set(actual) == set(expected), (shell, label, actual, expected)
+                record("typed", label, args, expected, 0, actual)
             for label, args, expected in query_cases:
                 calls.write_text("")
                 actual = run(shell, adapter, args, "ok", env)
@@ -306,6 +336,20 @@ for name in names:
                     assert not set(actual).intersection(new_tokens), (shell, label, actual)
                 else:
                     assert set(actual) == set(expected), (shell, label, actual, expected)
+                record("query", label, args, expected, 0, actual)
+            for label, args, expected in lexical_cases:
+                calls.write_text("")
+                actual = run(shell, adapter, args, "ok", env)
+                assert not calls.read_text(), (shell, label, "lexical context invoked provider")
+                assert set(actual) == set(expected), (shell, label, actual, expected)
+                record("lexical", label, args, expected, 0, actual)
+            report["shells"][shell] = rows
+            for mode, expected in (("exact-count", tuple("ch%03d" % i for i in range(256))),
+                                   ("exact-bytes", ("ch" + "x" * 65533,))):
+                calls.write_text("")
+                actual = run(shell, adapter, ["-S", "ch"], mode, env)
+                assert actual == expected, (shell, mode, "exact protocol boundary rejected")
+                assert len(calls.read_text().splitlines()) == 1
             calls.write_text("")
             baseline = run(shell, adapter, ["-S", ""], "nonzero", env)
             assert "--select" in baseline and "--noconfirm" in baseline, (shell, baseline)
@@ -315,6 +359,9 @@ for name in names:
                 actual = run(shell, adapter, ["-S", ""], mode, env)
                 assert set(actual) == set(baseline), (shell, mode, actual, baseline)
                 assert len(calls.read_text().splitlines()) == 1, (shell, mode)
+            calls.write_text("")
+            assert not run(shell, adapter, ["-S", "ch"], "wrong-prefix", env), (shell, "partial prefix mismatch leaked")
+            assert len(calls.read_text().splitlines()) == 1
             helper.chmod(0o644)
             calls.write_text("")
             assert set(run(shell, adapter, ["-S", ""], "ok", env)) == set(baseline)
@@ -351,7 +398,7 @@ for name in names:
                 calls.write_text("")
                 tab(shell, adapter, line, expected, env)
                 assert not calls.read_text(), (shell, line, calls.read_text())
-            print(f"{shell}: {len(SCENARIOS)} parity scenarios, one-query, 12 failure fallbacks, 14 PTY suppressions PASS")
+            print(f"{shell}: {len(SCENARIOS)} parity scenarios, exact byte/count bounds, one-query, 13 failure fallbacks, 14 PTY suppressions PASS")
             for value in option.allowed_values:
                 calls.write_text("")
                 text = "moguet build " + option.completion_token + value[:1]
@@ -408,6 +455,16 @@ for name in names:
                 tab(shell, adapter, "moguet -Q " + " ".join(tail) + " " + current, current, env)
                 assert not calls.read_text(), (shell, tail, "package helper")
             print(f"{shell}: {len(query_cases)} query token parity/isolation scenarios PASS")
+            for args in (["-S", "--", "--ne"], ["-S", "--color", "--ne"],
+                         ["-S", "--config", "--ne"], ["-S", "-b", "--ne"]):
+                calls.write_text("")
+                tab(shell, adapter, "moguet " + " ".join(args), args[-1], env)
+                assert not calls.read_text(), (shell, args)
+            print(f"{shell}: {len(lexical_cases)} shared lexical contexts and 4 native PTY option-looking suppressions PASS")
+        if options.results:
+            options.results.parent.mkdir(parents=True, exist_ok=True)
+            options.results.write_text(json.dumps(report, sort_keys=True, indent=2) + "\n")
+            print(f"semantic result artifact: {options.results}")
     print("dynamic completion: all focused shell checks PASS")
 
 

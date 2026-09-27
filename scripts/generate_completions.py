@@ -1535,6 +1535,44 @@ _moguet_typed_values() {{
 '''
 
 
+def option_context_function(schema: CliSchema, shell: str) -> str:
+    """Project shared lexical arity and the opaque boundary, not route grammar."""
+    lexical = tuple(token for token, _ in schema.lexical_value_options)
+    boundary = tuple(token for token, _ in schema.parser_boundaries)
+    if shell == "fish":
+        return "\n".join([
+            "function __moguet_option_context", "    set -l pending false",
+            "    for word in (commandline -opc)[2..-1]",
+            "        set word (string unescape -- \"$word\"); or return 1",
+            "        if test $pending = true; set pending false; continue; end",
+            "        switch $word",
+            "            case " + " ".join(map(fish_quote, boundary)),
+            "                return 1",
+            "            case " + " ".join(map(fish_quote, lexical)),
+            "                set pending true", "        end", "    end",
+            "    test $pending = false", "end",
+        ])
+    setup = ('''    local -a COMP_WORDS=("${COMP_WORDS[@]}")
+    local COMP_CWORD=$COMP_CWORD
+    _moguet_logical_words || return 1
+    for word in "${COMP_WORDS[@]:1:COMP_CWORD-1}"; do''' if shell == "bash" else
+             '''    local index
+    for ((index=2; index<CURRENT; ++index)); do
+        word=${(Q)words[index]}''')
+    return f'''_moguet_option_context() {{
+    local word pending=false
+{setup}
+        if [[ $pending == true ]]; then pending=false; continue; fi
+        case "$word" in
+        {'|'.join(map(shell_quote, boundary))}) return 1 ;;
+        {'|'.join(map(shell_quote, lexical))}) pending=true ;;
+        esac
+    done
+    [[ $pending == false ]]
+}}
+'''
+
+
 def zsh_typed_functions(schema: CliSchema) -> str:
     lexical = "|".join(shell_quote(token) for token, _ in schema.lexical_value_options)
     boundary = "|".join(shell_quote(token) for token, _ in schema.parser_boundaries)
@@ -1884,6 +1922,7 @@ _moguet_conflicts_with_present_option() {{
 }}
 
 {bash_typed_functions(schema)}
+{option_context_function(schema, 'bash')}
 {query_context_function(schema, 'bash')}
 
 _moguet() {{
@@ -1893,6 +1932,8 @@ _moguet() {{
     local -a COMP_WORDS=("${{COMP_WORDS[@]}}")
     local COMP_CWORD=$COMP_CWORD
     local -a candidates filtered
+    COMPREPLY=()
+    _moguet_option_context || return 0
     cur="${{COMP_WORDS[COMP_CWORD]}}"
     _moguet_current_word
     case "$REPLY" in
@@ -2349,6 +2390,7 @@ _moguet_description() {{
 }}
 
 {zsh_typed_functions(schema)}
+{option_context_function(schema, 'zsh')}
 {query_context_function(schema, 'zsh')}
 
 _moguet() {{
@@ -2357,6 +2399,7 @@ _moguet() {{
     local -a words=("${{words[@]}}")
     local -a candidates filtered described {group_arrays}
     local ownership
+    _moguet_option_context || return 0
     case "$cur" in
     {'|'.join(shell_quote(o.completion_token) + '*' for o in finite_completion_options(schema)) or '__no_finite_value__'})
         # Applicability and agreement consume the same logical prior words.
@@ -2653,7 +2696,9 @@ def render_fish(schema: CliSchema, descriptions: Descriptions, locale: str,
         "    return 1",
         "end",
         "",
+        option_context_function(schema, "fish"), "",
         "function __moguet_operation_allows --argument-names option_id",
+        "    __moguet_option_context; or return 1",
         "    set -l operation (__moguet_operation)",
         presentation_additions(schema, "fish"),
         "    if test -z \"$operation\"",
@@ -2686,6 +2731,7 @@ def render_fish(schema: CliSchema, descriptions: Descriptions, locale: str,
         "end",
         "",
         "function __moguet_no_operation",
+        "    __moguet_option_context; or return 1",
         "    not __moguet_operation >/dev/null",
         "end",
         "",

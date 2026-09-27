@@ -90,6 +90,12 @@ ZshはframeworkのPREFIX、Fishはraw tokenのstring unescapeを使う。候補�
 static候補を保持する。stderrは常に捨てる。Fishはbytewise順序を`/usr/bin/sort -cu`で一度検査し、並べ直さない。
 providerのdeadlineは既存supervisorの責務で、adapterに別のtimeout frameworkを設けない。
 
+adapterのcommand substitutionは、fixed trusted helperがpublishするbounded outputをbufferし、
+受信後にもprotocolを検査する。任意の別programへ置換されたhelperをstreamingに監督する機構ではない。
+candidate/output budgetはlibalpm内部cache全体のmemory quotaではない。whole workerの実用的な
+supervisionと、OS由来の非保証を区別する。全static option/value候補にもshared lexical boundaryを
+適用する詳細は[shell completion contract](shell-completion.md)に従う。
+
 tracked completionはprefix-neutral置換tokenを持つ。CMakeがresolved
 `MOGUET_FULL_INTERNAL_EXECUTABLE_DIRECTORY`をshell別quoteでbindしたbuild-tree版をinstallする。
 helper/workerは`repository-prefix`、3 adaptersは`shell-completions` componentである。

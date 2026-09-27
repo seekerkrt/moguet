@@ -10,8 +10,9 @@ contractの規範上の正本は各文書の日本語本文である。英語利
 
 | Contract | Origin Issue | Main boundary |
 | --- | --- | --- |
-| [Local sync package prefix provider](local-sync-package-prefix.md) | #253 Slice 1a | shared operand/lexical authority、local-only libalpm prefix、bounded private helper、shell接続前のtransport proof |
+| [Local sync package prefix provider](local-sync-package-prefix.md) | #253 Slice 1a/1b/5 | shared operand/lexical authority、local-only libalpm prefix、bounded private helper、generated shell接続とstatic fallback |
 | [Delegated query option spelling](pacman-query-completion.md) | #253 Slice 3 | pinned raw upstream input、bounded token-only extraction、Moguet ownership precedence、exact -Q / opaque tail boundary |
+| [Shell completion closure](shell-completion.md) | #253 Slice 1–5 | finite values、ownership表示、全候補のlexical boundary、cross-shell regressionとread-only process境界 |
 | [Source-aware package identity](source-package-identity.md) | #355 | source、PackageBase、package child、revision、release、architectureの分離とread-only projection |
 | [Reviewed AUR source state](reviewed-source-state.md) | #411 | PackageBase単位のexact reviewed revision、explicit acceptance、CAS publication、pinned build、legacy migration |
 | [Trusted Git remote revision observer](git-remote-revision-observer.md) | #475 | authority-approved request、HTTPS-only Git observation、bounded process、strict SHA-1 / SHA-256 result、mutation-free boundary |

@@ -145,6 +145,7 @@ def load_snapshot(directory: Path = SNAPSHOT_DIRECTORY) -> QuerySnapshot:
     keys = {"schema", "operation", "locale", "help_argv", "version_argv", "pacman_version",
             "libalpm_version", "help_sha256", "version_sha256"}
     if (not isinstance(metadata, dict) or set(metadata) != keys or
+        type(metadata.get("schema")) is not int or
         metadata.get("schema") != 1 or metadata.get("operation") != QUERY_OPERATION or
         metadata.get("locale") != "C" or
         metadata.get("help_argv") != [PACMAN_PATH, "-Q", "--help"] or

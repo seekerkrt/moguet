@@ -551,6 +551,17 @@ void test_relation_inventory_failure_is_unknown_and_fail_closed() {
 int main(int argc, char** argv) {
     try {
         if(argc != 2) throw std::runtime_error("Expected one integration case name.");
+        stub::reset();
+        bool rejected = false;
+        try {
+            static_cast<void>(capture_explicit_process_output_raw(
+                ExplicitProcessInvocation{"/usr/bin/pacman-conf", {"--repo-list"}, {"LC_ALL=C"}}, true));
+        } catch(const std::runtime_error&) {
+            rejected = true;
+        }
+        expect(rejected && stub::forbidden_operation_count() == 1,
+               "Explicit prefix capture bypassed preflight fixture isolation");
+        stub::reset();
         const std::string case_name = argv[1];
         if(case_name == "simple") {
             test_skip_independent_target_uses_real_resolver_reentry();

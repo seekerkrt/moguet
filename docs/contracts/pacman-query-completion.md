@@ -35,6 +35,12 @@ control/non-ASCII inputをrejectする。
 - executableは固定absolute `/usr/bin/pacman`、shell-free argv、`LC_ALL=C`、非特権。
 - 不成功、diagnostic、budget超過時はpartial captureをauthorityとしてpublishしない。
 
+16 KiBは受理するinput/captureの上限である。captureは4096-byte chunkを読んでから超過を
+検査するため、拒否時に一時bufferが上限を1 chunkまで超える場合がある。ASCII/controlの検査は
+raw help/versionへ適用し、capture metadataはbounded JSONとexact identity/hashを検査する。
+2秒はprocess起動後のmonotonic supervision deadlineであり、loader/Popen、scheduler、
+kernelのuninterruptible I/O、SIGKILL後のreapについてabsolute wall-clock SLAを保証しない。
+
 arity、enum/default、route compatibility、forwarding/effect、conflict、repeatability、source-build safety、
 Moguet ownershipをhelp prose/placeholderから推測しない。
 
@@ -55,4 +61,5 @@ combined modifiers (`-Qs`等)、他operation、source/AUR routeへ拡大しな�
 
 runtimeはstatic projectionだけでpacman help/versionを呼ばない。package prefix helperも`-Q`では0 calls。
 Slice 1bのplain `-S` package provider、Slice 2のfinite valuesは別authorityのまま維持する。
-挿入tokenにcategory/prose/placeholderを混ぜない。rich ownership UXはSlice 4。
+挿入tokenにcategory/prose/placeholderを混ぜない。ownership UXと全候補のlexical boundaryは
+[shell completion contract](shell-completion.md)に従う。

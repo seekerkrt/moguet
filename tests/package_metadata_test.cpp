@@ -2811,6 +2811,22 @@ void test_local_sync_literal_prefix() {
         failed = true;
     }
     expect(failed, "configuration capture overflow accepted");
+    for(const bool repository_failure : {false, true}) {
+        set_repository_configuration_outputs(
+            "core\n", repository_failure ? 7 : 0,
+            "RootDir = /\nDBPath = /var/lib/pacman/\n", repository_failure ? 0 : 7);
+        expect_metadata_error(
+            [] { resolve_pacman_repository_configuration(16384); },
+            PackageMetadataErrorCode::ConfigurationUnavailable,
+            "bounded pacman-conf nonzero capture");
+        set_repository_configuration_outputs(
+            repository_failure ? std::string(16385, 'x') : "core\n", 0,
+            repository_failure ? "RootDir = /\nDBPath = /var/lib/pacman/\n" : std::string(16385, 'x'));
+        expect_metadata_error(
+            [] { resolve_pacman_repository_configuration(16384); },
+            PackageMetadataErrorCode::ConfigurationUnavailable,
+            "bounded pacman-conf production byte overflow");
+    }
 }
 
 } // namespace
