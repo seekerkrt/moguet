@@ -1,7 +1,7 @@
-# Local sync package prefix provider (Issue #253 Slice 1a)
+# Local sync package prefix completion (Issue #253 Slice 1a / 1b)
 
-このcontractは後続shell completionのためのprivate provider proofを定める。
-Slice 1aではtracked Bash / Zsh / Fishからproviderを呼ばず、public CLIも追加しない。
+このcontractはprivate local sync providerと、generated Bash / Zsh / Fishの限定的な接続を定める。
+public CLIや`moguet __complete`は追加しない。
 
 ## Shared CLI authority
 
@@ -17,9 +17,9 @@ parserの既存17 value-taking tokenは`PACMAN_VALUE_OPTIONS`へ移した。pars
 inline `=value`はfollowing valueを待たず、pending valueはmarkerより先に消費する。
 `END_OF_OPTIONS_TOKEN`とhidden marker OptionContractは同じtokenを使用する。
 exporterの`OPERAND_CONTEXT` / `LEXICAL_VALUE` / `BOUNDARY`をgeneratorが検証・保持する。
-closed formのoperand/selectorは既存FORMを使う。shell rendererはこのSliceでは変更しない。
+closed formのoperand/selectorは既存FORMを使う。
 
-後続integrationはpending value、marker後、unknown modifier/tail、Query、`--aur`をproviderへ送らない。
+integrationはpending value、marker後、unknown modifier/tail、Query、`--aur`をproviderへ送らない。
 `LEXICAL_VALUE`のalternate-db印は`--config` / `--dbpath` / `--root` / `--sysroot` / `-b` / `-r`を
 認識するためだけに使う。これらが現れるinvocationではproviderを抑制し、別DB semanticsを推測しない。
 
@@ -75,8 +75,24 @@ persistent cache/daemonを作らない。
 
 ## Slice 1b boundary
 
-最小のvisible integrationはgeneratorの3 shell adapterでexact plain `-S`のbare name prefixを
-このhelperへevent当たり1回だけ渡すこと。helperのinstallation pathをexisting CMake install authorityから
-渡すbindingは1bで行う。failure時はdynamic結果を破棄し既存static候補を保持する。
-Query、pending value、`--`、unknown/open modifier、alternate DB context、`--aur`では0 callsを証明する。
-`moguet __complete`は不要であり、このSliceで追加しない。
+generatorはshared `OPERAND_CONTEXT`でPackageと確認したplain `-S`だけを、最初のbare operandの
+許可contextへ投影する。completed argvはcommand名とoperationだけ、current wordはoptionでなく、
+cursor後にtokenがない場合に限る。shell側はこのgenerated許可tokenとshapeを検査するだけで、
+pacman grammarを推定しない。追加option、既存operand、global、pending value、`--`、unknown/open
+modifier、Query、`--aur`、alternate DB/root（separate/inline/attachedを含む）は全て0 calls。
+既存authorityで意味が判る`--needed`も、この最初のvisible Sliceでは許可しない。
+
+Bash/Zshはstatic候補scanの外で1回、Fishは1つのdynamic `complete -a` producerで1回だけhelperを呼ぶ。
+current wordはshell quote/escapeを除きliteral prefixとして渡す。Bashはevalせずquote syntaxを除き、
+ZshはframeworkのPREFIX、Fishはraw tokenのstring unescapeを使う。候補へdescriptionを混ぜない。
+成功exit、newline終端、ASCII package文字、literal prefix、sorted unique、256件/64KiBを検証してから
+候補を公開する。NULやpartial/nonzero/stdout不正、missing helperはdynamic候補を全て破棄し、
+static候補を保持する。stderrは常に捨てる。Fishはbytewise順序を`/usr/bin/sort -cu`で一度検査し、並べ直さない。
+providerのdeadlineは既存supervisorの責務で、adapterに別のtimeout frameworkを設けない。
+
+tracked completionはprefix-neutral置換tokenを持つ。CMakeがresolved
+`MOGUET_FULL_INTERNAL_EXECUTABLE_DIRECTORY`をshell別quoteでbindしたbuild-tree版をinstallする。
+helper/workerは`repository-prefix`、3 adaptersは`shell-completions` componentである。
+source-treeでproviderを使う場合はgeneratorの`--repository-prefix-helper <absolute-path>`でbound版を
+stdoutへ生成する。DESTDIRはstagingだけであり、installed adapterのbindingへ混ぜない。
+unsupported relative -Dの挙動は再定義しない。`__complete = UNNECESSARY`を維持する。

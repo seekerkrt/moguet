@@ -529,6 +529,41 @@ _moguet() {
         described+=("$candidate:$REPLY")
     done
     _describe -t moguet-values 'moguet value' described
+    # Package tokens use compadd directly, without description delimiters.
+    if (( CURRENT == 3 && ${#words} == 3 )) && [[ $words[CURRENT] != -* ]]; then
+        case "$words[2]" in
+        -S)
+            local prefix=${PREFIX-${(Q)words[CURRENT]}}
+            [[ $prefix != -* ]] && _moguet_repository_packages "$prefix"
+            ;;
+        esac
+    fi
+    return 0
+}
+
+_moguet_repository_packages() {
+    emulate -L zsh
+    local prefix="$1" helper=@MOGUET_REPOSITORY_PREFIX_HELPER_ZSH@ output candidate previous=
+    local LC_ALL=C
+    local -a packages
+    [[ $helper == /* && -x $helper ]] || return 0
+    output="$("$helper" "$prefix" 2>/dev/null && printf '\001')" || return 0
+    output=${output%$'\001'}
+    (( ${#output} <= 65536 )) || return 0
+    [[ $output != *$'\0'* ]] || return 0
+    [[ -z $output ]] && return 0
+    [[ $output == *$'\n' ]] || return 0
+    packages=("${(@f)${output%$'\n'}}")
+    (( ${#packages} <= 256 )) || return 0
+    for candidate in "${packages[@]}"; do
+        [[ $candidate =~ '^[A-Za-z0-9@._+][A-Za-z0-9@._+-]*$' &&
+           $candidate != . && $candidate != .. &&
+           $candidate == "$prefix"* ]] || return 0
+        [[ -z $previous || $candidate > $previous ]] || return 0
+        previous=$candidate
+    done
+    compadd -a packages
+    return 0
 }
 
 compdef _moguet moguet

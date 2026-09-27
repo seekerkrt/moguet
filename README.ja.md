@@ -719,8 +719,14 @@ known-staleの場合、PKGBUILD reviewとdefaultなしの明示同意を終え�
 します。Moguetはinvocation-owned source snapshotからbuildし、user-owned treeを変更せず、
 採用metadataが宣言するvalidかつuniqueな全`pkgname` childをexplicit rootとしてinstall
 します。dependency artifactはdependency install reasonを保持し、既にexplicitなinstalled
-packageをdependencyへ降格しません。runtime stateを使うpackage-name completion等の高度な
-補完はfuture workであり、同梱completionはpublic CLI schemaに限定します。
+packageをdependencyへ降格しません。
+
+インストールされたBash・Zsh・Fish completionは、plain `moguet -S`の最初のoperandに
+local sync package名のliteral prefix候補を追加します。例は`moguet -S ch<Tab>`です。
+defaultの既存sync DBを読み、refreshしません。追加optionや既存operand、search (`-Ss`)、
+`--select`、`--aur`、別database/root指定、`--`がある行ではproviderを呼びません。
+providerが利用できない場合や失敗した場合も、通常のstatic option補完は継続します。
+typed valueや、より広いruntime-aware completionは今後のscopeです。
 
 ### Local recipe patch
 

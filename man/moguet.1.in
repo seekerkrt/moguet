@@ -1026,15 +1026,19 @@ Formal Japanese translation of this man page.
 .
 .TP
 .I /usr/share/bash-completion/completions/moguet
-Bash completion for the public CLI schema.
+Bash completion for the public CLI schema and the first plain
+.B moguet -S
+package prefix from the existing default local sync DB. Provider failure
+retains static completion; extra options, query, AUR and alternate DB contexts
+do not use the package provider.
 .
 .TP
 .I /usr/share/zsh/site-functions/_moguet
-zsh completion for the public CLI schema.
+zsh completion with the same static and local package prefix scope.
 .
 .TP
 .I /usr/share/fish/vendor_completions.d/moguet.fish
-fish completion for the public CLI schema.
+fish completion with the same static and local package prefix scope.
 .
 .TP
 .I /usr/share/locale/ja/LC_MESSAGES/moguet.mo

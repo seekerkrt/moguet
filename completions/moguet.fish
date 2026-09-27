@@ -442,3 +442,48 @@ complete -c moguet -f -n '__moguet_candidate_available 22' -a '--use-patches' -d
 complete -c moguet -f -n '__moguet_candidate_available 16' -a '--output-dir=' -d 'Select an existing export parent for -G'
 complete -c moguet -f -n '__moguet_candidate_available 17' -a '--recursive' -d 'Resolve dependencies recursively'
 complete -c moguet -f -n '__moguet_candidate_available 18' -a '--needed' -d 'Preserve pacman --needed semantics at the installation phase owned by the selected route'
+
+function __moguet_repository_packages
+    set -l before (commandline -opc)
+    test (count $before) -eq 2; or return 0
+    test (count (commandline -op)) -le 3; or return 0
+    switch $before[2]
+        case '-S'
+        case '*'
+            return 0
+    end
+    set -l raw (commandline -ct | string collect -a)
+    set -l prefix (string unescape -- "$raw")
+    if test $status -ne 0
+        switch (string sub -l 1 -- "$raw")
+            case "'"
+                set prefix (string unescape -- "$raw'")
+            case '"'
+                set prefix (string unescape -- "$raw\"")
+            case '*'
+                return 0
+        end
+    end
+    test (count $prefix) -eq 1; or return 0
+    string match -q -- '-*' "$prefix"; and return 0
+    set -l helper @MOGUET_REPOSITORY_PREFIX_HELPER_FISH@
+    string match -q -- '/*' "$helper"; or return 0
+    test -x "$helper"; or return 0
+    set -l output (begin; "$helper" "$prefix" 2>/dev/null; and printf '\x01'; end | string split0)
+    test $pipestatus[1] -eq 0; or return 0
+    test (count $output) -eq 1; or return 0
+    test (string length -- "$output") -le 65537; or return 0
+    string match -qr -- '\n\x01$' "$output"; or return 0
+    set -l packages (string split \n -- "$output")
+    set -e packages[-1]
+    test (count $packages) -le 256; or return 0
+    for candidate in $packages
+        string match -qr -- '^[A-Za-z0-9@._+][A-Za-z0-9@._+-]*$' "$candidate"; or return 0
+        contains -- "$candidate" . ..; and return 0
+        test (string sub -l (string length -- "$prefix") -- "$candidate") = "$prefix"; or return 0
+    end
+    printf '%s\n' $packages | LC_ALL=C /usr/bin/sort -cu 2>/dev/null; or return 0
+    printf '%s\n' $packages
+end
+
+complete -c moguet -f -a '(__moguet_repository_packages)'

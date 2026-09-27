@@ -240,7 +240,7 @@ _moguet_conflicts_with_present_option() {
 }
 
 _moguet() {
-    local cur operation candidate option_id
+    local cur operation candidate option_id REPLY strip_prefix
     local -a candidates filtered
     cur="${COMP_WORDS[COMP_CWORD]}"
     operation="$(_moguet_find_operation || true)"
@@ -459,7 +459,102 @@ _moguet() {
     done
 
     COMPREPLY=()
-    COMPREPLY=( $(compgen -W "${filtered[*]}" -- "$cur" || true) )
+    while IFS= read -r candidate; do
+        COMPREPLY+=("$candidate")
+    done < <(compgen -W "${filtered[*]}" -- "$cur" || true)
+
+    # One provider call, outside all static candidate scans.
+    _moguet_repository_context && _moguet_repository_packages "$REPLY" "$strip_prefix"
+    return 0
+}
+
+_moguet_repository_context() {
+    local word before= index start
+    local LC_ALL=C
+    [[ $COMP_CWORD -ge 2 && ${#COMP_WORDS[@]} == $((COMP_CWORD+1)) ]] || return 1
+    case "${COMP_WORDS[1]}" in
+    -S) ;;
+    *) return 1 ;;
+    esac
+    word=${COMP_WORDS[2]}
+    for ((index=3; index<=COMP_CWORD; ++index)); do
+        before=$word
+        word+=${COMP_WORDS[index]}
+    done
+    if (( COMP_CWORD > 2 )); then
+        # Bash splits valid package '@' at COMP_WORDBREAKS. Rejoin only
+        # adjacent fragments of this raw current word, never separate argv.
+        [[ -n ${COMP_LINE-} ]] || return 1
+        start=$((COMP_POINT-${#word}))
+        (( start > 0 )) || return 1
+        [[ ${COMP_LINE:start:${#word}} == "$word" &&
+           ${COMP_LINE:start-1:1} == [$' \t'] ]] || return 1
+    fi
+    _moguet_unquote_prefix "$before"
+    # Readline replaces the preceding wordbreak character together with its
+    # RHS (ch@to), even though COMP_WORDS exposes '@' as a separate entry.
+    strip_prefix=${REPLY%@}
+    _moguet_unquote_prefix "$word"
+    [[ $REPLY != -* ]]
+}
+
+_moguet_unquote_prefix() {
+    # COMP_WORDS retains shell quotes. Decode syntax only, never eval/expand
+    # substitutions. An unfinished quote is normal in an incomplete word.
+    local word="$1" quote= char next index
+    REPLY=
+    for ((index=0; index<${#word}; ++index)); do
+        char=${word:index:1}
+        if [[ $quote == "'" ]]; then
+            if [[ $char == "'" ]]; then quote=; else REPLY+=$char; fi
+        elif [[ $char == "$quote" && -n $quote ]]; then
+            quote=
+        elif [[ -z $quote && ( $char == "'" || $char == '"' ) ]]; then
+            quote=$char
+        elif [[ $char == $'\\' ]]; then
+            next=${word:index+1:1}
+            if [[ -n $next && ( -z $quote || $next == [\$\`\"\\] ) ]]; then
+                REPLY+=$next
+                ((++index))
+            else
+                REPLY+=$char
+            fi
+        else
+            REPLY+=$char
+        fi
+    done
+}
+
+_moguet_repository_packages() {
+    local prefix="$1" strip_prefix="$2" helper=@MOGUET_REPOSITORY_PREFIX_HELPER_BASH@ output candidate previous=
+    local LC_ALL=C
+    local -a packages=()
+    [[ $helper == /* && -x $helper ]] || return 0
+    # Preserve the final newline and exit status. read -d NUL detects binary
+    # protocol corruption before Bash command substitution can drop NULs.
+    output="$(set -o pipefail
+        "$helper" "$prefix" 2>/dev/null | {
+            IFS= read -r -d '' output && exit 1
+            printf '%s\001' "$output"
+        }
+    )" || return 0
+    output=${output%$'\001'}
+    [[ ${#output} -le 65536 ]] || return 0
+    [[ -z $output ]] && return 0
+    [[ $output == *$'\n' ]] || return 0
+    while IFS= read -r candidate; do
+        [[ $candidate =~ ^[A-Za-z0-9@._+][A-Za-z0-9@._+-]*$ &&
+           $candidate != . && $candidate != .. &&
+           $candidate == "$prefix"* ]] || return 0
+        [[ -z $previous || $candidate > $previous ]] || return 0
+        packages+=("$candidate")
+        [[ ${#packages[@]} -le 256 ]] || return 0
+        previous=$candidate
+    done <<< "${output%$'\n'}"
+    for candidate in "${packages[@]}"; do
+        COMPREPLY+=("${candidate#"$strip_prefix"}")
+    done
+    return 0
 }
 
 complete -F _moguet moguet

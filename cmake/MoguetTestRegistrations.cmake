@@ -995,3 +995,13 @@ moguet_add_ctest(
         "${CMAKE_CURRENT_BINARY_DIR}"
 )
 set_tests_properties(completion.repository_prefix_helper PROPERTIES TIMEOUT 30)
+
+moguet_add_ctest(
+    NAME completion.dynamic_shells
+    TARGETS moguet-cli-authority-exporter
+    COMMAND "${CMAKE_COMMAND}" -E env
+        "MOGUET_CLI_AUTHORITY_EXPORTER=$<TARGET_FILE:moguet-cli-authority-exporter>"
+        PYTHONDONTWRITEBYTECODE=1
+        python3 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test-dynamic-completion.py"
+)
+set_tests_properties(completion.dynamic_shells PROPERTIES TIMEOUT 90)

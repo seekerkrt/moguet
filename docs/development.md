@@ -243,6 +243,13 @@ Pythonのstdout rendererを実行して3つのtracked fileをpublishする。
 `scripts/generate_completions.py`はcheck-only / stdout-onlyでtracked write modeを持たず、callerが
 environment markerを自称してもこのfreshness boundaryを代替できない。
 
+tracked completionはinstall prefixに依存しないhelper置換tokenを持つ。CMakeはcanonical
+generated fileを`configure_file @ONLY`でbuild treeへ投影し、resolved
+`MOGUET_FULL_INTERNAL_EXECUTABLE_DIRECTORY`のprivate prefix helperへshell別にquoteしてbindする。
+installはこのconfigured版を使う。source-treeのprovider fixtureはgeneratorの
+`--render <shell> --repository-prefix-helper <absolute-path>`で同じadapterを生成できる。
+実行時PATH lookupやnormal Moguet startupはproviderのauthorityにしない。
+
 #### Install / package consumer
 
 CMake install graphと`install_manifest.txt`がinstall / uninstall payloadのcanonical authorityである。

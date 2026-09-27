@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import redirect_stderr
+from dataclasses import replace
 import io
 from pathlib import Path
 import sys
@@ -11,7 +12,7 @@ import sys
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPOSITORY_ROOT / "scripts"))
 
-from generate_completions import export_authority, parse_exported_schema  # noqa: E402
+from generate_completions import export_authority, parse_exported_schema, local_prefix_operations  # noqa: E402
 
 
 def fail(message: str) -> None:
@@ -247,6 +248,10 @@ def expect_current_authority_projection() -> None:
     contexts = dict(schema.operand_contexts)
     if contexts.get("-S") != "package" or contexts.get("-Ss") != "query" or "-Sxyz" in contexts:
         fail("exact package/query context authority differs")
+    if local_prefix_operations(schema) != ("-S",) or local_prefix_operations(
+        replace(schema, operand_contexts=(("-S", "query"), ("-Si", "package")))
+    ):
+        fail("local prefix projection must narrow shared package authority")
     sync = next(operation for operation in schema.operations if operation.token == "-S")
     if sync.forms[0].operand_terms[0].kind != "query":
         fail("--select query semantics changed")
@@ -1068,7 +1073,7 @@ def main() -> int:
 
     print(
         "completion-schema-validator-test: "
-        f"{len(positive_controls) + len(rejected_controls) + 7} "
+        f"{len(positive_controls) + len(rejected_controls) + 8} "
         "scenarios passed"
     )
     return 0

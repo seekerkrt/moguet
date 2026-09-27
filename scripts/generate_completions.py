@@ -1218,7 +1218,24 @@ def presentation_additions(schema: CliSchema, shell: str) -> str:
     return "\n".join(lines)
 
 
-def render_bash(schema: CliSchema, descriptions: Descriptions, locale: str) -> str:
+def local_prefix_operations(schema: CliSchema) -> tuple[str, ...]:
+    # Slice 1b deliberately projects only the first operand of plain sync.
+    # No modifiers, prior operands, globals or cursor suffix are accepted.
+    # This allowlist narrows the shared operand authority; shells do not infer
+    # meaning from an operation's spelling or from delegated pacman grammar.
+    supported = ("-S",)
+    contexts = dict(schema.operand_contexts)
+    return tuple(token for token in supported if contexts.get(token) == "package")
+
+
+def prefix_helper_binding(path: str, shell: str) -> str:
+    if path == "@MOGUET_REPOSITORY_PREFIX_HELPER@":
+        return f"@MOGUET_REPOSITORY_PREFIX_HELPER_{shell.upper()}@"
+    return fish_quote(path) if shell == "fish" else shell_quote(path)
+
+
+def render_bash(schema: CliSchema, descriptions: Descriptions, locale: str,
+                prefix_helper: str = "@MOGUET_REPOSITORY_PREFIX_HELPER@") -> str:
     del descriptions
     operations = tuple(operation.token for operation in schema.operations)
     root_options = tuple(
@@ -1454,7 +1471,7 @@ _moguet_conflicts_with_present_option() {{
 }}
 
 _moguet() {{
-    local cur operation candidate option_id
+    local cur operation candidate option_id REPLY strip_prefix
     local -a candidates filtered
     cur="${{COMP_WORDS[COMP_CWORD]}}"
     operation="$(_moguet_find_operation || true)"
@@ -1486,7 +1503,102 @@ _moguet() {{
     done
 
     COMPREPLY=()
-    COMPREPLY=( $(compgen -W "${{filtered[*]}}" -- "$cur" || true) )
+    while IFS= read -r candidate; do
+        COMPREPLY+=("$candidate")
+    done < <(compgen -W "${{filtered[*]}}" -- "$cur" || true)
+
+    # One provider call, outside all static candidate scans.
+    _moguet_repository_context && _moguet_repository_packages "$REPLY" "$strip_prefix"
+    return 0
+}}
+
+_moguet_repository_context() {{
+    local word before= index start
+    local LC_ALL=C
+    [[ $COMP_CWORD -ge 2 && ${{#COMP_WORDS[@]}} == $((COMP_CWORD+1)) ]] || return 1
+    case "${{COMP_WORDS[1]}}" in
+    {'|'.join(local_prefix_operations(schema)) or '__no_local_prefix_context__'}) ;;
+    *) return 1 ;;
+    esac
+    word=${{COMP_WORDS[2]}}
+    for ((index=3; index<=COMP_CWORD; ++index)); do
+        before=$word
+        word+=${{COMP_WORDS[index]}}
+    done
+    if (( COMP_CWORD > 2 )); then
+        # Bash splits valid package '@' at COMP_WORDBREAKS. Rejoin only
+        # adjacent fragments of this raw current word, never separate argv.
+        [[ -n ${{COMP_LINE-}} ]] || return 1
+        start=$((COMP_POINT-${{#word}}))
+        (( start > 0 )) || return 1
+        [[ ${{COMP_LINE:start:${{#word}}}} == "$word" &&
+           ${{COMP_LINE:start-1:1}} == [$' \\t'] ]] || return 1
+    fi
+    _moguet_unquote_prefix "$before"
+    # Readline replaces the preceding wordbreak character together with its
+    # RHS (ch@to), even though COMP_WORDS exposes '@' as a separate entry.
+    strip_prefix=${{REPLY%@}}
+    _moguet_unquote_prefix "$word"
+    [[ $REPLY != -* ]]
+}}
+
+_moguet_unquote_prefix() {{
+    # COMP_WORDS retains shell quotes. Decode syntax only, never eval/expand
+    # substitutions. An unfinished quote is normal in an incomplete word.
+    local word="$1" quote= char next index
+    REPLY=
+    for ((index=0; index<${{#word}}; ++index)); do
+        char=${{word:index:1}}
+        if [[ $quote == "'" ]]; then
+            if [[ $char == "'" ]]; then quote=; else REPLY+=$char; fi
+        elif [[ $char == "$quote" && -n $quote ]]; then
+            quote=
+        elif [[ -z $quote && ( $char == "'" || $char == '"' ) ]]; then
+            quote=$char
+        elif [[ $char == $'\\\\' ]]; then
+            next=${{word:index+1:1}}
+            if [[ -n $next && ( -z $quote || $next == [\\$\\`\\"\\\\] ) ]]; then
+                REPLY+=$next
+                ((++index))
+            else
+                REPLY+=$char
+            fi
+        else
+            REPLY+=$char
+        fi
+    done
+}}
+
+_moguet_repository_packages() {{
+    local prefix="$1" strip_prefix="$2" helper={prefix_helper_binding(prefix_helper, 'bash')} output candidate previous=
+    local LC_ALL=C
+    local -a packages=()
+    [[ $helper == /* && -x $helper ]] || return 0
+    # Preserve the final newline and exit status. read -d NUL detects binary
+    # protocol corruption before Bash command substitution can drop NULs.
+    output="$(set -o pipefail
+        "$helper" "$prefix" 2>/dev/null | {{
+            IFS= read -r -d '' output && exit 1
+            printf '%s\\001' "$output"
+        }}
+    )" || return 0
+    output=${{output%$'\\001'}}
+    [[ ${{#output}} -le 65536 ]] || return 0
+    [[ -z $output ]] && return 0
+    [[ $output == *$'\\n' ]] || return 0
+    while IFS= read -r candidate; do
+        [[ $candidate =~ ^[A-Za-z0-9@._+][A-Za-z0-9@._+-]*$ &&
+           $candidate != . && $candidate != .. &&
+           $candidate == "$prefix"* ]] || return 0
+        [[ -z $previous || $candidate > $previous ]] || return 0
+        packages+=("$candidate")
+        [[ ${{#packages[@]}} -le 256 ]] || return 0
+        previous=$candidate
+    done <<< "${{output%$'\\n'}}"
+    for candidate in "${{packages[@]}}"; do
+        COMPREPLY+=("${{candidate#"$strip_prefix"}}")
+    done
+    return 0
 }}
 
 complete -F _moguet moguet
@@ -1497,7 +1609,8 @@ def zsh_case_values(values: tuple[str, ...] | list[str]) -> str:
     return " ".join(shell_quote(value) for value in values)
 
 
-def render_zsh(schema: CliSchema, descriptions: Descriptions, locale: str) -> str:
+def render_zsh(schema: CliSchema, descriptions: Descriptions, locale: str,
+               prefix_helper: str = "@MOGUET_REPOSITORY_PREFIX_HELPER@") -> str:
     operations = tuple(operation.token for operation in schema.operations)
     root_options = tuple(
         option
@@ -1799,6 +1912,41 @@ _moguet() {{
         described+=("$candidate:$REPLY")
     done
     _describe -t moguet-values 'moguet value' described
+    # Package tokens use compadd directly, without description delimiters.
+    if (( CURRENT == 3 && ${{#words}} == 3 )) && [[ $words[CURRENT] != -* ]]; then
+        case "$words[2]" in
+        {'|'.join(local_prefix_operations(schema)) or '__no_local_prefix_context__'})
+            local prefix=${{PREFIX-${{(Q)words[CURRENT]}}}}
+            [[ $prefix != -* ]] && _moguet_repository_packages "$prefix"
+            ;;
+        esac
+    fi
+    return 0
+}}
+
+_moguet_repository_packages() {{
+    emulate -L zsh
+    local prefix="$1" helper={prefix_helper_binding(prefix_helper, 'zsh')} output candidate previous=
+    local LC_ALL=C
+    local -a packages
+    [[ $helper == /* && -x $helper ]] || return 0
+    output="$("$helper" "$prefix" 2>/dev/null && printf '\\001')" || return 0
+    output=${{output%$'\\001'}}
+    (( ${{#output}} <= 65536 )) || return 0
+    [[ $output != *$'\\0'* ]] || return 0
+    [[ -z $output ]] && return 0
+    [[ $output == *$'\\n' ]] || return 0
+    packages=("${{(@f)${{output%$'\\n'}}}}")
+    (( ${{#packages}} <= 256 )) || return 0
+    for candidate in "${{packages[@]}}"; do
+        [[ $candidate =~ '^[A-Za-z0-9@._+][A-Za-z0-9@._+-]*$' &&
+           $candidate != . && $candidate != .. &&
+           $candidate == "$prefix"* ]] || return 0
+        [[ -z $previous || $candidate > $previous ]] || return 0
+        previous=$candidate
+    done
+    compadd -a packages
+    return 0
 }}
 
 compdef _moguet moguet
@@ -1819,7 +1967,8 @@ def fish_contains(ids: tuple[int, ...]) -> str:
     )
 
 
-def render_fish(schema: CliSchema, descriptions: Descriptions, locale: str) -> str:
+def render_fish(schema: CliSchema, descriptions: Descriptions, locale: str,
+                prefix_helper: str = "@MOGUET_REPOSITORY_PREFIX_HELPER@") -> str:
     operations = tuple(operation.token for operation in schema.operations)
     root_ids = tuple(
         dict.fromkeys(
@@ -2050,11 +2199,64 @@ def render_fish(schema: CliSchema, descriptions: Descriptions, locale: str) -> s
             f"-a {fish_quote(option.completion_token)} -d "
             f"{fish_quote(descriptions.options[option.token])}"
         )
+    lines.extend([
+        "",
+        "function __moguet_repository_packages",
+        "    set -l before (commandline -opc)",
+        "    test (count $before) -eq 2; or return 0",
+        "    test (count (commandline -op)) -le 3; or return 0",
+        "    switch $before[2]",
+        "        case " + " ".join(fish_quote(t) for t in local_prefix_operations(schema)),
+        "        case '*'",
+        "            return 0",
+        "    end",
+        "    set -l raw (commandline -ct | string collect -a)",
+        "    set -l prefix (string unescape -- \"$raw\")",
+        "    if test $status -ne 0",
+        "        switch (string sub -l 1 -- \"$raw\")",
+        '''            case "'"''',
+        '''                set prefix (string unescape -- "$raw'")''',
+        "            case '\"'",
+        '''                set prefix (string unescape -- "$raw\\\"")''',
+        "            case '*'",
+        "                return 0",
+        "        end",
+        "    end",
+        "    test (count $prefix) -eq 1; or return 0",
+        "    string match -q -- '-*' \"$prefix\"; and return 0",
+        f"    set -l helper {prefix_helper_binding(prefix_helper, 'fish')}",
+        "    string match -q -- '/*' \"$helper\"; or return 0",
+        "    test -x \"$helper\"; or return 0",
+        # split0 preserves newline bytes and exposes every NUL as a separate
+        # item. A success sentinel makes even a trailing NUL observable.
+        "    set -l output (begin; \"$helper\" \"$prefix\" 2>/dev/null; and printf '\\x01'; end | string split0)",
+        "    test $pipestatus[1] -eq 0; or return 0",
+        "    test (count $output) -eq 1; or return 0",
+        "    test (string length -- \"$output\") -le 65537; or return 0",
+        "    string match -qr -- '\\n\\x01$' \"$output\"; or return 0",
+        "    set -l packages (string split \\n -- \"$output\")",
+        "    set -e packages[-1]",
+        "    test (count $packages) -le 256; or return 0",
+        "    for candidate in $packages",
+        "        string match -qr -- '^[A-Za-z0-9@._+][A-Za-z0-9@._+-]*$' \"$candidate\"; or return 0",
+        "        contains -- \"$candidate\" . ..; and return 0",
+        "        test (string sub -l (string length -- \"$prefix\") -- \"$candidate\") = \"$prefix\"; or return 0",
+        "    end",
+        # Fish has no bytewise string ordering operator. Check, never sort or
+        # transform, the complete protocol once using the Arch coreutils tool.
+        "    printf '%s\\n' $packages | LC_ALL=C /usr/bin/sort -cu 2>/dev/null; or return 0",
+        "    printf '%s\\n' $packages",
+        "end",
+        "",
+        # Exactly one dynamic argument producer; conditions stay static.
+        "complete -c moguet -f -a '(__moguet_repository_packages)'",
+    ])
     return "\n".join(lines) + "\n"
 
 
 def generated_files(
-    schema: CliSchema, descriptions: Descriptions, locale: str, output_dir: Path
+    schema: CliSchema, descriptions: Descriptions, locale: str, output_dir: Path,
+    prefix_helper: str = "@MOGUET_REPOSITORY_PREFIX_HELPER@",
 ) -> dict[Path, str]:
     renderers: tuple[tuple[str, Callable[[CliSchema, Descriptions, str], str]], ...] = (
         ("moguet.bash", render_bash),
@@ -2062,7 +2264,7 @@ def generated_files(
         ("moguet.fish", render_fish),
     )
     return {
-        output_dir / filename: renderer(schema, descriptions, locale)
+        output_dir / filename: renderer(schema, descriptions, locale, prefix_helper)
         for filename, renderer in renderers
     }
 
@@ -2091,7 +2293,7 @@ def check_generated(path: Path, expected: str) -> bool:
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Generate Moguet static shell completions from the public CLI authority."
+        description="Generate Moguet shell completions from the shared CLI authority."
     )
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument(
@@ -2103,6 +2305,9 @@ def parse_arguments() -> argparse.Namespace:
         help="render one completion to stdout without writing tracked files",
     )
     parser.add_argument("--locale", default="en", help="description locale (default: en)")
+    parser.add_argument("--repository-prefix-helper",
+                        default="@MOGUET_REPOSITORY_PREFIX_HELPER@",
+                        help="resolved absolute helper path (CMake install authority)")
     parser.add_argument(
         "--output-dir",
         type=Path,
@@ -2120,7 +2325,12 @@ def main() -> int:
 
     schema = load_schema()
     descriptions = load_descriptions(schema, arguments.locale)
-    outputs = generated_files(schema, descriptions, arguments.locale, output_dir)
+    helper = arguments.repository_prefix_helper
+    if helper != "@MOGUET_REPOSITORY_PREFIX_HELPER@" and (
+        not Path(helper).is_absolute() or any(ch in helper for ch in '\0\n\r')
+    ):
+        fail("repository prefix helper must be an absolute single-line path")
+    outputs = generated_files(schema, descriptions, arguments.locale, output_dir, helper)
 
     if arguments.check:
         return 0 if all(

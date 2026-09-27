@@ -845,6 +845,21 @@ add_dependencies(
     moguet-cli-authority-exporter
 )
 
+# Bind canonical generated templates to the resolved private install authority.
+# Quote the entire value for each shell; configure_file does not shell-escape.
+set(MOGUET_CONFIGURED_COMPLETION_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/completions")
+set(_moguet_prefix_helper "${MOGUET_FULL_INTERNAL_EXECUTABLE_DIRECTORY}/moguet-repository-prefix-helper")
+string(REPLACE "'" "'\"'\"'" _moguet_posix_helper "${_moguet_prefix_helper}")
+set(MOGUET_REPOSITORY_PREFIX_HELPER_BASH "'${_moguet_posix_helper}'")
+set(MOGUET_REPOSITORY_PREFIX_HELPER_ZSH "${MOGUET_REPOSITORY_PREFIX_HELPER_BASH}")
+string(REPLACE "\\" "\\\\" _moguet_fish_helper "${_moguet_prefix_helper}")
+string(REPLACE "'" "\\'" _moguet_fish_helper "${_moguet_fish_helper}")
+set(MOGUET_REPOSITORY_PREFIX_HELPER_FISH "'${_moguet_fish_helper}'")
+foreach(_moguet_completion IN ITEMS moguet.bash _moguet moguet.fish)
+    configure_file("completions/${_moguet_completion}"
+        "${MOGUET_CONFIGURED_COMPLETION_DIRECTORY}/${_moguet_completion}" @ONLY)
+endforeach()
+
 install(TARGETS moguet RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 install(
     TARGETS moguet-alpm-receipt-helper
@@ -925,17 +940,20 @@ set(
 # contract and therefore do not follow a non-/usr development prefix.  The
 # cache variables keep Make destination overrides inside this install graph.
 install(
-    FILES completions/moguet.bash
+    FILES "${MOGUET_CONFIGURED_COMPLETION_DIRECTORY}/moguet.bash"
     DESTINATION "${MOGUET_INSTALL_BASH_COMPLETION_DIRECTORY}"
     RENAME moguet
+    COMPONENT shell-completions
 )
 install(
-    FILES completions/_moguet
+    FILES "${MOGUET_CONFIGURED_COMPLETION_DIRECTORY}/_moguet"
     DESTINATION "${MOGUET_INSTALL_ZSH_COMPLETION_DIRECTORY}"
+    COMPONENT shell-completions
 )
 install(
-    FILES completions/moguet.fish
+    FILES "${MOGUET_CONFIGURED_COMPLETION_DIRECTORY}/moguet.fish"
     DESTINATION "${MOGUET_INSTALL_FISH_COMPLETION_DIRECTORY}"
+    COMPONENT shell-completions
 )
 install(FILES man/moguet.1 DESTINATION "${MOGUET_INSTALL_MAN1_DIRECTORY}")
 install(FILES man/ja/moguet.1 DESTINATION "${MOGUET_INSTALL_JA_MAN1_DIRECTORY}")

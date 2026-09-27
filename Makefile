@@ -35,6 +35,7 @@ COMPILE_COMMANDS_LINK := compile_commands.json
 # alias's exact build-target and CTest selection mapping.
 CMAKE_FOCUSED_ALIASES := \
 	test-repository-prefix-helper \
+	test-dynamic-completion \
 	test-installed-fixture-compile \
 	test-application-identity \
 	test-interactive-confirmation \

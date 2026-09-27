@@ -937,15 +937,19 @@ English authority man pageです。
 .
 .TP
 .I /usr/share/bash-completion/completions/moguet
-public CLI schema用Bash completionです。
+public CLI schemaとplain
+.B moguet -S
+の最初のpackage prefix用Bash completionです。defaultの既存local sync DBを読みます。
+provider失敗時もstatic補完を保持します。追加option、query、AUR、別DB指定では
+package providerを呼びません。
 .
 .TP
 .I /usr/share/zsh/site-functions/_moguet
-public CLI schema用zsh completionです。
+同じstatic / local package prefix scopeを持つzsh completionです。
 .
 .TP
 .I /usr/share/fish/vendor_completions.d/moguet.fish
-public CLI schema用fish completionです。
+同じstatic / local package prefix scopeを持つfish completionです。
 .
 .TP
 .I /usr/share/locale/ja/LC_MESSAGES/moguet.mo
