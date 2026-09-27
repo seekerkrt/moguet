@@ -36,6 +36,7 @@ COMPILE_COMMANDS_LINK := compile_commands.json
 CMAKE_FOCUSED_ALIASES := \
 	test-repository-prefix-helper \
 	test-dynamic-completion \
+	test-pacman-query-projection \
 	test-installed-fixture-compile \
 	test-application-identity \
 	test-interactive-confirmation \
@@ -306,6 +307,7 @@ export MOGUET_FRONTEND_USE_DEFAULT_COMPILE_OPTIONS
 	update-pot
 .PHONY: \
 	test-repository \
+	test-pacman-query-host \
 	test-host-release \
 	test-release-compat \
 	release-check \
@@ -613,6 +615,9 @@ test-completion-schema: cmake-cli-authority-exporter-build scripts/generate_comp
 	MOGUET_CLI_AUTHORITY_EXPORTER="$(abspath $(CMAKE_CLI_AUTHORITY_EXPORTER))" \
 	PYTHONDONTWRITEBYTECODE=1 \
 	python3 tests/test-completion-schema-validator.py
+
+test-pacman-query-host:
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/pacman_query_completion.py --validate-host
 
 generate-completions: cmake-test-configure
 	+$(CMAKE) --build $(CMAKE_CTEST_BUILD_DIR) \

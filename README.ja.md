@@ -729,6 +729,10 @@ providerが利用できない場合や失敗した場合も、通常のstatic op
 `--build-mode=`のfiniteなattached valueは、compatible aliasを考慮してpublic CLI
 authorityから補完します。より広いruntime-aware completionは今後のscopeです。
 
+delegated `-Q`では、versionを特定したraw query-help snapshotからupstream pacmanのoption tokenも
+投影します。Tab時にhelpを実行せず、helpからoption semanticsを推測しません。`--`、pending value、
+arity未確認のtailの後では補完を止めます。限定したtoken projectionで、完全なpacman互換性の表明ではありません。
+
 ### Local recipe patch
 
 Patch customizationは**Experimental**です。CLI・record schema・表示はdogfoodで変更され得ますが、

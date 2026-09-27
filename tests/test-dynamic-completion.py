@@ -22,7 +22,7 @@ import time
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
-from generate_completions import fish_quote, load_schema, finite_completion_options
+from generate_completions import fish_quote, load_schema, finite_completion_options, query_completion_tokens
 
 NAMES = ("ch++", "ch-tool", "ch.tool", "ch@tool", "ch_tool", "chromium")
 # Semantic expected results are shared by all shell runners, not three lists.
@@ -194,6 +194,32 @@ def typed_scenarios(schema):
                               for label, args, expected in cases]
 
 
+def query_scenarios(schema):
+    tokens = query_completion_tokens(schema)
+    matched = tuple(token for token in tokens if token.startswith("--s"))
+    generic = next(item.token for item in schema.query_tokens
+                   if item.category == "upstream-delegated" and
+                   item.token not in dict(schema.lexical_value_options))
+    return [
+        ("query initial", ["-Q", ""], tokens),
+        ("query prefix", ["-Q", "--s"], matched),
+        ("query known flag", ["-Q", "--noconfirm", "--s"], matched),
+        ("query global", ["--noconfirm", "-Q", "--s"], matched),
+        ("query marker", ["-Q", "--", "--s"], ()),
+        ("query pending", ["-Q", "--config", "--s"], ()),
+        ("query current inline value", ["-Q", "--config=--s"], ()),
+        ("query complete value", ["-Q", "--config", "/fixture", "--s"], matched),
+        ("query prior inline value", ["-Q", "--config=/fixture", "--s"], matched),
+        ("query unknown arity", ["-Q", generic, "--s"], ()),
+        ("query unknown option", ["-Q", "--not-known", "--s"], ()),
+        ("query prior operand opaque", ["-Q", "fixture", "--s"], ()),
+        ("query combined modifier out of scope", ["-Qs", "--s"], ()),
+        ("query wrong build", ["build", "--s"], None),
+        ("query wrong sync", ["-S", "--s"], ("--select",)),
+        ("query wrong unknown operation", ["-R", "--s"], ()),
+    ]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--adapters", type=Path, help="existing bound adapters for staged proof")
@@ -231,12 +257,15 @@ for name in names:
                     "--render", shell, "--repository-prefix-helper", str(helper)],
                     capture_output=True, text=True, check=True)
                 (directory / filename).write_text(result.stdout)
+                assert "/usr/bin/pacman" not in result.stdout, "runtime upstream discovery executable leaked into adapter"
         env = os.environ.copy()
         env.update({"LC_ALL": "C", "HISTFILE": "", "XDG_CONFIG_HOME": str(directory / "config"),
                     "XDG_CACHE_HOME": str(directory / "cache"), "XDG_DATA_HOME": str(directory / "data")})
         files = {"bash": adapters / "moguet.bash", "zsh": adapters / "_moguet",
                  "fish": adapters / "moguet.fish"}
-        option, aliases, value_cases = typed_scenarios(load_schema())
+        schema = load_schema()
+        option, aliases, value_cases = typed_scenarios(schema)
+        query_cases = query_scenarios(schema)
         if options.adapters:
             # Existing staged paths are exercised with the real provider by verifier;
             # fixture protocol matrix uses canonical generation with a fixture binding.
@@ -262,6 +291,18 @@ for name in names:
                     # Fish's existing static infix matching can show options.
                     # Unsupported separate grammar must add no finite values.
                     assert not set(actual).intersection(option.allowed_values + tuple(option.completion_token + v for v in option.allowed_values)), (shell, label, actual)
+                else:
+                    assert set(actual) == set(expected), (shell, label, actual, expected)
+            for label, args, expected in query_cases:
+                calls.write_text("")
+                actual = run(shell, adapter, args, "ok", env)
+                assert not calls.read_text(), (shell, label, "query invoked package helper")
+                assert len(actual) == len(set(actual)), (shell, label, "duplicate token", actual)
+                if expected is None:
+                    # Keep ordinary Fish static infix policy, while proving no
+                    # newly discovered query token enters another route.
+                    new_tokens = {item.token for item in schema.query_tokens if item.category == "upstream-delegated"}
+                    assert not set(actual).intersection(new_tokens), (shell, label, actual)
                 else:
                     assert set(actual) == set(expected), (shell, label, actual, expected)
             calls.write_text("")
@@ -348,6 +389,24 @@ for name in names:
                     tab(shell, adapter, "moguet build " + alias.token + " " + current, current, env)
                     assert not calls.read_text(), (shell, alias.token, "package helper")
             print(f"{shell}: actual PTY typed alias mismatches remain uncompleted, calls=0 PASS")
+            # Choose actual fixture-derived long tokens with a unique prefix.
+            generic_tokens = [item.token for item in schema.query_tokens if item.category == "upstream-delegated" and item.token.startswith("--")]
+            samples = [token for token in generic_tokens if token.startswith("--s")] or generic_tokens[:2]
+            for token in samples:
+                prefix = token[:-1]
+                if sum(other.startswith(prefix) for other in query_completion_tokens(schema)) != 1:
+                    continue
+                calls.write_text("")
+                proof = tab(shell, adapter, "moguet -Q " + prefix, token, env)
+                assert not calls.read_text(), (shell, token, "package helper")
+                print(f"{shell}: true PTY upstream option {prefix!r} => {token!r}; calls=0; {proof}")
+            unknown = next(item.token for item in schema.query_tokens if item.category == "upstream-delegated" and item.token not in dict(schema.lexical_value_options))
+            for tail in (["--"], ["--config"], [unknown]):
+                calls.write_text("")
+                current = "--se"
+                tab(shell, adapter, "moguet -Q " + " ".join(tail) + " " + current, current, env)
+                assert not calls.read_text(), (shell, tail, "package helper")
+            print(f"{shell}: {len(query_cases)} query token parity/isolation scenarios PASS")
     print("dynamic completion: all focused shell checks PASS")
 
 

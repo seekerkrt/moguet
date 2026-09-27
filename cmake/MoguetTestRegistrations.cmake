@@ -1005,3 +1005,13 @@ moguet_add_ctest(
         python3 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test-dynamic-completion.py"
 )
 set_tests_properties(completion.dynamic_shells PROPERTIES TIMEOUT 90)
+
+moguet_add_ctest(
+    NAME completion.pacman_query_projection
+    TARGETS moguet-cli-authority-exporter
+    COMMAND "${CMAKE_COMMAND}" -E env
+        "MOGUET_CLI_AUTHORITY_EXPORTER=$<TARGET_FILE:moguet-cli-authority-exporter>"
+        PYTHONDONTWRITEBYTECODE=1
+        python3 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test-pacman-query-completion.py"
+)
+set_tests_properties(completion.pacman_query_projection PROPERTIES TIMEOUT 20)

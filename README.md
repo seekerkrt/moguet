@@ -858,6 +858,12 @@ Finite attached values for `--build-mode=` are completed from the public CLI
 authority, respecting compatible aliases. Broader runtime-aware completion
 remains future work.
 
+In the delegated `-Q` context, completions also project upstream pacman option
+tokens from a version-identified raw query-help snapshot. They do not run help
+at Tab time or infer option semantics from it. Completion stops after `--`, a
+pending value or a tail whose arity is unknown. This is a narrow token projection,
+not a claim of full pacman compatibility.
+
 ### Local recipe patches
 
 Patch customization is **Experimental**; its CLI, record schema and presentation may
