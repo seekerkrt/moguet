@@ -1,0 +1,18 @@
+{
+  "help_argv": [
+    "/usr/bin/pacman",
+    "-Q",
+    "--help"
+  ],
+  "help_sha256": "b59c241b782288efd34e84cf514e85f2106547f81acfc6fd28adffb9989a3267",
+  "libalpm_version": "16.0.1",
+  "locale": "C",
+  "operation": "-Q",
+  "pacman_version": "7.1.0",
+  "schema": 1,
+  "version_argv": [
+    "/usr/bin/pacman",
+    "--version"
+  ],
+  "version_sha256": "00fbdcef14e0802ac2709ab464050fe67837f34ba93a5bd9e51ead6cb5cf2e29"
+}

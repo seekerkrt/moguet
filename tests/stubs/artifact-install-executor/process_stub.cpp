@@ -191,6 +191,16 @@ std::string last_run_command() {
 
 } // namespace artifact_install_executor_test_stub
 
+CapturedCommandResult capture_explicit_process_output_raw(
+    const ExplicitProcessInvocation&, bool) {
+    // package_metadata.cpp also defines the private prefix configuration path.
+    // These executor fixtures do not expect that transport: keep accidental
+    // calls sticky and fail-fast rather than spawning a real pacman-conf.
+    fail_process_expectation(
+        process_stub_state(),
+        "Unexpected artifact install explicit capture transport.");
+}
+
 CapturedCommandResult capture_command_output_raw(const char* command) {
     ProcessStubState& state = process_stub_state();
     ++state.capture_calls;

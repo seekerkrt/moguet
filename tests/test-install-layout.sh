@@ -55,6 +55,7 @@ run_make() {
 binary_file=$stage_dir/usr/bin/$COMMAND_NAME
 receipt_helper_file=$stage_dir/usr/libexec/moguet/moguet-alpm-receipt-helper
 receipt_helper_build=$fixture_build_dir/cmake-production/moguet-alpm-receipt-helper
+configured_completion_dir=$fixture_build_dir/cmake-production/completions
 source_artifact_helper_file=$stage_dir/usr/libexec/moguet/moguet-source-artifact-install-helper
 source_artifact_helper_build=$fixture_build_dir/cmake-production/moguet-source-artifact-install-helper
 legacy_binary_file=$stage_dir/usr/bin/jpacker
@@ -263,12 +264,16 @@ assert_package_artifacts_installed() {
         "$source_artifact_helper_file" \
         /usr/libexec/moguet/moguet-source-artifact-install-helper
     assert_absent "$legacy_binary_file"
-    assert_installed_file "$repo_root/completions/$COMMAND_NAME.bash" \
+    assert_installed_file "$configured_completion_dir/$COMMAND_NAME.bash" \
         "$bash_completion_file"
-    assert_installed_file "$repo_root/completions/_$COMMAND_NAME" \
+    assert_installed_file "$configured_completion_dir/_$COMMAND_NAME" \
         "$zsh_completion_file"
-    assert_installed_file "$repo_root/completions/$COMMAND_NAME.fish" \
+    assert_installed_file "$configured_completion_dir/$COMMAND_NAME.fish" \
         "$fish_completion_file"
+    for completion in "$bash_completion_file" "$zsh_completion_file" "$fish_completion_file"
+    do
+        assert_installed_text "$completion" "'/usr/libexec/moguet/moguet-repository-prefix-helper'"
+    done
     assert_installed_file "$repo_root/man/$COMMAND_NAME.1" "$english_man_file"
     assert_installed_file "$repo_root/man/ja/$COMMAND_NAME.1" "$japanese_man_file"
     assert_installed_file "$built_catalog_file" "$catalog_file"
@@ -524,12 +529,16 @@ assert_binary_contains \
 assert_binary_contains \
     "$custom_source_artifact_helper" \
     "$custom_libexecdir/moguet-source-artifact-install-helper"
-assert_installed_file "$repo_root/completions/$COMMAND_NAME.bash" \
+assert_installed_file "$configured_completion_dir/$COMMAND_NAME.bash" \
     "$custom_bash_completion"
-assert_installed_file "$repo_root/completions/_$COMMAND_NAME" \
+assert_installed_file "$configured_completion_dir/_$COMMAND_NAME" \
     "$custom_zsh_completion"
-assert_installed_file "$repo_root/completions/$COMMAND_NAME.fish" \
+assert_installed_file "$configured_completion_dir/$COMMAND_NAME.fish" \
     "$custom_fish_completion"
+for completion in "$custom_bash_completion" "$custom_zsh_completion" "$custom_fish_completion"
+do
+    assert_installed_text "$completion" "'$custom_libexecdir/moguet-repository-prefix-helper'"
+done
 assert_installed_file "$repo_root/man/$COMMAND_NAME.1" "$custom_english_man"
 assert_installed_file "$repo_root/man/ja/$COMMAND_NAME.1" "$custom_japanese_man"
 assert_installed_file "$built_catalog_file" "$custom_catalog"

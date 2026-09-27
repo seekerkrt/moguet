@@ -46,6 +46,10 @@ struct ResolvedCliRuntimeContract {
     cli_authority::GrammarOwnership owner =
         cli_authority::GrammarOwnership::MoguetOwned;
 
+    // Informational operand projection only. Does not change delegated validation
+    // or dispatch. Unknown/open modifier contexts retain no exact example.
+    const cli_authority::DelegatedOperationExampleSpec* delegated_example = nullptr;
+
     bool is_known() const noexcept;
     bool is_delegated() const noexcept;
 };

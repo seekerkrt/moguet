@@ -13,6 +13,7 @@ import shlex
 import subprocess
 import sys
 from typing import Callable
+from pacman_query_completion import QUERY_OPERATION, QuerySnapshot, load_snapshot
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
@@ -139,6 +140,7 @@ class Option:
     ownership: str
     definition_role: str
     completion_visibility: str
+    fixed_value: str = ""
 
     @property
     def is_completion_visible(self) -> bool:
@@ -193,6 +195,14 @@ class Operation:
 
 
 @dataclass(frozen=True)
+class UpstreamToken:
+    token: str
+    canonical_identity: str
+    category: str
+    projected: bool
+
+
+@dataclass(frozen=True)
 class CliSchema:
     operations: tuple[Operation, ...]
     options: tuple[Option, ...]
@@ -200,6 +210,12 @@ class CliSchema:
     terminal_tokens: tuple[str, ...]
     canonical_grammar: tuple[str, ...]
     presentation_scopes: tuple[tuple[str, int, int | None], ...] = ()
+    operand_contexts: tuple[tuple[str, str], ...] = ()
+    lexical_value_options: tuple[tuple[str, bool], ...] = ()
+    parser_boundaries: tuple[tuple[str, int], ...] = ()
+    query_tokens: tuple[UpstreamToken, ...] = ()
+    query_version: str = ""
+    query_input_sha256: str = ""
 
     @property
     def delegated_option_ids(self) -> tuple[int, ...]:
@@ -212,6 +228,7 @@ class CliSchema:
 class Descriptions:
     operations: dict[str, str]
     options: dict[str, str]
+    ownership: dict[str, str]
 
 
 def fail(message: str) -> None:
@@ -352,6 +369,11 @@ def parse_exported_schema(exported_schema: str) -> CliSchema:
     canonical_grammar: list[str] = []
     presentation_scopes: list[tuple[str, int, int | None]] = []
 
+    operand_contexts: dict[str, str] = {}
+    lexical_value_options: dict[str, bool] = {}
+    parser_boundaries: dict[str, int] = {}
+    fixed_values: dict[int, str] = {}
+
     for line in exported_schema.splitlines():
         fields = line.split("\t")
         record = fields[0]
@@ -453,6 +475,27 @@ def parse_exported_schema(exported_schema: str) -> CliSchema:
         elif record == "PRESENTATION" and len(fields) == 4:
             presentation_scopes.append((fields[1], parse_identity(fields[2], "presentation option"),
                                         parse_identity(fields[3], "required option") if fields[3] else None))
+        elif record == "OPERAND_CONTEXT" and len(fields) == 3:
+            token, kind = fields[1:]
+            if token in operand_contexts or kind not in KNOWN_OPERAND_KINDS:
+                fail("invalid exact operand context")
+            operand_contexts[token] = kind
+        elif record == "LEXICAL_VALUE" and len(fields) == 3:
+            token, database_context = fields[1:]
+            if (token in lexical_value_options or token == "--" or
+                    CANONICAL_OPTION_TOKEN_PATTERN.fullmatch(token) is None or
+                    database_context not in {"alternate-db", "default-db"}):
+                fail("invalid lexical value option")
+            lexical_value_options[token] = database_context == "alternate-db"
+        elif record == "BOUNDARY" and len(fields) == 3:
+            if fields[1] in parser_boundaries:
+                fail("duplicate parser boundary")
+            parser_boundaries[fields[1]] = parse_identity(fields[2], "boundary option")
+        elif record == "FIXED_VALUE" and len(fields) == 3:
+            identity = parse_identity(fields[1], "fixed value option")
+            if identity in fixed_values or not fields[2]:
+                fail("invalid fixed value binding")
+            fixed_values[identity] = fields[2]
         elif record == "TERMINAL" and len(fields) == 2:
             terminal_tokens.append(fields[1])
         elif record == "CANONICAL" and len(fields) == 2:
@@ -466,6 +509,10 @@ def parse_exported_schema(exported_schema: str) -> CliSchema:
         fail("CLI authority exporter returned duplicate option tokens")
     if any(not operation.forms and not operation.open_grammar for operation in operations.values()):
         fail("CLI authority exporter returned an operation without a grammar form")
+    if not set(fixed_values).issubset(option.identity for option in options):
+        fail("fixed value binding has unknown option")
+    options = [replace(option, fixed_value=fixed_values.get(option.identity, ""))
+               for option in options]
 
     schema = CliSchema(
         operations=tuple(operations.values()),
@@ -474,7 +521,18 @@ def parse_exported_schema(exported_schema: str) -> CliSchema:
         terminal_tokens=tuple(terminal_tokens),
         canonical_grammar=tuple(canonical_grammar),
         presentation_scopes=tuple(presentation_scopes),
+        operand_contexts=tuple(operand_contexts.items()),
+        lexical_value_options=tuple(lexical_value_options.items()),
+        parser_boundaries=tuple(parser_boundaries.items()),
     )
+    for token in operand_contexts:
+        if (token, "open") not in operation_modes:
+            fail("exact operand context has no open operation")
+    for token, identity in parser_boundaries.items():
+        if not any(option.token == token and option.identity == identity and
+                   option.value_kind == "marker" and not option.is_completion_visible
+                   for option in options):
+            fail("parser boundary must identify a hidden marker option")
     validate_schema_projection(schema)
     for operation, option_id, required in schema.presentation_scopes:
         if operation not in operations or not any(option.identity == option_id for option in options):
@@ -485,7 +543,108 @@ def parse_exported_schema(exported_schema: str) -> CliSchema:
 
 
 def load_schema() -> CliSchema:
-    return parse_exported_schema(export_authority())
+    schema = parse_exported_schema(export_authority())
+    try:
+        return project_query_tokens(schema, load_snapshot())
+    except (OSError, ValueError) as error:
+        fail(f"pacman query snapshot: {error}")
+
+
+def project_query_tokens(schema: CliSchema, snapshot: QuerySnapshot) -> CliSchema:
+    # A snapshot cannot promote an intercepted/owned operation to delegation.
+    if schema.delegated_form is None or any(op.token == QUERY_OPERATION for op in schema.operations):
+        fail("pacman query projection requires an existing open delegated operation")
+    known = {option.token: option for option in schema.options}
+    canonical = {option.identity: next(peer.token for peer in schema.options if peer.identity == option.identity)
+                 for option in schema.options}
+    projected = []
+    for row in snapshot.options:
+        for token in row.tokens:
+            option = known.get(token)
+            projected.append(UpstreamToken(
+                token=token,
+                canonical_identity=(f"moguet:{canonical[option.identity]}" if option else
+                                    f"pacman:{QUERY_OPERATION}:{row.canonical_token}"),
+                category=option.ownership if option else "upstream-delegated",
+                projected=(option.is_completion_visible and option.identity in schema.delegated_option_ids
+                           if option else True),
+            ))
+    return replace(schema, query_tokens=tuple(sorted(projected, key=lambda item: item.token)),
+                   query_version=snapshot.pacman_version, query_input_sha256=snapshot.help_sha256)
+
+
+def query_completion_tokens(schema: CliSchema) -> tuple[str, ...]:
+    explicit = [option.completion_token for option in options_for_ids(schema, schema.delegated_option_ids)]
+    return tuple(sorted(set(explicit + [item.token for item in schema.query_tokens
+                                        if item.projected and item.category == "upstream-delegated"])))
+
+
+def option_ownerships(schema: CliSchema) -> dict[str, str]:
+    """Presentation metadata only; explicit CLI ownership retains precedence."""
+    ownerships = {option.completion_token: option.ownership for option in schema.options
+                  if option.is_completion_visible}
+    for item in schema.query_tokens:
+        if item.projected and item.category == "upstream-delegated":
+            ownerships.setdefault(item.token, item.category)
+    return ownerships
+
+
+def query_provenance_comment(schema: CliSchema) -> str:
+    return (f"# Upstream -Q spelling: pacman {schema.query_version}; raw help SHA256 {schema.query_input_sha256}\n"
+            "# Pinned generation input; no runtime upstream discovery.") if schema.query_tokens else ""
+
+
+def query_transparent_options(schema: CliSchema) -> tuple[str, ...]:
+    # These flags have explicit Moguet arity/relations. Token-only upstream
+    # discovery never makes any newly discovered option transparent.
+    return tuple(option.token for option in schema.options
+                 if option.identity in schema.delegated_option_ids and
+                 option.is_completion_visible and option.value_kind == "none")
+
+
+def query_context_function(schema: CliSchema, shell: str) -> str:
+    lexical = [token for token, _ in schema.lexical_value_options]
+    transparent = query_transparent_options(schema)
+    if shell == "fish":
+        return '\n'.join([
+            "function __moguet_query_context",
+            "    set -l seen false", "    set -l pending false",
+            "    for word in (commandline -opc)[2..-1]",
+            "        set word (string unescape -- \"$word\")",
+            "        if test $pending = true; set pending false; continue; end",
+            "        switch $word",
+            "            case " + ' '.join(fish_quote(token) for token, _ in schema.parser_boundaries),
+            "                return 1",
+            "            case " + fish_quote(QUERY_OPERATION),
+            "                test $seen = false; or return 1", "                set seen true",
+            "            case " + ' '.join(map(fish_quote, transparent)),
+            "                continue",
+            "            case " + ' '.join(map(fish_quote, lexical)),
+            "                test $seen = true; or return 1", "                set pending true",
+            "            case " + ' '.join(fish_quote(token + '=*') for token in lexical if token.startswith('--')),
+            "                test $seen = true; or return 1",
+            "            case '*'", "                return 1", "        end", "    end",
+            "    test $seen = true; and test $pending = false", "end",
+        ])
+    loop = ('for word in "${COMP_WORDS[@]:1:COMP_CWORD-1}"; do' if shell == 'bash' else
+            'for ((index=2; index<CURRENT; ++index)); do\n        word=$words[index]\n'
+            '        [[ ${words_are_logical-false} == true ]] || word=${(Q)word}')
+    return f'''_moguet_query_context() {{
+    local seen=false pending=false word index
+    {loop}
+        if [[ $pending == true ]]; then pending=false; continue; fi
+        case "$word" in
+        {'|'.join(shell_quote(t) for t, _ in schema.parser_boundaries)}) return 1 ;;
+        {shell_quote(QUERY_OPERATION)}) [[ $seen == false ]] || return 1; seen=true ;;
+        {'|'.join(map(shell_quote, transparent))}) continue ;;
+        {'|'.join(map(shell_quote, lexical))}) [[ $seen == true ]] || return 1; pending=true ;;
+        {'|'.join(shell_quote(t + '=') + '*' for t in lexical if t.startswith('--'))}) [[ $seen == true ]] || return 1 ;;
+        *) return 1 ;;
+        esac
+    done
+    [[ $seen == true && $pending == false ]]
+}}
+'''
 
 
 def validate_description_map(
@@ -515,7 +674,7 @@ def validate_description_map(
         )
 
     for token, description in descriptions.items():
-        if not description or "\n" in description or "\r" in description:
+        if not description or any(ord(char) < 32 or ord(char) == 127 for char in description):
             fail(f"invalid single-line description for {token!r}")
     return descriptions
 
@@ -547,6 +706,10 @@ def load_descriptions(schema: CliSchema, locale: str) -> Descriptions:
                 for option in schema.options
                 if option.is_completion_visible
             ),
+        ),
+        validate_description_map(
+            "ownership", raw.get("ownership"),
+            tuple(sorted(KNOWN_GRAMMAR_OWNERSHIPS | {"upstream-delegated"})),
         ),
     )
 
@@ -762,6 +925,7 @@ def option_contract_projection(option: Option) -> tuple[object, ...]:
         option.ownership,
         option.definition_role,
         option.completion_visibility,
+        option.fixed_value,
     )
 
 
@@ -833,6 +997,16 @@ def validate_option_projection(schema: CliSchema) -> dict[int, Option]:
             fail(f"final-value conflict lacks a value identity: {option.token}")
 
     for option in options_by_identity.values():
+        if option.fixed_value:
+            parents = [parent for parent in options_by_identity.values()
+                       if parent.value_kind == "attached-enum" and
+                       parent.conflict_value_identity == option.conflict_value_identity]
+            if (option.value_kind != "none" or
+                option.conflict_rule != "final-value-must-agree" or
+                len(parents) != 1 or
+                option.identity not in parents[0].conflicts or
+                option.fixed_value not in parents[0].allowed_values):
+                fail(f"invalid fixed value family projection: {option.token}")
         for conflicting_identity in option.conflicts:
             conflicting = options_by_identity.get(conflicting_identity)
             if conflicting is None:
@@ -856,6 +1030,10 @@ def validate_option_projection(schema: CliSchema) -> dict[int, Option]:
                     f"inconsistent option conflict semantics: "
                     f"{option.token} <-> {conflicting.token}"
                 )
+    for option in finite_completion_options(schema):
+        if any(member.identity != option.identity and not member.fixed_value
+               for member in value_family_members(schema, option)):
+            fail("finite value family lacks fixed binding")
     return options_by_identity
 
 
@@ -1184,7 +1362,316 @@ def presentation_additions(schema: CliSchema, shell: str) -> str:
     return "\n".join(lines)
 
 
-def render_bash(schema: CliSchema, descriptions: Descriptions, locale: str) -> str:
+def local_prefix_operations(schema: CliSchema) -> tuple[str, ...]:
+    # Slice 1b deliberately projects only the first operand of plain sync.
+    # No modifiers, prior operands, globals or cursor suffix are accepted.
+    # This allowlist narrows the shared operand authority; shells do not infer
+    # meaning from an operation's spelling or from delegated pacman grammar.
+    supported = ("-S",)
+    contexts = dict(schema.operand_contexts)
+    return tuple(token for token in supported if contexts.get(token) == "package")
+
+
+def prefix_helper_binding(path: str, shell: str) -> str:
+    if path == "@MOGUET_REPOSITORY_PREFIX_HELPER@":
+        return f"@MOGUET_REPOSITORY_PREFIX_HELPER_{shell.upper()}@"
+    return fish_quote(path) if shell == "fish" else shell_quote(path)
+
+
+def finite_completion_options(schema: CliSchema) -> tuple[Option, ...]:
+    # Slice 2 selects an existing public contract, never internal enum types.
+    return tuple(option for option in schema.options
+                 if option.token == "--build-mode" and option.is_completion_visible
+                 and option.value_kind == "attached-enum")
+
+
+def value_family_members(schema: CliSchema, option: Option) -> tuple[Option, ...]:
+    return tuple(member for member in schema.options
+                 if member.conflict_value_identity == option.conflict_value_identity
+                 and member.conflict_rule == "final-value-must-agree")
+
+
+def typed_value_cases(schema: CliSchema, shell: str) -> str:
+    cases = []
+    for option in finite_completion_options(schema):
+        if shell == "fish":
+            cases.append(f"        case {fish_quote(option.completion_token + '*')}\n"
+                         f"            set option_id {option.identity}\n"
+                         f"            set option_prefix {fish_quote(option.completion_token)}\n"
+                         f"            set values {' '.join(map(fish_quote, option.allowed_values))}")
+        else:
+            cases.append(f"        {shell_quote(option.completion_token)}*)\n"
+                         f"            option_prefix={shell_quote(option.completion_token)}\n"
+                         f"            values=({' '.join(map(shell_quote, option.allowed_values))})\n"
+                         "            ;;")
+    return "\n".join(cases)
+
+
+def typed_family_cases(schema: CliSchema, shell: str) -> str:
+    cases = []
+    for option in finite_completion_options(schema):
+        for member in value_family_members(schema, option):
+            if member.identity == option.identity:
+                if shell == "fish":
+                    cases.append(f"        case {fish_quote(member.token)} {fish_quote(member.completion_token + '*')}\n"
+                                 f"            string sub -s {len(member.completion_token) + 1} -- \"$word\"\n"
+                                 "            return 0")
+                else:
+                    cases.append(f"        {shell_quote(member.token)}|{shell_quote(member.completion_token)}*)\n"
+                                 f"            REPLY=${{1#{shell_quote(member.completion_token)}}}\n"
+                                 f"            [[ $1 == {shell_quote(member.token)} ]] && REPLY=\n"
+                                 "            return 0 ;;")
+            elif member.fixed_value:
+                if shell == "fish":
+                    cases.append(f"        case {fish_quote(member.token)}\n"
+                                 f"            echo {fish_quote(member.fixed_value)}\n"
+                                 "            return 0")
+                else:
+                    cases.append(f"        {shell_quote(member.token)}) REPLY={shell_quote(member.fixed_value)}; return 0 ;;")
+            else:
+                fail(f"finite value family lacks a fixed binding: {member.token}")
+    return "\n".join(cases)
+
+
+def bash_typed_functions(schema: CliSchema) -> str:
+    lexical = "|".join(shell_quote(token) for token, _ in schema.lexical_value_options)
+    boundary = "|".join(shell_quote(token) for token, _ in schema.parser_boundaries)
+    return f'''
+_moguet_current_word() {{
+    local word="${{COMP_WORDS[COMP_CWORD]}}" joined start
+    local LC_ALL=C
+    current_word_start=$COMP_CWORD
+    if [[ -n ${{COMP_LINE-}} ]]; then
+        while (( current_word_start > 1 )); do
+            joined=${{COMP_WORDS[current_word_start-1]}}$word
+            start=$((COMP_POINT-${{#joined}}))
+            (( start >= 0 )) || break
+            [[ ${{COMP_LINE:start:${{#joined}}}} == "$joined" ]] || break
+            word=$joined
+            ((--current_word_start))
+        done
+    fi
+    _moguet_unquote_prefix "$word"
+}}
+
+_moguet_value_family() {{
+    REPLY=
+    case "$1" in
+{typed_family_cases(schema, 'bash')}
+    esac
+    return 1
+}}
+
+_moguet_logical_words() {{
+    # COMP_WORDS also splits completed attached values. Reassemble the native
+    # fragments only where COMP_LINE proves adjacency, then decode shell quotes
+    # once. This is lexical plumbing, not an operation/value grammar parser.
+    local index position=0 word spaced logical_cword=$COMP_CWORD
+    local LC_ALL=C
+    local -a logical_words=()
+    if [[ -n ${{COMP_LINE-}} ]]; then
+        for ((index=0; index<${{#COMP_WORDS[@]}}; ++index)); do
+            word=${{COMP_WORDS[index]}}
+            spaced=false
+            while [[ ${{COMP_LINE:position:1}} == [$' \\t\\n'] ]]; do
+                spaced=true
+                ((++position))
+            done
+            [[ ${{COMP_LINE:position:${{#word}}}} == "$word" ]] || return 1
+            if [[ $spaced == true || ${{#logical_words[@]}} == 0 ]]; then
+                logical_words+=("$word")
+            else
+                logical_words[${{#logical_words[@]}}-1]+=$word
+            fi
+            (( index == COMP_CWORD )) && logical_cword=$((${{#logical_words[@]}}-1))
+            ((position+=${{#word}}))
+        done
+    else
+        logical_words=("${{COMP_WORDS[@]}}")
+    fi
+    for ((index=0; index<${{#logical_words[@]}}; ++index)); do
+        _moguet_unquote_prefix "${{logical_words[index]}}"
+        logical_words[index]=$REPLY
+    done
+    COMP_WORDS=("${{logical_words[@]}}")
+    COMP_CWORD=$logical_cword
+    return 0
+}}
+
+_moguet_typed_values() {{
+    local option_prefix word requested fixed= pending=false value
+    local -a values
+    case "$cur" in
+{typed_value_cases(schema, 'bash')}
+        *) return 1 ;;
+    esac
+    # Recognized attached values own this event, including suppressed/no-match
+    # contexts. They never fall through to the package provider.
+    COMPREPLY=()
+    [[ ${{#COMP_WORDS[@]}} == $((COMP_CWORD+1)) ]] || return 0
+    [[ " ${{candidates[*]}} " == *" $option_prefix "* ]] || return 0
+    for word in "${{COMP_WORDS[@]:1:COMP_CWORD-1}}"; do
+        if [[ $pending == true ]]; then pending=false; continue; fi
+        case "$word" in
+        {boundary or '__no_boundary__'}) return 0 ;;
+        {lexical or '__no_value_option__'}) pending=true; continue ;;
+        esac
+        if _moguet_value_family "$word"; then
+            requested=$REPLY
+            [[ " ${{values[*]}} " == *" $requested "* && -n $requested ]] || return 0
+            [[ -z $fixed || $fixed == "$requested" ]] || return 0
+            fixed=$requested
+        fi
+    done
+    [[ $pending == false ]] || return 0
+    local prefix=${{cur#"$option_prefix"}}
+    for value in "${{values[@]}}"; do
+        [[ -z $fixed || $fixed == "$value" ]] || continue
+        [[ $value == "$prefix"* ]] || continue
+        COMPREPLY+=("$typed_insert_prefix$value")
+    done
+    return 0
+}}
+'''
+
+
+def option_context_function(schema: CliSchema, shell: str) -> str:
+    """Project shared lexical arity and the opaque boundary, not route grammar."""
+    lexical = tuple(token for token, _ in schema.lexical_value_options)
+    boundary = tuple(token for token, _ in schema.parser_boundaries)
+    if shell == "fish":
+        return "\n".join([
+            "function __moguet_option_context", "    set -l pending false",
+            "    for word in (commandline -opc)[2..-1]",
+            "        set word (string unescape -- \"$word\"); or return 1",
+            "        if test $pending = true; set pending false; continue; end",
+            "        switch $word",
+            "            case " + " ".join(map(fish_quote, boundary)),
+            "                return 1",
+            "            case " + " ".join(map(fish_quote, lexical)),
+            "                set pending true", "        end", "    end",
+            "    test $pending = false", "end",
+        ])
+    setup = ('''    local -a COMP_WORDS=("${COMP_WORDS[@]}")
+    local COMP_CWORD=$COMP_CWORD
+    _moguet_logical_words || return 1
+    for word in "${COMP_WORDS[@]:1:COMP_CWORD-1}"; do''' if shell == "bash" else
+             '''    local index
+    for ((index=2; index<CURRENT; ++index)); do
+        word=${(Q)words[index]}''')
+    return f'''_moguet_option_context() {{
+    local word pending=false
+{setup}
+        if [[ $pending == true ]]; then pending=false; continue; fi
+        case "$word" in
+        {'|'.join(map(shell_quote, boundary))}) return 1 ;;
+        {'|'.join(map(shell_quote, lexical))}) pending=true ;;
+        esac
+    done
+    [[ $pending == false ]]
+}}
+'''
+
+
+def zsh_typed_functions(schema: CliSchema) -> str:
+    lexical = "|".join(shell_quote(token) for token, _ in schema.lexical_value_options)
+    boundary = "|".join(shell_quote(token) for token, _ in schema.parser_boundaries)
+    return f'''
+_moguet_value_family() {{
+    REPLY=
+    case "$1" in
+{typed_family_cases(schema, 'zsh')}
+    esac
+    return 1
+}}
+
+_moguet_typed_values() {{
+    local option_prefix word requested fixed= pending=false value
+    local -a values typed_candidates
+    case "$cur" in
+{typed_value_cases(schema, 'zsh')}
+        *) return 1 ;;
+    esac
+    (( CURRENT == ${{#words}} )) || return 0
+    (( ${{candidates[(Ie)$option_prefix]}} )) || return 0
+    local index
+    for ((index=2; index<CURRENT; ++index)); do
+        word=$words[index]
+        if [[ $pending == true ]]; then pending=false; continue; fi
+        case "$word" in
+        {boundary or '__no_boundary__'}) return 0 ;;
+        {lexical or '__no_value_option__'}) pending=true; continue ;;
+        esac
+        if _moguet_value_family "$word"; then
+            requested=$REPLY
+            (( ${{values[(Ie)$requested]}} )) || return 0
+            [[ -z $fixed || $fixed == "$requested" ]] || return 0
+            fixed=$requested
+        fi
+    done
+    [[ $pending == false ]] || return 0
+    local prefix=${{cur#"$option_prefix"}}
+    for value in "${{values[@]}}"; do
+        [[ -z $fixed || $fixed == "$value" ]] || continue
+        [[ $value == "$prefix"* ]] || continue
+        typed_candidates+=("$option_prefix$value")
+    done
+    (( ${{#typed_candidates}} )) && compadd -a typed_candidates
+    return 0
+}}
+'''
+
+
+def fish_typed_functions(schema: CliSchema) -> list[str]:
+    return [
+        "function __moguet_value_word",
+        "    set -l raw (commandline -ct | string collect -a)",
+        "    if string match -qr -- '^[ \\t]*$' \"$raw\"",
+        "        printf '\\n'; return 0",
+        "    end",
+        "    set -l current (string unescape -- \"$raw\")",
+        "    if test $status -ne 0",
+        "        set current (string unescape -- \"$raw'\")",
+        "        if test $status -ne 0",
+        "            set current (string unescape -- \"$raw\\\"\")",
+        "            test $status -eq 0; or return 1",
+        "        end", "    end",
+        "    printf '%s\\n' \"$current\"", "end", "",
+        "function __moguet_value_family --argument-names word",
+        "    switch $word", typed_family_cases(schema, "fish"),
+        "    end", "    return 1", "end", "",
+        "function __moguet_typed_values",
+        "    set -l current (__moguet_value_word)",
+        "    set -l option_id option_prefix values",
+        "    switch $current", typed_value_cases(schema, "fish"),
+        "        case '*'", "            return 0", "    end",
+        "    __moguet_operation_allows $option_id; or return 0",
+        "    set -l pending false", "    set -l fixed ''",
+        "    for word in (commandline -opc)[2..-1]",
+        "        set word (string unescape -- \"$word\")",
+        "        if test $pending = true; set pending false; continue; end",
+        "        switch $word",
+        "            case " + " ".join(fish_quote(t) for t, _ in schema.parser_boundaries),
+        "                return 0",
+        "            case " + " ".join(fish_quote(t) for t, _ in schema.lexical_value_options),
+        "                set pending true; continue", "        end",
+        "        set -l requested (__moguet_value_family \"$word\" | string collect -a)",
+        "        if test $pipestatus[1] -eq 0",
+        "            contains -- \"$requested\" $values; or return 0",
+        "            test -z \"$fixed\"; or test \"$fixed\" = \"$requested\"; or return 0",
+        "            set fixed \"$requested\"", "        end", "    end",
+        "    test $pending = false; or return 0",
+        "    set -l prefix (string sub -s (math (string length -- \"$option_prefix\") + 1) -- \"$current\")",
+        "    for value in $values",
+        "        test -z \"$fixed\"; or test \"$fixed\" = \"$value\"; or continue",
+        "        test (string sub -l (string length -- \"$prefix\") -- \"$value\") = \"$prefix\"; or continue",
+        "        printf '%s%s\\n' \"$option_prefix\" \"$value\"", "    end", "end", "",
+        "complete -c moguet -f -a '(__moguet_typed_values)'",
+    ]
+
+
+def render_bash(schema: CliSchema, descriptions: Descriptions, locale: str,
+                prefix_helper: str = "@MOGUET_REPOSITORY_PREFIX_HELPER@") -> str:
     del descriptions
     operations = tuple(operation.token for operation in schema.operations)
     root_options = tuple(
@@ -1194,7 +1681,7 @@ def render_bash(schema: CliSchema, descriptions: Descriptions, locale: str) -> s
         and option.placement in {"parser-global", "first-non-global"}
     )
     terminal_pattern = "|".join(schema.terminal_tokens)
-    operation_pattern = "|".join(operations)
+    operation_pattern = "|".join(operations + ((QUERY_OPERATION,) if schema.query_tokens else ()))
     once_ids = tuple(
         dict.fromkeys(
             option.identity
@@ -1332,12 +1819,27 @@ def render_bash(schema: CliSchema, descriptions: Descriptions, locale: str) -> s
             )
     for terminal in schema.terminal_tokens:
         operation_cases.append(f"        {terminal}) candidates=() ;;")
+    if schema.query_tokens:
+        operation_cases.append(f'''        {shell_quote(QUERY_OPERATION)})
+            if [[ $words_are_logical == true ]] || _moguet_logical_words; then
+                words_are_logical=true
+                cur=${{COMP_WORDS[COMP_CWORD]}}
+                if _moguet_query_context; then
+                    candidates=({bash_array(query_completion_tokens(schema))})
+                else
+                    candidates=()
+                fi
+            else
+                candidates=()
+            fi
+            ;;''')
 
     canonical_comments = "\n".join(
         f"#   {syntax}" for syntax in schema.canonical_grammar
     )
     return f"""# Generated by scripts/generate_completions.py; do not edit.
 # Description locale: {locale}
+{query_provenance_comment(schema)}
 # Canonical closed grammar (projected from source/cli_authority.hpp):
 {canonical_comments}
 
@@ -1419,10 +1921,34 @@ _moguet_conflicts_with_present_option() {{
     esac
 }}
 
+{bash_typed_functions(schema)}
+{option_context_function(schema, 'bash')}
+{query_context_function(schema, 'bash')}
+
 _moguet() {{
-    local cur operation candidate option_id
+    local cur operation candidate option_id REPLY strip_prefix typed_insert_prefix
+    local words_are_logical=false
+    local current_word_start original_cword=$COMP_CWORD
+    local -a COMP_WORDS=("${{COMP_WORDS[@]}}")
+    local COMP_CWORD=$COMP_CWORD
     local -a candidates filtered
+    COMPREPLY=()
+    _moguet_option_context || return 0
     cur="${{COMP_WORDS[COMP_CWORD]}}"
+    _moguet_current_word
+    case "$REPLY" in
+    {'|'.join(shell_quote(o.completion_token) + '*' for o in finite_completion_options(schema)) or '__no_finite_value__'})
+        cur=$REPLY
+        if (( current_word_start == original_cword )); then
+            typed_insert_prefix=${{cur%%=*}}=
+        else
+            typed_insert_prefix=
+        fi
+        _moguet_logical_words || {{ COMPREPLY=(); return 0; }}
+        words_are_logical=true
+        cur=${{COMP_WORDS[COMP_CWORD]}}
+        ;;
+    esac
     operation="$(_moguet_find_operation || true)"
 
     if [[ -z $operation ]]; then
@@ -1436,6 +1962,8 @@ _moguet() {{
     fi
 
 {presentation_additions(schema, "bash")}
+
+    _moguet_typed_values && return 0
 
     filtered=()
     for candidate in "${{candidates[@]}}"; do
@@ -1452,7 +1980,102 @@ _moguet() {{
     done
 
     COMPREPLY=()
-    COMPREPLY=( $(compgen -W "${{filtered[*]}}" -- "$cur" || true) )
+    while IFS= read -r candidate; do
+        COMPREPLY+=("$candidate")
+    done < <(compgen -W "${{filtered[*]}}" -- "$cur" || true)
+
+    # One provider call, outside all static candidate scans.
+    _moguet_repository_context && _moguet_repository_packages "$REPLY" "$strip_prefix"
+    return 0
+}}
+
+_moguet_repository_context() {{
+    local word before= index start
+    local LC_ALL=C
+    [[ $COMP_CWORD -ge 2 && ${{#COMP_WORDS[@]}} == $((COMP_CWORD+1)) ]] || return 1
+    case "${{COMP_WORDS[1]}}" in
+    {'|'.join(local_prefix_operations(schema)) or '__no_local_prefix_context__'}) ;;
+    *) return 1 ;;
+    esac
+    word=${{COMP_WORDS[2]}}
+    for ((index=3; index<=COMP_CWORD; ++index)); do
+        before=$word
+        word+=${{COMP_WORDS[index]}}
+    done
+    if (( COMP_CWORD > 2 )); then
+        # Bash splits valid package '@' at COMP_WORDBREAKS. Rejoin only
+        # adjacent fragments of this raw current word, never separate argv.
+        [[ -n ${{COMP_LINE-}} ]] || return 1
+        start=$((COMP_POINT-${{#word}}))
+        (( start > 0 )) || return 1
+        [[ ${{COMP_LINE:start:${{#word}}}} == "$word" &&
+           ${{COMP_LINE:start-1:1}} == [$' \\t'] ]] || return 1
+    fi
+    _moguet_unquote_prefix "$before"
+    # Readline replaces the preceding wordbreak character together with its
+    # RHS (ch@to), even though COMP_WORDS exposes '@' as a separate entry.
+    strip_prefix=${{REPLY%@}}
+    _moguet_unquote_prefix "$word"
+    [[ $REPLY != -* ]]
+}}
+
+_moguet_unquote_prefix() {{
+    # COMP_WORDS retains shell quotes. Decode syntax only, never eval/expand
+    # substitutions. An unfinished quote is normal in an incomplete word.
+    local word="$1" quote= char next index
+    REPLY=
+    for ((index=0; index<${{#word}}; ++index)); do
+        char=${{word:index:1}}
+        if [[ $quote == "'" ]]; then
+            if [[ $char == "'" ]]; then quote=; else REPLY+=$char; fi
+        elif [[ $char == "$quote" && -n $quote ]]; then
+            quote=
+        elif [[ -z $quote && ( $char == "'" || $char == '"' ) ]]; then
+            quote=$char
+        elif [[ $char == $'\\\\' ]]; then
+            next=${{word:index+1:1}}
+            if [[ -n $next && ( -z $quote || $next == [\\$\\`\\"\\\\] ) ]]; then
+                REPLY+=$next
+                ((++index))
+            else
+                REPLY+=$char
+            fi
+        else
+            REPLY+=$char
+        fi
+    done
+}}
+
+_moguet_repository_packages() {{
+    local prefix="$1" strip_prefix="$2" helper={prefix_helper_binding(prefix_helper, 'bash')} output candidate previous=
+    local LC_ALL=C
+    local -a packages=()
+    [[ $helper == /* && -x $helper ]] || return 0
+    # Preserve the final newline and exit status. read -d NUL detects binary
+    # protocol corruption before Bash command substitution can drop NULs.
+    output="$(set -o pipefail
+        "$helper" "$prefix" 2>/dev/null | {{
+            IFS= read -r -d '' output && exit 1
+            printf '%s\\001' "$output"
+        }}
+    )" || return 0
+    output=${{output%$'\\001'}}
+    [[ ${{#output}} -le 65536 ]] || return 0
+    [[ -z $output ]] && return 0
+    [[ $output == *$'\\n' ]] || return 0
+    while IFS= read -r candidate; do
+        [[ $candidate =~ ^[A-Za-z0-9@._+][A-Za-z0-9@._+-]*$ &&
+           $candidate != . && $candidate != .. &&
+           $candidate == "$prefix"* ]] || return 0
+        [[ -z $previous || $candidate > $previous ]] || return 0
+        packages+=("$candidate")
+        [[ ${{#packages[@]}} -le 256 ]] || return 0
+        previous=$candidate
+    done <<< "${{output%$'\\n'}}"
+    for candidate in "${{packages[@]}}"; do
+        COMPREPLY+=("${{candidate#"$strip_prefix"}}")
+    done
+    return 0
 }}
 
 complete -F _moguet moguet
@@ -1463,7 +2086,8 @@ def zsh_case_values(values: tuple[str, ...] | list[str]) -> str:
     return " ".join(shell_quote(value) for value in values)
 
 
-def render_zsh(schema: CliSchema, descriptions: Descriptions, locale: str) -> str:
+def render_zsh(schema: CliSchema, descriptions: Descriptions, locale: str,
+               prefix_helper: str = "@MOGUET_REPOSITORY_PREFIX_HELPER@") -> str:
     operations = tuple(operation.token for operation in schema.operations)
     root_options = tuple(
         option
@@ -1472,7 +2096,7 @@ def render_zsh(schema: CliSchema, descriptions: Descriptions, locale: str) -> st
         and option.placement in {"parser-global", "first-non-global"}
     )
     terminal_pattern = "|".join(schema.terminal_tokens)
-    operation_pattern = "|".join(operations)
+    operation_pattern = "|".join(operations + ((QUERY_OPERATION,) if schema.query_tokens else ()))
     once_ids = tuple(
         dict.fromkeys(
             option.identity
@@ -1605,21 +2229,43 @@ def render_zsh(schema: CliSchema, descriptions: Descriptions, locale: str) -> st
             )
     for terminal in schema.terminal_tokens:
         operation_cases.append(f"        {terminal}) reply=() ;;")
+    if schema.query_tokens:
+        operation_cases.append(f'''        {shell_quote(QUERY_OPERATION)})
+            if _moguet_query_context; then
+                reply=({zsh_case_values(query_completion_tokens(schema))})
+            fi
+            ;;''')
 
     description_cases: list[str] = []
     for operation in schema.operations:
-        description = descriptions.operations[operation.token].replace(":", r"\:")
+        description = zsh_description(descriptions.operations[operation.token])
         description_cases.append(
             f"        {operation.token}) REPLY={shell_quote(description)} ;;"
         )
     for option in schema.options:
         if not option.is_completion_visible:
             continue
-        description = descriptions.options[option.token].replace(":", r"\:")
+        description = zsh_description(descriptions.options[option.token])
         description_cases.append(
             f"        {shell_quote(option.completion_token)}) "
             f"REPLY={shell_quote(description)} ;;"
         )
+
+    ownership_cases = "\n".join(
+        f"        {shell_quote(token)}) REPLY={shell_quote(ownership)} ;;"
+        for token, ownership in option_ownerships(schema).items()
+    )
+    categories = tuple(sorted(set(option_ownerships(schema).values())))
+    group_arrays = " ".join("described_" + category.replace("-", "_") for category in categories)
+    group_cases = "\n".join(
+        f'        {category}) described_{category.replace("-", "_")}+=("$candidate:$REPLY") ;;'
+        for category in categories
+    )
+    group_calls = "\n".join(
+        f"    _describe -J -t moguet-options-{category} "
+        f"{shell_quote(descriptions.ownership[category])} described_{category.replace('-', '_')}"
+        for category in categories
+    )
 
     canonical_comments = "\n".join(
         f"#   {syntax}" for syntax in schema.canonical_grammar
@@ -1630,6 +2276,7 @@ def render_zsh(schema: CliSchema, descriptions: Descriptions, locale: str) -> st
     return f"""#compdef moguet
 # Generated by scripts/generate_completions.py; do not edit.
 # Description locale: {locale}
+{query_provenance_comment(schema)}
 # Canonical closed grammar (projected from source/cli_authority.hpp):
 {canonical_comments}
 
@@ -1637,6 +2284,14 @@ _moguet_option_id() {{
     REPLY=
     case "$1" in
 {option_id_cases}
+    esac
+    [[ -n $REPLY ]]
+}}
+
+_moguet_option_ownership() {{
+    REPLY=
+    case "$1" in
+{ownership_cases}
     esac
     [[ -n $REPLY ]]
 }}
@@ -1734,9 +2389,27 @@ _moguet_description() {{
     esac
 }}
 
+{zsh_typed_functions(schema)}
+{option_context_function(schema, 'zsh')}
+{query_context_function(schema, 'zsh')}
+
 _moguet() {{
-    local operation candidate option_id
-    local -a candidates filtered described
+    local operation candidate option_id cur=${{PREFIX-${{(Q)words[CURRENT]}}}}
+    local words_are_logical=false
+    local -a words=("${{words[@]}}")
+    local -a candidates filtered described {group_arrays}
+    local ownership
+    _moguet_option_context || return 0
+    case "$cur" in
+    {'|'.join(shell_quote(o.completion_token) + '*' for o in finite_completion_options(schema)) or '__no_finite_value__'})
+        # Applicability and agreement consume the same logical prior words.
+        local index
+        for ((index=2; index<CURRENT; ++index)); do
+            words[index]=${{(Q)words[index]}}
+        done
+        words_are_logical=true
+        ;;
+    esac
     _moguet_find_operation
     operation=$REPLY
 
@@ -1746,6 +2419,8 @@ _moguet() {{
         _moguet_collect_candidates "$operation"
         candidates=("${{reply[@]}}")
     fi
+
+    _moguet_typed_values && return 0
 
     for candidate in "${{candidates[@]}}"; do
         if _moguet_option_id "$candidate"; then
@@ -1761,10 +2436,51 @@ _moguet() {{
     done
 
     for candidate in "${{filtered[@]}}"; do
+        _moguet_option_ownership "$candidate"
+        ownership=$REPLY
         _moguet_description "$candidate"
-        described+=("$candidate:$REPLY")
+        case "$ownership" in
+{group_cases}
+        *) described+=("$candidate:$REPLY") ;;
+        esac
     done
     _describe -t moguet-values 'moguet value' described
+{group_calls}
+    # Package tokens use compadd directly, without description delimiters.
+    if (( CURRENT == 3 && ${{#words}} == 3 )) && [[ $words[CURRENT] != -* ]]; then
+        case "$words[2]" in
+        {'|'.join(local_prefix_operations(schema)) or '__no_local_prefix_context__'})
+            local prefix=${{PREFIX-${{(Q)words[CURRENT]}}}}
+            [[ $prefix != -* ]] && _moguet_repository_packages "$prefix"
+            ;;
+        esac
+    fi
+    return 0
+}}
+
+_moguet_repository_packages() {{
+    emulate -L zsh
+    local prefix="$1" helper={prefix_helper_binding(prefix_helper, 'zsh')} output candidate previous=
+    local LC_ALL=C
+    local -a packages
+    [[ $helper == /* && -x $helper ]] || return 0
+    output="$("$helper" "$prefix" 2>/dev/null && printf '\\001')" || return 0
+    output=${{output%$'\\001'}}
+    (( ${{#output}} <= 65536 )) || return 0
+    [[ $output != *$'\\0'* ]] || return 0
+    [[ -z $output ]] && return 0
+    [[ $output == *$'\\n' ]] || return 0
+    packages=("${{(@f)${{output%$'\\n'}}}}")
+    (( ${{#packages}} <= 256 )) || return 0
+    for candidate in "${{packages[@]}}"; do
+        [[ $candidate =~ '^[A-Za-z0-9@._+][A-Za-z0-9@._+-]*$' &&
+           $candidate != . && $candidate != .. &&
+           $candidate == "$prefix"* ]] || return 0
+        [[ -z $previous || $candidate > $previous ]] || return 0
+        previous=$candidate
+    done
+    compadd -a packages
+    return 0
 }}
 
 compdef _moguet moguet
@@ -1773,6 +2489,11 @@ compdef _moguet moguet
 
 def fish_quote(value: str) -> str:
     return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+
+def zsh_description(value: str) -> str:
+    # _describe's records use colon delimiters and backslash escaping.
+    return value.replace("\\", "\\\\").replace(":", r"\:")
 
 
 def fish_contains(ids: tuple[int, ...]) -> str:
@@ -1785,7 +2506,8 @@ def fish_contains(ids: tuple[int, ...]) -> str:
     )
 
 
-def render_fish(schema: CliSchema, descriptions: Descriptions, locale: str) -> str:
+def render_fish(schema: CliSchema, descriptions: Descriptions, locale: str,
+                prefix_helper: str = "@MOGUET_REPOSITORY_PREFIX_HELPER@") -> str:
     operations = tuple(operation.token for operation in schema.operations)
     root_ids = tuple(
         dict.fromkeys(
@@ -1809,7 +2531,7 @@ def render_fish(schema: CliSchema, descriptions: Descriptions, locale: str) -> s
         for identity, patterns in option_case_patterns(schema)
     )
     terminal_cases = " ".join(fish_quote(token) for token in schema.terminal_tokens)
-    operation_cases = " ".join(fish_quote(token) for token in operations)
+    operation_cases = " ".join(fish_quote(token) for token in operations + ((QUERY_OPERATION,) if schema.query_tokens else ()))
 
     allow_cases: list[str] = []
     delegated_ids = tuple(
@@ -1907,6 +2629,7 @@ def render_fish(schema: CliSchema, descriptions: Descriptions, locale: str) -> s
     lines = [
         "# Generated by scripts/generate_completions.py; do not edit.",
         f"# Description locale: {locale}",
+        query_provenance_comment(schema),
         "# Canonical closed grammar (projected from source/cli_authority.hpp):",
         canonical_comments,
         "",
@@ -1973,13 +2696,18 @@ def render_fish(schema: CliSchema, descriptions: Descriptions, locale: str) -> s
         "    return 1",
         "end",
         "",
+        option_context_function(schema, "fish"), "",
         "function __moguet_operation_allows --argument-names option_id",
+        "    __moguet_option_context; or return 1",
         "    set -l operation (__moguet_operation)",
         presentation_additions(schema, "fish"),
         "    if test -z \"$operation\"",
         f"        {fish_contains(root_ids)}",
         "    end",
         "    switch $operation",
+        *([f"        case {fish_quote(QUERY_OPERATION)}",
+           f"            contains -- $option_id {' '.join(map(str, delegated_ids))}; or return 1",
+           "            __moguet_query_context; and return 0; or return 1"] if schema.query_tokens else []),
         *allow_cases,
         "        case __delegated__",
         f"            {fish_contains(delegated_ids)}",
@@ -1988,6 +2716,12 @@ def render_fish(schema: CliSchema, descriptions: Descriptions, locale: str) -> s
         "end",
         "",
         "function __moguet_candidate_available --argument-names option_id",
+        "    if contains -- $option_id " + " ".join(str(o.identity) for o in finite_completion_options(schema)),
+        "        switch \"$option_id:\"(__moguet_value_word)",
+        "            case " + " ".join(fish_quote(str(o.identity) + ':' + o.completion_token + '*') for o in finite_completion_options(schema)),
+        "                return 1",
+        "        end",
+        "    end",
         "    __moguet_operation_allows $option_id; or return 1",
         f"    contains -- $option_id {' '.join(str(identity) for identity in once_ids)}; and __moguet_has_option_id $option_id; and return 1",
         "    switch $option_id",
@@ -1997,6 +2731,7 @@ def render_fish(schema: CliSchema, descriptions: Descriptions, locale: str) -> s
         "end",
         "",
         "function __moguet_no_operation",
+        "    __moguet_option_context; or return 1",
         "    not __moguet_operation >/dev/null",
         "end",
         "",
@@ -2014,21 +2749,89 @@ def render_fish(schema: CliSchema, descriptions: Descriptions, locale: str) -> s
             "complete -c moguet -f -n "
             f"{fish_quote(f'__moguet_candidate_available {option.identity}')} "
             f"-a {fish_quote(option.completion_token)} -d "
-            f"{fish_quote(descriptions.options[option.token])}"
+            f"{fish_quote(descriptions.ownership[option.ownership] + ': ' + descriptions.options[option.token])}"
         )
+    lines.extend([
+        "",
+        "function __moguet_repository_packages",
+        "    set -l before (commandline -opc)",
+        "    test (count $before) -eq 2; or return 0",
+        "    test (count (commandline -op)) -le 3; or return 0",
+        "    switch $before[2]",
+        "        case " + " ".join(fish_quote(t) for t in local_prefix_operations(schema)),
+        "        case '*'",
+        "            return 0",
+        "    end",
+        "    set -l raw (commandline -ct | string collect -a)",
+        "    set -l prefix (string unescape -- \"$raw\")",
+        "    if test $status -ne 0",
+        "        switch (string sub -l 1 -- \"$raw\")",
+        '''            case "'"''',
+        '''                set prefix (string unescape -- "$raw'")''',
+        "            case '\"'",
+        '''                set prefix (string unescape -- "$raw\\\"")''',
+        "            case '*'",
+        "                return 0",
+        "        end",
+        "    end",
+        "    test (count $prefix) -eq 1; or return 0",
+        "    string match -q -- '-*' \"$prefix\"; and return 0",
+        f"    set -l helper {prefix_helper_binding(prefix_helper, 'fish')}",
+        "    string match -q -- '/*' \"$helper\"; or return 0",
+        "    test -x \"$helper\"; or return 0",
+        # split0 preserves newline bytes and exposes every NUL as a separate
+        # item. A success sentinel makes even a trailing NUL observable.
+        "    set -l output (begin; \"$helper\" \"$prefix\" 2>/dev/null; and printf '\\x01'; end | string split0)",
+        "    test $pipestatus[1] -eq 0; or return 0",
+        "    test (count $output) -eq 1; or return 0",
+        "    test (string length -- \"$output\") -le 65537; or return 0",
+        "    string match -qr -- '\\n\\x01$' \"$output\"; or return 0",
+        "    set -l packages (string split \\n -- \"$output\")",
+        "    set -e packages[-1]",
+        "    test (count $packages) -le 256; or return 0",
+        "    for candidate in $packages",
+        "        string match -qr -- '^[A-Za-z0-9@._+][A-Za-z0-9@._+-]*$' \"$candidate\"; or return 0",
+        "        contains -- \"$candidate\" . ..; and return 0",
+        "        test (string sub -l (string length -- \"$prefix\") -- \"$candidate\") = \"$prefix\"; or return 0",
+        "    end",
+        # Fish has no bytewise string ordering operator. Check, never sort or
+        # transform, the complete protocol once using the Arch coreutils tool.
+        "    printf '%s\\n' $packages | LC_ALL=C /usr/bin/sort -cu 2>/dev/null; or return 0",
+        "    printf '%s\\n' $packages",
+        "end",
+        "",
+        # Exactly one dynamic argument producer; conditions stay static.
+        "complete -c moguet -f -a '(__moguet_repository_packages)'",
+    ])
+    lines.extend(fish_typed_functions(schema))
+    if schema.query_tokens:
+        generic = tuple(item.token for item in schema.query_tokens
+                        if item.projected and item.category == "upstream-delegated")
+        lines.extend([
+            "", query_context_function(schema, "fish"), "",
+            "function __moguet_query_options",
+            "    __moguet_query_context; or return 0",
+            "    set -l current (__moguet_value_word)",
+            "    for candidate in " + ' '.join(map(fish_quote, generic)),
+            "        test (string sub -l (string length -- \"$current\") -- \"$candidate\") = \"$current\"; or continue",
+            "        printf '%s\\n' \"$candidate\"", "    end", "end", "",
+            "complete -c moguet -f -a '(__moguet_query_options)' -d "
+            + fish_quote(descriptions.ownership["upstream-delegated"]),
+        ])
     return "\n".join(lines) + "\n"
 
 
 def generated_files(
-    schema: CliSchema, descriptions: Descriptions, locale: str, output_dir: Path
+    schema: CliSchema, descriptions: Descriptions, locale: str, output_dir: Path,
+    prefix_helper: str = "@MOGUET_REPOSITORY_PREFIX_HELPER@",
 ) -> dict[Path, str]:
-    renderers: tuple[tuple[str, Callable[[CliSchema, Descriptions, str], str]], ...] = (
+    renderers: tuple[tuple[str, Callable[[CliSchema, Descriptions, str, str], str]], ...] = (
         ("moguet.bash", render_bash),
         ("_moguet", render_zsh),
         ("moguet.fish", render_fish),
     )
     return {
-        output_dir / filename: renderer(schema, descriptions, locale)
+        output_dir / filename: renderer(schema, descriptions, locale, prefix_helper)
         for filename, renderer in renderers
     }
 
@@ -2057,7 +2860,7 @@ def check_generated(path: Path, expected: str) -> bool:
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Generate Moguet static shell completions from the public CLI authority."
+        description="Generate Moguet shell completions from the shared CLI authority."
     )
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument(
@@ -2069,6 +2872,9 @@ def parse_arguments() -> argparse.Namespace:
         help="render one completion to stdout without writing tracked files",
     )
     parser.add_argument("--locale", default="en", help="description locale (default: en)")
+    parser.add_argument("--repository-prefix-helper",
+                        default="@MOGUET_REPOSITORY_PREFIX_HELPER@",
+                        help="resolved absolute helper path (CMake install authority)")
     parser.add_argument(
         "--output-dir",
         type=Path,
@@ -2086,7 +2892,12 @@ def main() -> int:
 
     schema = load_schema()
     descriptions = load_descriptions(schema, arguments.locale)
-    outputs = generated_files(schema, descriptions, arguments.locale, output_dir)
+    helper = arguments.repository_prefix_helper
+    if helper != "@MOGUET_REPOSITORY_PREFIX_HELPER@" and (
+        not Path(helper).is_absolute() or any(ch in helper for ch in '\0\n\r')
+    ):
+        fail("repository prefix helper must be an absolute single-line path")
+    outputs = generated_files(schema, descriptions, arguments.locale, output_dir, helper)
 
     if arguments.check:
         return 0 if all(

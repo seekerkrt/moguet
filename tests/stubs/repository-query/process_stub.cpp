@@ -26,6 +26,13 @@ std::vector<std::string> captured_commands() {
 
 } // namespace repository_query_test_stub
 
+CapturedCommandResult capture_explicit_process_output_raw(
+    const ExplicitProcessInvocation&, bool) {
+    // This fixture links the shared metadata object but never queries prefixes.
+    // Reject that private transport rather than launching a real pacman-conf.
+    throw std::logic_error("Unexpected explicit capture in repository query test.");
+}
+
 CapturedCommandResult capture_command_output_raw(const char* command) {
     std::string command_text = command == nullptr ? "" : command;
     g_commands.push_back(command_text);

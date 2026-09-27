@@ -1764,6 +1764,25 @@ PacmanRepositoryConfiguration resolve_pacman_repository_configuration() {
         parse_pacman_repository_names(command_result.output)};
 }
 
+PacmanRepositoryConfiguration resolve_pacman_repository_configuration(
+    std::size_t configuration_capture_limit) {
+    auto capture = [configuration_capture_limit](std::vector<std::string> arguments) {
+        const auto result = capture_explicit_process_output_raw(
+            ExplicitProcessInvocation{
+                "/usr/bin/pacman-conf", std::move(arguments), {"LC_ALL=C"}, configuration_capture_limit},
+            true);
+        if(result.exit_code != 0 || result.stdout_capture_limit_exceeded) {
+            throw_package_metadata_error(
+                PackageMetadataErrorCode::ConfigurationUnavailable,
+                "Bounded pacman-conf configuration capture failed.");
+        }
+        return result.output;
+    };
+    auto paths = parse_pacman_database_paths(capture({"--verbose", "RootDir", "DBPath"}));
+    auto names = parse_pacman_repository_names(capture({"--repo-list"}));
+    return PacmanRepositoryConfiguration{std::move(paths), std::move(names)};
+}
+
 PacmanRepositoryConfiguration
 resolve_pacman_root_search_repository_configuration() {
     PacmanRepositoryConfiguration configuration =
@@ -2384,6 +2403,46 @@ RepositoryPackageMetadataSession RepositoryPackageMetadataSession::open(
 
     auto impl = std::make_unique<Impl>(std::move(handle), std::move(repositories));
     return RepositoryPackageMetadataSession(std::move(impl));
+}
+
+RepositoryPackagePrefixResult RepositoryPackageMetadataSession::query_package_name_prefix(
+    const std::string& prefix, std::size_t candidate_limit,
+    std::size_t output_byte_limit) const {
+    if(impl_ == nullptr || candidate_limit == 0 || output_byte_limit == 0) {
+        return PackageMetadataFailure{PackageMetadataErrorCode::QueryFailed,
+                                      "Invalid or closed package prefix query."};
+    }
+    std::set<std::string> names;
+    bool truncated = false;
+    for(const auto& repository : impl_->repositories) {
+        for(auto* entry = repository.package_cache; entry != nullptr; entry = entry->next) {
+            auto* package = static_cast<alpm_pkg_t*>(entry->data);
+            const char* raw_name = package == nullptr ? nullptr : alpm_pkg_get_name(package);
+            if(raw_name == nullptr || !is_valid_package_name(raw_name)) {
+                return PackageMetadataFailure{PackageMetadataErrorCode::MalformedMetadata,
+                                              "Invalid sync package name metadata."};
+            }
+            if(!std::string_view(raw_name).starts_with(prefix)) continue;
+            names.insert(raw_name);
+            // Retain only the bytewise first N names, independent of repository
+            // precedence/cache order. Still inspect the rest for metadata failure.
+            if(names.size() > candidate_limit) {
+                names.erase(std::prev(names.end()));
+                truncated = true;
+            }
+        }
+    }
+    RepositoryPackagePrefixSnapshot result{{}, truncated};
+    std::size_t output_bytes = 0;
+    for(const auto& name : names) {
+        if(name.size() >= output_byte_limit - output_bytes) {
+            result.truncated = true;
+            break;
+        }
+        output_bytes += name.size() + 1;
+        result.names.push_back(name);
+    }
+    return result;
 }
 
 RepositoryPackageQueryResult RepositoryPackageMetadataSession::query_repository_package(

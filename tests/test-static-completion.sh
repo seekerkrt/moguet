@@ -101,8 +101,8 @@ run_completion moguet --d
 assert_reply "diagnostic and dry-run option prefix" --diff --dry-run --details
 
 # enum / package候補のdynamic completionは#253へ残す。
-run_completion moguet --build-mode=n
-assert_reply "typed build-mode valueは提示しない"
+# Finite attached values are covered by the shared authority scenarios in
+# test-dynamic-completion.py; this suite retains the ordinary static surface.
 
 run_completion moguet build ""
 assert_reply \
@@ -253,7 +253,14 @@ run_completion moguet -S --select --dry-run --det
 assert_reply "selected dry-runでdetailsを重複提示しない" --details
 
 run_completion moguet -Q ""
-assert_reply "未列挙pacman operationもopen grammarとして扱う" --needed --noconfirm
+mapfile -t query_candidates < <(PYTHONDONTWRITEBYTECODE=1 python3 - "$script_dir/../scripts" <<'PY'
+import sys
+sys.path.insert(0, sys.argv[1])
+from generate_completions import load_schema, query_completion_tokens
+print('\n'.join(query_completion_tokens(load_schema())))
+PY
+)
+assert_reply "queryはsnapshotと既存authorityのtoken projectionを使う" "${query_candidates[@]}"
 
 run_completion moguet build --rebuild ""
 assert_reply \
@@ -268,9 +275,14 @@ if command -v zsh >/dev/null 2>&1; then
 compdef() { return 0 }
 source "$MOGUET_COMPLETION_FILE"
 _describe() {
-    reply=()
-    local entry
-    for entry in "${described[@]}"; do reply+=("${entry%%:*}"); done
+    local entry name=$argv[-1]
+    for entry in "${(@P)name}"; do captured+=("${entry%%:*}"); done
+}
+functions[_moguet_under_test]=$functions[_moguet]
+_moguet() {
+    local -a captured
+    _moguet_under_test
+    reply=("${captured[@]}")
 }
 
 fail() {
@@ -431,7 +443,7 @@ has_candidate --noconfirm || fail 'source-maintenance multi-target form was clos
 words=(moguet -Q '')
 CURRENT=3
 _moguet_find_operation || fail 'delegated operation not found'
-[[ $REPLY == __delegated__ ]] || fail 'delegated operation was closed'
+[[ $REPLY == -Q ]] || fail 'query completion context identity differs'
 _moguet_collect_candidates "$REPLY"
 has_candidate --noconfirm || fail 'delegated grammar lost --noconfirm'
 ZSH
@@ -545,7 +557,7 @@ set mock_words moguet revert first second
 __moguet_candidate_available 4; or fail 'source-maintenance multi-target form was closed'
 
 set mock_words moguet -Q
-test (__moguet_operation) = __delegated__; or fail 'delegated operation was closed'
+test (__moguet_operation) = -Q; or fail 'query completion context identity differs'
 __moguet_candidate_available 20; and fail 'delegated grammar leaked --details'
 __moguet_candidate_available 4; or fail 'delegated grammar lost --noconfirm'
 FISH

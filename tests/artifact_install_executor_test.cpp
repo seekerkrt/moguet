@@ -344,6 +344,21 @@ std::string expected_install_command(
 
 void test_process_stub_fail_fast_contract() {
     process_stub::reset_process_stub();
+    const std::string explicit_capture = expect_logic_error(
+        []() {
+            static_cast<void>(capture_explicit_process_output_raw(
+                ExplicitProcessInvocation{
+                    "/usr/bin/pacman-conf", {"--repo-list"}, {"LC_ALL=C"}, 16384},
+                true));
+        },
+        "unexpected explicit capture transport");
+    expect(
+        expect_logic_error(
+            process_stub::require_process_expectations_consumed,
+            "sticky explicit capture transport") == explicit_capture,
+        "Explicit capture failure was not retained by the process stub");
+
+    process_stub::reset_process_stub();
     process_stub::expect_capture_command(
         "expected capture", CapturedCommandResult{"unused", 0});
     const std::string capture_mismatch = expect_logic_error(

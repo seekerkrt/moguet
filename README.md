@@ -846,9 +846,27 @@ authorizing evaluation. Moguet builds from an invocation-owned source snapshot,
 leaves the user-owned tree unchanged, and installs every valid unique `pkgname`
 child declared by the accepted metadata as an explicit root. Dependency
 artifacts retain dependency install reasons, and an already explicit installed
-package is never demoted. Runtime-aware package-name completion and more
-advanced completion are future work; the shipped completion is limited to the
-public CLI schema.
+package is never demoted.
+
+Installed Bash, Zsh and Fish completions add literal local sync package-name
+prefixes for the first operand of plain `moguet -S`, for example
+`moguet -S ch<Tab>`. This reads the existing default sync database without
+refreshing it. Additional options or operands, search (`-Ss`), `--select`,
+`--aur`, alternate database/root options and `--` suppress this provider.
+If it is unavailable or fails, ordinary static option completion remains.
+Finite attached values for `--build-mode=` are completed from the public CLI
+authority, respecting compatible aliases. Broader runtime-aware completion
+remains future work.
+
+In the delegated `-Q` context, completions also project upstream pacman option
+tokens from a version-identified raw query-help snapshot. They do not run help
+at Tab time or infer option semantics from it. Completion stops after `--`, a
+pending value or a tail whose arity is unknown. This is a narrow token projection,
+not a claim of full pacman compatibility.
+
+Zsh groups option candidates by CLI ownership; Fish shows that category in
+descriptions. Bash keeps raw option tokens. These labels do not change the
+available candidates or the inserted command arguments.
 
 ### Local recipe patches
 

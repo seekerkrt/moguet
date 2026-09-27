@@ -985,3 +985,44 @@ moguet_add_ctest(
         "$<TARGET_FILE:moguet-aur-rpc-validation-test>"
         "$<TARGET_FILE:moguet-source-install-characterization-test>"
 )
+
+moguet_add_ctest(
+    NAME completion.repository_prefix_helper
+    TARGETS moguet-repository-prefix-helper moguet-repository-prefix-worker
+    COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test-repository-prefix-helper.py"
+        "$<TARGET_FILE:moguet-repository-prefix-helper>"
+        "$<TARGET_FILE:moguet-repository-prefix-worker>"
+        "${CMAKE_CURRENT_BINARY_DIR}"
+)
+set_tests_properties(completion.repository_prefix_helper PROPERTIES TIMEOUT 30)
+
+moguet_add_ctest(
+    NAME completion.dynamic_shells
+    TARGETS moguet-cli-authority-exporter
+    COMMAND "${CMAKE_COMMAND}" -E env
+        "MOGUET_CLI_AUTHORITY_EXPORTER=$<TARGET_FILE:moguet-cli-authority-exporter>"
+        PYTHONDONTWRITEBYTECODE=1
+        python3 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test-dynamic-completion.py"
+        --results "${CMAKE_CURRENT_BINARY_DIR}/Testing/completion-semantic-results.json"
+)
+set_tests_properties(completion.dynamic_shells PROPERTIES TIMEOUT 90)
+
+moguet_add_ctest(
+    NAME completion.presentation
+    TARGETS moguet-cli-authority-exporter
+    COMMAND "${CMAKE_COMMAND}" -E env
+        "MOGUET_CLI_AUTHORITY_EXPORTER=$<TARGET_FILE:moguet-cli-authority-exporter>"
+        PYTHONDONTWRITEBYTECODE=1
+        python3 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test-completion-presentation.py"
+)
+set_tests_properties(completion.presentation PROPERTIES TIMEOUT 90)
+
+moguet_add_ctest(
+    NAME completion.pacman_query_projection
+    TARGETS moguet-cli-authority-exporter
+    COMMAND "${CMAKE_COMMAND}" -E env
+        "MOGUET_CLI_AUTHORITY_EXPORTER=$<TARGET_FILE:moguet-cli-authority-exporter>"
+        PYTHONDONTWRITEBYTECODE=1
+        python3 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test-pacman-query-completion.py"
+)
+set_tests_properties(completion.pacman_query_projection PROPERTIES TIMEOUT 20)

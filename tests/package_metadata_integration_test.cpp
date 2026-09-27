@@ -766,10 +766,45 @@ void run_hold_package_configuration_smoke_test() {
            "fresh host HoldPkg configuration observation failed");
 }
 
+void run_package_prefix_fixture_test() {
+    TemporaryDirectory fixture;
+    const auto database = fixture.path() / "database";
+    create_local_database(database, {});
+    create_sync_database(fixture.path(), database, "first",
+                         {FixturePackageMetadata{"chromium"}, FixturePackageMetadata{"chrome"},
+                          FixturePackageMetadata{"ch.dot"}});
+    create_sync_database(fixture.path(), database, "second",
+                         {FixturePackageMetadata{"chromium"}, FixturePackageMetadata{"cherry"}});
+    const PacmanRepositoryConfiguration configuration{{"/", database}, {"second", "first"}};
+    auto session = RepositoryPackageMetadataSession::open(configuration);
+    const auto result = session.query_package_name_prefix("ch", 256, 65536);
+    expect(std::holds_alternative<RepositoryPackagePrefixSnapshot>(result) &&
+               std::get<RepositoryPackagePrefixSnapshot>(result).names ==
+                   std::vector<std::string>{"ch.dot", "cherry", "chrome", "chromium"},
+           "real sync DB prefix order/dedup mismatch");
+    expect(std::get<RepositoryPackagePrefixSnapshot>(session.query_package_name_prefix("ch.*", 2, 100)).names.empty(),
+           "real prefix query used regex");
+    const auto limited = std::get<RepositoryPackagePrefixSnapshot>(session.query_package_name_prefix("", 2, 100));
+    expect(limited.truncated && limited.names == std::vector<std::string>{"ch.dot", "cherry"},
+           "real DB candidate limit mismatch");
+    for(const auto& repository : {"missing", "corrupt"}) {
+        if(std::string(repository) == "corrupt")
+            write_fixture_file(database / "sync/corrupt.db", "not an archive");
+        bool failed = false;
+        try {
+            auto unavailable = RepositoryPackageMetadataSession::open({{"/", database}, {repository}});
+        } catch(const PackageMetadataError& error) {
+            failed = error.failure().code == PackageMetadataErrorCode::SyncDatabaseUnavailable;
+        }
+        expect(failed, "real missing/corrupt DB accepted as empty");
+    }
+}
+
 } // namespace
 
 int main() {
     try {
+        run_package_prefix_fixture_test();
         test_raw_capture_preserves_boundary_whitespace();
         run_hold_package_configuration_smoke_test();
         run_pacman_metadata_smoke_test();

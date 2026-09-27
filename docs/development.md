@@ -243,6 +243,18 @@ Pythonのstdout rendererを実行して3つのtracked fileをpublishする。
 `scripts/generate_completions.py`はcheck-only / stdout-onlyでtracked write modeを持たず、callerが
 environment markerを自称してもこのfreshness boundaryを代替できない。
 
+tracked completionはinstall prefixに依存しないhelper置換tokenを持つ。CMakeはcanonical
+generated fileを`configure_file @ONLY`でbuild treeへ投影し、resolved
+`MOGUET_FULL_INTERNAL_EXECUTABLE_DIRECTORY`のprivate prefix helperへshell別にquoteしてbindする。
+installはこのconfigured版を使う。source-treeのprovider fixtureはgeneratorの
+`--render <shell> --repository-prefix-helper <absolute-path>`で同じadapterを生成できる。
+実行時PATH lookupやnormal Moguet startupはproviderのauthorityにしない。
+
+delegated `-Q`のupstream option spellingは、実pacmanのraw help/versionとhash metadataを
+`completions/upstream/pacman-query/`へ固定した入力から生成する。usual generation/freshnessは
+installed pacmanに依存しない。operatorによるtarget pacmanからの明示refreshとread-only host validationを
+分離する。bounds、失敗、ownership、opaque tailは[pacman query completion contract](contracts/pacman-query-completion.md)を正とする。
+
 #### Install / package consumer
 
 CMake install graphと`install_manifest.txt`がinstall / uninstall payloadのcanonical authorityである。

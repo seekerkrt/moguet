@@ -477,8 +477,13 @@ int main() {
         OptionId::EndOfOptions,
     };
     static_assert(is_complete_option_projection_order(OPTION_ORDER));
-    for(OptionId id : OPTION_ORDER)
+    for(OptionId id : OPTION_ORDER) {
         print_option(id);
+        const auto& option = cli_authority::option_contract(id);
+        if(!option.fixed_value.empty())
+            std::cout << "FIXED_VALUE\t" << enum_index(id) << '\t'
+                      << option.fixed_value << '\n';
+    }
 
     for(OperationId id : cli_public_operation_order()) {
         const cli_authority::OperationMetadata& metadata =
@@ -513,19 +518,18 @@ int main() {
             operation.delegated_pacman_tail_policy);
     }
 
-    constexpr std::array DELEGATED_EXAMPLE_SYNTAX = {
-        cli_authority::PACMAN_SYNC_INSTALL_SYNTAX,
-        cli_authority::PACMAN_SYSTEM_UPGRADE_SYNTAX,
-        cli_authority::PACMAN_SYSTEM_UPGRADE_NO_REFRESH_SYNTAX,
-        cli_authority::PACMAN_SYNC_SEARCH_SYNTAX,
-        cli_authority::PACMAN_SYNC_INFO_SYNTAX,
-        cli_authority::PACMAN_FOREIGN_UPDATES_SYNTAX,
-    };
-    for(std::string_view syntax : DELEGATED_EXAMPLE_SYNTAX) {
-        const std::size_t separator = syntax.find(' ');
-        const std::string_view token = syntax.substr(0, separator);
-        std::cout << "OPERATION\t" << token << "\topen\n";
+    for(const auto& example : cli_authority::DELEGATED_OPERATION_EXAMPLES) {
+        std::cout << "OPERATION\t" << example.token() << "\topen\n";
+        std::cout << "OPERAND_CONTEXT\t" << example.token() << '\t'
+                  << operand_kind_name(example.operand_kind) << '\n';
     }
+    for(const auto& option : cli_authority::PACMAN_VALUE_OPTIONS) {
+        std::cout << "LEXICAL_VALUE\t" << option.token << '\t'
+                  << (option.changes_database_context ? "alternate-db" : "default-db")
+                  << '\n';
+    }
+    std::cout << "BOUNDARY\t" << cli_authority::END_OF_OPTIONS_TOKEN
+              << '\t' << enum_index(OptionId::EndOfOptions) << '\n';
 
     for(const auto& scope : cli_authority::DELEGATED_PRESENTATION_DETAIL_SCOPES) {
         std::cout << "PRESENTATION\t" << scope.operation << '\t'

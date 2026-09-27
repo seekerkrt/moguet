@@ -393,8 +393,22 @@ ResolvedCliRuntimeContract resolve_cli_runtime_contract(
     }
 
     if(special == nullptr) return {};
-    return ResolvedCliRuntimeContract{
+    ResolvedCliRuntimeContract contract{
         nullptr, nullptr, special, special->owner};
+    if(special->is_open_grammar) {
+        bool has_unknown_tail = false;
+        for(const auto& token : parsed.tokens) {
+            if(token.role == CliTokenRole::EndOfOptions ||
+               (token.role == CliTokenRole::PacmanOption &&
+                token.value != cli_authority::PACMAN_NEEDED_OPTION)) {
+                has_unknown_tail = true;
+            }
+        }
+        if(!has_unknown_tail)
+            contract.delegated_example =
+                cli_authority::find_delegated_operation_example(parsed.operation);
+    }
+    return contract;
 }
 
 CliInvocationValidation validate_cli_invocation_contract(

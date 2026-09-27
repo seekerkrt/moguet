@@ -804,10 +804,63 @@ void test_terminal_safe_policy_and_runtime_boundary() {
         "Runtime presentation retained raw unsafe bytes");
 }
 
+void test_shared_operand_and_lexical_authority() {
+    using namespace cli_authority;
+    for(const auto& [arguments, kind] : std::vector<std::pair<std::vector<std::string>, OperandKind>>{
+            {{"-S", "ch"}, OperandKind::Package},
+            {{"-Ss", "ch"}, OperandKind::Query}}) {
+        const auto parsed = require_parsed_invocation(arguments, "known delegated context");
+        const auto contract = resolve_cli_runtime_contract(parsed);
+        expect(contract.is_delegated() && contract.delegated_example != nullptr &&
+                   contract.delegated_example->operand_kind == kind,
+               "exact package/query projection missing or changed delegation");
+        expect(validate_cli_invocation_contract(parsed).is_valid(), "delegated validity changed");
+    }
+    const auto select = resolve_cli_runtime_contract(require_parsed_invocation(
+        {"-S", "--select", "ch"}, "select query"));
+    expect(select.special_operation->operands.terms[0].kind == OperandKind::Query &&
+               select.delegated_example == nullptr,
+           "select became package context");
+    for(const auto& args : std::vector<std::vector<std::string>>{
+            {"-Sxyz", "ch"}, {"-S", "--search", "ch"}, {"-S", "--", "ch"}}) {
+        const auto parsed = require_parsed_invocation(args, "open grammar");
+        const auto contract = resolve_cli_runtime_contract(parsed);
+        expect(contract.is_delegated() && contract.delegated_example == nullptr &&
+                   validate_cli_invocation_contract(parsed).is_valid(),
+               "open grammar falsely classified or closed");
+    }
+    for(const auto& option : PACMAN_VALUE_OPTIONS) {
+        expect(pacman_option_takes_value(std::string(option.token)), "shared arity missing");
+        expect(!pacman_option_takes_value(std::string(option.token) + "=value"), "inline waits for value");
+        const auto parsed = require_parsed_invocation(
+            {"-S", std::string(option.token), "--", "ch"}, "pending value precedes marker");
+        expect(parsed.tokens[2].role == CliTokenRole::PacmanOptionValue &&
+                   !parsed.end_of_options && parsed.targets == std::vector<std::string>{"ch"},
+               "pending lexical interpretation changed");
+    }
+    for(const auto& args : std::vector<std::vector<std::string>>{
+            {"-S", "--color", "always", "ch"}, {"-S", "--color=always", "ch"}, {"-S", "-b", "/db", "ch"}, {"-S", "-r", "/root", "ch"}}) {
+        const auto parsed = require_parsed_invocation(args, "value syntax");
+        expect(parsed.targets == std::vector<std::string>{"ch"} &&
+                   !parsed.pending_option,
+               "value became operand");
+        expect(parsed.ordered_pacman_args == args, "forwarded argv changed");
+    }
+    const auto opaque = require_parsed_invocation({"-S", "--", "--color"}, "marker");
+    expect(opaque.end_of_options && opaque.tokens.back().role == CliTokenRole::OpaqueOperand,
+           "marker no longer shields opaque operand");
+    expect(!parse_invocation({"-S", "--color"}), "missing value accepted");
+    expect(find_pacman_value_option("--config=x")->changes_database_context &&
+               find_pacman_value_option("-b")->changes_database_context &&
+               !find_pacman_value_option("--color")->changes_database_context,
+           "alternate DB lexical fact missing");
+}
+
 } // namespace
 
 int main() {
     try {
+        test_shared_operand_and_lexical_authority();
         test_presentation_detail_plumbing();
         std::cout << "  ok: invocation-local presentation detail plumbing\n";
         test_presentation_option_ownership_boundaries();

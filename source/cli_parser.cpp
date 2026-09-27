@@ -150,13 +150,15 @@ bool apply_moguet_global_option(const std::string& arg, ParsedCliArguments& pars
         case cli_authority::GlobalOptionId::BuildMode:
             return apply_build_mode_option(arg, parsed);
         case cli_authority::GlobalOptionId::Rebuild:
-            return apply_final_value_override(
-                parsed.cli_overrides.build_mode, BuildMode::Rebuild,
-                "build.mode", build_mode_name);
         case cli_authority::GlobalOptionId::CleanBuild:
-            return apply_final_value_override(
-                parsed.cli_overrides.build_mode, BuildMode::Clean,
-                "build.mode", build_mode_name);
+            // Alias values belong to the same public authority as the enum;
+            // use its attached-value path so agreement validation stays shared.
+            return apply_build_mode_option(
+                std::string(cli_authority::global_option_spec(
+                                cli_authority::GlobalOptionId::BuildMode)
+                                .token) +
+                    "=" + std::string(cli_authority::option_contract(cli_authority::option_id(option.value())).fixed_value),
+                parsed);
         case cli_authority::GlobalOptionId::RmDeps:
             parsed.cli_overrides.rm_deps = true;
             break;
@@ -214,16 +216,7 @@ UserConfig compose_user_config(
 }
 
 bool pacman_option_takes_value(const std::string& arg) {
-    // POLICY: 固定の pacman option table。process lifetime の保持だが mutable な副作用は持たない。
-    static const std::vector<std::string> s_long_opts = {
-        "--arch", "--assume-installed", "--cachedir", "--color", "--config", "--dbpath",
-        "--gpgdir", "--hookdir", "--ignore", "--ignoregroup", "--logfile", "--overwrite",
-        "--print-format", "--root", "--sysroot"};
-    static const std::vector<std::string> s_short_opts = {"-b", "-r"};
-
-    if(arg.find('=') != std::string::npos) return false;
-    if(std::find(s_long_opts.begin(), s_long_opts.end(), arg) != s_long_opts.end()) return true;
-    return std::find(s_short_opts.begin(), s_short_opts.end(), arg) != s_short_opts.end();
+    return cli_authority::pacman_option_needs_following_value(arg);
 }
 
 std::optional<ParsedCliArguments> parse_cli_arguments(int argc, char* argv[]) {
@@ -274,7 +267,7 @@ std::optional<ParsedCliArguments> parse_cli_arguments(int argc, char* argv[]) {
             parsed.target_token_indices.push_back(token_index);
             continue;
         }
-        if(arg == "--") {
+        if(arg == cli_authority::END_OF_OPTIONS_TOKEN) {
             parsed.tokens.push_back(
                 ParsedCliToken{arg, static_cast<std::size_t>(i), CliTokenRole::EndOfOptions});
             parsed.ordered_pacman_args.push_back(arg);

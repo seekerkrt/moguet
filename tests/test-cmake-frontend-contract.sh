@@ -732,6 +732,7 @@ mkdir -p \
     "$completion_fixture/source" \
     "$completion_fixture/scripts" \
     "$completion_fixture/completions/descriptions" \
+    "$completion_fixture/completions/upstream/pacman-query" \
     "$completion_baseline"
 cp \
     "$repo_root/cmake/MoguetCompilerPreflight.cmake" \
@@ -744,6 +745,7 @@ cp \
 cp \
     "$repo_root/scripts/export_cli_authority.cpp" \
     "$repo_root/scripts/generate_completions.py" \
+    "$repo_root/scripts/pacman_query_completion.py" \
     "$completion_fixture/scripts/"
 cp \
     "$repo_root/source/cli_authority.hpp" \
@@ -753,6 +755,11 @@ cp \
 cp \
     "$repo_root/completions/descriptions/en.json" \
     "$completion_fixture/completions/descriptions/en.json"
+cp \
+    "$repo_root/completions/upstream/pacman-query/help.txt" \
+    "$repo_root/completions/upstream/pacman-query/version.txt" \
+    "$repo_root/completions/upstream/pacman-query/capture.json" \
+    "$completion_fixture/completions/upstream/pacman-query/"
 printf '%s\n' \
     'cmake_minimum_required(VERSION 3.18)' \
     'include(cmake/MoguetPolicies.cmake NO_POLICY_SCOPE)' \

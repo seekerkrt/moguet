@@ -52,3 +52,17 @@ CapturedCommandResult capture_command_output_raw(const char* command) {
     result_queue->second.pop_front();
     return result;
 }
+
+CapturedCommandResult capture_explicit_process_output_raw(
+    const ExplicitProcessInvocation& invocation, bool) {
+    std::string command = "pacman-conf";
+    for(const auto& argument : invocation.arguments)
+        command += " " + argument;
+    command += " 2>/dev/null";
+    auto result = capture_command_output_raw(command.c_str());
+    if(invocation.stdout_capture_limit && result.output.size() > *invocation.stdout_capture_limit) {
+        result.output.resize(*invocation.stdout_capture_limit);
+        result.stdout_capture_limit_exceeded = true;
+    }
+    return result;
+}
