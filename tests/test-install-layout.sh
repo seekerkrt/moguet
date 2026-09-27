@@ -612,6 +612,30 @@ uninstall_helper=$fixture_build_dir/cmake-production/moguet-uninstall-helper
     fail "CMake uninstall helper is missing or not executable: $uninstall_helper"
 uninstall_safety_root=$stage_root/uninstall-safety
 
+# Reproduce the host filesystem package's /usr/local/share/man -> ../man
+# topology with the actual production install graph, never the live host.
+topology_stage=$uninstall_safety_root/canonical-topology
+install -d "$topology_stage/usr/local/share" "$topology_stage/usr/local/man"
+ln -s ../man "$topology_stage/usr/local/share/man"
+run_make PREFIX=/usr/local DESTDIR="$topology_stage" install
+topology_manifest=$fixture_build_dir/cmake-production/install_manifest.txt
+grep -Fx /usr/local/share/man/man1/moguet.1 "$topology_manifest" >/dev/null ||
+    fail 'canonical topology manifest lacks the lexical man path'
+grep -Fx /usr/share/locale/ja/LC_MESSAGES/moguet.mo "$topology_manifest" >/dev/null ||
+    fail 'canonical topology lost the absolute locale destination'
+assert_installed_file "$repo_root/man/moguet.1" "$topology_stage/usr/local/man/man1/moguet.1"
+assert_installed_file "$repo_root/man/ja/moguet.1" "$topology_stage/usr/local/man/ja/man1/moguet.1"
+topology_foreign=$topology_stage/usr/local/man/man1/foreign.keep
+printf '%s\n' 'foreign man page' > "$topology_foreign"
+run_make PREFIX=/usr/local DESTDIR="$topology_stage" uninstall
+while IFS= read -r topology_entry || [ -n "$topology_entry" ]; do
+    assert_absent "$topology_stage$topology_entry"
+done < "$topology_manifest"
+assert_file_text "$topology_foreign" 'foreign man page'
+[ "$(readlink "$topology_stage/usr/local/share/man")" = ../man ] ||
+    fail 'canonical uninstall changed the filesystem-owned man alias'
+assert_directory "$topology_stage/usr/local/man/man1"
+
 run_uninstall_helper() {
     helper_destdir=$1
     helper_manifest=$2
@@ -732,8 +756,8 @@ expect_uninstall_failure \
 assert_file_text "$traversal_owned" 'owned before traversal failure'
 assert_file_text "$traversal_foreign" 'foreign traversal target'
 
-# A final symlink is itself the payload entry. unlinkat removes that link while
-# the target outside DESTDIR remains untouched.
+# Canonical install produces regular files. A replacement leaf symlink must
+# invalidate the manifest, leaving both link and foreign target untouched.
 final_link_stage=$uninstall_safety_root/final-link-stage
 final_link_manifest=$uninstall_safety_root/final-link-manifest.txt
 final_link_target=$uninstall_safety_root/final-link-target.keep
@@ -743,12 +767,68 @@ printf '%s\n' 'foreign final-link target' > "$final_link_target"
 install -d "$(dirname "$final_link")"
 ln -s "$final_link_target" "$final_link"
 printf '%s\n' /custom/bin/moguet > "$final_link_manifest"
-run_uninstall_helper \
+expect_uninstall_failure 'target symlink replacement' run_uninstall_helper \
     "$final_link_stage" \
     "$final_link_manifest" \
     --allowed-root /custom/bin
-assert_absent "$final_link"
+[ -L "$final_link" ] || fail 'failed preflight removed the target symlink'
 assert_file_text "$final_link_target" 'foreign final-link target'
+
+# Exercise each refusal after an earlier valid entry: failure cannot flatten
+# into partial success, nor unlink the earlier file during preflight.
+unsafe_cases='ancestor-file alias-escape alias-absolute alias-chain alias-other
+ancestor-mode target-mode outside-root duplicate malformed missing'
+# Real uid changes are possible in the isolated root-run fixture; ordinary
+# host users do not gain privilege solely to exercise this negative case.
+if [ "$(id -u)" = 0 ]; then
+    unsafe_cases="$unsafe_cases ancestor-owner alias-owner target-owner"
+fi
+for unsafe_case in $unsafe_cases
+do
+    unsafe_stage=$uninstall_safety_root/$unsafe_case
+    unsafe_manifest=$uninstall_safety_root/$unsafe_case.txt
+    unsafe_guard=$unsafe_stage/custom/bin/moguet
+    unsafe_target=$unsafe_stage/usr/local/man/man1/moguet.1
+    install -Dm644 /dev/null "$unsafe_guard"
+    printf '%s\n' 'guard payload' > "$unsafe_guard"
+    install -Dm644 /dev/null "$unsafe_target"
+    install -d "$unsafe_stage/usr/local/share"
+    unsafe_entry=/usr/local/share/man/man1/moguet.1
+    case $unsafe_case in
+        ancestor-file) install -m644 /dev/null "$unsafe_stage/usr/local/share/man" ;;
+        alias-escape) ln -s "$ancestor_foreign" "$unsafe_stage/usr/local/share/man" ;;
+        alias-absolute) ln -s /usr/local/man "$unsafe_stage/usr/local/share/man" ;;
+        alias-chain)
+            mv "$unsafe_stage/usr/local/man" "$unsafe_stage/usr/local/other-man"
+            ln -s other-man "$unsafe_stage/usr/local/man"
+            ln -s ../man "$unsafe_stage/usr/local/share/man"
+            ;;
+        alias-other) ln -s ../../local/man "$unsafe_stage/usr/local/share/man" ;;
+        *) ln -s ../man "$unsafe_stage/usr/local/share/man" ;;
+    esac
+    case $unsafe_case in
+        ancestor-mode) chmod 777 "$unsafe_stage/usr/local/man" ;;
+        target-mode) chmod 666 "$unsafe_target" ;;
+        ancestor-owner) chown 1 "$unsafe_stage/usr/local/man" ;;
+        alias-owner) chown -h 1 "$unsafe_stage/usr/local/share/man" ;;
+        target-owner) chown 1 "$unsafe_target" ;;
+        outside-root) unsafe_entry=/usr/local/man/man1/moguet.1 ;;
+        duplicate) unsafe_entry=/custom/bin/moguet ;;
+        malformed) unsafe_entry=relative/moguet ;;
+        missing) rm "$unsafe_target" ;;
+    esac
+    printf '%s\n' /custom/bin/moguet "$unsafe_entry" > "$unsafe_manifest"
+    if [ "$unsafe_case" = missing ]; then
+        run_uninstall_helper "$unsafe_stage" "$unsafe_manifest" \
+            --allowed-root /custom/bin --allowed-root /usr/local/share/man/man1
+        assert_absent "$unsafe_guard"
+    else
+        expect_uninstall_failure "$unsafe_case" run_uninstall_helper \
+            "$unsafe_stage" "$unsafe_manifest" \
+            --allowed-root /custom/bin --allowed-root /usr/local/share/man/man1
+        assert_file_text "$unsafe_guard" 'guard payload'
+    fi
+done
 
 # Without DESTDIR, the helper still anchors traversal at / and restricts the
 # manifest to configured install roots. Use a temporary absolute root so this

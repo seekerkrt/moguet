@@ -286,6 +286,15 @@ find "$stage_dir" -type f -print
 `install_manifest.txt`へのfrontendです。上記destination overrideは別のMake install recipeではなく、
 同じCMake graphへmappingされます。
 
+canonical uninstallはmanifest内のregular fileだけを削除し、directoryと無関係なfileを保持します。
+unsafe owner、group / otherが書込み可能なinstall directory / payload、leaf symlink、任意のancestor symlinkを拒否し、
+検証済みのfilesystem alias `/usr/local/share/man -> ../man`には対応します。
+completionとlocaleのdefaultは`PREFIX=/usr/local`でもabsoluteな`/usr/share` destinationです。
+manual manifestはpacman ownershipや、後のpackage reinstallで復元されたfileを識別する証拠ではありません。
+package版の削除はpacmanで行い、stable packageを復元した後に古いmanual manifestでcanonical uninstallを
+実行しないでください。coexistence検証には`DESTDIR`、またはcompletion / localeも独立させたdestinationを使います。
+詳細は[install ownership contract](https://github.com/seekerkrt/moguet/blob/develop/docs/development.md#install--package-consumer)を参照してください。
+
 current development packageはprivate implementation helper
 `/usr/libexec/moguet/moguet-alpm-receipt-helper`と
 `/usr/libexec/moguet/moguet-source-artifact-install-helper`もinstallします。両者はowner / protocol /

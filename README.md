@@ -337,6 +337,18 @@ install graph and its exact `install_manifest.txt`; the destination overrides
 shown above are mapped into that graph rather than implemented by a separate
 Make install recipe.
 
+Canonical uninstall removes only regular files listed in that manifest and
+leaves directories and unrelated files in place. It rejects unsafe owners,
+group/other-writable install directories and payloads, leaf symlinks, and arbitrary ancestor symlinks;
+the verified filesystem alias `/usr/local/share/man -> ../man` is supported.
+Completion and locale defaults still use absolute `/usr/share` destinations
+even with `PREFIX=/usr/local`. A manual manifest does not establish pacman
+ownership or identify files restored by a later package reinstall. Use pacman
+to remove packaged Moguet, and do not run canonical uninstall from an old
+manual manifest after restoring the stable package. Use `DESTDIR` or separate
+completion/locale destinations when validating coexistence. See the
+[install ownership contract](https://github.com/seekerkrt/moguet/blob/develop/docs/development.md#install--package-consumer).
+
 The current development package also installs the private implementation
 helpers `/usr/libexec/moguet/moguet-alpm-receipt-helper` and
 `/usr/libexec/moguet/moguet-source-artifact-install-helper`. They are separate
