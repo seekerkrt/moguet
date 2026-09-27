@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.10.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-27 09:18+0900\n"
+"POT-Creation-Date: 2026-09-28 07:00+0900\n"
 "PO-Revision-Date: 2026-09-19 17:53+0900\n"
 "Last-Translator: Moguet contributors\n"
 "Language-Team: Japanese\n"
@@ -2474,6 +2474,14 @@ msgid "Option {} may be specified only once for remote {}."
 msgstr "オプション {} はリモート{}で1回だけ指定できます。"
 
 #, c++-format
+msgid "Option {} requires at least one explicit V=K assignment."
+msgstr "オプション {} には少なくとも1件の明示的なV=K代入が必要です。"
+
+#, c++-format
+msgid "Option {} cannot be combined with {}."
+msgstr "オプション {} は {} と併用できません。"
+
+#, c++-format
 msgid "Option {} cannot be combined with invocation-local environment assignments."
 msgstr "オプション {} は今回指定する環境変数代入と併用できません。"
 
@@ -3780,12 +3788,28 @@ msgid "No package specified."
 msgstr "パッケージが指定されていません。"
 
 #, c++-format
+msgid "A source-build preference is already registered for {}; use {} to edit it."
+msgstr "{} のソースビルド設定は既に登録されています。編集には {} を使用してください。"
+
+#, c++-format
 msgid "No saved source-build preference is registered for {}."
 msgstr "{} の保存済みソースビルド設定は登録されていません。"
 
 #, c++-format
 msgid "Build Error: {}"
 msgstr "ビルドエラー: {}"
+
+#, c++-format
+msgid "Saved source-build preference for {}."
+msgstr "{} のソースビルド設定を保存しました。"
+
+#, c++-format
+msgid "Build/install succeeded, but source preference promotion failed: {}"
+msgstr "ビルド・インストールは成功しましたが、ソースビルド設定の保存に失敗しました: {}"
+
+#, c++-format
+msgid "Inspect the preference for {}; use {} to edit an existing entry."
+msgstr "{} の設定を確認してください。既存設定の編集には {} を使用してください。"
 
 #, c++-format
 msgid "Added {} to source-build list."
@@ -6041,8 +6065,8 @@ msgstr "操作"
 
 #. TRANSLATORS: The placeholder is the literal PKGBUILD artifact identity.
 #, c++-format
-msgid "Build one remote package or local {} root without saving a preference"
-msgstr "設定を保存せず、リモートパッケージ1件またはローカル{}ルート1件をビルド"
+msgid "Build one remote package or local {} root; assignments are one-off unless explicitly saved"
+msgstr "リモートパッケージ1件またはローカル{}ルート1件をビルド。明示保存しない代入は今回だけ適用"
 
 msgid "Run the source-aware system update and apply saved source-build preferences"
 msgstr "保存済みソースビルド設定を適用するソース対応システム更新を実行"
@@ -6143,6 +6167,9 @@ msgstr "LOCAL RECIPE PATCH"
 #, c++-format
 msgid "Experimental: accepted ordinary reviewed {} edits can be saved with separate default-No consent to an explicit existing patch directory"
 msgstr "Experimental: 通常review済み{}のaccepted editは別のdefault-No同意と明示した既存patch directoryへ保存できます"
+
+msgid "Use an existing patch directory with an absolute path or a path relative to the command's starting directory; '~' is not expanded."
+msgstr "既存のpatch directoryを絶対パス、またはコマンド開始時の作業ディレクトリ基準の相対パスで指定してください。'~'は展開されません。"
 
 #, c++-format
 msgid "Register ordered {} patches from a user-maintained directory; do not enable automatic application"
@@ -6308,6 +6335,16 @@ msgstr "このリモートビルドで保存済みソースビルド設定を使
 
 msgid "Require a registered preference; do not combine with V=K assignments"
 msgstr "登録済み設定が必要です。V=Kの代入とは併用できません"
+
+msgid "Save explicit V=K assignments as a new preference after remote build/install success"
+msgstr "リモートビルド・インストール成功後、明示的なV=K代入を新規設定として保存"
+
+#, c++-format
+msgid "Require V=K; reject existing preferences, {} and {}; use {} to edit an existing preference"
+msgstr "V=Kが必要です。既存設定、{}、{}を拒否。既存設定の編集には {} を使用"
+
+msgid "Reject values that cannot round-trip exactly through the existing preference format before building"
+msgstr "既存の設定形式で正確に再利用できない値はビルド前に拒否"
 
 #. TRANSLATORS: The placeholder is a literal compatibility option form.
 #, c++-format
@@ -8107,9 +8144,6 @@ msgstr "authoritative devel buildのpatch customization保存は非対応です�
 msgid "Patch directory is empty, unsafe or unavailable; build stopped."
 msgstr "patch directoryが空、unsafe、または利用できません。buildを停止しました。"
 
-msgid "Use an existing patch directory with an absolute path or a path relative to the command's starting directory; '~' is not expanded."
-msgstr "既存のpatch directoryを絶対パス、またはコマンド開始時の作業ディレクトリ基準の相対パスで指定してください。'~'は展開されません。"
-
 msgid "Recipe patch generation or exact reproduction verification failed; build stopped."
 msgstr "recipe patch生成またはexact reproduction検証に失敗しました。buildを停止しました。"
 
@@ -8296,6 +8330,13 @@ msgstr "{} の変数を展開できませんでした: {}"
 #, c++-format
 msgid "Ignoring invalid environment assignment: {}"
 msgstr "無効な環境変数の代入を無視します: {}"
+
+#, c++-format
+msgid "Cannot save environment assignment {} exactly in the existing source preference format; use a one-off build."
+msgstr "環境変数 {} の代入を既存のソース設定形式へ正確に保存できません。今回限りのビルドを使用してください。"
+
+msgid "Source preference serialization did not preserve the complete environment."
+msgstr "ソース設定の直列化で環境全体を保持できませんでした。"
 
 #, c++-format
 msgid "Failed to enumerate source preference directory {}: {}"
@@ -10489,10 +10530,6 @@ msgstr "不明な状態ログエラーコードです。"
 #~ msgstr "リポジトリ更新差分の確認方針"
 
 #, c++-format
-#~ msgid "Operation {} requires exactly one {} package target."
-#~ msgstr "操作 {} には {} パッケージ対象をちょうど1つ指定する必要があります。"
-
-#, c++-format
 #~ msgid "Usage: {} {} {}"
 #~ msgstr "使用方法: {} {} {}"
 
@@ -10856,10 +10893,6 @@ msgstr "不明な状態ログエラーコードです。"
 #, c++-format
 #~ msgid "Failed to append environment key {} to {}."
 #~ msgstr "環境変数キー{}を{}へ追記できませんでした。"
-
-#, c++-format
-#~ msgid "Failed to read source preference file {}."
-#~ msgstr "ソース設定ファイル{}を読み取れませんでした。"
 
 #, c++-format
 #~ msgid "Failed to write temporary file {}."

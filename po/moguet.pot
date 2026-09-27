@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.10.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-27 11:51+0900\n"
+"POT-Creation-Date: 2026-09-28 07:00+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -2481,6 +2481,14 @@ msgid "Option {} may be specified only once for remote {}."
 msgstr ""
 
 #, c++-format
+msgid "Option {} requires at least one explicit V=K assignment."
+msgstr ""
+
+#, c++-format
+msgid "Option {} cannot be combined with {}."
+msgstr ""
+
+#, c++-format
 msgid "Option {} cannot be combined with invocation-local environment assignments."
 msgstr ""
 
@@ -3788,11 +3796,27 @@ msgid "No package specified."
 msgstr ""
 
 #, c++-format
+msgid "A source-build preference is already registered for {}; use {} to edit it."
+msgstr ""
+
+#, c++-format
 msgid "No saved source-build preference is registered for {}."
 msgstr ""
 
 #, c++-format
 msgid "Build Error: {}"
+msgstr ""
+
+#, c++-format
+msgid "Saved source-build preference for {}."
+msgstr ""
+
+#, c++-format
+msgid "Build/install succeeded, but source preference promotion failed: {}"
+msgstr ""
+
+#, c++-format
+msgid "Inspect the preference for {}; use {} to edit an existing entry."
 msgstr ""
 
 #, c++-format
@@ -6049,7 +6073,7 @@ msgstr ""
 
 #. TRANSLATORS: The placeholder is the literal PKGBUILD artifact identity.
 #, c++-format
-msgid "Build one remote package or local {} root without saving a preference"
+msgid "Build one remote package or local {} root; assignments are one-off unless explicitly saved"
 msgstr ""
 
 msgid "Run the source-aware system update and apply saved source-build preferences"
@@ -6318,6 +6342,16 @@ msgid "Use the saved source-build preference for this remote build"
 msgstr ""
 
 msgid "Require a registered preference; do not combine with V=K assignments"
+msgstr ""
+
+msgid "Save explicit V=K assignments as a new preference after remote build/install success"
+msgstr ""
+
+#, c++-format
+msgid "Require V=K; reject existing preferences, {} and {}; use {} to edit an existing preference"
+msgstr ""
+
+msgid "Reject values that cannot round-trip exactly through the existing preference format before building"
 msgstr ""
 
 #. TRANSLATORS: The placeholder is a literal compatibility option form.
@@ -8300,6 +8334,13 @@ msgstr ""
 
 #, c++-format
 msgid "Ignoring invalid environment assignment: {}"
+msgstr ""
+
+#, c++-format
+msgid "Cannot save environment assignment {} exactly in the existing source preference format; use a one-off build."
+msgstr ""
+
+msgid "Source preference serialization did not preserve the complete environment."
 msgstr ""
 
 #, c++-format

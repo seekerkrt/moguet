@@ -156,6 +156,14 @@ if [ "$1" = "-sc" ] && [ -n "${MOGUET_TEST_CLEANUP_DEPENDENCY_STATE_FILE:-}" ]; 
 fi
 
 if [ "$exit_code" -eq 0 ] && [ "$1" = "-sc" ]; then
+    if [ "${MOGUET_TEST_MAKEPKG_SOURCE_PREFERENCE_COLLISION:-0}" = 1 ]; then
+        # Model a second process publishing after the CLI's absent preflight.
+        preference_store=$XDG_CONFIG_HOME/moguet/source-build.d
+        mkdir -p "$preference_store" || exit 1
+        chmod 700 "$XDG_CONFIG_HOME/moguet" "$preference_store" || exit 1
+        printf 'COMPETING=keep-original\n' > "$preference_store/$package_base" || exit 1
+        chmod 600 "$preference_store/$package_base" || exit 1
+    fi
     if [ -n "${MOGUET_TEST_MAKEPKG_PACKAGELIST_OUTPUT_FILE:-}" ]; then
         artifact_path=$(/usr/bin/sed -n '1p' -- \
             "$MOGUET_TEST_MAKEPKG_PACKAGELIST_OUTPUT_FILE") || exit 1

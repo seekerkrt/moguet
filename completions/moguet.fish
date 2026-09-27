@@ -3,7 +3,7 @@
 # Upstream -Q spelling: pacman 7.1.0; raw help SHA256 b59c241b782288efd34e84cf514e85f2106547f81acfc6fd28adffb9989a3267
 # Pinned generation input; no runtime upstream discovery.
 # Canonical closed grammar (projected from source/cli_authority.hpp):
-#   build [--use-preference] <pkg> [V=K...]
+#   build [--use-preference] [--save-preference] <pkg> [V=K...]
 #   build --local [--use-patches] <directory> [V=K...]
 #   upgrade
 #   upgrade-aur
@@ -84,6 +84,9 @@ function __moguet_option_id --argument-names word
             return 0
         case '--use-preference'
             echo 21
+            return 0
+        case '--save-preference'
+            echo 23
             return 0
         case '--use-patches'
             echo 22
@@ -267,9 +270,9 @@ function __moguet_operation_allows --argument-names option_id
                 contains -- $option_id 0 1 4 5 6 7 8 15 22; and return 0; or return 1
             else if __moguet_has_operand 'build'
                 __moguet_form_prefix_valid 'build' 0; or return 1
-                contains -- $option_id 21 0 1 2 3 4 5 6 7 8 20; and return 0; or return 1
+                contains -- $option_id 21 23 0 1 2 3 4 5 6 7 8 20; and return 0; or return 1
             else
-                contains -- $option_id 21 0 1 2 3 4 5 6 7 8 20 15; and return 0; or return 1
+                contains -- $option_id 21 23 0 1 2 3 4 5 6 7 8 20 15; and return 0; or return 1
             end
         case 'upgrade'
             __moguet_form_prefix_valid 'upgrade' 0; or return 1
@@ -376,7 +379,7 @@ function __moguet_candidate_available --argument-names option_id
         end
     end
     __moguet_operation_allows $option_id; or return 1
-    contains -- $option_id 13 14 15 21 22 16; and __moguet_has_option_id $option_id; and return 1
+    contains -- $option_id 13 14 15 21 23 22 16; and __moguet_has_option_id $option_id; and return 1
     switch $option_id
         case 0
             __moguet_has_option_id 1; and return 1
@@ -388,6 +391,7 @@ function __moguet_candidate_available --argument-names option_id
         case 3
             __moguet_has_option_id 2; and return 1
         case 5
+            __moguet_has_option_id 23; and return 1
             __moguet_has_option_id 22; and return 1
         case 6
             __moguet_has_option_id 7; and return 1
@@ -406,8 +410,15 @@ function __moguet_candidate_available --argument-names option_id
             __moguet_has_option_id 12; and return 1
         case 12
             __moguet_has_option_id 11; and return 1
+        case 15
+            __moguet_has_option_id 23; and return 1
         case 21
+            __moguet_has_option_id 23; and return 1
             __moguet_has_option_id 22; and return 1
+        case 23
+            __moguet_has_option_id 21; and return 1
+            __moguet_has_option_id 5; and return 1
+            __moguet_has_option_id 15; and return 1
         case 22
             __moguet_has_option_id 0; and return 1
             __moguet_has_option_id 5; and return 1
@@ -421,7 +432,7 @@ function __moguet_no_operation
     not __moguet_operation >/dev/null
 end
 
-complete -c moguet -f -n '__moguet_no_operation' -a 'build' -d 'Build one remote package or local PKGBUILD root without saving a preference'
+complete -c moguet -f -n '__moguet_no_operation' -a 'build' -d 'Build one remote package or local PKGBUILD root; assignments are one-off unless explicitly saved'
 complete -c moguet -f -n '__moguet_no_operation' -a 'upgrade' -d 'Run the source-aware system update and apply saved source-build preferences'
 complete -c moguet -f -n '__moguet_no_operation' -a 'upgrade-aur' -d 'Update only installed AUR packages while applying saved source-build preferences'
 complete -c moguet -f -n '__moguet_no_operation' -a 'upgrade-all' -d 'Run the full source-aware repository, configured-source, and remaining-AUR update'
@@ -466,6 +477,7 @@ complete -c moguet -f -n '__moguet_candidate_available 12' -a '--repo' -d 'Mogue
 complete -c moguet -f -n '__moguet_candidate_available 20' -a '--details' -d 'Moguet options: Show detailed diagnostic and provenance information for remote build, plan, deps, -S --select, -Qua, -Syu/-Su, upgrade-aur/all, --dry-run -S, and list-patch; presentation only'
 complete -c moguet -f -n '__moguet_candidate_available 15' -a '--local' -d 'Moguet options: Use one local PKGBUILD directory as the build root'
 complete -c moguet -f -n '__moguet_candidate_available 21' -a '--use-preference' -d 'Moguet options: Use the saved source-build preference for one remote build; conflicts with V=K assignments'
+complete -c moguet -f -n '__moguet_candidate_available 23' -a '--save-preference' -d 'Moguet options: Save explicit V=K after remote build/install success as a new preference; conflicts with --use-preference and --dry-run'
 complete -c moguet -f -n '__moguet_candidate_available 22' -a '--use-patches' -d 'Moguet options: Explicitly select saved recipe patches for build --local; requires metadata evaluation consent'
 complete -c moguet -f -n '__moguet_candidate_available 16' -a '--output-dir=' -d 'Moguet options: Select an existing export parent for -G'
 complete -c moguet -f -n '__moguet_candidate_available 17' -a '--recursive' -d 'Moguet options: Resolve dependencies recursively'

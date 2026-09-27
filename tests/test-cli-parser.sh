@@ -601,7 +601,7 @@ setup_case help-operation
 run_ok --help
 assert_contains "USAGE" "$output_file"
 assert_contains \
-    "build [--use-preference] <pkg> [V=K...] | build --local [--use-patches] <directory> [V=K...]" \
+    "build [--use-preference] [--save-preference] <pkg> [V=K...] | build --local [--use-patches] <directory> [V=K...]" \
     "$output_file"
 assert_contains "upgrade-all" "$output_file"
 assert_contains "clean" "$output_file"
@@ -1019,6 +1019,48 @@ assert_contains \
     "Option --use-preference may be specified only once for remote build." \
     "$output_file"
 assert_pre_log_exit
+
+# Issue #664: promotion is remote-only and rejected before state/cache/tool mutation.
+assert_save_rejected_pre_log() {
+    save_case=$1
+    save_expected=$2
+    shift 2
+    setup_case "$save_case"
+    run_fail "$@"
+    assert_contains "$save_expected" "$output_file"
+    assert_pre_log_exit
+    if [ -e "$XDG_CONFIG_HOME/moguet/source-build.d" ]; then
+        echo "rejected save created source preferences" >&2
+        exit 1
+    fi
+}
+assert_save_rejected_pre_log save-no-assignment \
+    "Option --save-preference requires at least one explicit V=K assignment." \
+    build clean-root --save-preference
+assert_save_rejected_pre_log save-use-conflict \
+    "Option --save-preference cannot be combined with --use-preference." \
+    build clean-root --use-preference --save-preference
+assert_save_rejected_pre_log save-dry-conflict \
+    "Option --save-preference cannot be combined with --dry-run." \
+    --dry-run build clean-root FOO= --save-preference
+assert_save_rejected_pre_log save-local-scope \
+    "Option --save-preference is supported only with remote build." \
+    build --local . FOO= --save-preference
+assert_save_rejected_pre_log save-sync-scope \
+    "Option --save-preference is supported only with remote build." \
+    -S clean-root --save-preference
+assert_save_rejected_pre_log save-operation-slot \
+    "Option --save-preference is supported only with remote build." \
+    --save-preference build clean-root FOO=
+assert_save_rejected_pre_log save-duplicate \
+    "Option --save-preference may be specified only once for remote build." \
+    build clean-root FOO= --save-preference --save-preference
+assert_save_rejected_pre_log save-invalid-assignment \
+    "Invalid environment assignment: 1INVALID=value" \
+    build clean-root FOO= 1INVALID=value --save-preference
+assert_save_rejected_pre_log save-attached-value \
+    "Unsupported build option" \
+    build clean-root FOO= --save-preference=yes
 
 # Matrix N: `--local`はbuild所有のexact semantic optionとしてだけrouteし、
 # local rootへ触れる前にoperation / option / operand grammarを確定する。

@@ -3,7 +3,7 @@
 # Upstream -Q spelling: pacman 7.1.0; raw help SHA256 b59c241b782288efd34e84cf514e85f2106547f81acfc6fd28adffb9989a3267
 # Pinned generation input; no runtime upstream discovery.
 # Canonical closed grammar (projected from source/cli_authority.hpp):
-#   build [--use-preference] <pkg> [V=K...]
+#   build [--use-preference] [--save-preference] <pkg> [V=K...]
 #   build --local [--use-patches] <directory> [V=K...]
 #   upgrade
 #   upgrade-aur
@@ -49,6 +49,7 @@ _moguet_option_id() {
         --details) printf '%s' 20 ;;
         --local) printf '%s' 15 ;;
         --use-preference) printf '%s' 21 ;;
+        --save-preference) printf '%s' 23 ;;
         --use-patches) printf '%s' 22 ;;
         --output-dir|--output-dir=*) printf '%s' 16 ;;
         --recursive) printf '%s' 17 ;;
@@ -227,7 +228,7 @@ _moguet_conflicts_with_present_option() {
         1) _moguet_has_option_id 0 ;;
         2) _moguet_has_option_id 3 ;;
         3) _moguet_has_option_id 2 ;;
-        5) _moguet_has_option_id 22 ;;
+        5) _moguet_has_option_id 23 || _moguet_has_option_id 22 ;;
         6) _moguet_has_option_id 7 || _moguet_has_option_id 8 ;;
         7) _moguet_has_option_id 6 || _moguet_has_option_id 8 ;;
         8) _moguet_has_option_id 6 || _moguet_has_option_id 7 ;;
@@ -235,7 +236,9 @@ _moguet_conflicts_with_present_option() {
         10) _moguet_has_option_id 9 ;;
         11) _moguet_has_option_id 12 ;;
         12) _moguet_has_option_id 11 ;;
-        21) _moguet_has_option_id 22 ;;
+        15) _moguet_has_option_id 23 ;;
+        21) _moguet_has_option_id 23 || _moguet_has_option_id 22 ;;
+        23) _moguet_has_option_id 21 || _moguet_has_option_id 5 || _moguet_has_option_id 15 ;;
         22) _moguet_has_option_id 0 || _moguet_has_option_id 5 || _moguet_has_option_id 21 ;;
         *) return 1 ;;
     esac
@@ -417,12 +420,12 @@ _moguet() {
                 fi
             elif _moguet_has_operand build; then
                 if _moguet_form_prefix_valid build 0; then
-                    candidates=(--use-preference --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --details)
+                    candidates=(--use-preference --save-preference --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --details)
                 else
                     candidates=()
                 fi
             else
-                candidates=(--use-preference --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --details --local)
+                candidates=(--use-preference --save-preference --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --details --local)
             fi
             ;;
         upgrade)
@@ -623,7 +626,7 @@ _moguet() {
         option_id="$(_moguet_option_id "$candidate" || true)"
         if [[ -n $option_id ]]; then
             case "$option_id" in
-            13|14|15|21|22|16)
+            13|14|15|21|23|22|16)
                 _moguet_has_option_id "$option_id" && continue
                 ;;
             esac

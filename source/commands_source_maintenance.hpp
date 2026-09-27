@@ -3,8 +3,10 @@
 #include "cli_routing.hpp"
 #include "local_source_root.hpp"
 #include "local_source_workspace.hpp"
+#include "source_preference.hpp"
 
 #include <string>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -21,6 +23,7 @@ struct RemoteSourceBuildInvocation {
     std::string package_name;
     SourceBuildEnvironment source_environment;
     bool use_source_preference = false;
+    std::optional<PreparedSourcePreferenceContents> source_preference_to_save;
 };
 
 PreparedLocalSourceBuildRoute prepare_local_source_build_route(

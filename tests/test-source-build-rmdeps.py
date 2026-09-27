@@ -39,7 +39,7 @@ with tempfile.TemporaryDirectory(prefix="moguet-rmdeps-") as temporary:
 
         def run(name, *, requested=True, answer="y\n", tty=True, no_confirm=False,
                 pre=base, after=post, change=None, hold="", remove_exit=0,
-                make_exit=0, install_exit=0, packagelist_exit=0, typed=False, dry=False, route=None):
+                make_exit=0, install_exit=0, packagelist_exit=0, typed=False, dry=False, route=None, save=False):
             case = root / name
             case.mkdir()
             env = {k: v for k, v in os.environ.items() if not k.startswith("MOGUET_TEST_")}
@@ -96,6 +96,8 @@ with tempfile.TemporaryDirectory(prefix="moguet-rmdeps-") as temporary:
                     args.append("--noconfirm")
                 if dry:
                     args.append("--dry-run")
+                if save:
+                    args += ["CUSTOM=first", "CUSTOM=second", "FOO=", "--save-preference"]
             if tty:
                 master, slave = pty.openpty()
                 process = subprocess.Popen(args, env=env, stdin=slave, stdout=slave, stderr=slave)
@@ -207,6 +209,16 @@ with tempfile.TemporaryDirectory(prefix="moguet-rmdeps-") as temporary:
         _, out, commands, removal = checked("dry-run", dry=True)
         require(not removal and not any(x.startswith(("sudo ", "makepkg ")) for x in commands), commands)
         require("pacman-conf HoldPkg" not in commands and "alpm cleanup snapshot" not in commands, commands)
+        for name, kwargs in [("save-cleanup-removal-failure", {"remove_exit": 17}),
+                             ("save-cleanup-noconfirm", {"no_confirm": True}),
+                             ("save-cleanup-non-tty", {"tty": False})]:
+            _, out, commands, removal = checked(name, expected=1, save=True, **kwargs)
+            preference = root / name / "config/moguet/source-build.d/cleanup-root"
+            require(preference.read_text() == 'CUSTOM="first"\nCUSTOM="second"\nFOO=""\n',
+                    f"{name}: successful build/install was not promoted after optional cleanup failure")
+            require("Build outcome for PackageBase cleanup-root: succeeded." in out and
+                    "Install outcome for PackageBase cleanup-root: succeeded." in out and
+                    "Saved source-build preference for cleanup-root." in out, out)
         for name, route in [
             ("unsupported-local", ["build", "--local", str(root / "not-inspected")]),
             ("unsupported-source-sync", ["-S", "--aur", "cleanup-root"]),

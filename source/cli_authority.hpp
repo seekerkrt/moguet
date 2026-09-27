@@ -143,6 +143,8 @@ inline constexpr std::string_view BUILD_MODE_CLEAN_OPTION =
 inline constexpr std::string_view LOCAL_SOURCE_OPTION = "--local";
 inline constexpr std::string_view USE_SOURCE_PREFERENCE_OPTION =
     "--use-preference";
+inline constexpr std::string_view SAVE_SOURCE_PREFERENCE_OPTION =
+    "--save-preference";
 inline constexpr std::string_view USE_PATCHES_OPTION = "--use-patches";
 
 // PKGBUILD exportだけが解釈するoperation-local attached-value option。
@@ -350,6 +352,7 @@ enum class OptionId {
     Details,
     UseSourcePreference,
     UsePatches,
+    SaveSourcePreference,
     Count,
 };
 
@@ -867,6 +870,18 @@ inline constexpr std::array<OptionContract,
          GrammarOwnership::MoguetOwned, OptionPublicDefinitionRole::SyntaxOnly,
          OptionCompletionVisibility::SuggestedAndDescribed,
          "cli.build.local"},
+        {OptionId::SaveSourcePreference,
+         SAVE_SOURCE_PREFERENCE_OPTION,
+         no_token_aliases(), no_option_value(), OptionOccurrence::Once,
+         OptionConflictSet{{OptionId::UseSourcePreference, OptionId::DryRun, OptionId::LocalSource, OptionId::Edit},
+                           3,
+                           OptionConflictRule::OperationLocalExclusion,
+                           {}},
+         OptionLexicalPlacement::OperationLocal,
+         option_scope(OptionSemanticScope::SourceBuild),
+         GrammarOwnership::MoguetOwned, OptionPublicDefinitionRole::SyntaxOnly,
+         OptionCompletionVisibility::SuggestedAndDescribed,
+         "cli.build.remote"},
     }};
 
 constexpr const OptionContract& option_contract(OptionId id) noexcept {
@@ -1172,6 +1187,9 @@ inline constexpr std::array<OperationFormSpec, 18> MOGUET_OPERATION_FORMS = {{
      operation_option_relations(
          public_syntax_option_relation(
              OptionId::UseSourcePreference,
+             OptionPublicSyntax::Optional),
+         public_syntax_option_relation(
+             OptionId::SaveSourcePreference,
              OptionPublicSyntax::Optional),
          OptionId::Edit, OptionId::NoEdit,
          OptionId::Diff, OptionId::NoDiff,

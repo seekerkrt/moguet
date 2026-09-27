@@ -355,14 +355,14 @@ strip_ansi "$ja_help_short" "$ja_help_plain"
 
 assert_line 'USAGE' "$c_help_plain"
 assert_contains \
-    'Build one remote package or local PKGBUILD root without saving a preference' \
+    'Build one remote package or local PKGBUILD root; assignments are one-off unless explicitly saved' \
     "$c_help_plain"
 assert_contains \
     "Use an existing patch directory with an absolute path or a path relative to the command's starting directory; '~' is not expanded." \
     "$c_help_plain"
 assert_line '使用方法' "$ja_help_plain"
 assert_contains \
-    '設定を保存せず、リモートパッケージ1件またはローカルPKGBUILDルート1件をビルド' \
+    'リモートパッケージ1件またはローカルPKGBUILDルート1件をビルド。明示保存しない代入は今回だけ適用' \
     "$ja_help_plain"
 assert_contains \
     "既存のpatch directoryを絶対パス、またはコマンド開始時の作業ディレクトリ基準の相対パスで指定してください。'~'は展開されません。" \
