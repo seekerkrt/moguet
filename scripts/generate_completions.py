@@ -200,6 +200,9 @@ class CliSchema:
     terminal_tokens: tuple[str, ...]
     canonical_grammar: tuple[str, ...]
     presentation_scopes: tuple[tuple[str, int, int | None], ...] = ()
+    operand_contexts: tuple[tuple[str, str], ...] = ()
+    lexical_value_options: tuple[tuple[str, bool], ...] = ()
+    parser_boundaries: tuple[tuple[str, int], ...] = ()
 
     @property
     def delegated_option_ids(self) -> tuple[int, ...]:
@@ -352,6 +355,10 @@ def parse_exported_schema(exported_schema: str) -> CliSchema:
     canonical_grammar: list[str] = []
     presentation_scopes: list[tuple[str, int, int | None]] = []
 
+    operand_contexts: dict[str, str] = {}
+    lexical_value_options: dict[str, bool] = {}
+    parser_boundaries: dict[str, int] = {}
+
     for line in exported_schema.splitlines():
         fields = line.split("\t")
         record = fields[0]
@@ -453,6 +460,22 @@ def parse_exported_schema(exported_schema: str) -> CliSchema:
         elif record == "PRESENTATION" and len(fields) == 4:
             presentation_scopes.append((fields[1], parse_identity(fields[2], "presentation option"),
                                         parse_identity(fields[3], "required option") if fields[3] else None))
+        elif record == "OPERAND_CONTEXT" and len(fields) == 3:
+            token, kind = fields[1:]
+            if token in operand_contexts or kind not in KNOWN_OPERAND_KINDS:
+                fail("invalid exact operand context")
+            operand_contexts[token] = kind
+        elif record == "LEXICAL_VALUE" and len(fields) == 3:
+            token, database_context = fields[1:]
+            if (token in lexical_value_options or token == "--" or
+                    CANONICAL_OPTION_TOKEN_PATTERN.fullmatch(token) is None or
+                    database_context not in {"alternate-db", "default-db"}):
+                fail("invalid lexical value option")
+            lexical_value_options[token] = database_context == "alternate-db"
+        elif record == "BOUNDARY" and len(fields) == 3:
+            if fields[1] in parser_boundaries:
+                fail("duplicate parser boundary")
+            parser_boundaries[fields[1]] = parse_identity(fields[2], "boundary option")
         elif record == "TERMINAL" and len(fields) == 2:
             terminal_tokens.append(fields[1])
         elif record == "CANONICAL" and len(fields) == 2:
@@ -474,7 +497,18 @@ def parse_exported_schema(exported_schema: str) -> CliSchema:
         terminal_tokens=tuple(terminal_tokens),
         canonical_grammar=tuple(canonical_grammar),
         presentation_scopes=tuple(presentation_scopes),
+        operand_contexts=tuple(operand_contexts.items()),
+        lexical_value_options=tuple(lexical_value_options.items()),
+        parser_boundaries=tuple(parser_boundaries.items()),
     )
+    for token in operand_contexts:
+        if (token, "open") not in operation_modes:
+            fail("exact operand context has no open operation")
+    for token, identity in parser_boundaries.items():
+        if not any(option.token == token and option.identity == identity and
+                   option.value_kind == "marker" and not option.is_completion_visible
+                   for option in options):
+            fail("parser boundary must identify a hidden marker option")
     validate_schema_projection(schema)
     for operation, option_id, required in schema.presentation_scopes:
         if operation not in operations or not any(option.identity == option_id for option in options):

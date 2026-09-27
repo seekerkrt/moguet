@@ -289,3 +289,21 @@ unset(_moguet_production_source_count)
 unset(_moguet_source)
 unset(_moguet_unique_production_sources)
 unset(_moguet_unique_source_count)
+
+# Read-only completion transport. The supervisor owns the bounded worker tree;
+# neither closure contains main startup, AUR, config/state or transaction code.
+set(MOGUET_REPOSITORY_PREFIX_HELPER_SOURCES
+    source/repository_package_prefix_helper_main.cpp
+    source/package_identifier.cpp
+    source/process.cpp
+    source/logging.cpp
+    source/shell_words.cpp
+)
+set(MOGUET_REPOSITORY_PREFIX_WORKER_SOURCES
+    source/repository_package_prefix_worker_main.cpp
+    source/package_metadata.cpp
+    source/package_identifier.cpp
+    source/process.cpp
+    source/logging.cpp
+    source/shell_words.cpp
+)

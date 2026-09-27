@@ -324,3 +324,5 @@ moguet_add_focused_ctest_alias(
 )
 
 moguet_add_focused_ctest_alias(test-source-build-rmdeps TESTS cli.source_build_rmdeps)
+
+moguet_add_focused_ctest_alias(test-repository-prefix-helper TESTS completion.repository_prefix_helper)

@@ -597,6 +597,17 @@ target_include_directories(
     moguet-alpm-receipt-helper
     PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/source"
 )
+add_executable(moguet-repository-prefix-helper ${MOGUET_REPOSITORY_PREFIX_HELPER_SOURCES})
+add_executable(moguet-repository-prefix-worker ${MOGUET_REPOSITORY_PREFIX_WORKER_SOURCES})
+foreach(_prefix_target IN ITEMS moguet-repository-prefix-helper moguet-repository-prefix-worker)
+    set_target_properties(${_prefix_target} PROPERTIES
+        CXX_STANDARD 20 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
+    target_link_libraries(${_prefix_target} PRIVATE moguet_external_cppflags moguet_build_contract)
+    target_include_directories(${_prefix_target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/source")
+endforeach()
+target_link_libraries(moguet-repository-prefix-worker PRIVATE PkgConfig::ALPM)
+add_dependencies(moguet-repository-prefix-helper moguet-repository-prefix-worker)
+
 if(ALPM_CFLAGS_OTHER)
     target_compile_options(
         moguet_alpm_compile_contract
@@ -780,6 +791,7 @@ target_link_libraries(
 add_dependencies(
     moguet
     moguet_catalogs
+    moguet-repository-prefix-helper
     moguet-alpm-receipt-helper
     moguet-source-artifact-install-helper
 )
@@ -853,6 +865,11 @@ install(
         OWNER_READ OWNER_WRITE OWNER_EXECUTE
         GROUP_READ GROUP_EXECUTE
         WORLD_READ WORLD_EXECUTE
+)
+install(
+    TARGETS moguet-repository-prefix-helper moguet-repository-prefix-worker
+    RUNTIME DESTINATION "${MOGUET_FULL_INTERNAL_EXECUTABLE_DIRECTORY}"
+    COMPONENT repository-prefix
 )
 foreach(_moguet_locale _moguet_catalog_file IN ZIP_LISTS MOGUET_LINGUAS MOGUET_CATALOG_FILES)
     install(

@@ -244,6 +244,30 @@ def expect_rejected(label: str, schema: str, expected_diagnostic: str) -> None:
 
 def expect_current_authority_projection() -> None:
     schema = parse_exported_schema(export_authority())
+    contexts = dict(schema.operand_contexts)
+    if contexts.get("-S") != "package" or contexts.get("-Ss") != "query" or "-Sxyz" in contexts:
+        fail("exact package/query context authority differs")
+    sync = next(operation for operation in schema.operations if operation.token == "-S")
+    if sync.forms[0].operand_terms[0].kind != "query":
+        fail("--select query semantics changed")
+    arity = dict(schema.lexical_value_options)
+    if len(arity) != 17 or arity.get("--color") is not False or not all(
+        arity.get(token) for token in ("--config", "--dbpath", "--root", "--sysroot", "-b", "-r")
+    ):
+        fail("lexical arity/alternate DB projection missing")
+    if [token for token, _ in schema.parser_boundaries] != ["--"]:
+        fail("hidden parser boundary missing")
+    current = export_authority()
+    for record, diagnostic in (("OPERAND_CONTEXT", "invalid exact operand context"),
+                               ("LEXICAL_VALUE", "invalid lexical value option"),
+                               ("BOUNDARY", "duplicate parser boundary")):
+        expect_rejected("duplicate " + record, duplicate_first_record(current, record), diagnostic)
+    expect_rejected("unknown operand context", current + "OPERAND_CONTEXT\t-Sxyz\tpackage\n",
+                    "exact operand context has no open operation")
+    expect_rejected("future operand kind", current + "OPERAND_CONTEXT\t-Sxyz\tfuture\n",
+                    "invalid exact operand context")
+    expect_rejected("visible boundary", current.replace(next(line for line in current.splitlines() if line.startswith("BOUNDARY\t")), "BOUNDARY\t--help\t0"),
+                    "parser boundary must identify a hidden marker option")
     delegated_ids = set(schema.delegated_option_ids)
     delegated_tokens = {
         option.token
@@ -1044,7 +1068,7 @@ def main() -> int:
 
     print(
         "completion-schema-validator-test: "
-        f"{len(positive_controls) + len(rejected_controls) + 1} "
+        f"{len(positive_controls) + len(rejected_controls) + 7} "
         "scenarios passed"
     )
     return 0

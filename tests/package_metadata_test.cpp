@@ -2739,10 +2739,85 @@ void test_fresh_hold_package_patterns() {
     }
 }
 
+void test_local_sync_literal_prefix() {
+    stub::reset_alpm_stub();
+    for(const auto& repo : {"core", "extra"}) {
+        for(const auto& name : {"chromium", "chrome", "ch.dot", "other"})
+            stub::set_repository_package_metadata(repo, name, 1, 1);
+    }
+    auto session = RepositoryPackageMetadataSession::open(valid_repository_configuration());
+    auto snapshot = [&](const std::string& prefix, std::size_t count = 256, std::size_t bytes = 65536) {
+        const auto result = session.query_package_name_prefix(prefix, count, bytes);
+        expect(std::holds_alternative<RepositoryPackagePrefixSnapshot>(result), "prefix query failed");
+        return std::get<RepositoryPackagePrefixSnapshot>(result);
+    };
+    expect(snapshot("ch").names == std::vector<std::string>{"ch.dot", "chrome", "chromium"},
+           "prefix order/dedup/literal matching changed");
+    expect(snapshot("no-match").names.empty() && !snapshot("no-match").truncated,
+           "zero match not successful");
+    expect(snapshot("ch.").names == std::vector<std::string>{"ch.dot"} &&
+               snapshot("ch.*").names.empty() && snapshot("[").names.empty(),
+           "prefix interpreted as regex or complete-name input");
+    expect(snapshot("ch", 2).names == std::vector<std::string>{"ch.dot", "chrome"} &&
+               snapshot("ch", 2).truncated,
+           "count truncation not deterministic");
+    expect(snapshot("ch", 256, 7).names == std::vector<std::string>{"ch.dot"} &&
+               snapshot("ch", 256, 7).truncated,
+           "newline byte bound not enforced");
+    expect(snapshot("ch", 256, 6).names.empty(), "oversized first record emitted");
+    expect(std::holds_alternative<PackageMetadataFailure>(session.query_package_name_prefix("", 0, 1)),
+           "invalid limit accepted");
+    expect(stub::repository_search_query_history().empty() &&
+               stub::repository_package_query_history().empty() &&
+               stub::local_database_call_count() == 0,
+           "prefix reached regex search/exact/local inventory path");
+    auto moved = std::move(session);
+    expect(std::holds_alternative<PackageMetadataFailure>(session.query_package_name_prefix("", 1, 100)),
+           "closed session became empty inventory");
+    stub::reset_alpm_stub();
+    stub::set_repository_package_metadata("core", "bad", 1, 1);
+    stub::set_repository_package_returned_name("core", "bad", "bad\nname");
+    auto invalid = RepositoryPackageMetadataSession::open(valid_repository_configuration());
+    const auto failure = invalid.query_package_name_prefix("", 256, 65536);
+    expect(std::holds_alternative<PackageMetadataFailure>(failure) &&
+               std::get<PackageMetadataFailure>(failure).code == PackageMetadataErrorCode::MalformedMetadata,
+           "invalid emitted metadata accepted");
+    for(const bool corrupt : {false, true}) {
+        stub::reset_alpm_stub();
+        if(corrupt)
+            stub::set_sync_database_validation_failure("core");
+        else
+            stub::set_sync_database_cache_failure("core");
+        bool failed = false;
+        try {
+            auto unavailable = RepositoryPackageMetadataSession::open(valid_repository_configuration());
+        } catch(const PackageMetadataError& error) {
+            failed = error.failure().code == PackageMetadataErrorCode::SyncDatabaseUnavailable;
+        }
+        expect(failed, "missing/corrupt database became empty inventory");
+    }
+    stub::reset_alpm_stub();
+    auto empty = RepositoryPackageMetadataSession::open(valid_repository_configuration());
+    expect(std::get<RepositoryPackagePrefixSnapshot>(empty.query_package_name_prefix("", 2, 10)).names.empty(),
+           "valid empty database rejected");
+    set_repository_configuration_outputs("core\n");
+    const auto config = resolve_pacman_repository_configuration(16384);
+    expect(config.repository_names == std::vector<std::string>{"core"}, "bounded config projection drifted");
+    set_repository_configuration_outputs("core\n");
+    bool failed = false;
+    try {
+        resolve_pacman_repository_configuration(1);
+    } catch(const PackageMetadataError&) {
+        failed = true;
+    }
+    expect(failed, "configuration capture overflow accepted");
+}
+
 } // namespace
 
 int main() {
     try {
+        test_local_sync_literal_prefix();
         test_fresh_hold_package_patterns();
         test_pacman_conf_path_parse_success();
         test_pacman_conf_command_failure();

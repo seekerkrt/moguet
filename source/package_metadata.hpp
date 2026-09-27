@@ -23,6 +23,14 @@ struct PacmanRepositoryConfiguration {
     std::vector<std::string> repository_names;
 };
 
+// A bounded name projection of the local sync snapshot, not package search.
+// Names are bytewise sorted/deduplicated; truncation keeps the first names that
+// fit both limits (including each newline). Failure never means empty inventory.
+struct RepositoryPackagePrefixSnapshot {
+    std::vector<std::string> names;
+    bool truncated = false;
+};
+
 enum class RepositoryPackageSearchMatchKind {
     Search,
     ExactGroup,
@@ -80,6 +88,9 @@ struct PackageMetadataFailure {
     PackageMetadataErrorCode code;
     std::string diagnostic;
 };
+
+using RepositoryPackagePrefixResult =
+    std::variant<RepositoryPackagePrefixSnapshot, PackageMetadataFailure>;
 
 struct ConfiguredHoldPackagePatterns {
     std::vector<std::string> patterns;
@@ -365,6 +376,12 @@ private:
 
 PacmanDatabasePaths resolve_pacman_database_paths();
 PacmanRepositoryConfiguration resolve_pacman_repository_configuration();
+
+// Fixed shell-free pacman-conf with bounded capture. This overload does not
+// bound libalpm/query latency; the private completion supervisor owns that
+// process deadline. Existing general metadata callers retain their old path.
+PacmanRepositoryConfiguration resolve_pacman_repository_configuration(
+    std::size_t configuration_capture_limit);
 PacmanRepositoryConfiguration
 resolve_pacman_root_search_repository_configuration();
 
@@ -481,6 +498,12 @@ public:
     RepositoryProviderPackageMetadataQueryResult
     query_repository_provider_package_metadata(
         const std::string& dependency_name) const;
+
+    // Literal incomplete prefix; deliberately not validated as a complete name.
+    // No regex, description/group search, Usage filtering or source inference.
+    RepositoryPackagePrefixResult query_package_name_prefix(
+        const std::string& prefix, std::size_t candidate_limit,
+        std::size_t output_byte_limit) const;
 
     RepositoryPackageSearchResult query_root_package_search(
         const std::string& query) const;

@@ -169,6 +169,30 @@ inline constexpr std::string_view PACMAN_SYNC_INFO_SYNTAX = "-Si <pkg>";
 inline constexpr std::string_view PACMAN_FOREIGN_UPDATES_SYNTAX = "-Qua";
 inline constexpr std::string_view PACMAN_NEEDED_OPTION = "--needed";
 
+// Lexical arity only: these delegated tokens are neither a route allowlist nor
+// completion suggestions. Keep the parser's existing finite value knowledge here.
+struct PacmanValueOptionSpec {
+    std::string_view token;
+    bool changes_database_context = false;
+};
+inline constexpr std::array<PacmanValueOptionSpec, 17> PACMAN_VALUE_OPTIONS = {{PacmanValueOptionSpec{"--arch"}, {"--assume-installed"}, {"--cachedir"}, {"--color"}, {"--config", true}, {"--dbpath", true}, {"--gpgdir"}, {"--hookdir"}, {"--ignore"}, {"--ignoregroup"}, {"--logfile"}, {"--overwrite"}, {"--print-format"}, {"--root", true}, {"--sysroot", true}, {"-b", true}, {"-r", true}}};
+
+constexpr const PacmanValueOptionSpec* find_pacman_value_option(
+    std::string_view argument) noexcept {
+    const auto token = argument.substr(0, argument.find('='));
+    for(const auto& option : PACMAN_VALUE_OPTIONS)
+        if(token == option.token) return &option;
+    return nullptr;
+}
+
+constexpr bool pacman_option_needs_following_value(
+    std::string_view argument) noexcept {
+    return argument.find('=') == std::string_view::npos &&
+           find_pacman_value_option(argument) != nullptr;
+}
+
+inline constexpr std::string_view END_OF_OPTIONS_TOKEN = "--";
+
 // Public token compatibility remains in MOGUET_OPERATIONS and
 // MOGUET_GLOBAL_OPTIONS above. The structured contract below is keyed by
 // those stable IDs and owns public grammar semantics.
@@ -212,6 +236,30 @@ enum class OperandKind {
     PatchFile,
     PackageBase,
 };
+
+// Exact public examples carry known operand meaning without closing pacman's
+// delegated grammar. Tail modifiers may invalidate this projection at runtime.
+struct DelegatedOperationExampleSpec {
+    std::string_view syntax;
+    OperandKind operand_kind;
+
+    constexpr std::string_view token() const noexcept {
+        return syntax.substr(0, syntax.find(' '));
+    }
+};
+inline constexpr std::array<DelegatedOperationExampleSpec, 6> DELEGATED_OPERATION_EXAMPLES = {{DelegatedOperationExampleSpec{PACMAN_SYNC_INSTALL_SYNTAX, OperandKind::Package},
+                                                                                               {PACMAN_SYSTEM_UPGRADE_SYNTAX, OperandKind::None},
+                                                                                               {PACMAN_SYSTEM_UPGRADE_NO_REFRESH_SYNTAX, OperandKind::None},
+                                                                                               {PACMAN_SYNC_SEARCH_SYNTAX, OperandKind::Query},
+                                                                                               {PACMAN_SYNC_INFO_SYNTAX, OperandKind::Package},
+                                                                                               {PACMAN_FOREIGN_UPDATES_SYNTAX, OperandKind::None}}};
+
+constexpr const DelegatedOperationExampleSpec* find_delegated_operation_example(
+    std::string_view token) noexcept {
+    for(const auto& example : DELEGATED_OPERATION_EXAMPLES)
+        if(example.token() == token) return &example;
+    return nullptr;
+}
 
 enum class OperandOrderingRule {
     None,
@@ -768,7 +816,7 @@ inline constexpr std::array<OptionContract,
          OptionCompletionVisibility::SuggestedAndDescribed,
          "cli.pacman.needed"},
         {OptionId::EndOfOptions,
-         "--",
+         END_OF_OPTIONS_TOKEN,
          no_token_aliases(),
          OptionValueContract{OptionValueKind::Marker, {}, 0},
          OptionOccurrence::Once,

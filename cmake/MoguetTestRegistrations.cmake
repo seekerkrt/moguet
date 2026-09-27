@@ -985,3 +985,13 @@ moguet_add_ctest(
         "$<TARGET_FILE:moguet-aur-rpc-validation-test>"
         "$<TARGET_FILE:moguet-source-install-characterization-test>"
 )
+
+moguet_add_ctest(
+    NAME completion.repository_prefix_helper
+    TARGETS moguet-repository-prefix-helper moguet-repository-prefix-worker
+    COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test-repository-prefix-helper.py"
+        "$<TARGET_FILE:moguet-repository-prefix-helper>"
+        "$<TARGET_FILE:moguet-repository-prefix-worker>"
+        "${CMAKE_CURRENT_BINARY_DIR}"
+)
+set_tests_properties(completion.repository_prefix_helper PROPERTIES TIMEOUT 30)
