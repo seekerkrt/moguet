@@ -255,6 +255,31 @@ repository validation側で維持し、通常のpackage buildへfull CTestを追
 扱わず、owner-specific production root hookはconfigure / install graphが確定した対応するabsolute
 helper pathだけを使用する。
 
+canonical uninstall helperはmanifestのabsolute lexical entryとconfigure済みinstall rootsを検証し、
+manifest内のregular fileだけをdescriptor-relativeな`unlinkat`で削除する。directory cleanupは行わない。
+missing target / ancestorは`Already absent`とし、invalid manifest、unsafe topology / owner / mode、
+観測したreplacementは全entryのpreflightで拒否する。削除直前にもancestorとleafのidentityを再検証し、
+unlink failureは非0で直ちに停止する。先行削除をrollbackせず、成功したentryは`Removed`として表示する。
+
+ancestorはrootまたは実行userの所有するdirectoryで、group / other writableを拒否する。
+DESTDIRなしのtemporary prefixではinstall rootより上のsticky directoryだけを例外とする。
+payloadは実行user所有、group / other non-writableのregular fileを要求し、leaf symlinkへのreplacementを拒否する。
+DESTDIRのcomponentは従来どおりnofollowで開き、DESTDIR内のpayloadへ同じlogical path契約を適用する。
+唯一のancestor alias例外はfilesystem packageの`/usr/local/share/man -> ../man`である。
+exact link text、実行user ownership、link identityを検証し、保持した`/usr/local` descriptorから
+`man` directoryをnofollowで開く。alias destinationを含む全ancestorのowner / mode / identityを再検証し、
+任意symlink traversal、canonicalizationだけによる削除authority、trusted rootsの一般的な拡張は行わない。
+同UID / rootのconcurrent writerに対するatomicなcheck-and-unlinkや、install以後のcontent変更検出は保証しない。
+manifestは利用者が選んだtrusted build treeのauthorityであり、sudo利用時にuser-ownedであることだけを理由に拒否しない。
+
+completionとlocaleのabsolute `/usr/share` destinationはnon-`/usr` PREFIXでも維持する既存契約であり、
+canonical manifestに含まれる。`/usr/share`を一律除外するpolicyではないが、manifestはpacman ownershipや
+後から同pathへreinstallされたpackage payloadを識別するreceiptではない。packageのremove / restoreはpacmanへ委ねる。
+manual installとpackage payloadが重なるhostはcanonical uninstallのsupported ownership条件を満たさない。
+特にpacmanでstable packageを復元した後、その古いmanual manifestでcanonical uninstallを実行してはいけない。
+coexistence検証はDESTDIR、またはcompletion / localeも含めた独立destinationで行う。
+この制限はinstall layoutを変更したり、package database ownership engineを追加したりするものではない。
+
 ### Host validation execution graph
 
 `test`はfull host A–Dを所有し、`release-check-exclusive`はversion、license、packaging、tracked
