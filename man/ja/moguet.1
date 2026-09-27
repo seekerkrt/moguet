@@ -109,15 +109,26 @@ assignmentだけを許し、extra bare build operandを拒否します。
 .na
 .\" PUBLIC COMMANDS BEGIN
 .TP
-.B "build [--use-preference] <pkg> [V=K...] | build --local [--use-patches] <directory> [V=K...]"
+.B "build [--use-preference] [--save-preference] <pkg> [V=K...] | build --local [--use-patches] <directory> [V=K...]"
 .B --local
-なしでは、source-build preferenceを保存せず、official repositoryまたはAURのpackageを
+なしでは、official repositoryまたはAURのpackageを
 1つsourceからbuildします。
 defaultでは今回指定したassignmentだけを使います。
 .B --use-preference
 を指定すると対象packageの保存済みpreferenceを読み、未登録または
 .B V=K
 との併用時はbuild前に失敗します。保存済みempty値は省き、今回指定したempty値はforwardします。
+.B --save-preference
+はbuild/install lifecycle全体の成功後、今回explicitに指定したordered V=Kだけを新規preferenceへ保存します。
+最低1件のassignmentが必要で、--use-preference、--dry-run、local buildとの併用を拒否します。
+既存preferenceがあればbuild前に停止し、edit-srcを案内します。公開時もdestinationが存在しないことを
+要求し、途中で別processが作ったentryを上書きしません。optional --rmdeps cleanupだけの失敗は
+build/install成功後の保存を妨げませんが、commandはその失敗を返します。
+plain buildと--noconfirmは保存を意味しません。recipe editのpatch保存同意は別のままです。
+保存時だけ、既存parser/formatでenvironment全体のlength/key/value/orderがexactにround-tripすることを
+要求します。variable展開、comment、改行処理で値が変わる場合（literalな$HOME、埋込み改行等）は
+build前に拒否します。plain one-offの値と既存parser/formatは変更せず、preflightで確定した同一bytesを
+成功後に公開します。
 .B --local
 を指定すると、exactly oneのuser所有directoryをlocal PackageBase sourceとして扱い、
 pathらしいpackage operandからそのsourceを推測しません。安全な既存

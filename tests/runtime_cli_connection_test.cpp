@@ -346,7 +346,7 @@ void test_runtime_help_connection() {
     const std::array expected = {
         std::pair{OperationId::Build,
                   std::string{
-                      "build [--use-preference] <pkg> [V=K...] | build --local [--use-patches] <directory> [V=K...]"}},
+                      "build [--use-preference] [--save-preference] <pkg> [V=K...] | build --local [--use-patches] <directory> [V=K...]"}},
         std::pair{OperationId::Upgrade, std::string{"upgrade"}},
         std::pair{OperationId::Clean, std::string{"clean"}},
         std::pair{OperationId::Deps,
@@ -373,7 +373,7 @@ void test_runtime_help_connection() {
     }
 
     const std::vector<std::string> canonical = {
-        "build [--use-preference] <pkg> [V=K...]",
+        "build [--use-preference] [--save-preference] <pkg> [V=K...]",
         "build --local [--use-patches] <directory> [V=K...]",
         "upgrade",
         "upgrade-aur",
@@ -402,6 +402,35 @@ void test_runtime_help_connection() {
     expect(
         cli_canonical_grammar() == canonical,
         "Canonical public grammar projection differs");
+}
+
+void test_source_preference_promotion_contract() {
+    using Kind = CliInvocationIssueKind;
+    const auto parse = [](std::vector<std::string> args) {
+        return require_parsed_invocation(args, "source preference promotion");
+    };
+    expect_valid(parse({"build", "pkg", "CFLAGS=-O1", "CFLAGS=-O3", "FOO=", "--save-preference"}),
+                 "explicit promotion");
+    expect_issue(parse({"build", "pkg", "--save-preference"}),
+                 Kind::SourcePreferencePromotionRequiresAssignment, DiagnosticClass::Invalid, "empty promotion");
+    expect_issue(parse({"build", "pkg", "--use-preference", "--save-preference"}),
+                 Kind::SourcePreferencePromotionOptionConflict, DiagnosticClass::Invalid, "use/save conflict");
+    expect_issue(parse({"--dry-run", "build", "pkg", "FOO=", "--save-preference"}),
+                 Kind::SourcePreferencePromotionOptionConflict, DiagnosticClass::Invalid, "dry/save conflict");
+    expect_issue(parse({"build", "--local", ".", "FOO=", "--save-preference"}),
+                 Kind::MisplacedSourcePreferenceOption, DiagnosticClass::Invalid, "local promotion");
+    expect_issue(parse({"-S", "pkg", "--save-preference"}),
+                 Kind::MisplacedSourcePreferenceOption, DiagnosticClass::Invalid, "delegated promotion");
+    expect_issue(parse({"--save-preference", "build", "pkg", "FOO="}),
+                 Kind::MisplacedSourcePreferenceOption, DiagnosticClass::Invalid, "global promotion");
+    expect_issue(parse({"build", "pkg", "FOO=", "--save-preference", "--save-preference"}),
+                 Kind::DuplicateSourcePreferenceOption, DiagnosticClass::Invalid, "duplicate promotion");
+    const auto parsed = parse({"build", "pkg", "1INVALID=value", "--save-preference"});
+    expect(!validate_cli_invocation_contract(parsed).is_valid(), "invalid assignment promotion accepted");
+    expect(!is_moguet_global_option("--save-preference"), "save option became global");
+    const auto& option = cli_authority::option_contract(cli_authority::OptionId::SaveSourcePreference);
+    expect(option.lexical_placement == cli_authority::OptionLexicalPlacement::OperationLocal,
+           "save option is not operation-local");
 }
 
 void test_system_update_runtime_authority() {
@@ -868,6 +897,7 @@ int main() {
         test_operand_contract_connection();
         std::cout << "  ok: runtime operand contract connection\n";
         test_runtime_help_connection();
+        test_source_preference_promotion_contract();
         std::cout << "  ok: runtime help metadata connection\n";
         test_sync_invocation_route_classification();
         std::cout << "  ok: sync invocation route classification\n";

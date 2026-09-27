@@ -130,10 +130,27 @@ SourceBuildEnvironment get_package_env(
     const std::string& package_name, SourcePreferenceLoadHandler on_load,
     SourcePreferenceWarningHandler on_warning);
 
-// add/editだけがdirectoryをprepareする。writerはstoreのLOCK_EXで直列化し、
+// add/editと明示promotionだけがdirectoryをprepareする。writerはstoreのLOCK_EXで直列化し、
 // identity不明のpublication artifactは変更せずtyped errorにする。
 // 既存entryはexact 0600でなければ失敗する。
 void create_source_preference_entry(const std::string& package_name);
+// Canonical parserでenvironment全体のexact round-tripを証明したowned bytes。
+// Preflightからpublicationまで再serializeせず、検証した同一内容を保持する。
+class PreparedSourcePreferenceContents {
+    std::string contents_;
+    explicit PreparedSourcePreferenceContents(std::string contents);
+    friend PreparedSourcePreferenceContents prepare_source_preference_contents(const SourceBuildEnvironment& environment);
+
+public:
+    const std::string& serialized_contents() const noexcept;
+};
+
+// Pure preflight: current line format/parserでexactに再利用できない環境は拒否する。
+// CLI one-off parserやsaved consumerのempty Omit契約は変更しない。
+PreparedSourcePreferenceContents prepare_source_preference_contents(const SourceBuildEnvironment& environment);
+// ordered assignments全体を一度に公開する。既存entryを変更せず、publicationもabsentを要求する。
+void create_source_preference_from_environment_if_absent(
+    const std::string& package_name, const PreparedSourcePreferenceContents& contents);
 void append_source_preference_assignment(
     const std::string& package_name,
     const std::string& serialized_assignment);
@@ -149,6 +166,9 @@ enum class SourcePreferenceTestFailurePoint {
     Status,
     Open,
     Read,
+    Write,
+    Sync,
+    Publication,
 };
 
 enum class SourcePreferenceTestRacePoint {
@@ -164,7 +184,7 @@ enum class SourcePreferenceTestRacePoint {
 using SourcePreferenceTestRaceHandler = void (*)(
     const std::filesystem::path& entry_path);
 
-// Strict readerの一回限りのfailureだけを注入し、production IO APIは差し替えない。
+// 一回限りのreader/writer failureを注入し、production IO APIは差し替えない。
 void fail_next_source_preference_operation_for_test(
     const std::string& package_name,
     SourcePreferenceTestFailurePoint failure_point);

@@ -470,6 +470,7 @@ int main() {
         OptionId::Details,
         OptionId::LocalSource,
         OptionId::UseSourcePreference,
+        OptionId::SaveSourcePreference,
         OptionId::UsePatches,
         OptionId::PkgbuildOutputDirectory,
         OptionId::Recursive,

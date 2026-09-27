@@ -1100,6 +1100,17 @@ RemoteSourceBuildInvocation require_remote_source_build_invocation(
             return token.role == CliTokenRole::PacmanOption &&
                    token.value == cli_authority::USE_SOURCE_PREFERENCE_OPTION;
         });
+    const bool save_source_preference = std::any_of(
+        parsed.tokens.begin(), parsed.tokens.end(), [](const ParsedCliToken& token) {
+            return token.role == CliTokenRole::PacmanOption &&
+                   token.value == cli_authority::SAVE_SOURCE_PREFERENCE_OPTION;
+        });
+    if(save_source_preference) {
+        const auto validation = validate_cli_invocation_contract(parsed);
+        if(!validation.is_valid()) {
+            throw std::invalid_argument(cli_invocation_issue_message(validation.diagnostic->reason));
+        }
+    }
     for(const auto& arg : parsed.targets) {
         std::string key;
         std::string value;
@@ -1127,6 +1138,18 @@ RemoteSourceBuildInvocation require_remote_source_build_invocation(
             "No package specified."));
     }
     require_valid_package_name(invocation.package_name);
+    if(save_source_preference) {
+        invocation.source_preference_to_save.emplace(prepare_source_preference_contents(invocation.source_environment));
+        const auto current = read_source_preference_strict(invocation.package_name);
+        if(const auto* failure = std::get_if<SourcePreferenceFailure>(&current)) {
+            throw SourcePreferenceError(*failure);
+        }
+        if(std::holds_alternative<SourcePreferenceLoaded>(current)) {
+            throw std::runtime_error(localization::format_translated_message(
+                "A source-build preference is already registered for {}; use {} to edit it.",
+                invocation.package_name, "edit-src " + invocation.package_name));
+        }
+    }
     if(invocation.use_source_preference &&
        !invocation.source_environment.ordered_assignments.empty()) {
         throw std::invalid_argument(
@@ -1306,13 +1329,30 @@ int cmd_build(
     RemoteSourceBuildInvocation invocation,
     const AppConfig& config) {
     try {
-        return build_source_target(
-                   invocation.package_name,
-                   invocation.source_environment, config,
-                   invocation.use_source_preference
-                       ? SourceEnvironmentEmptyValuePolicy::Omit
-                       : SourceEnvironmentEmptyValuePolicy::Forward)
-            .command_exit_status();
+        const RemoteSourceBuildResult result = build_source_target(
+            invocation.package_name,
+            invocation.source_environment, config,
+            invocation.use_source_preference
+                ? SourceEnvironmentEmptyValuePolicy::Omit
+                : SourceEnvironmentEmptyValuePolicy::Forward);
+        // Optional rmdeps has its own outcome. A command failure there must
+        // not erase the successful build/install environment being promoted.
+        if(invocation.source_preference_to_save && result.build_install.is_success()) {
+            try {
+                create_source_preference_from_environment_if_absent(
+                    invocation.package_name, *invocation.source_preference_to_save);
+                Logger::info(localization::format_translated_message(
+                    "Saved source-build preference for {}.", invocation.package_name));
+            } catch(const std::exception& error) {
+                Logger::error(localization::format_translated_message(
+                    "Build/install succeeded, but source preference promotion failed: {}", error.what()));
+                Logger::info(localization::format_translated_message(
+                    "Inspect the preference for {}; use {} to edit an existing entry.",
+                    invocation.package_name, "edit-src " + invocation.package_name));
+                return 1;
+            }
+        }
+        return result.command_exit_status();
     } catch(const ProductionSourceBuildInvocationError& error) {
         Logger::error(
             format_production_source_build_invocation_failure(error));

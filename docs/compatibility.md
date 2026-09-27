@@ -45,7 +45,7 @@ grammarは次のとおりである。
 
 <!-- CLI CANONICAL GRAMMAR BEGIN -->
 ```text
-build [--use-preference] <pkg> [V=K...]
+build [--use-preference] [--save-preference] <pkg> [V=K...]
 build --local [--use-patches] <directory> [V=K...]
 upgrade
 upgrade-aur
@@ -678,7 +678,16 @@ canonical rootは次である。
 ${XDG_CONFIG_HOME:-$HOME/.config}/moguet/source-build.d/<package-name>
 ```
 
-unset / emptyの`XDG_CONFIG_HOME`は`$HOME/.config`へfallbackし、明示値はabsoluteかつ安全で既存base directoryでなければfail closedとする。root実行時もroot自身のXDG contextを使い、`SUDO_USER`から別userを推測しない。add / editだけが必要なdirectoryをsafe creation boundary経由で作成し、read / list / build / upgrade / missing delete / revertはdirectoryを作成しない。
+unset / emptyの`XDG_CONFIG_HOME`は`$HOME/.config`へfallbackし、明示値はabsoluteかつ安全で既存base directoryでなければfail closedとする。root実行時もroot自身のXDG contextを使い、`SUDO_USER`から別userを推測しない。add / editとremote `build --save-preference`の成功後publicationが必要なdirectoryをsafe creation boundary経由で作成し、read / list / plain build / upgrade / missing delete / revertはdirectoryを作成しない。
+
+`build <pkg> V=K... --save-preference`はexplicit ordered assignmentsだけをbuild/install lifecycle成功後に
+新規preferenceへ昇格する。assignmentが0件、`--use-preference` / `--dry-run`との併用、local buildを
+mutation前に拒否する。既存entryはbuild前に停止して`edit-src`を案内し、publicationでも既存entryを
+上書きしない。optional `--rmdeps` cleanupだけのfailureでは保存可能だが終了codeは失敗のままである。
+plain build / `--noconfirm`は保存を意味せず、recipe editのpatch保存同意とは別のauthorityである。
+保存時だけ、既存parserをoracleとしてenvironment全体のlength/key/value/orderのexact round-tripを要求し、
+表現不能な値はbuild前に拒否する。preflightで確定したowned bytesをそのまま公開し、既存parser/formatと
+plain one-offのvalue contractは変更しない。
 
 explicit `upgrade` / `upgrade-aur` / `upgrade-all`とsource-aware buildはこのauthorityをStrictに
 扱う。exact target-less `-Syu`のactual / dry-runはnormal AUR routeのIgnore policyを使い、

@@ -86,7 +86,11 @@ if index is not None:
     if args[index]=='fetch' and canonical is None:
         url=subprocess.check_output(['/usr/bin/git','config','--local','--get','remote.origin.url'], text=True).strip()
         if not url.startswith('https://aur.archlinux.org/') or not url.endswith('.git'): raise SystemExit(125)
-        args[index:index]=['-c','remote.origin.url='+str(root/'remotes'/url.rsplit('/',1)[1])]
+        # remote.origin.url is multi-valued: adding -c remote.origin.url
+        # retains the canonical AUR URL and can fetch it first. Rewrite only
+        # the transport while preserving the stored canonical identity.
+        local_prefix=(root/'remotes').as_uri()+'/'
+        args[index:index]=['-c','url.'+local_prefix+'.insteadOf=https://aur.archlinux.org/']
         index+=2
     args[index:index]=['-c','protocol.file.allow=always']
 code=subprocess.call(['/usr/bin/git',*args])
@@ -143,7 +147,7 @@ raise SystemExit(code)
         return record,material
 
     def run_upgrade(self, route='upgrade-aur', choices=('y',), ok=True, tty=True, options=(), before_answer=None, allow_retained=False,
-                    review_edit=False, save_choice='n', destination='patches', unsupported_edit=False):
+                    review_edit=False, save_choice='n', destination='patches', unsupported_edit=False, targets=()):
         self.command_log.write_text(''); self.eval_log.write_text(''); self.build_log.write_text(''); self.git_log.write_text('')
         if route=='upgrade':
             for base in self.packages: write(self.root/'config/moguet/source-build.d'/base, '', 0o600)
@@ -166,7 +170,7 @@ if os.environ.get('PATCH_EDIT_SRCINFO') == '1':
             self.env['EDITOR']=str(self.root/'bin/editor-fixture')
             self.env['VISUAL']=self.env['EDITOR']
             self.env['PATCH_UNSUPPORTED_EDIT']='1' if unsupported_edit else '0'
-        argv=[BINARY,*([] if review_edit else ['--noedit']),*options,route]
+        argv=[BINARY,*([] if review_edit else ['--noedit']),*options,route,*targets]
         if not tty:
             result=subprocess.run(argv,input='yes\n',env=self.env,text=True,capture_output=True,timeout=60)
             code,text=result.returncode,result.stdout+result.stderr
@@ -277,6 +281,26 @@ with tempfile.TemporaryDirectory(prefix='moguet-upgrade-patch-cli-') as temporar
                 require(c.probe_aur(version='3')=='3:custom:stock', '#649 could not reuse the generated customization')
             require(all((c.material/name).read_bytes()==data for name,data in existing_material.items()),
                     'save modified unrelated user material')
+        # Source environment promotion never supplies the separate recipe Save consent.
+        for patch_choice in ('n', 'y'):
+            c=UpgradeCase(root/('environment-promotion-patch-'+patch_choice),rpc)
+            # Keep PATH-resolved Git subprocesses in the same local fixture.
+            # Managed Git separately uses the explicit test executable hook.
+            shutil.copyfile(c.root/'bin/git-fixture', c.root/'bin/git')
+            (c.root/'bin/git').chmod(0o755)
+            text=c.run_upgrade(route='build',targets=('patch-upgrade','CUSTOM=first','CUSTOM=second','EMPTY=','--save-preference'),
+                               review_edit=True,save_choice=patch_choice)
+            preference=c.root/'config/moguet/source-build.d/patch-upgrade'
+            require(preference.read_text()=='CUSTOM="first"\nCUSTOM="second"\nEMPTY=""\n',
+                    'recipe edit was included in environment preference')
+            require(text.count('Save this edit as patch customization?')==1,
+                    'environment promotion changed separate patch consent')
+            records=list((c.root/'config/moguet/patches.d').glob('*.toml'))
+            require(len(records)==(1 if patch_choice=='y' else 0),
+                    'environment promotion supplied implicit patch consent')
+            c.run_upgrade(route='build',targets=('patch-upgrade','--use-preference'),options=('--nodiff',))
+            require(preference.read_text()=='CUSTOM="first"\nCUSTOM="second"\nEMPTY=""\n',
+                    'preference reuse changed saved bytes')
         for spelling in ('absolute', 'literal-tilde'):
             c=UpgradeCase(root/('generated-'+spelling),rpc)
             destination=c.material if spelling=='absolute' else c.root/'~'/'patches'

@@ -373,7 +373,7 @@ Moguet-owned / interceptedのclosed grammarは次のとおりです。
 
 <!-- CLI CANONICAL GRAMMAR BEGIN -->
 ```text
-build [--use-preference] <pkg> [V=K...]
+build [--use-preference] [--save-preference] <pkg> [V=K...]
 build --local [--use-patches] <directory> [V=K...]
 upgrade
 upgrade-aur
@@ -689,8 +689,16 @@ C-only / C++-only packageでは必要なvariableが異なり得ます。実際�
 利用するかはpackageの`PKGBUILD`とupstream build systemが決めるため、Moguetはこれらの
 variableがcompiler invocationへ作用することを保証しません。
 
-`build`はone-off operationのままで、これらのassignmentを保存しません。設定を確認後、
-`add-src`を使うと、そのpackageのsource-build preferenceとして保存できます。
+plain `build`はone-offのままです。remote build/install成功後に今回のassignmentを保存する場合は
+同じinvocationへ`--save-preference`を指定します。保存済みpreferenceがあればbuild前に停止し、
+`edit-src <pkg>`を案内します。最低1件のexplicit V=Kが必要で、`--use-preference`、`--dry-run`、
+local buildとの併用は拒否します。ordered duplicateとemptyを保存し、再利用時のemptyは従来どおり省きます。
+optional `--rmdeps` cleanupだけの失敗はbuild/install成功後の保存を妨げませんが、終了codeは失敗です。
+`--noconfirm`は保存を意味せず、PKGBUILD / `.install`のpatch保存同意も別のままです。
+`add-src`で直接そのpackageのsource-build preferenceを登録することもできます。
+`--save-preference`だけは既存parser/formatでordered environment全体をexactに再利用できる値へ限定します。
+variable展開、comment、改行処理で値が変わる場合（literalな`$HOME`、埋込み改行等）はbuild前に拒否します。
+plain one-offのvalue contractと既存preference parser/formatは変更しません。
 complete overrideを保存する例:
 
 ```bash
@@ -881,7 +889,8 @@ exact target-less `-Syu`とそのdry-runは、このdirectoryのsnapshot、列�
 行わず、child名 / PackageBase名のfallback preferenceも適用しません。Strict readerでは
 storeまたはentryがない場合だけを保存済みpreferenceなしとして扱い、invalid name、unsafe
 entry、permission error、I/O failureはhard errorです。read / list operationはdirectoryを
-作成しません。storageを最初に必要とする`add-src`または`edit-src`だけがmanaged directoryを
+作成しません。storageを最初に必要とする`add-src`、`edit-src`、または成功後の明示的な
+remote `build --save-preference` publicationがmanaged directoryを
 mode `0700`、entryをmode `0600`で作成します。package install / reinstall / uninstallは
 XDG preferenceもlegacy dataもcreate、migrate、removeしません。
 

@@ -438,7 +438,7 @@ The closed Moguet-owned and intercepted grammar is:
 
 <!-- CLI CANONICAL GRAMMAR BEGIN -->
 ```text
-build [--use-preference] <pkg> [V=K...]
+build [--use-preference] [--save-preference] <pkg> [V=K...]
 build --local [--use-patches] <directory> [V=K...]
 upgrade
 upgrade-aur
@@ -495,6 +495,7 @@ moguet upgrade-all
 # Build and install one remote package or one local PKGBUILD root
 moguet build <pkg> [V=K...]
 moguet build <pkg> --use-preference
+moguet build <pkg> CXXFLAGS="-O3" MAKEFLAGS="-j8" --save-preference
 moguet build --local [--use-patches] <directory> [V=K...]
 
 # Inspect AUR dependencies and build order without building
@@ -735,6 +736,22 @@ if any `V=K` assignment (including an empty value) is also supplied. Saved
 empty values retain their existing omit behavior; invocation-local empty
 values are forwarded.
 
+`build <pkg> V=K... --save-preference` promotes only those explicit ordered
+assignments after the complete build/install lifecycle succeeds. It requires
+at least one assignment and rejects `--use-preference`, `--dry-run` and local
+builds. An existing preference stops the build; use `edit-src <pkg>` to change
+it. A preference created by another process during the build is also preserved,
+and promotion fails. Optional `--rmdeps` cleanup failure after build/install
+success does not prevent saving, but still returns failure. Plain builds and
+`--noconfirm` never imply saving. PKGBUILD / `.install` edit persistence keeps its
+separate patch-customization consent.
+
+Saving is limited to values that round-trip exactly through the existing
+preference parser and format, including the complete assignment order and
+duplicate keys. Values that would change through variable expansion, comments
+or line splitting fail before building; literal `$HOME` or embedded newlines
+are examples. Plain one-off builds keep their existing value contract.
+
 ### Reviewed AUR source workflow
 
 For an AUR Git source build, Moguet keeps the last explicitly accepted exact
@@ -814,9 +831,9 @@ C++-only package may need different variables. The package's `PKGBUILD` and
 upstream build system determine which environment flags they consume; Moguet
 does not guarantee that these variables affect the compiler invocation.
 
-`build` remains a one-off operation and does not save these assignments. After
-verifying a setting, use `add-src` to save it as that package's source-build
-preference. Save a complete override with:
+Plain `build` remains a one-off operation. To save the settings used by a
+successful remote build/install, add `--save-preference` to that invocation.
+You can also register settings directly with `add-src`. Save a complete override with:
 
 ```bash
 moguet add-src example-package \
@@ -1038,8 +1055,9 @@ does not snapshot, enumerate, or read this directory and does not apply a
 child- or PackageBase-named fallback preference. A missing store or entry
 means no saved preference for strict readers; an invalid name, unsafe entry,
 permission error, or I/O failure is a hard error. Read and list operations do
-not create directories. Only an `add-src` or `edit-src` that first needs
-storage creates the managed directories with mode `0700` and the entry with
+not create directories. An `add-src`, `edit-src`, or successful remote
+`build --save-preference` publication that first needs storage creates the
+managed directories with mode `0700` and the entry with
 mode `0600`. Package install, reinstall, and uninstall do not create,
 migrate, or remove either XDG preferences or legacy data.
 

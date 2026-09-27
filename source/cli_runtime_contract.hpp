@@ -14,6 +14,8 @@ enum class CliInvocationIssueKind {
     MisplacedSourcePreferenceOption,
     DuplicateSourcePreferenceOption,
     SourcePreferenceAssignmentConflict,
+    SourcePreferencePromotionRequiresAssignment,
+    SourcePreferencePromotionOptionConflict,
     MisplacedPkgbuildOutputDirectoryOption,
     SelectRequiresPlainSync,
     UnsupportedAutoSystemUpdateOption,

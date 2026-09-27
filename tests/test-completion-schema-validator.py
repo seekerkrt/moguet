@@ -245,6 +245,14 @@ def expect_rejected(label: str, schema: str, expected_diagnostic: str) -> None:
 
 def expect_current_authority_projection() -> None:
     schema = parse_exported_schema(export_authority())
+    save = next(option for option in schema.options if option.token == "--save-preference")
+    if save.placement != "operation-local" or save.occurrence != "once":
+        fail("save-preference must remain an operation-local, once option")
+    for operation in schema.operations:
+        for form in operation.forms:
+            if save.identity in form.option_ids and (
+                    operation.token != "build" or form.operand_terms[0].kind != "package"):
+                fail("save-preference leaked outside remote build")
     contexts = dict(schema.operand_contexts)
     if contexts.get("-S") != "package" or contexts.get("-Ss") != "query" or "-Sxyz" in contexts:
         fail("exact package/query context authority differs")

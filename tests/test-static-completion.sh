@@ -107,23 +107,33 @@ assert_reply "diagnostic and dry-run option prefix" --diff --dry-run --details
 run_completion moguet build ""
 assert_reply \
     "build form未選択時はremote/localのunion" \
-    --use-preference --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= \
+    --use-preference --save-preference --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= \
     --rebuild --cleanbuild --details --local
 
 run_completion moguet build pkg ""
 assert_reply \
     "remote build target後はlocal selectorを提示しない" \
-    --use-preference --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= \
+    --use-preference --save-preference --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= \
     --rebuild --cleanbuild --details
 
 run_completion moguet build pkg V=1 ""
 assert_reply \
     "remote buildのtrailing assignmentを維持" \
-    --use-preference --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= \
+    --use-preference --save-preference --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= \
     --rebuild --cleanbuild --details
 
 run_completion moguet build pkg extra ""
 assert_reply "remote buildのsecond bare operand後は候補を提示しない"
+
+run_completion moguet build pkg V=1 --save-preference ""
+assert_reply "save is once and excludes use/dry/local" \
+    --edit --noedit --diff --nodiff --noconfirm --build-mode= --rebuild --cleanbuild --details
+run_completion moguet build pkg --use-preference "--save"
+assert_reply "reuse excludes save"
+run_completion moguet build --save-preference "--local"
+assert_reply "save excludes local before the package operand"
+run_completion moguet --dry-run build pkg V=1 "--save"
+assert_reply "dry-run excludes save"
 
 run_completion moguet build --local ""
 assert_reply \
@@ -265,7 +275,7 @@ assert_reply "queryはsnapshotと既存authorityのtoken projectionを使う" "$
 run_completion moguet build --rebuild ""
 assert_reply \
     "repeat可能aliasを維持しconflict候補を除外" \
-    --use-preference --edit --noedit --diff --nodiff --noconfirm --dry-run --rebuild --details --local
+    --use-preference --save-preference --edit --noedit --diff --nodiff --noconfirm --dry-run --rebuild --details --local
 
 zsh_completion="$(dirname -- "${completion_file}")/_moguet"
 fish_completion="$(dirname -- "${completion_file}")/moguet.fish"
@@ -345,7 +355,28 @@ _moguet_collect_candidates build
 has_candidate --edit || fail 'remote build primary operand was closed'
 has_candidate --details || fail 'remote build lost --details'
 has_candidate --use-preference || fail 'remote build lost --use-preference'
+has_candidate --save-preference || fail 'remote build lost --save-preference'
 has_candidate --use-patches && fail 'remote build leaked --use-patches'
+
+words=(moguet build pkg V=1 --save-preference '')
+CURRENT=6
+_moguet
+has_candidate --save-preference && fail 'save repeated'
+has_candidate --use-preference && fail 'save leaked reuse'
+has_candidate --dry-run && fail 'save leaked dry-run'
+has_candidate --local && fail 'save leaked local route'
+words=(moguet build --save-preference '')
+CURRENT=4
+_moguet
+has_candidate --local && fail 'pre-operand save leaked local route'
+words=(moguet build pkg --use-preference '')
+CURRENT=5
+_moguet
+has_candidate --save-preference && fail 'reuse leaked save'
+words=(moguet --dry-run build pkg '')
+CURRENT=5
+_moguet
+has_candidate --save-preference && fail 'dry-run leaked save'
 
 words=(moguet build pkg extra '')
 CURRENT=5
@@ -357,6 +388,7 @@ CURRENT=4
 _moguet_collect_candidates build
 has_candidate --edit || fail 'local build lost --edit'
 has_candidate --use-preference && fail 'local build leaked --use-preference'
+has_candidate --save-preference && fail 'local build leaked --save-preference'
 has_candidate --diff && fail 'local build leaked --diff'
 has_candidate --details && fail 'local build leaked --details'
 has_candidate --use-patches || fail 'local build lost --use-patches'
@@ -495,13 +527,26 @@ set mock_words moguet build pkg
 __moguet_candidate_available 0; or fail 'remote build primary operand was closed'
 __moguet_candidate_available 20; or fail 'remote build lost --details'
 __moguet_candidate_available 21; or fail 'remote build lost --use-preference'
+__moguet_candidate_available 23; or fail 'remote build lost --save-preference'
 __moguet_candidate_available 22; and fail 'remote build leaked --use-patches'
+set mock_words moguet build pkg V=1 --save-preference
+__moguet_candidate_available 23; and fail 'save repeated'
+__moguet_candidate_available 21; and fail 'save leaked reuse'
+__moguet_candidate_available 5; and fail 'save leaked dry-run'
+__moguet_candidate_available 15; and fail 'save leaked local route'
+set mock_words moguet build --save-preference
+__moguet_candidate_available 15; and fail 'pre-operand save leaked local route'
+set mock_words moguet build pkg --use-preference
+__moguet_candidate_available 23; and fail 'reuse leaked save'
+set mock_words moguet --dry-run build pkg
+__moguet_candidate_available 23; and fail 'dry-run leaked save'
 set mock_words moguet build pkg extra
 __moguet_candidate_available 0; and fail 'remote build second bare operand remained open'
 
 set mock_words moguet build --local
 __moguet_candidate_available 0; or fail 'local build lost --edit'
 __moguet_candidate_available 21; and fail 'local build leaked --use-preference'
+__moguet_candidate_available 23; and fail 'local build leaked --save-preference'
 __moguet_candidate_available 2; and fail 'local build leaked --diff'
 __moguet_candidate_available 20; and fail 'local build leaked --details'
 __moguet_candidate_available 15; and fail 'once --local remained available'

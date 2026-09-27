@@ -1798,6 +1798,137 @@ void test_strict_read_failure_does_not_publish_partial_environment() {
     expect_assignment(loaded.environment, 1, "SECOND", "must-not-publish");
 }
 
+void test_promotion_round_trip_and_owned_bytes() {
+    SourceBuildEnvironment environment{{{"CUSTOM", "double\"# tail"}, {"CUSTOM", "single'# tail"}, {"SPACES", "  two words  "}, {"ESCAPE", "backslash\\tail"}, {"EMPTY", ""}, {"PUNCT", "$-;`= #"}}};
+    const auto prepared = prepare_source_preference_contents(environment);
+    const std::string exact_bytes = prepared.serialized_contents();
+    // The publication consumes the preflight's owned bytes, even if the
+    // invocation's environment is subsequently changed by its caller.
+    environment.ordered_assignments[0].value = "changed-after-preflight";
+    create_source_preference_from_environment_if_absent("promotion-special-values", prepared);
+    expect_equal("owned serialized bytes published unchanged", read_preference_contents("promotion-special-values"), exact_bytes);
+    const auto loaded = expect_strict_alternative<SourcePreferenceLoaded>(
+        read_source_preference_strict("promotion-special-values"), "special-value round-trip");
+    expect(loaded.environment.ordered_assignments.size() == 6, "special-value round-trip changed environment length");
+    expect_assignment(loaded.environment, 0, "CUSTOM", "double\"# tail");
+    expect_assignment(loaded.environment, 1, "CUSTOM", "single'# tail");
+    expect_assignment(loaded.environment, 2, "SPACES", "  two words  ");
+    expect_assignment(loaded.environment, 3, "ESCAPE", "backslash\\tail");
+    expect_assignment(loaded.environment, 4, "EMPTY", "");
+    expect_assignment(loaded.environment, 5, "PUNCT", "$-;`= #");
+
+    for(const std::string& value : {std::string("literal $HOME"), std::string("literal ${HOME}"),
+                                    std::string("first\nSECOND=injected"), std::string("\"#'#\"#")}) {
+        try {
+            static_cast<void>(prepare_source_preference_contents(SourceBuildEnvironment{{{"FIRST", "keep"}, {"UNREPRESENTABLE", value}}}));
+            throw std::runtime_error("nonrepresentable environment was accepted");
+        } catch(const std::invalid_argument&) {
+        }
+    }
+    try {
+        static_cast<void>(prepare_source_preference_contents(SourceBuildEnvironment{{{"1INVALID", "value"}}}));
+        throw std::runtime_error("invalid environment key was accepted");
+    } catch(const std::invalid_argument&) {
+    }
+    // A later duplicate must not change into an expansion of the preceding
+    // assignment, even when that key exists in the preference parser's map.
+    try {
+        static_cast<void>(prepare_source_preference_contents(SourceBuildEnvironment{{{"FIRST", "keep"}, {"FIRST", "$FIRST"}}}));
+        throw std::runtime_error("ordered duplicate variable expansion was accepted");
+    } catch(const std::invalid_argument&) {
+    }
+}
+
+void test_environment_promotion_atomic_writer() {
+    const SourceBuildEnvironment environment{{{"CFLAGS", "-O1"}, {"CFLAGS", "-O3"}, {"CUSTOM", "two words # literal"}, {"FOO", ""}}};
+    const std::string package = "promotion-new-target";
+    remove_preference_entry(package);
+    create_source_preference_from_environment_if_absent(package, prepare_source_preference_contents(environment));
+    const auto loaded = expect_strict_alternative<SourcePreferenceLoaded>(
+        read_source_preference_strict(package), "promotion saved environment");
+    expect(loaded.environment.ordered_assignments.size() == 4, "promotion lost ordered assignments");
+    expect_assignment(loaded.environment, 0, "CFLAGS", "-O1");
+    expect_assignment(loaded.environment, 1, "CFLAGS", "-O3");
+    expect_assignment(loaded.environment, 2, "CUSTOM", "two words # literal");
+    expect_assignment(loaded.environment, 3, "FOO", "");
+    expect_words("promotion one-off empty forward", materialize_source_build_environment_assignment_words(loaded.environment, SourceEnvironmentEmptyValuePolicy::Forward),
+                 {"CFLAGS=-O1", "CFLAGS=-O3", "CUSTOM=two words # literal", "FOO="});
+    expect_words("promotion saved empty omit", materialize_source_build_environment_assignment_words(loaded.environment, SourceEnvironmentEmptyValuePolicy::Omit),
+                 {"CFLAGS=-O1", "CFLAGS=-O3", "CUSTOM=two words # literal"});
+    require_mode(source_preference_entry_path(package), 0600, "promotion entry");
+    const std::string original = read_preference_contents(package);
+    try {
+        create_source_preference_from_environment_if_absent(package, prepare_source_preference_contents(SourceBuildEnvironment{{{"OTHER", "replacement"}}}));
+        throw std::runtime_error("promotion replaced an existing preference");
+    } catch(const SourcePreferenceError& error) {
+        expect(error.failure().kind == SourcePreferenceFailureKind::ConcurrentReplacement, "promotion collision lost typed error");
+    }
+    expect_equal("existing preference bytes preserved", read_preference_contents(package), original);
+
+    const std::string unsafe = "promotion-unsafe-target";
+    write_preference(unsafe, "ORIGINAL=unsafe-mode\n");
+    fs::permissions(source_preference_entry_path(unsafe), fs::perms::owner_read | fs::perms::owner_write | fs::perms::group_write, fs::perm_options::replace);
+    try {
+        create_source_preference_from_environment_if_absent(unsafe, prepare_source_preference_contents(environment));
+        throw std::runtime_error("promotion accepted unsafe entry permissions");
+    } catch(const SourcePreferenceError& error) {
+        expect(error.failure().kind == SourcePreferenceFailureKind::UnsafePermissions, "promotion unsafe mode lost typed error");
+    }
+    expect_equal("unsafe entry bytes preserved", read_preference_contents(unsafe), "ORIGINAL=unsafe-mode\n");
+    remove_preference_entry(unsafe);
+    fs::create_symlink(source_preference_entry_path(package), source_preference_entry_path(unsafe));
+    try {
+        create_source_preference_from_environment_if_absent(unsafe, prepare_source_preference_contents(environment));
+        throw std::runtime_error("promotion followed an entry symlink");
+    } catch(const SourcePreferenceError& error) {
+        expect(error.failure().kind == SourcePreferenceFailureKind::UnsupportedFileType, "promotion symlink lost typed error");
+    }
+    expect_equal("symlink target bytes preserved", read_preference_contents(package), original);
+    remove_preference_entry(unsafe);
+    fs::create_directory(source_preference_entry_path(unsafe));
+    try {
+        create_source_preference_from_environment_if_absent(unsafe, prepare_source_preference_contents(environment));
+        throw std::runtime_error("promotion accepted a directory entry");
+    } catch(const SourcePreferenceError& error) {
+        expect(error.failure().kind == SourcePreferenceFailureKind::UnsupportedFileType, "promotion directory lost typed error");
+    }
+    remove_preference_entry(unsafe);
+
+    for(const auto point : {SourcePreferenceTestRacePoint::BeforePublication, SourcePreferenceTestRacePoint::AtPublicationBoundary}) {
+        const std::string raced = point == SourcePreferenceTestRacePoint::BeforePublication
+                                      ? "promotion-pre-publication-race"
+                                      : "promotion-at-publication-race";
+        remove_preference_entry(raced);
+        g_race_contents = "COMPETING=keep-original\n";
+        run_source_preference_race_once_for_test(raced, point, replace_preference_for_race);
+        try {
+            create_source_preference_from_environment_if_absent(raced, prepare_source_preference_contents(environment));
+            throw std::runtime_error("promotion overwrote a concurrent preference");
+        } catch(const SourcePreferenceError& error) {
+            expect(error.failure().kind == SourcePreferenceFailureKind::ConcurrentReplacement, "promotion race lost typed error");
+        }
+        expect_equal("concurrent preference preserved", read_preference_contents(raced), g_race_contents);
+        expect(internal_artifacts_for_package(source_preference_entry_path(raced)).empty(), "promotion race left a partial artifact");
+    }
+    for(const auto point : {SourcePreferenceTestFailurePoint::Write, SourcePreferenceTestFailurePoint::Sync,
+                            SourcePreferenceTestFailurePoint::Publication}) {
+        const std::string failed = "promotion-io-failure";
+        remove_preference_entry(failed);
+        fail_next_source_preference_operation_for_test(failed, point);
+        try {
+            create_source_preference_from_environment_if_absent(failed, prepare_source_preference_contents(environment));
+            throw std::runtime_error("promotion writer failure returned success");
+        } catch(const SourcePreferenceError& error) {
+            const auto kind = point == SourcePreferenceTestFailurePoint::Write  ? SourcePreferenceFailureKind::WriteFailed
+                              : point == SourcePreferenceTestFailurePoint::Sync ? SourcePreferenceFailureKind::SyncFailed
+                                                                                : SourcePreferenceFailureKind::RenameFailed;
+            expect(error.failure().kind == kind, "promotion IO failure lost typed kind");
+        }
+        expect(!fs::exists(source_preference_entry_path(failed)), "promotion IO failure published partial preference");
+        expect(internal_artifacts_for_package(source_preference_entry_path(failed)).empty(), "promotion IO failure left partial artifact");
+    }
+}
+
 } // namespace
 
 int main(int argc, char* argv[]) {
@@ -1825,6 +1956,8 @@ int main(int argc, char* argv[]) {
 
         test_absent_environment();
         test_native_mutation_creation_boundary_and_identity();
+        test_environment_promotion_atomic_writer();
+        test_promotion_round_trip_and_owned_bytes();
         test_preference_parsing_and_serialization();
         test_raw_assignment_word_materialization();
         test_empty_duplicate_pkgdest_definitions();

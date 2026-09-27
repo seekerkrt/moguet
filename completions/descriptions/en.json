@@ -1,6 +1,6 @@
 {
   "operations": {
-    "build": "Build one remote package or local PKGBUILD root without saving a preference",
+    "build": "Build one remote package or local PKGBUILD root; assignments are one-off unless explicitly saved",
     "upgrade": "Run the source-aware system update and apply saved source-build preferences",
     "upgrade-aur": "Update only installed AUR packages while applying saved source-build preferences",
     "upgrade-all": "Run the full source-aware repository, configured-source, and remaining-AUR update",
@@ -50,6 +50,7 @@
     "--rmdeps": "Preview newly installed build dependencies after remote AUR build success; remove only with explicit approval",
     "--local": "Use one local PKGBUILD directory as the build root",
     "--use-preference": "Use the saved source-build preference for one remote build; conflicts with V=K assignments",
+    "--save-preference": "Save explicit V=K after remote build/install success as a new preference; conflicts with --use-preference and --dry-run",
     "--output-dir": "Select an existing export parent for -G",
     "--select": "Interactively select source-aware package candidates for plain -S",
     "--aur": "Limit supported sync operations to AUR",

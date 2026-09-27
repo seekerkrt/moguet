@@ -817,7 +817,7 @@ void print_help() {
         cli_operation_syntax(OperationId::Build),
         localization::format_translated_message(
             // TRANSLATORS: The placeholder is the literal PKGBUILD artifact identity.
-            "Build one remote package or local {} root without saving a preference",
+            "Build one remote package or local {} root; assignments are one-off unless explicitly saved",
             "PKGBUILD"));
     print_help_entry(
         cli_operation_syntax(OperationId::Upgrade),
@@ -1096,6 +1096,15 @@ void print_help() {
     print_help_continuation(localization::translate_message(
         "Require a registered preference; do not combine with V=K assignments"));
     print_help_entry(
+        cli_option_syntax(OptionId::SaveSourcePreference),
+        localization::translate_message(
+            "Save explicit V=K assignments as a new preference after remote build/install success"));
+    print_help_continuation(localization::format_translated_message(
+        "Require V=K; reject existing preferences, {} and {}; use {} to edit an existing preference",
+        "--use-preference", "--dry-run", "edit-src"));
+    print_help_continuation(localization::translate_message(
+        "Reject values that cannot round-trip exactly through the existing preference format before building"));
+    print_help_entry(
         cli_option_syntax(OptionId::Rebuild),
         localization::format_translated_message(
             // TRANSLATORS: The placeholder is a literal compatibility option form.
@@ -1248,7 +1257,8 @@ bool validate_optionless_moguet_operation(const std::string& operation, const st
         if(operation == cli_authority::operation_spec(
                             cli_authority::OperationId::Build)
                             .token &&
-           flag == cli_authority::USE_SOURCE_PREFERENCE_OPTION) {
+           (flag == cli_authority::USE_SOURCE_PREFERENCE_OPTION ||
+            flag == cli_authority::SAVE_SOURCE_PREFERENCE_OPTION)) {
             continue;
         }
         // POLICY(#335): target-bearing source-preference operations alone use

@@ -456,12 +456,44 @@ CliInvocationValidation validate_cli_invocation_contract(
         }
     }
 
+    std::size_t save_preference_option_count = 0;
     std::size_t preference_option_count = 0;
     for(const ParsedCliToken& token : parsed.tokens) {
         if((token.role == CliTokenRole::PacmanOption ||
             token.role == CliTokenRole::Operation) &&
+           token.value == cli_authority::SAVE_SOURCE_PREFERENCE_OPTION) {
+            ++save_preference_option_count;
+        }
+        if((token.role == CliTokenRole::PacmanOption ||
+            token.role == CliTokenRole::Operation) &&
            token.value == cli_authority::USE_SOURCE_PREFERENCE_OPTION) {
             ++preference_option_count;
+        }
+    }
+    if(save_preference_option_count != 0) {
+        const bool is_remote_build =
+            contract.operation != nullptr &&
+            contract.operation->id == OperationId::Build &&
+            primary_operand_kind(*contract.form) == OperandKind::Package;
+        const bool has_assignment = is_remote_build && parsed.targets.size() > 1 &&
+                                    std::any_of(parsed.targets.begin() + 1, parsed.targets.end(), is_environment_assignment);
+        std::optional<CliInvocationIssueKind> kind;
+        std::optional<std::string> conflict;
+        if(!is_remote_build)
+            kind = CliInvocationIssueKind::MisplacedSourcePreferenceOption;
+        else if(save_preference_option_count > 1)
+            kind = CliInvocationIssueKind::DuplicateSourcePreferenceOption;
+        else if(preference_option_count != 0 || parsed.cli_overrides.dry_run) {
+            kind = CliInvocationIssueKind::SourcePreferencePromotionOptionConflict;
+            conflict = std::string(preference_option_count != 0
+                                       ? cli_authority::USE_SOURCE_PREFERENCE_OPTION
+                                       : "--dry-run");
+        } else if(!has_assignment)
+            kind = CliInvocationIssueKind::SourcePreferencePromotionRequiresAssignment;
+        if(kind) {
+            return invalid_invocation(
+                contract, CliInvocationIssue{*kind, parsed.operation, conflict.value_or(std::string(cli_authority::SAVE_SOURCE_PREFERENCE_OPTION)), TargetPolicy::ExactlyOne, OperandKind::Package},
+                DiagnosticClass::Invalid, DiagnosticOperation::Build);
         }
     }
     if(preference_option_count != 0) {
@@ -651,11 +683,19 @@ std::string cli_invocation_issue_message(
         case CliInvocationIssueKind::MisplacedSourcePreferenceOption:
             return localization::format_translated_message(
                 "Option {} is supported only with remote {}.",
-                cli_authority::USE_SOURCE_PREFERENCE_OPTION, "build");
+                issue.operand.value_or(std::string(cli_authority::USE_SOURCE_PREFERENCE_OPTION)), "build");
         case CliInvocationIssueKind::DuplicateSourcePreferenceOption:
             return localization::format_translated_message(
                 "Option {} may be specified only once for remote {}.",
-                cli_authority::USE_SOURCE_PREFERENCE_OPTION, "build");
+                issue.operand.value_or(std::string(cli_authority::USE_SOURCE_PREFERENCE_OPTION)), "build");
+        case CliInvocationIssueKind::SourcePreferencePromotionRequiresAssignment:
+            return localization::format_translated_message(
+                "Option {} requires at least one explicit V=K assignment.",
+                cli_authority::SAVE_SOURCE_PREFERENCE_OPTION);
+        case CliInvocationIssueKind::SourcePreferencePromotionOptionConflict:
+            return localization::format_translated_message(
+                "Option {} cannot be combined with {}.",
+                cli_authority::SAVE_SOURCE_PREFERENCE_OPTION, issue.operand.value_or(""));
         case CliInvocationIssueKind::SourcePreferenceAssignmentConflict:
             return localization::format_translated_message(
                 "Option {} cannot be combined with invocation-local environment assignments.",
