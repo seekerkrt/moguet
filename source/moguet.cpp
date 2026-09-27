@@ -927,6 +927,8 @@ void print_help() {
             "Remove preferences and reinstall binary packages"));
     std::cout << std::endl;
     print_help_section(localization::translate_message("LOCAL RECIPE PATCHES"));
+    print_help_continuation(localization::format_translated_message(
+        "Experimental: accepted ordinary reviewed {} edits can be saved with separate default-No consent to an explicit existing patch directory", "AUR"));
     print_help_entry(cli_operation_syntax(OperationId::AddPatch), localization::format_translated_message(
                                                                       "Register ordered {} patches from a user-maintained directory; do not enable automatic application", "PKGBUILD"));
     print_help_entry(cli_operation_syntax(OperationId::UpdatePatch), localization::translate_message(

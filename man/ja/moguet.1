@@ -407,7 +407,21 @@ materialの健全性を検証する表示ではありません。不正・非対
 skipせず一覧全体を失敗させます。storeがない・空の場合は作成せず登録なしと表示します。
 patch customizationはExperimentalで、CLI・record schema・表示は変更され得ます。
 local v1とAUR v2のrecordを混在して一覧できます。AURはcanonical Git URLと解決済みPackageBaseで
-識別し、listingからremoteへ接続しません。AUR登録・更新はinternal APIであり、public creation UXはreview-edit patch capture側に残します。
+識別し、listingからremoteへ接続しません。AUR登録・更新はinternal APIを使い、通常review済みAURの編集は明示saveから登録できます。
+.PP
+PKGBUILD編集後にProceed with build?をacceptしたnormal reviewed ordinary AUR経路は、
+Save this edit as patch customization? [y/N]で別の保存同意を求めます。No、空入力、--noconfirm、non-TTYでは
+patch生成・公開・登録をせず今回のaccepted editで継続します。piped yesは保存許可になりません。
+Yes後だけPatch directory:を入力します。defaultはなく、command開始cwd基準の相対pathを使えます。
+cache・checkout・registry外の既存user-owned directoryだけを受理し、unsafe path、symlink、owner・permission違反は拒否します。
+生成したGit PKGBUILD patchはaccepted bytesのexact reproductionを検証し、別の明示makepkg --printsrcinfo同意で
+owned copy内のsource identityだけをfresh確認します。今回のdependency planは再構成しません。
+公開は上書きせず、生成時expected SHA-256を登録commitまで保持します。既存associationへのappend・update・replaceはしません。
+Yes後failureはnonzero停止です。公開後の登録失敗ではmaterialを残し、registryが未変更または不確実であることを示します。
+全phase成功後だけsame accepted editでbuildを継続します。cancel・EOF・input failureはNoと分けて停止します。
+compatibility、official/local、Auto -S、targetless、dry-runでcreationは起動しません。
+authoritative develのSave Yesは非対応停止で、編集したSRCINFOから黙示降格しません。
+Save同意を将来Apply同意へ再利用せず、.install編集やsource payloadは保存しません。
 .PP
 Experimentalなsaved AUR patchはupgrade、upgrade-aur、upgrade-allでexact source URLとPackageBaseから発見し、
 PackageBaseごとに[y/N]で今回の適用を確認します。No、空入力、non-TTY、--noconfirmではmaterialを取得・hashせず

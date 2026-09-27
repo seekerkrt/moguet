@@ -139,20 +139,40 @@ raise SystemExit(code)
         record.parent.parent.chmod(0o700)
         return record,material
 
-    def run_upgrade(self, route='upgrade-aur', choices=('y',), ok=True, tty=True, options=(), before_answer=None, allow_retained=False):
+    def run_upgrade(self, route='upgrade-aur', choices=('y',), ok=True, tty=True, options=(), before_answer=None, allow_retained=False,
+                    review_edit=False, save_choice='n', destination='patches', unsupported_edit=False):
         self.command_log.write_text(''); self.eval_log.write_text(''); self.build_log.write_text(''); self.git_log.write_text('')
         if route=='upgrade':
             for base in self.packages: write(self.root/'config/moguet/source-build.d'/base, '', 0o600)
             (self.root/'config/moguet').chmod(0o700)
             (self.root/'config/moguet/source-build.d').chmod(0o700)
-        argv=[BINARY,'--noedit',*options,route]
+        if review_edit:
+            write(self.root/'bin/editor-fixture', '''#!/usr/bin/python3
+import os, sys
+from pathlib import Path
+path=Path(sys.argv[-1])
+text=path.read_text()
+if os.environ.get('PATCH_UNSUPPORTED_EDIT') == '1':
+    text=''.join(line.rstrip('\\n')+' \\n' for line in text.splitlines(True))
+else:
+    text=text.replace("pkgdesc='before'", "pkgdesc='custom'")
+path.write_text(text)
+if os.environ.get('PATCH_EDIT_SRCINFO') == '1':
+    (path.parent/'.SRCINFO').write_text('pkgbase = patch-devel\\n\\tpkgver = 2\\n\\tpkgrel = 1\\n\\tarch = any\\npkgname = patch-devel\\n')
+''', 0o755)
+            self.env['EDITOR']=str(self.root/'bin/editor-fixture')
+            self.env['VISUAL']=self.env['EDITOR']
+            self.env['PATCH_UNSUPPORTED_EDIT']='1' if unsupported_edit else '0'
+        argv=[BINARY,*([] if review_edit else ['--noedit']),*options,route]
         if not tty:
             result=subprocess.run(argv,input='yes\n',env=self.env,text=True,capture_output=True,timeout=60)
             code,text=result.returncode,result.stdout+result.stderr
         else:
             pid,fd=pty.fork()
-            if pid==0: os.execve(BINARY,argv,self.env)
-            output=bytearray(); answered=0; selection=0; deadline=time.monotonic()+70
+            if pid==0:
+                if review_edit: os.chdir(self.root)
+                os.execve(BINARY,argv,self.env)
+            output=bytearray(); answered=0; selection=0; destination_answered=False; deadline=time.monotonic()+70
             try:
                 while True:
                     require(time.monotonic()<deadline,'PTY timeout: '+output.decode(errors='replace'))
@@ -166,12 +186,16 @@ raise SystemExit(code)
                     for match in prompts[answered:]:
                         question=match.group(1).decode(errors='replace')
                         answer='n' if question.startswith(('Show ', 'Edit ', 'Clean ', 'Rebuild ')) else 'y'
+                        if review_edit and question=='Edit PKGBUILD?': answer='y'
+                        if question=='Save this edit as patch customization?': answer=save_choice
                         if question.startswith('Apply saved patch customization to this update of '):
                             require(selection<len(choices),'unexpected repeated patch selection')
                             answer=choices[selection]; selection+=1
                         if before_answer: before_answer(question)
                         os.write(fd,b'\x04' if answer=='EOF' else (answer+'\n').encode())
                         answered+=1
+                    if b'Patch directory: ' in output and not destination_answered:
+                        os.write(fd,(destination+'\n').encode()); destination_answered=True
                 _,status=os.waitpid(pid,0); code=os.waitstatus_to_exitcode(status)
             except BaseException:
                 try: os.killpg(pid,signal.SIGKILL)
@@ -215,6 +239,51 @@ with tempfile.TemporaryDirectory(prefix='moguet-upgrade-patch-cli-') as temporar
         while not port.exists():
             require(server.poll() is None and time.monotonic()<deadline,'RPC fixture failed'); time.sleep(.02)
         rpc='http://127.0.0.1:'+port.read_text().strip()+'/rpc/'
+        # #650 producer: actual review/editor/Proceed -> separate Save consent,
+        # native makepkg identity/build/archive and existing #649 later reuse.
+        for shape, save in (('ordinary','n'), ('ordinary','y'), ('unsupported','n'), ('unsupported','y')):
+            c=UpgradeCase(root/f'generated-{shape}-{save}',rpc)
+            # Stable upstream context around pkgdesc is independent of version.
+            # A version change within the generated hunk must remain conflict.
+            producer_recipe=lambda version: recipe('patch-upgrade',version).replace('pkgrel=1\n',
+                'pkgrel=1\n# stable review context one\n# stable review context two\n# stable review context three\n')
+            c.add_upstream('patch-upgrade',producer_recipe('2'))
+            existing_material={p.name:p.read_bytes() for p in c.material.iterdir()}
+            text=c.run_upgrade(review_edit=True,save_choice=save,unsupported_edit=shape=='unsupported',
+                               ok=not (shape=='unsupported' and save=='y'))
+            require(text.count('Save this edit as patch customization?')==1, 'ordinary reviewed edit missed or repeated Save prompt')
+            if shape=='unsupported' and save=='y':
+                require('generation or exact reproduction verification failed' in text and not c.build_log.read_text() and
+                        not c.command_log.read_text() and not list(c.material.glob('PKGBUILD-*.patch')),
+                        'unsupported Yes did not stop at generation: '+text+'\nbuilds='+c.build_log.read_text()+
+                        '\ncommands='+c.command_log.read_text()+'\nmaterial='+str(list(c.material.iterdir())))
+                continue
+            require(c.probe_aur()==('2:custom:stock' if shape=='ordinary' else '2:before:stock'), 'current build lost the accepted edit')
+            records=list((c.root/'config/moguet/patches.d').glob('*.toml'))
+            if save=='n':
+                require(not records and not list(c.material.glob('PKGBUILD-*.patch')) and 'Patch directory:' not in text, 'Save No performed persistence')
+            else:
+                generated=list(c.material.glob('PKGBUILD-*.patch'))
+                require(len(records)==1 and len(generated)==1, 'explicit Save Yes did not register ordinary AUR')
+                record=records[0].read_text(); material=generated[0]
+                require(str(c.material) in record and hashlib.sha256(material.read_bytes()).hexdigest() in record,
+                        'relative command-start destination or expected digest lost')
+                c.add_upstream('patch-upgrade',producer_recipe('3'))
+                c.run_upgrade()
+                require(c.probe_aur(version='3')=='3:custom:stock', '#649 could not reuse the generated customization')
+            require(all((c.material/name).read_bytes()==data for name,data in existing_material.items()),
+                    'save modified unrelated user material')
+        c=UpgradeCase(root/'generated-unsafe',rpc)
+        text=c.run_upgrade(review_edit=True,save_choice='y',destination='cache/moguet',ok=False)
+        require('Patch directory is empty, unsafe or unavailable' in text and not c.build_log.read_text() and
+                not c.command_log.read_text(), 'unsafe destination failed after build continuation')
+        c=UpgradeCase(root/'generated-authoritative-devel',rpc,('patch-devel',))
+        c.add_upstream('patch-devel',recipe('patch-devel').replace('depends=()', "depends=()\nsource=('git+https://example.invalid/upstream.git')\nsha256sums=('SKIP')"))
+        c.env['PATCH_EDIT_SRCINFO']='1'
+        text=c.run_upgrade(review_edit=True,save_choice='y',ok=False)
+        require('Saving patch customization for authoritative devel builds is unsupported' in text and
+                not c.build_log.read_text() and not c.command_log.read_text() and not list(c.material.glob('PKGBUILD-*.patch')),
+                'edited SRCINFO downgraded upstream authoritative devel or saved material')
         for route in ('upgrade','upgrade-aur','upgrade-all'):
             c=UpgradeCase(root/route,rpc); record,material=c.save('patch-upgrade')
             saved=record.read_bytes()

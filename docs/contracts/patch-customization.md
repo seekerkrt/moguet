@@ -5,7 +5,8 @@
 **Production Slice 1–3のinitial local recipe consumerを実装済み。**
 [Issue #363 current body](https://github.com/seekerkrt/moguet/issues/363)をrequirements SSOTとする。
 以下は実装済みlocal contractとDesign Gateの比較根拠である。#649 Slice 2でAUR associationを追加した。
-ordinary AURのupgrade-family適用は#649 Slice 3で追加する。other text / source payloadは将来consumerとする。
+ordinary AURのupgrade-family適用は#649 Slice 3、review編集からの明示保存は#650 Slice 3で実装済み。
+other text / source payloadは将来consumerとする。
 [#627 requirements reset](https://github.com/seekerkrt/moguet/issues/627)に従い、過去の
 profile / snapshot foundationを要求へ戻さない。requirementsはIssue、具体的な
 patch contractはこの文書、上位原則は[decisions](../decisions.md)と[stance](../project-stance.md)が所有する。
@@ -195,8 +196,9 @@ local register/update wrapperは引き続き`ObservedLocalPatchSource`のfresh�
 local acquisition APIはAUR入力を拒否し、AURをlocal candidateへ渡すconsumerを先行導入しない。
 
 **Public surface:** `list-patch`はlocal/AURを混在表示するが、add/update/deleteのCLI grammarはlocal専用のまま。
-directory入力とlocal metadata評価の契約へremote source selectionを混ぜず、AUR creation UXはSlice 3 / #650へ残す。
-上記APIはproduction buildへ含まれ、後続の明示registration producerが利用できる。test専用のmodelではない。
+directory入力とlocal metadata評価の契約へremote source selectionを混ぜない。
+AUR creationは後述の#650 Slice 3の明示review-edit save producerが所有する。
+上記APIはproduction buildへ含まれ、明示registration producerが利用する。test専用のmodelではない。
 自動適用、remembered selection、upgrade confirmation、targetless `-Syu` / `-Su`変更、#362の変更は含まない。
 
 ### Production Slice 2: association / persistence / strict acquisition
@@ -404,7 +406,7 @@ initial local journeyの未完了項目として扱わない。source payload適
 
 対象はactual `upgrade`、`upgrade-aur`、`upgrade-all`のAUR source build。official binary/repository source、
 Auto `-S`、exact targetless `-Su` / `-Syu`、plain remote/local build、dry-runにはpatch discoveryを追加しない。
-CLI optionやpublic AUR creation commandは追加せず、producerは#650へ残す。Experimentalを維持する。
+CLI optionやpublic AUR creation commandは追加せず、producerは後述#650 Slice 3の明示saveが所有する。Experimentalを維持する。
 
 `upgrade`は登録preference sourceのsingular AUR lifecycle、`upgrade-aur`はforeign inventoryからの
 PackageBase batch lifecycleであり、`upgrade-all`はsystem/登録source後にfresh queryしたfiltered batchを使う。
@@ -502,6 +504,51 @@ apply失敗とbaseline/result bytes不一致は別reasonとし、private recipe�
 `LocalSourceRootFailure`またはsystem errorを保持する。未知のvalidator/process内部exceptionは
 Git終了失敗へ分類せず、causeを持つ`InternalFailure`としてcleanup後に返す。
 
-このseamはreview/build runtimeへ未接続であり、編集だけで自動生成しない。save consent / prompt、
-destination、material publication、registration、#363 producer接続はSlice 3の未実装scopeである。
+Slice 3は以下の明示saveからだけこのseamを呼び、編集検出だけで自動生成しない。
 #649 production route、metadata replan、authoritative devel customizationは変更しない。
+
+## Issue #650 Slice 3: explicit save / publication / registration
+
+normal reviewed ordinary AURのeditor → existing Proceed acceptance → exact correlationだけを入力とする。
+orchestrationはcwd復元とordinary reviewed pin確定後のcheckout preparation出口に置く。review/editor helperは
+保存を所有しない。explicit authoritative devel editor overlayだけは既存selector rejectionより前にYesを非対応停止する。
+compatibility、official/local、Auto -S、targetless、dry-run、selected #649 seriesにはcapture/saveを追加しない。
+`ordinary_devel_package_base`はtargetless route markerであり、devel判定やsave activationに使わない。
+
+`request_confirmation`のdefault Noで `Save this edit as patch customization? [y/N]` を提示し、
+ExplicitTokenのYesだけをsave intentとする。No、empty、--noconfirm、non-TTYはgeneration/destination/material/registryへ
+入らずsame accepted editのstock manual buildを継続する。unsupported persistent patch shapeはNoで評価しない。
+piped yesを昇格せず、q-family/EOF/InputFailureは既存typed confirmation stopとして伝える。
+
+Yes後だけdefaultなしの `Patch directory:` を入力する。既存directoryのみ、command-start cwdからrelativeを解決し、
+control/NUL/backslash/..、symlink、ownership/mode、cache/checkout/registry内部およびregistryを包含するrootを拒否する。
+既存MaterialDirectoryがrootから全lineageをpin/revalidateする。解決失敗はYesでhard stop、Noへcwd failureを波及させない。
+complete no-create registry lookupでduplicateをpublication前に拒否し、registry writerでもraceを再確認する。
+
+generation/replay成功後、別のno-default makepkg --printsrcinfo同意を得る。既存LocalSourceWorkspaceのowned copyと
+evaluate_recipe_metadataでaccepted recipeのPackageBase/required childだけをfresh照合する。dependency/provider plan、RPC cache、
+saved preferenceは変更しない。authoritative判断にはpre-editor clean snapshotのowning .SRCINFO bytes/absenceを保持し、
+Yes後だけ既存requires_authoritative_devel_recipeのinstall/environment policyを使う。editor後の.SRCINFOをupstream authorityにしない。
+
+生成bytesからexpected SHA-256と固定長 `PKGBUILD-<digest>.patch` を得る。既存安全directory内へprivate temporaryを書き、
+fsync/read-back → renameat2(NOREPLACE) → published read-back/byte equality/digest → directory syncを行う。
+material publicationが第一commitで、失敗後にuser final materialをunlink/rollbackしない。cleanupはidentityとlineageが
+一致したinvocation temporaryだけ、一度だけ行う。material commit済pathとtemporary leftoverを別factとして保持する。
+destination preflightはpath validationであり、publication時にfreshなdirectory authorityを確立して、そのpublication期間の
+named/descriptor lineageを保持する。入力時からのdirectory inode継続保持や非協調same-UIDの連続監視は保証しない。
+
+`register_expected_aur_patch_association`はexpected entriesのsize/order/leaf/digestを検証し、既存publish/acquire_materialへ
+expectedを渡す。registry rename直前にも同じexpected取得を照合し、別のshape-valid patchへ差替えられても成功しない。
+local v1/AUR v2 schema、encoder、writer、#363/#649 consumerを作り直さず、通常manual register/updateの意味を維持する。
+generated bytes == published bytes == registryがcommitするexpected bytesをauthorityとし、observed bytesへdigestを追随しない。
+
+registry登録が第二commit。第一commit後failureはmaterialを残してoperation failure、registryは未変更またはPublicationUncertain。
+第二commit後のaccepted recipe driftもbuild停止とし、material/registry両方commit済のfactを保持する。
+generation/reproduction/destination/publication/integrity/registrationとcleanup/exception causeをtyped save failureへ保持し、
+existing batch/registered upgrade aggregateもexception_ptrを保持する。best-effort build、stock fallback、blind retryはない。
+Normal表示にも専用save failure categoryから元のphase/commit診断を渡し、genericなbuild/install failureへ潰さない。
+全phase成功後だけ同じaccepted recipeで既存buildを継続し、Save Yesを将来#649 Apply同意へ使わない。
+
+focused evidenceは既存production connection/association fixture、native makepkg/archive/isolated ALPM/PTYの
+upgrade-patch CLI fixtureを拡張する。No zero-I/O、unsupported shape No/Yes、strict destinations、no overwrite、digest tamper、
+registration failure/uncertain、commit後drift、scope exclusions、generated materialの#649 current-upstream reuseを確認する。

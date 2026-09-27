@@ -855,8 +855,32 @@ Malformed, unsupported, unsafe or mismatched registry records stop the command w
 an error instead of being skipped. A missing/empty registry is reported without
 creating it. Local v1 and AUR v2 associations can coexist. AUR records identify the
 canonical AUR Git URL and resolved PackageBase; listing never contacts that remote.
-AUR registration/update are currently internal APIs; public creation UX remains with
-review-edit patch capture. The existing patch commands still register local sources.
+AUR registration/update use internal APIs. Ordinary reviewed AUR edits can now create
+an association through the explicit save flow below. The existing patch commands still register local sources.
+
+After editing `PKGBUILD` and accepting `Proceed with build?`, a normal reviewed ordinary
+AUR build asks `Save this edit as patch customization? [y/N]`. No or an empty answer
+continues with the accepted edit without generating, publishing or registering a patch.
+`--noconfirm` and non-TTY input use safe No; piped `yes` is not save permission.
+Yes asks `Patch directory:` with no default. Choose an existing directory you own,
+outside the cache, source checkout and registry. Relative paths resolve from the
+command's starting directory. Symlinks, unsafe permissions and traversal paths are rejected.
+
+Yes generates and byte-exactly verifies a Git `PKGBUILD` patch. A separate explicit
+`makepkg --printsrcinfo` consent confirms the accepted source identity in an owned copy;
+the current manual-edit dependency plan is unchanged. Moguet publishes a deterministic
+`PKGBUILD-<SHA-256>.patch` without overwriting and registers the **generated expected digest**.
+Existing associations are rejected; save never appends, updates or replaces them.
+Only complete success continues the current build with the same accepted edit.
+Any save failure stops with a nonzero result. After publication, a registration failure
+leaves the user material in place and reports the incomplete or uncertain registry outcome.
+Cancellation, EOF and input failure stop the operation separately from No.
+
+This creation flow is Experimental and excludes compatibility, official/local source,
+Auto `-S`, targetless and dry-run routes. Authoritative devel plus Save Yes is unsupported
+and stops; edited `.SRCINFO` cannot downgrade that decision. Save No preserves existing
+manual-edit behavior. Save consent is separate from future Apply consent and does not
+save `.install` edits or source payloads.
 
 `upgrade`, `upgrade-aur`, and `upgrade-all` discover saved AUR associations after exact
 source resolution and ask `Apply saved patch customization to this update of <PackageBase>? [y/N]` for each PackageBase.

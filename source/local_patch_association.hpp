@@ -8,6 +8,7 @@
 #include <variant>
 
 class ResolvedAurSourceBuildIdentity;
+class GeneratedRecipePatch;
 
 enum class PatchAssociationFailureKind {
     Missing,
@@ -31,6 +32,8 @@ struct PatchAssociationFailure {
     std::error_code system_error;
     std::optional<std::filesystem::path> leftover;
     std::optional<LocalSourceWorkspaceFailure> cleanup_failure;
+    // Generated material first commit only; distinct from owned temp leftovers.
+    std::optional<std::filesystem::path> published_material = std::nullopt;
 };
 
 struct PatchAssociationAbsent {};
@@ -120,6 +123,26 @@ std::variant<std::vector<LoadedPatchAssociation>, PatchAssociationFailure> list_
 PatchAssociationWriteResult register_aur_patch_association(
     const ResolvedAurSourceBuildIdentity& source, const std::filesystem::path& material_root,
     const std::vector<std::string>& ordered_files);
+// Generated flow retains the producer's expected digest through acquisition
+// and the registry commit. It never adopts newly observed material bytes.
+PatchAssociationWriteResult register_expected_aur_patch_association(
+    const ResolvedAurSourceBuildIdentity& source, const std::filesystem::path& material_root,
+    const std::vector<PatchMaterialEntry>& expected_entries);
+
+struct PublishedRecipePatch {
+    std::filesystem::path material_root;
+    PatchMaterialEntry expected_entry;
+};
+// Explicit save caller only. Existing safe user-owned directory, no overwrite,
+// no registry write. A failure after publication retains the final material in
+// failure.leftover; its original cause is retained (not relabelled success).
+std::variant<PublishedRecipePatch, PatchAssociationFailure> publish_generated_recipe_patch(
+    const GeneratedRecipePatch& patch, const std::filesystem::path& requested_directory,
+    const std::filesystem::path& command_start_directory,
+    const std::vector<std::filesystem::path>& excluded_roots);
+std::variant<std::filesystem::path, PatchAssociationFailure> validate_generated_patch_destination(
+    const std::filesystem::path& requested_directory, const std::filesystem::path& command_start_directory,
+    const std::vector<std::filesystem::path>& excluded_roots);
 PatchAssociationWriteResult update_aur_patch_association(
     const ResolvedAurSourceBuildIdentity& source, const LoadedPatchAssociation& previous,
     const std::filesystem::path& material_root, const std::vector<std::string>& ordered_files);
@@ -159,7 +182,10 @@ enum class PatchAssociationTestPoint {
     AfterPublication,
     BeforeDirectorySync,
     PartialRead,
-    WrongMaterialOwner
+    WrongMaterialOwner,
+    BeforeMaterialPublication,
+    AfterMaterialPublication,
+    AfterMaterialVerification
 };
 using PatchAssociationTestHook = std::function<void(PatchAssociationTestPoint, const std::filesystem::path&)>;
 void set_patch_association_test_hook(PatchAssociationTestHook hook);

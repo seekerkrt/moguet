@@ -1,5 +1,7 @@
 #pragma once
 
+#include <exception>
+
 #include "aur_update_execution_preparation.hpp"
 #include "interactive_confirmation.hpp"
 
@@ -54,6 +56,7 @@ enum class AurUpdateSourceBuildFailureCategory {
     ArtifactIdentity,
     InstallPreparation,
     InstallTransaction,
+    PatchCustomizationSave,
     Other,
 };
 
@@ -63,6 +66,7 @@ struct AurUpdateSourceBuildFailureSnapshot {
     std::string diagnostic;
     std::optional<ReviewedSourceProductionFailure>
         reviewed_source_failure;
+    std::exception_ptr failure_exception = nullptr;
 };
 
 enum class AurUpdatePackageTransactionFailureCategory {

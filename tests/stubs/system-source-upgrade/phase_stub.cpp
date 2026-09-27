@@ -53,6 +53,7 @@ struct ScriptedSourceExecution {
     PackageMetadataFailure metadata_failure{
         PackageMetadataErrorCode::QueryFailed, {}};
     std::string diagnostic;
+    std::exception_ptr exception = nullptr;
 };
 
 struct PhaseStubState {
@@ -303,6 +304,12 @@ void enqueue_source_failure(std::string diagnostic) {
     ScriptedSourceExecution execution;
     execution.kind = ScriptedSourceExecutionKind::Failure;
     execution.diagnostic = std::move(diagnostic);
+    g_state.source_executions.push_back(std::move(execution));
+}
+void enqueue_source_exception(std::exception_ptr exception) {
+    ScriptedSourceExecution execution;
+    execution.kind = ScriptedSourceExecutionKind::Failure;
+    execution.exception = std::move(exception);
     g_state.source_executions.push_back(std::move(execution));
 }
 
@@ -1019,6 +1026,7 @@ SourceBuildExecutionResult execute_prepared_source_build_work_item_typed(
     ScriptedSourceExecution execution =
         std::move(g_state.source_executions.front());
     g_state.source_executions.pop_front();
+    if(execution.exception) std::rethrow_exception(execution.exception);
     switch(execution.kind) {
         case ScriptedSourceExecutionKind::Success:
             return execution.result;

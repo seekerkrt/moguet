@@ -448,7 +448,24 @@ never silently skipped. An absent/empty registry is reported without creating it
 Patch customization is Experimental; CLI, record schema and presentation may change.
 Local v1 and AUR v2 records can coexist. AUR identity uses the canonical Git URL and
 resolved PackageBase; listing does not contact the remote. AUR registration/update are
-internal APIs; public creation UX remains with review-edit patch capture.
+internal APIs. Ordinary reviewed AUR edits can create an association through explicit save.
+.PP
+After editing PKGBUILD and accepting Proceed with build?, the normal reviewed ordinary
+AUR route asks Save this edit as patch customization? [y/N]. No, empty input,
+--noconfirm and non-TTY input continue the accepted edit without patch generation or
+persistence. Piped yes is not save permission. Yes asks Patch directory: with no default.
+Use an existing user-owned directory outside cache, checkout and registry; relative paths
+use command-start cwd. Unsafe paths, symlinks, ownership/permission violations are refused.
+The generated Git PKGBUILD patch must reproduce the accepted bytes exactly. Separate
+explicit makepkg --printsrcinfo consent validates source identity in an owned copy without
+replanning the current build. Publication never overwrites, and registration retains the
+generated expected SHA-256. Existing associations are refused without append/update/replace.
+Any save failure stops with nonzero status. Published material remains after registration
+failure; registry state may be unchanged or uncertain. Only complete success continues
+the same accepted edit. Cancellation, EOF and input failure stop separately from No.
+Creation excludes compatibility, official/local, Auto -S, targetless and dry-run routes.
+Authoritative devel plus Save Yes stops; edited SRCINFO cannot downgrade that decision.
+Save does not authorize future Apply or persist .install/source payload edits.
 .PP
 Experimental saved AUR patches are discovered by upgrade, upgrade-aur and upgrade-all
 using the exact canonical source URL and PackageBase. Each PackageBase has its own

@@ -1,4 +1,6 @@
 #include "local_patch_association.hpp"
+#include "generated_recipe_patch.hpp"
+#include "xdg_generation_store.hpp"
 #include "source_install.hpp"
 #include "trusted_cache_test_support.hpp"
 
@@ -623,6 +625,72 @@ void test_postcommit_lineage_refuses_cleanup() {
         expect(read(f.material / "one.patch") == patch("before", "first"), "lineage failure touched material");
     }
 }
+
+void test_generated_material_publication() {
+    Fixture f;
+    const ResolvedAurSourceBuildIdentity source("association-child", "association-base");
+    const auto identity = take<PackageBaseIdentity>(aur_patch_association_identity(source));
+    const auto review = AurReviewedSourceReviewIdentity::make(identity, SourceRevisionIdentity::git_commit(std::string(40, 'a')));
+    auto generated = generate_recipe_patch_for_test(review, RECIPE, RECIPE + "# accepted edit\n");
+    expect(std::holds_alternative<GeneratedRecipePatch>(generated), "generated fixture failed");
+    const auto& bytes = std::get<GeneratedRecipePatch>(generated);
+    const auto save = [&](const fs::path& destination, const std::vector<fs::path>& excluded = std::vector<fs::path>{}) {
+        return publish_generated_recipe_patch(bytes, destination, f.root, excluded);
+    };
+    for(const auto& path : {fs::path{}, fs::path("../material"), fs::path("//tmp"), fs::path("material\n"), fs::path("no-directory"), f.material / "one.patch"})
+        expect(std::holds_alternative<PatchAssociationFailure>(save(path)), "unsafe/non-directory destination accepted");
+    fs::create_directory_symlink(f.material, f.root / "symlink");
+    expect_failure(save(f.root / "symlink"), Kind::Unsafe);
+    expect_failure(save(f.material, {f.material}), Kind::Unsafe);
+    expect_failure(save(f.material, {f.root}), Kind::Unsafe);
+    if(::geteuid() != 0) expect_failure(save("/usr"), Kind::Unsafe);
+    auto published = take<PublishedRecipePatch>(save("material"));
+    expect(published.material_root == f.material, "relative directory used checkout cwd");
+    const auto path = f.material / published.expected_entry.file;
+    expect(read(path) == bytes.bytes() && published.expected_entry.sha256 == xdg_generation_store_raw_contents_sha256(bytes.bytes()),
+           "generated/published/expected bytes differ");
+    expect_failure(save("material"), Kind::AlreadyExists);
+    // A second shape-valid recipe patch is not allowed to become authority.
+    write(path, patch("before", "tampered"));
+    expect_failure(register_expected_aur_patch_association(source, f.material, {published.expected_entry}), Kind::Changed);
+    expect(std::holds_alternative<PatchAssociationAbsent>(read_patch_association(identity)), "tamper registered new authority");
+    write(path, bytes.bytes());
+    // Test the second commit boundary, after initial acquisition succeeded.
+    set_patch_association_test_hook([&](Point point, const fs::path&) {
+        if(point == Point::BeforePublication) write(path, patch("before", "late-tamper"));
+    });
+    expect_failure(register_expected_aur_patch_association(source, f.material, {published.expected_entry}), Kind::Changed);
+    set_patch_association_test_hook({});
+    expect(std::holds_alternative<PatchAssociationAbsent>(read_patch_association(identity)), "commit-boundary tamper registered");
+    write(path, bytes.bytes());
+    fail_patch_association_operation_for_test(Point::BeforeWrite);
+    expect_failure(register_expected_aur_patch_association(source, f.material, {published.expected_entry}), Kind::IoFailure);
+    expect(read(path) == bytes.bytes() && std::holds_alternative<PatchAssociationAbsent>(read_patch_association(identity)),
+           "registration failure removed material or changed registry");
+    auto registered = take<LoadedPatchAssociation>(register_expected_aur_patch_association(source, f.material, {published.expected_entry}));
+    expect(registered.entries() == std::vector<PatchMaterialEntry>{published.expected_entry} &&
+               take<AcquiredLocalRecipeSeries>(acquire_aur_patch_series(registered)).patches().front().bytes == bytes.bytes(),
+           "expected registration did not retain generated authority");
+    const auto other = f.root / "other-material";
+    fs::create_directory(other);
+    expect_failure(save(other), Kind::AlreadyExists);
+    expect(fs::is_empty(other), "duplicate association published material");
+    expect_failure(save(patch_association_record_path(identity).parent_path()), Kind::Unsafe);
+    expect_failure(register_expected_aur_patch_association(source, f.material, {{published.expected_entry.file, "invalid"}}), Kind::InvalidMaterial);
+    expect_failure(register_expected_aur_patch_association(source, f.material, {}), Kind::InvalidMaterial);
+}
+
+void test_generated_publication_partial_outcome() {
+    Fixture f;
+    const auto identity = take<PackageBaseIdentity>(aur_patch_association_identity(ResolvedAurSourceBuildIdentity("association-child", "association-base")));
+    const auto review = AurReviewedSourceReviewIdentity::make(identity, SourceRevisionIdentity::git_commit(std::string(40, 'b')));
+    const auto generated = generate_recipe_patch_for_test(review, RECIPE, RECIPE + "# retained edit\n");
+    const auto& bytes = std::get<GeneratedRecipePatch>(generated);
+    fail_patch_association_operation_for_test(Point::AfterMaterialPublication);
+    const auto failure = expect_failure(publish_generated_recipe_patch(bytes, f.material, f.root, {}), Kind::IoFailure);
+    expect(failure.leftover && read(*failure.leftover) == bytes.bytes(), "postpublication failure lost final material");
+    expect(std::holds_alternative<PatchAssociationAbsent>(read_patch_association(identity)), "material publication wrote registry");
+}
 } // namespace
 
 int main() {
@@ -642,6 +710,8 @@ int main() {
         test_config_does_not_enter_originals();
         test_postcommit_lineage_refuses_cleanup();
         test_search_only_material_ancestor();
+        test_generated_material_publication();
+        test_generated_publication_partial_outcome();
         std::cout << "local patch association tests passed (strict persistence, atomic outcomes, identity, digest, races, same bytes)\n";
         return 0;
     } catch(const std::exception& error) {

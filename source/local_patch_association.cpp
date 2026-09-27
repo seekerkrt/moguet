@@ -1,4 +1,5 @@
 #include "local_patch_association.hpp"
+#include "generated_recipe_patch.hpp"
 
 #include "local_source_metadata_evaluation.hpp"
 #include "source_install.hpp"
@@ -328,6 +329,16 @@ struct MaterialSnapshot {
 MaterialSnapshot acquire_material(const fs::path& root, const std::vector<std::string>& names,
                                   const std::vector<PatchMaterialEntry>* expected) {
     require_names(names, root);
+    if(expected) {
+        if(expected->size() != names.size()) fail(Kind::InvalidMaterial, root);
+        for(std::size_t i = 0; i < names.size(); ++i) {
+            const auto& entry = (*expected)[i];
+            if(entry.file != names[i] || entry.sha256.size() != 64 ||
+               !std::all_of(entry.sha256.begin(), entry.sha256.end(), [](char c) {
+                   return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+               })) fail(Kind::InvalidMaterial, root);
+        }
+    }
     MaterialDirectory directory(root);
     std::vector<OpenFile> files;
     std::set<std::pair<dev_t, ino_t>> unique;
@@ -568,7 +579,8 @@ std::vector<LoadedPatchAssociation> read_registry(LockedDirectory& store) {
 // rollback or claim that an operation definitely did not happen.
 PatchAssociationWriteResult publish(const PackageBaseIdentity& identity, const ObservedLocalPatchSource* local_source,
                                     const LoadedPatchAssociation* previous, const fs::path& material_root,
-                                    const std::vector<std::string>& names) {
+                                    const std::vector<std::string>& names,
+                                    const std::vector<PatchMaterialEntry>* expected = nullptr) {
     std::optional<LockedDirectory> directory;
     std::optional<OpenFile> temporary;
     std::string temp;
@@ -576,7 +588,7 @@ PatchAssociationWriteResult publish(const PackageBaseIdentity& identity, const O
     try {
         if(local_source) local_source->require_unchanged_identity();
         const auto leaf = record_leaf(identity);
-        auto material = acquire_material(material_root, names, nullptr);
+        auto material = acquire_material(material_root, names, expected);
         const auto contents = encode(identity, material_root, material.entries);
         if(contents.size() > MAX_RECORD) fail(Kind::InvalidMaterial, material_root);
         const auto paths = xdg_paths::resolve_patch_associations_process_environment();
@@ -625,6 +637,9 @@ PatchAssociationWriteResult publish(const PackageBaseIdentity& identity, const O
         temporary->bytes = contents;
         if(local_source) local_source->require_unchanged_identity();
         PATCH_EVENT(BeforePublication, path);
+        // Generated material is a fixed authority. Recheck at the second
+        // commit boundary too, without changing the schema or ordinary writer.
+        if(expected) static_cast<void>(acquire_material(material_root, names, expected));
         if(local_source) local_source->require_unchanged_identity();
         store.directory.require_unchanged_identity();
         revalidate_file(store.fd(), temp, paths.directory / temp, *temporary, true);
@@ -941,6 +956,123 @@ PatchAssociationWriteResult register_aur_patch_association(const ResolvedAurSour
     auto identity = aur_patch_association_identity(source);
     if(const auto* failure = std::get_if<PatchAssociationFailure>(&identity)) return *failure;
     return publish(std::get<PackageBaseIdentity>(identity), nullptr, nullptr, root, names);
+}
+PatchAssociationWriteResult register_expected_aur_patch_association(const ResolvedAurSourceBuildIdentity& source,
+                                                                    const fs::path& root, const std::vector<PatchMaterialEntry>& expected) {
+    auto identity = aur_patch_association_identity(source);
+    if(const auto* failure = std::get_if<PatchAssociationFailure>(&identity)) return *failure;
+    std::vector<std::string> names;
+    for(const auto& entry : expected)
+        names.push_back(entry.file);
+    return publish(std::get<PackageBaseIdentity>(identity), nullptr, nullptr, root, names, &expected);
+}
+
+std::variant<fs::path, PatchAssociationFailure> validate_generated_patch_destination(
+    const fs::path& requested, const fs::path& command_start, const std::vector<fs::path>& excluded_roots) {
+    try {
+        // Reject ambiguous/control/traversal spellings before normalization;
+        // normalization must never erase a symlink traversal from authority.
+        if(!safe_text(requested.string()) || requested.string().starts_with("//") ||
+           requested.string().find('\\') != std::string::npos || !command_start.is_absolute())
+            fail(Kind::InvalidMaterial, requested);
+        for(const auto& component : requested)
+            if(component == "..") fail(Kind::Unsafe, requested);
+        auto root = (requested.is_absolute() ? requested : command_start / requested).lexically_normal();
+        if(root.filename().empty()) root = root.parent_path();
+        MaterialDirectory directory(root);
+        const auto within = [](const fs::path& path, const fs::path& parent) {
+            const auto relative = path.lexically_relative(parent);
+            return !relative.empty() && *relative.begin() != "..";
+        };
+        auto forbidden = excluded_roots;
+        const auto registry = xdg_paths::resolve_patch_associations_process_environment().directory;
+        forbidden.push_back(registry);
+        for(const auto& excluded : forbidden) {
+            if(!excluded.is_absolute() || within(root, excluded.lexically_normal())) fail(Kind::Unsafe, root);
+        }
+        // Do not let the registry be created inside the user's material root.
+        if(within(registry, root)) fail(Kind::Unsafe, root);
+        return root;
+    } catch(...) {
+        return map_exception();
+    }
+}
+
+std::variant<PublishedRecipePatch, PatchAssociationFailure> publish_generated_recipe_patch(
+    const GeneratedRecipePatch& patch, const fs::path& requested, const fs::path& command_start,
+    const std::vector<fs::path>& excluded_roots) {
+    std::optional<MaterialDirectory> directory;
+    std::optional<OpenFile> temporary;
+    fs::path root;
+    std::string temp;
+    fs::path final_path;
+    bool committed = false;
+    try {
+        auto validated = validate_generated_patch_destination(requested, command_start, excluded_roots);
+        if(const auto* failure = std::get_if<PatchAssociationFailure>(&validated)) throw Failure(*failure);
+        root = std::get<fs::path>(std::move(validated));
+        directory.emplace(root);
+        const auto digest = xdg_generation_store_raw_contents_sha256(patch.bytes());
+        const std::string leaf = "PKGBUILD-" + digest + ".patch";
+        final_path = root / leaf;
+        const auto association = read_patch_association(patch.identity().package_base());
+        if(const auto* failure = std::get_if<PatchAssociationFailure>(&association)) throw Failure(*failure);
+        if(std::holds_alternative<LoadedPatchAssociation>(association)) fail(Kind::AlreadyExists, patch_association_record_path(patch.identity().package_base()));
+        if(named_status(directory->fd(), leaf, final_path)) fail(Kind::AlreadyExists, final_path);
+        temp = temporary_leaf(leaf);
+        Descriptor fd(::openat(directory->fd(), temp.c_str(), O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600));
+        if(fd.get() < 0) fail(Kind::IoFailure, root / temp, errno);
+        temporary.emplace(OpenFile{std::move(fd), {}, patch.bytes()});
+        if(::fchmod(temporary->descriptor.get(), 0600) != 0) fail(Kind::IoFailure, root / temp, errno);
+        temporary->status = status_of(temporary->descriptor.get(), root / temp);
+        std::size_t offset = 0;
+        while(offset < patch.bytes().size()) {
+            const auto written = ::write(temporary->descriptor.get(), patch.bytes().data() + offset, patch.bytes().size() - offset);
+            if(written < 0 && errno == EINTR) continue;
+            if(written <= 0) fail(Kind::IoFailure, root / temp, written < 0 ? errno : EIO);
+            offset += static_cast<std::size_t>(written);
+        }
+        if(::fsync(temporary->descriptor.get()) != 0) fail(Kind::IoFailure, root / temp, errno);
+        temporary->status = status_of(temporary->descriptor.get(), root / temp);
+        if(read_bytes(temporary->descriptor.get(), temporary->status, MAX_PATCH, root / temp) != patch.bytes()) fail(Kind::Changed, root / temp);
+        PATCH_EVENT(BeforeMaterialPublication, final_path);
+        directory->revalidate();
+        revalidate_file(directory->fd(), temp, root / temp, *temporary, false);
+        if(::renameat2(directory->fd(), temp.c_str(), directory->fd(), leaf.c_str(), RENAME_NOREPLACE) != 0)
+            fail(errno == EEXIST ? Kind::AlreadyExists : Kind::IoFailure, final_path, errno);
+        committed = true;
+        temp.clear();
+        PATCH_EVENT(AfterMaterialPublication, final_path);
+        directory->revalidate();
+        revalidate_file(directory->fd(), leaf, final_path, *temporary, false, true);
+        auto published = open_file(directory->fd(), leaf, final_path, MAX_PATCH, false);
+        if(!published || published->bytes != patch.bytes() ||
+           xdg_generation_store_raw_contents_sha256(published->bytes) != digest) fail(Kind::Changed, final_path);
+        Descriptor sync_fd(::openat(directory->fd(), ".", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC));
+        if(sync_fd.get() < 0 || ::fsync(sync_fd.get()) != 0) fail(Kind::IoFailure, root, errno);
+        directory->revalidate();
+        PATCH_EVENT(AfterMaterialVerification, final_path);
+        return PublishedRecipePatch{root, {leaf, digest}};
+    } catch(...) {
+        auto failure = map_exception();
+        if(committed) {
+            failure.leftover = final_path;
+            failure.published_material = final_path;
+        } else if(directory && temporary && !temp.empty()) {
+            // Only our descriptor-pinned temporary is a cleanup target. Final
+            // material is never removed after the first commit point.
+            try {
+                directory->revalidate();
+                const auto named = named_status(directory->fd(), temp, root / temp);
+                const auto held = status_of(temporary->descriptor.get(), root / temp);
+                if(!named || !same_object(*named, held) || ::unlinkat(directory->fd(), temp.c_str(), 0) != 0)
+                    failure.leftover = root / temp;
+            } catch(...) {
+                failure.leftover = root / temp;
+            }
+        }
+        return failure;
+    }
 }
 PatchAssociationWriteResult update_aur_patch_association(const ResolvedAurSourceBuildIdentity& source,
                                                          const LoadedPatchAssociation& previous,
