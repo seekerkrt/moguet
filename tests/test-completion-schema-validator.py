@@ -12,7 +12,7 @@ import sys
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPOSITORY_ROOT / "scripts"))
 
-from generate_completions import export_authority, parse_exported_schema, local_prefix_operations  # noqa: E402
+from generate_completions import export_authority, parse_exported_schema, local_prefix_operations, finite_completion_options  # noqa: E402
 
 
 def fail(message: str) -> None:
@@ -263,6 +263,25 @@ def expect_current_authority_projection() -> None:
     if [token for token, _ in schema.parser_boundaries] != ["--"]:
         fail("hidden parser boundary missing")
     current = export_authority()
+    finite, = finite_completion_options(schema)
+    bindings = [item for item in schema.options if item.fixed_value]
+    if not bindings or any(item.fixed_value not in finite.allowed_values or
+                           item.conflict_value_identity != finite.conflict_value_identity
+                           for item in bindings):
+        fail("public finite alias bindings differ from enum authority")
+    fixed_record = next(line for line in current.splitlines() if line.startswith("FIXED_VALUE\t"))
+    identity = fixed_record.split("\t")[1]
+    unrelated = next(item for item in schema.options if item.token == "--noconfirm")
+    for label, mutation, diagnostic in (
+        ("duplicate fixed binding", duplicate_first_record(current, "FIXED_VALUE"), "invalid fixed value binding"),
+        ("unknown fixed option", current + "FIXED_VALUE\t999\tx\n", "fixed value binding has unknown option"),
+        ("empty fixed value", current.replace(fixed_record, f"FIXED_VALUE\t{identity}\t"), "invalid fixed value binding"),
+        ("fixed value outside enum", current.replace(fixed_record, f"FIXED_VALUE\t{identity}\t__invalid__"), "invalid fixed value family projection"),
+        ("fixed value on valued option", current + f"FIXED_VALUE\t{finite.identity}\t{finite.allowed_values[0]}\n", "invalid fixed value family projection"),
+        ("fixed value without family", current + f"FIXED_VALUE\t{unrelated.identity}\t{finite.allowed_values[0]}\n", "invalid fixed value family projection"),
+        ("missing alias binding", current.replace(fixed_record + "\n", ""), "finite value family lacks fixed binding"),
+    ):
+        expect_rejected(label, mutation, diagnostic)
     for record, diagnostic in (("OPERAND_CONTEXT", "invalid exact operand context"),
                                ("LEXICAL_VALUE", "invalid lexical value option"),
                                ("BOUNDARY", "duplicate parser boundary")):
@@ -1073,7 +1092,7 @@ def main() -> int:
 
     print(
         "completion-schema-validator-test: "
-        f"{len(positive_controls) + len(rejected_controls) + 8} "
+        f"{len(positive_controls) + len(rejected_controls) + 16} "
         "scenarios passed"
     )
     return 0

@@ -150,13 +150,15 @@ bool apply_moguet_global_option(const std::string& arg, ParsedCliArguments& pars
         case cli_authority::GlobalOptionId::BuildMode:
             return apply_build_mode_option(arg, parsed);
         case cli_authority::GlobalOptionId::Rebuild:
-            return apply_final_value_override(
-                parsed.cli_overrides.build_mode, BuildMode::Rebuild,
-                "build.mode", build_mode_name);
         case cli_authority::GlobalOptionId::CleanBuild:
-            return apply_final_value_override(
-                parsed.cli_overrides.build_mode, BuildMode::Clean,
-                "build.mode", build_mode_name);
+            // Alias values belong to the same public authority as the enum;
+            // use its attached-value path so agreement validation stays shared.
+            return apply_build_mode_option(
+                std::string(cli_authority::global_option_spec(
+                                cli_authority::GlobalOptionId::BuildMode)
+                                .token) +
+                    "=" + std::string(cli_authority::option_contract(cli_authority::option_id(option.value())).fixed_value),
+                parsed);
         case cli_authority::GlobalOptionId::RmDeps:
             parsed.cli_overrides.rm_deps = true;
             break;

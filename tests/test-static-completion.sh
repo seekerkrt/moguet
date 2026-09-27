@@ -101,8 +101,8 @@ run_completion moguet --d
 assert_reply "diagnostic and dry-run option prefix" --diff --dry-run --details
 
 # enum / package候補のdynamic completionは#253へ残す。
-run_completion moguet --build-mode=n
-assert_reply "typed build-mode valueは提示しない"
+# Finite attached values are covered by the shared authority scenarios in
+# test-dynamic-completion.py; this suite retains the ordinary static surface.
 
 run_completion moguet build ""
 assert_reply \

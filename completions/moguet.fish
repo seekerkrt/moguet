@@ -348,6 +348,12 @@ function __moguet_operation_allows --argument-names option_id
 end
 
 function __moguet_candidate_available --argument-names option_id
+    if contains -- $option_id 6
+        switch "$option_id:"(__moguet_value_word)
+            case '6:--build-mode=*'
+                return 1
+        end
+    end
     __moguet_operation_allows $option_id; or return 1
     contains -- $option_id 13 14 15 21 22 16; and __moguet_has_option_id $option_id; and return 1
     switch $option_id
@@ -487,3 +493,71 @@ function __moguet_repository_packages
 end
 
 complete -c moguet -f -a '(__moguet_repository_packages)'
+function __moguet_value_word
+    set -l raw (commandline -ct | string collect -a)
+    set -l current (string unescape -- "$raw")
+    if test $status -ne 0
+        set current (string unescape -- "$raw'")
+        if test $status -ne 0
+            set current (string unescape -- "$raw\"")
+            test $status -eq 0; or return 1
+        end
+    end
+    printf '%s\n' "$current"
+end
+
+function __moguet_value_family --argument-names word
+    switch $word
+        case '--build-mode' '--build-mode=*'
+            string sub -s 14 -- "$word"
+            return 0
+        case '--rebuild'
+            echo 'rebuild'
+            return 0
+        case '--cleanbuild'
+            echo 'clean'
+            return 0
+    end
+    return 1
+end
+
+function __moguet_typed_values
+    set -l current (__moguet_value_word)
+    set -l option_id option_prefix values
+    switch $current
+        case '--build-mode=*'
+            set option_id 6
+            set option_prefix '--build-mode='
+            set values 'normal' 'rebuild' 'clean'
+        case '*'
+            return 0
+    end
+    __moguet_operation_allows $option_id; or return 0
+    set -l pending false
+    set -l fixed ''
+    for word in (commandline -opc)[2..-1]
+        set word (string unescape -- "$word")
+        if test $pending = true; set pending false; continue; end
+        switch $word
+            case '--'
+                return 0
+            case '--arch' '--assume-installed' '--cachedir' '--color' '--config' '--dbpath' '--gpgdir' '--hookdir' '--ignore' '--ignoregroup' '--logfile' '--overwrite' '--print-format' '--root' '--sysroot' '-b' '-r'
+                set pending true; continue
+        end
+        set -l requested (__moguet_value_family "$word" | string collect -a)
+        if test $pipestatus[1] -eq 0
+            contains -- "$requested" $values; or return 0
+            test -z "$fixed"; or test "$fixed" = "$requested"; or return 0
+            set fixed "$requested"
+        end
+    end
+    test $pending = false; or return 0
+    set -l prefix (string sub -s (math (string length -- "$option_prefix") + 1) -- "$current")
+    for value in $values
+        test -z "$fixed"; or test "$fixed" = "$value"; or continue
+        test (string sub -l (string length -- "$prefix") -- "$value") = "$prefix"; or continue
+        printf '%s%s\n' "$option_prefix" "$value"
+    end
+end
+
+complete -c moguet -f -a '(__moguet_typed_values)'

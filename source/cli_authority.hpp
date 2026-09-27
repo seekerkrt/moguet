@@ -567,6 +567,9 @@ struct OptionContract {
     OptionPublicDefinitionRole public_definition_role;
     OptionCompletionVisibility completion_visibility;
     std::string_view related_contract_identity;
+    // A valueless control can supply one canonical value to its final-value
+    // family. Runtime and completion share this binding, not a second enum.
+    std::string_view fixed_value{};
 };
 
 // OptionContract describes lexical/default metadata. Once an operation route
@@ -677,7 +680,7 @@ inline constexpr std::array<OptionContract,
          GrammarOwnership::MoguetOwned,
          OptionPublicDefinitionRole::Definition,
          OptionCompletionVisibility::SuggestedAndDescribed,
-         "cli.option.build-mode.rebuild"},
+         "cli.option.build-mode.rebuild", BUILD_MODE_REBUILD},
         {OptionId::CleanBuild,
          global_option_spec(GlobalOptionId::CleanBuild).token,
          no_token_aliases(),
@@ -691,7 +694,7 @@ inline constexpr std::array<OptionContract,
          GrammarOwnership::MoguetOwned,
          OptionPublicDefinitionRole::Definition,
          OptionCompletionVisibility::SuggestedAndDescribed,
-         "cli.option.build-mode.clean"},
+         "cli.option.build-mode.clean", BUILD_MODE_CLEAN},
         {OptionId::RmDeps,
          global_option_spec(GlobalOptionId::RmDeps).token,
          no_token_aliases(),

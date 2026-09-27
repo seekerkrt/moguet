@@ -726,7 +726,8 @@ local sync package名のliteral prefix候補を追加します。例は`moguet -
 defaultの既存sync DBを読み、refreshしません。追加optionや既存operand、search (`-Ss`)、
 `--select`、`--aur`、別database/root指定、`--`がある行ではproviderを呼びません。
 providerが利用できない場合や失敗した場合も、通常のstatic option補完は継続します。
-typed valueや、より広いruntime-aware completionは今後のscopeです。
+`--build-mode=`のfiniteなattached valueは、compatible aliasを考慮してpublic CLI
+authorityから補完します。より広いruntime-aware completionは今後のscopeです。
 
 ### Local recipe patch
 

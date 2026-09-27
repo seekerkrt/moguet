@@ -854,7 +854,9 @@ prefixes for the first operand of plain `moguet -S`, for example
 refreshing it. Additional options or operands, search (`-Ss`), `--select`,
 `--aur`, alternate database/root options and `--` suppress this provider.
 If it is unavailable or fails, ordinary static option completion remains.
-Typed values and broader runtime-aware completion remain future work.
+Finite attached values for `--build-mode=` are completed from the public CLI
+authority, respecting compatible aliases. Broader runtime-aware completion
+remains future work.
 
 ### Local recipe patches
 

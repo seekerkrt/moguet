@@ -22,7 +22,7 @@ import time
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
-from generate_completions import fish_quote
+from generate_completions import fish_quote, load_schema, finite_completion_options
 
 NAMES = ("ch++", "ch-tool", "ch.tool", "ch@tool", "ch_tool", "chromium")
 # Semantic expected results are shared by all shell runners, not three lists.
@@ -74,7 +74,7 @@ function _describe {{
     done
     return 0
 }}
-function compadd {{ printf '%s\\n' "${{packages[@]}}"; }}
+function compadd {{ local name=$argv[-1]; printf '%s\\n' "${{(@P)name}}"; }}
 words=(moguet {' '.join(map(shlex.quote, args))})
 CURRENT=${{#words}}
 _moguet
@@ -124,7 +124,7 @@ def tab(shell: str, adapter: Path, text: str, expected: str, env: dict) -> str:
         if shell == "fish":
             setup = f'''set -g fish_greeting ''; set -g fish_autosuggestion_enabled 0
 function fish_prompt; printf 'READY> '; end
-function moguet; printf 'INSERT[%s]\\n' $argv; end
+function moguet; printf 'INSERT[%s]\\n' $argv; printf 'FINAL-CURRENT[%s]\\n' "$argv[-1]"; end
 complete -e -c moguet
 source {fish_quote(str(adapter))}
 '''
@@ -132,8 +132,9 @@ source {fish_quote(str(adapter))}
             setup = ""
             if shell == "zsh":
                 setup = "autoload -Uz compinit; compinit -D\n"
+            last = '"${@: -1}"' if shell == 'bash' else '"$argv[-1]"'
             setup += f'''PS1='READY> '; HISTFILE=''
-moguet() {{ printf 'INSERT[%s]\\n' "$@"; }}
+moguet() {{ printf 'INSERT[%s]\\n' "$@"; printf 'FINAL-CURRENT[%s]\\n' {last}; }}
 source {shlex.quote(str(adapter))}
 '''
         # Initial commands can produce multiple prompts; explicit marker closes setup.
@@ -146,13 +147,51 @@ source {shlex.quote(str(adapter))}
         # Read line editor output; this is readiness, not a performance SLA.
         time.sleep(0.25)
         os.write(master, b"\n")
-        data = until(f"INSERT[{expected}]".encode())
+        # A prior equal option value must not satisfy the current-word proof.
+        data = until(f"FINAL-CURRENT[{expected}]".encode())
         assert b"provider-garbage" not in data, (shell, data)
         return repr(data.decode(errors="replace"))
     finally:
         os.write(master, b"exit\n")
         os.close(master)
         os.waitpid(pid, 0)
+
+
+def typed_scenarios(schema):
+    option, = finite_completion_options(schema)
+    header = option.completion_token
+    values = option.allowed_values
+    cases = [("empty", ["build", header], values),
+             ("root discovery", [header], values),
+             ("invalid", ["build", header + "x"], ()),
+             ("literal prefix", ["build", header + "r*"], ()),
+             ("marker", ["build", "--", header], ()),
+             ("separate grammar", ["build", option.token, "r"], None),
+             ("package separate grammar", ["-S", option.token, "r"], None),
+             ("pending upstream value", ["--config", header], ())]
+    for value in values:
+        cases.extend([(f"prefix {value}", ["build", header + value[:1]], (value,)),
+                      (f"exact {value}", ["build", header + value], (value,)),
+                      (f"prior {value}", ["build", header + value, header], (value,))])
+    # Applicability oracle is the existing form relation, not another parser.
+    by_id = {item.identity: item for item in schema.options}
+    for operation in schema.operations:
+        for index, form in enumerate(operation.forms):
+            args = [operation.token] + [by_id[i].token for i in form.selector_ids]
+            cases.append((f"form {operation.token}:{index}", args + [header],
+                          values if option.identity in form.option_ids else ()))
+    aliases = [item for item in schema.options if item.fixed_value and
+               item.conflict_value_identity == option.conflict_value_identity]
+    for alias in aliases:
+        cases.append((f"alias {alias.token} empty", ["build", alias.token, header], (alias.fixed_value,)))
+        cases.append((f"alias has no value grammar {alias.token}", ["build", alias.token + "=r"], ()))
+        for value in values:
+            compatible = (value,) if value == alias.fixed_value else ()
+            cases.append((f"alias {alias.token} prefix {value}", ["build", alias.token, header + value[:1]], compatible))
+            cases.append((f"alias {alias.token} prior {value}", ["build", alias.token, header + value, header], compatible))
+    cases.append(("contradicting aliases", ["build"] + [alias.token for alias in aliases] + [header], ()))
+    return option, aliases, [(label, args, tuple(header + value for value in expected) if expected is not None else None)
+                              for label, args, expected in cases]
 
 
 def main() -> None:
@@ -197,6 +236,7 @@ for name in names:
                     "XDG_CACHE_HOME": str(directory / "cache"), "XDG_DATA_HOME": str(directory / "data")})
         files = {"bash": adapters / "moguet.bash", "zsh": adapters / "_moguet",
                  "fish": adapters / "moguet.fish"}
+        option, aliases, value_cases = typed_scenarios(load_schema())
         if options.adapters:
             # Existing staged paths are exercised with the real provider by verifier;
             # fixture protocol matrix uses canonical generation with a fixture binding.
@@ -213,6 +253,16 @@ for name in names:
                 if count:
                     assert json.loads(calls.read_text()) == args[-1], (shell, label, calls.read_text())
                 if expected is not None:
+                    assert set(actual) == set(expected), (shell, label, actual, expected)
+            for label, args, expected in value_cases:
+                calls.write_text("")
+                actual = run(shell, adapter, args, "ok", env)
+                assert not calls.read_text(), (shell, label, "typed value invoked package helper")
+                if expected is None:
+                    # Fish's existing static infix matching can show options.
+                    # Unsupported separate grammar must add no finite values.
+                    assert not set(actual).intersection(option.allowed_values + tuple(option.completion_token + v for v in option.allowed_values)), (shell, label, actual)
+                else:
                     assert set(actual) == set(expected), (shell, label, actual, expected)
             calls.write_text("")
             baseline = run(shell, adapter, ["-S", ""], "nonzero", env)
@@ -260,6 +310,44 @@ for name in names:
                 tab(shell, adapter, line, expected, env)
                 assert not calls.read_text(), (shell, line, calls.read_text())
             print(f"{shell}: {len(SCENARIOS)} parity scenarios, one-query, 12 failure fallbacks, 14 PTY suppressions PASS")
+            for value in option.allowed_values:
+                calls.write_text("")
+                text = "moguet build " + option.completion_token + value[:1]
+                proof = tab(shell, adapter, text, option.completion_token + value, env)
+                assert not calls.read_text(), (shell, text, "package helper")
+                print(f"{shell}: true PTY typed Tab {text!r} => {option.completion_token + value!r}; calls=0; {proof}")
+            value = option.allowed_values[0]
+            alias = aliases[0]
+            matched = alias.fixed_value
+            for raw, expected in ((option.completion_token + value, option.completion_token + value),
+                                  ("'" + option.completion_token + value[:1], option.completion_token + value),
+                                  (option.completion_token + "'" + value[:1], option.completion_token + value),
+                                  (option.token + r"\=" + value[:1], option.completion_token + value),
+                                  (alias.token + " " + option.completion_token, option.completion_token + matched),
+                                  (alias.token + " " + option.completion_token + matched[:1], option.completion_token + matched),
+                                  (option.completion_token + value + " " + option.completion_token + value[:1], option.completion_token + value),
+                                  ('"' + alias.token + '" ' + option.completion_token + matched[:1], option.completion_token + matched)):
+                calls.write_text("")
+                proof = tab(shell, adapter, "moguet build " + raw, expected, env)
+                assert not calls.read_text(), (shell, raw, "package helper")
+                print(f"{shell}: true PTY typed quote/alias Tab {raw!r} => {expected!r}; calls=0; {proof}")
+            print(f"{shell}: {len(value_cases)} shared typed-value scenarios, provider isolation PASS")
+            for before, target in ((option.completion_token + value, value),
+                                   ('"' + alias.token + '"', matched)):
+                calls.write_text("")
+                line = "moguet " + before + " build " + option.completion_token + target[:1]
+                proof = tab(shell, adapter, line, option.completion_token + target, env)
+                assert not calls.read_text(), (shell, line, "package helper")
+                print(f"{shell}: true PTY prior-before-operation {line!r}; calls=0; {proof}")
+            for alias in aliases:
+                for value in option.allowed_values:
+                    if value == alias.fixed_value:
+                        continue
+                    calls.write_text("")
+                    current = option.completion_token + value[:1]
+                    tab(shell, adapter, "moguet build " + alias.token + " " + current, current, env)
+                    assert not calls.read_text(), (shell, alias.token, "package helper")
+            print(f"{shell}: actual PTY typed alias mismatches remain uncompleted, calls=0 PASS")
     print("dynamic completion: all focused shell checks PASS")
 
 

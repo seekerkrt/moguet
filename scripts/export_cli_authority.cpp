@@ -477,8 +477,13 @@ int main() {
         OptionId::EndOfOptions,
     };
     static_assert(is_complete_option_projection_order(OPTION_ORDER));
-    for(OptionId id : OPTION_ORDER)
+    for(OptionId id : OPTION_ORDER) {
         print_option(id);
+        const auto& option = cli_authority::option_contract(id);
+        if(!option.fixed_value.empty())
+            std::cout << "FIXED_VALUE\t" << enum_index(id) << '\t'
+                      << option.fixed_value << '\n';
+    }
 
     for(OperationId id : cli_public_operation_order()) {
         const cli_authority::OperationMetadata& metadata =

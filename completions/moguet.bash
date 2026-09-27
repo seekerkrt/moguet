@@ -239,10 +239,132 @@ _moguet_conflicts_with_present_option() {
     esac
 }
 
+
+_moguet_current_word() {
+    local word="${COMP_WORDS[COMP_CWORD]}" joined start
+    local LC_ALL=C
+    current_word_start=$COMP_CWORD
+    if [[ -n ${COMP_LINE-} ]]; then
+        while (( current_word_start > 1 )); do
+            joined=${COMP_WORDS[current_word_start-1]}$word
+            start=$((COMP_POINT-${#joined}))
+            (( start >= 0 )) || break
+            [[ ${COMP_LINE:start:${#joined}} == "$joined" ]] || break
+            word=$joined
+            ((--current_word_start))
+        done
+    fi
+    _moguet_unquote_prefix "$word"
+}
+
+_moguet_value_family() {
+    REPLY=
+    case "$1" in
+        --build-mode|--build-mode=*)
+            REPLY=${1#--build-mode=}
+            [[ $1 == --build-mode ]] && REPLY=
+            return 0 ;;
+        --rebuild) REPLY=rebuild; return 0 ;;
+        --cleanbuild) REPLY=clean; return 0 ;;
+    esac
+    return 1
+}
+
+_moguet_typed_words() {
+    # COMP_WORDS also splits completed attached values. Reassemble the native
+    # fragments only where COMP_LINE proves adjacency, then decode shell quotes
+    # once. This is lexical plumbing, not an operation/value grammar parser.
+    local index position=0 word spaced logical_cword=$COMP_CWORD
+    local LC_ALL=C
+    local -a logical_words=()
+    if [[ -n ${COMP_LINE-} ]]; then
+        for ((index=0; index<${#COMP_WORDS[@]}; ++index)); do
+            word=${COMP_WORDS[index]}
+            spaced=false
+            while [[ ${COMP_LINE:position:1} == [$' \t\n'] ]]; do
+                spaced=true
+                ((++position))
+            done
+            [[ ${COMP_LINE:position:${#word}} == "$word" ]] || return 1
+            if [[ $spaced == true || ${#logical_words[@]} == 0 ]]; then
+                logical_words+=("$word")
+            else
+                logical_words[${#logical_words[@]}-1]+=$word
+            fi
+            (( index == COMP_CWORD )) && logical_cword=$((${#logical_words[@]}-1))
+            ((position+=${#word}))
+        done
+    else
+        logical_words=("${COMP_WORDS[@]}")
+    fi
+    for ((index=0; index<${#logical_words[@]}; ++index)); do
+        _moguet_unquote_prefix "${logical_words[index]}"
+        logical_words[index]=$REPLY
+    done
+    COMP_WORDS=("${logical_words[@]}")
+    COMP_CWORD=$logical_cword
+    return 0
+}
+
+_moguet_typed_values() {
+    local option_prefix word requested fixed= pending=false value
+    local -a values
+    case "$cur" in
+        --build-mode=*)
+            option_prefix=--build-mode=
+            values=(normal rebuild clean)
+            ;;
+        *) return 1 ;;
+    esac
+    # Recognized attached values own this event, including suppressed/no-match
+    # contexts. They never fall through to the package provider.
+    COMPREPLY=()
+    [[ ${#COMP_WORDS[@]} == $((COMP_CWORD+1)) ]] || return 0
+    [[ " ${candidates[*]} " == *" $option_prefix "* ]] || return 0
+    for word in "${COMP_WORDS[@]:1:COMP_CWORD-1}"; do
+        if [[ $pending == true ]]; then pending=false; continue; fi
+        case "$word" in
+        --) return 0 ;;
+        --arch|--assume-installed|--cachedir|--color|--config|--dbpath|--gpgdir|--hookdir|--ignore|--ignoregroup|--logfile|--overwrite|--print-format|--root|--sysroot|-b|-r) pending=true; continue ;;
+        esac
+        if _moguet_value_family "$word"; then
+            requested=$REPLY
+            [[ " ${values[*]} " == *" $requested "* && -n $requested ]] || return 0
+            [[ -z $fixed || $fixed == "$requested" ]] || return 0
+            fixed=$requested
+        fi
+    done
+    [[ $pending == false ]] || return 0
+    local prefix=${cur#"$option_prefix"}
+    for value in "${values[@]}"; do
+        [[ -z $fixed || $fixed == "$value" ]] || continue
+        [[ $value == "$prefix"* ]] || continue
+        COMPREPLY+=("$typed_insert_prefix$value")
+    done
+    return 0
+}
+
+
 _moguet() {
-    local cur operation candidate option_id REPLY strip_prefix
+    local cur operation candidate option_id REPLY strip_prefix typed_insert_prefix
+    local current_word_start original_cword=$COMP_CWORD
+    local -a COMP_WORDS=("${COMP_WORDS[@]}")
+    local COMP_CWORD=$COMP_CWORD
     local -a candidates filtered
     cur="${COMP_WORDS[COMP_CWORD]}"
+    _moguet_current_word
+    case "$REPLY" in
+    --build-mode=*)
+        cur=$REPLY
+        if (( current_word_start == original_cword )); then
+            typed_insert_prefix=${cur%%=*}=
+        else
+            typed_insert_prefix=
+        fi
+        _moguet_typed_words || { COMPREPLY=(); return 0; }
+        cur=${COMP_WORDS[COMP_CWORD]}
+        ;;
+    esac
     operation="$(_moguet_find_operation || true)"
 
     if [[ -z $operation ]]; then
@@ -443,6 +565,8 @@ _moguet() {
 
     if [[ $operation == -Qua ]] && [[ " ${candidates[*]} " != *' --details '* ]]; then candidates+=(--details); fi
     if [[ $operation == -S ]] && _moguet_has_option_id 5 && [[ " ${candidates[*]} " != *' --details '* ]]; then candidates+=(--details); fi
+
+    _moguet_typed_values && return 0
 
     filtered=()
     for candidate in "${candidates[@]}"; do

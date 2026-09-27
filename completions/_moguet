@@ -498,9 +498,72 @@ _moguet_description() {
     esac
 }
 
+
+_moguet_value_family() {
+    REPLY=
+    case "$1" in
+        --build-mode|--build-mode=*)
+            REPLY=${1#--build-mode=}
+            [[ $1 == --build-mode ]] && REPLY=
+            return 0 ;;
+        --rebuild) REPLY=rebuild; return 0 ;;
+        --cleanbuild) REPLY=clean; return 0 ;;
+    esac
+    return 1
+}
+
+_moguet_typed_values() {
+    local option_prefix word requested fixed= pending=false value
+    local -a values typed_candidates
+    case "$cur" in
+        --build-mode=*)
+            option_prefix=--build-mode=
+            values=(normal rebuild clean)
+            ;;
+        *) return 1 ;;
+    esac
+    (( CURRENT == ${#words} )) || return 0
+    (( ${candidates[(Ie)$option_prefix]} )) || return 0
+    local index
+    for ((index=2; index<CURRENT; ++index)); do
+        word=$words[index]
+        if [[ $pending == true ]]; then pending=false; continue; fi
+        case "$word" in
+        --) return 0 ;;
+        --arch|--assume-installed|--cachedir|--color|--config|--dbpath|--gpgdir|--hookdir|--ignore|--ignoregroup|--logfile|--overwrite|--print-format|--root|--sysroot|-b|-r) pending=true; continue ;;
+        esac
+        if _moguet_value_family "$word"; then
+            requested=$REPLY
+            (( ${values[(Ie)$requested]} )) || return 0
+            [[ -z $fixed || $fixed == "$requested" ]] || return 0
+            fixed=$requested
+        fi
+    done
+    [[ $pending == false ]] || return 0
+    local prefix=${cur#"$option_prefix"}
+    for value in "${values[@]}"; do
+        [[ -z $fixed || $fixed == "$value" ]] || continue
+        [[ $value == "$prefix"* ]] || continue
+        typed_candidates+=("$option_prefix$value")
+    done
+    (( ${#typed_candidates} )) && compadd -a typed_candidates
+    return 0
+}
+
+
 _moguet() {
-    local operation candidate option_id
+    local operation candidate option_id cur=${PREFIX-${(Q)words[CURRENT]}}
+    local -a words=("${words[@]}")
     local -a candidates filtered described
+    case "$cur" in
+    --build-mode=*)
+        # Applicability and agreement consume the same logical prior words.
+        local index
+        for ((index=2; index<CURRENT; ++index)); do
+            words[index]=${(Q)words[index]}
+        done
+        ;;
+    esac
     _moguet_find_operation
     operation=$REPLY
 
@@ -510,6 +573,8 @@ _moguet() {
         _moguet_collect_candidates "$operation"
         candidates=("${reply[@]}")
     fi
+
+    _moguet_typed_values && return 0
 
     for candidate in "${candidates[@]}"; do
         if _moguet_option_id "$candidate"; then
