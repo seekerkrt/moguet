@@ -513,7 +513,7 @@ normal reviewed ordinary AURのeditor → existing Proceed acceptance → exact 
 orchestrationはcwd復元とordinary reviewed pin確定後のcheckout preparation出口に置く。review/editor helperは
 保存を所有しない。explicit authoritative devel editor overlayだけは既存selector rejectionより前にYesを非対応停止する。
 compatibility、official/local、Auto -S、targetless、dry-run、selected #649 seriesにはcapture/saveを追加しない。
-`ordinary_devel_package_base`はtargetless route markerであり、devel判定やsave activationに使わない。
+`ordinary_devel_package_base`は#564 ordinary update activation markerであり、#650 initial scope外のordinary update routeをcapture/saveから除外するfirewallとして使う。authoritative devel classificationそのもののauthorityにはせず、targetless route exclusionとこのflagを同義に扱わない。
 
 `request_confirmation`のdefault Noで `Save this edit as patch customization? [y/N]` を提示し、
 ExplicitTokenのYesだけをsave intentとする。No、empty、--noconfirm、non-TTYはgeneration/destination/material/registryへ
