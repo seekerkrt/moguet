@@ -36,6 +36,7 @@ COMPILE_COMMANDS_LINK := compile_commands.json
 CMAKE_FOCUSED_ALIASES := \
 	test-repository-prefix-helper \
 	test-dynamic-completion \
+	test-completion-presentation \
 	test-pacman-query-projection \
 	test-installed-fixture-compile \
 	test-application-identity \

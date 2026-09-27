@@ -67,8 +67,8 @@ printf '%s\\n' "${{COMPREPLY[@]}}"
         code = f'''function compdef {{ :; }}
 source {shlex.quote(str(adapter))}
 function _describe {{
-    local candidate
-    for candidate in "${{described[@]}}"; do
+    local candidate name=$argv[-1]
+    for candidate in "${{(@P)name}}"; do
         candidate=${{candidate%%:*}}
         [[ $candidate == "$words[CURRENT]"* ]] && print -r -- "$candidate"
     done
@@ -94,7 +94,8 @@ complete -C {fish_quote(line)}
     return tuple(line.split("\t")[0] for line in result.stdout.splitlines() if line)
 
 
-def tab(shell: str, adapter: Path, text: str, expected: str, env: dict) -> str:
+def tab(shell: str, adapter: Path, text: str, expected: str, env: dict,
+        *, setup_extra: str = "", keys: bytes = b"\t") -> str:
     pid, master = pty.fork()
     if pid == 0:
         command = {"bash": ["bash", "--noprofile", "--norc", "-i"],
@@ -138,12 +139,12 @@ moguet() {{ printf 'INSERT[%s]\\n' "$@"; printf 'FINAL-CURRENT[%s]\\n' {last}; }
 source {shlex.quote(str(adapter))}
 '''
         # Initial commands can produce multiple prompts; explicit marker closes setup.
-        os.write(master, (setup + "printf 'SETUP-DONE\\n'\n").encode())
+        os.write(master, (setup + setup_extra + "printf 'SETUP-DONE\\n'\n").encode())
         until(b"SETUP-DONE\r\n")
         # Wait for the post-setup prompt before submitting the completion line.
         os.write(master, b"\x0c")
         until(b"READY> ")
-        os.write(master, text.encode() + b"\t")
+        os.write(master, text.encode() + keys)
         # Read line editor output; this is readiness, not a performance SLA.
         time.sleep(0.25)
         os.write(master, b"\n")

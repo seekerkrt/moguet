@@ -275,9 +275,14 @@ if command -v zsh >/dev/null 2>&1; then
 compdef() { return 0 }
 source "$MOGUET_COMPLETION_FILE"
 _describe() {
-    reply=()
-    local entry
-    for entry in "${described[@]}"; do reply+=("${entry%%:*}"); done
+    local entry name=$argv[-1]
+    for entry in "${(@P)name}"; do captured+=("${entry%%:*}"); done
+}
+functions[_moguet_under_test]=$functions[_moguet]
+_moguet() {
+    local -a captured
+    _moguet_under_test
+    reply=("${captured[@]}")
 }
 
 fail() {

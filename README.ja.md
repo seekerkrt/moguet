@@ -733,6 +733,9 @@ delegated `-Q`では、versionを特定したraw query-help snapshotからupstre
 投影します。Tab時にhelpを実行せず、helpからoption semanticsを推測しません。`--`、pending value、
 arity未確認のtailの後では補完を止めます。限定したtoken projectionで、完全なpacman互換性の表明ではありません。
 
+ZshはCLI ownershipごとにoption候補をgroup化し、Fishは説明欄にcategoryを表示します。
+Bashは生のoption tokenを保持します。これらのlabelは候補集合や挿入されるcommand引数を変更しません。
+
 ### Local recipe patch
 
 Patch customizationは**Experimental**です。CLI・record schema・表示はdogfoodで変更され得ますが、

@@ -59,6 +59,87 @@ _moguet_option_id() {
     [[ -n $REPLY ]]
 }
 
+_moguet_option_ownership() {
+    REPLY=
+    case "$1" in
+        -h) REPLY=moguet-owned ;;
+        --help) REPLY=moguet-owned ;;
+        -V) REPLY=moguet-owned ;;
+        --version) REPLY=moguet-owned ;;
+        --edit) REPLY=moguet-owned ;;
+        --noedit) REPLY=moguet-owned ;;
+        --diff) REPLY=moguet-owned ;;
+        --nodiff) REPLY=moguet-owned ;;
+        --noconfirm) REPLY=moguet-owned ;;
+        --dry-run) REPLY=moguet-owned ;;
+        --build-mode=) REPLY=moguet-owned ;;
+        --rebuild) REPLY=moguet-owned ;;
+        --cleanbuild) REPLY=moguet-owned ;;
+        --rmdeps) REPLY=moguet-owned ;;
+        --select) REPLY=moguet-owned ;;
+        --aur) REPLY=moguet-owned ;;
+        --repo) REPLY=moguet-owned ;;
+        --details) REPLY=moguet-owned ;;
+        --local) REPLY=moguet-owned ;;
+        --use-preference) REPLY=moguet-owned ;;
+        --use-patches) REPLY=moguet-owned ;;
+        --output-dir=) REPLY=moguet-owned ;;
+        --recursive) REPLY=moguet-owned ;;
+        --needed) REPLY=intercepted-pacman ;;
+        --arch) REPLY=upstream-delegated ;;
+        --cachedir) REPLY=upstream-delegated ;;
+        --changelog) REPLY=upstream-delegated ;;
+        --check) REPLY=upstream-delegated ;;
+        --color) REPLY=upstream-delegated ;;
+        --config) REPLY=upstream-delegated ;;
+        --confirm) REPLY=upstream-delegated ;;
+        --dbpath) REPLY=upstream-delegated ;;
+        --debug) REPLY=upstream-delegated ;;
+        --deps) REPLY=upstream-delegated ;;
+        --disable-download-timeout) REPLY=upstream-delegated ;;
+        --disable-sandbox) REPLY=upstream-delegated ;;
+        --disable-sandbox-filesystem) REPLY=upstream-delegated ;;
+        --disable-sandbox-syscalls) REPLY=upstream-delegated ;;
+        --explicit) REPLY=upstream-delegated ;;
+        --file) REPLY=upstream-delegated ;;
+        --foreign) REPLY=upstream-delegated ;;
+        --gpgdir) REPLY=upstream-delegated ;;
+        --groups) REPLY=upstream-delegated ;;
+        --hookdir) REPLY=upstream-delegated ;;
+        --info) REPLY=upstream-delegated ;;
+        --list) REPLY=upstream-delegated ;;
+        --logfile) REPLY=upstream-delegated ;;
+        --native) REPLY=upstream-delegated ;;
+        --owns) REPLY=upstream-delegated ;;
+        --quiet) REPLY=upstream-delegated ;;
+        --root) REPLY=upstream-delegated ;;
+        --search) REPLY=upstream-delegated ;;
+        --sysroot) REPLY=upstream-delegated ;;
+        --unrequired) REPLY=upstream-delegated ;;
+        --upgrades) REPLY=upstream-delegated ;;
+        --verbose) REPLY=upstream-delegated ;;
+        -b) REPLY=upstream-delegated ;;
+        -c) REPLY=upstream-delegated ;;
+        -d) REPLY=upstream-delegated ;;
+        -e) REPLY=upstream-delegated ;;
+        -g) REPLY=upstream-delegated ;;
+        -i) REPLY=upstream-delegated ;;
+        -k) REPLY=upstream-delegated ;;
+        -l) REPLY=upstream-delegated ;;
+        -m) REPLY=upstream-delegated ;;
+        -n) REPLY=upstream-delegated ;;
+        -o) REPLY=upstream-delegated ;;
+        -p) REPLY=upstream-delegated ;;
+        -q) REPLY=upstream-delegated ;;
+        -r) REPLY=upstream-delegated ;;
+        -s) REPLY=upstream-delegated ;;
+        -t) REPLY=upstream-delegated ;;
+        -u) REPLY=upstream-delegated ;;
+        -v) REPLY=upstream-delegated ;;
+    esac
+    [[ -n $REPLY ]]
+}
+
 _moguet_has_option_id() {
     local expected="$1" word actual
     local index
@@ -580,7 +661,8 @@ _moguet() {
     local operation candidate option_id cur=${PREFIX-${(Q)words[CURRENT]}}
     local words_are_logical=false
     local -a words=("${words[@]}")
-    local -a candidates filtered described
+    local -a candidates filtered described described_intercepted_pacman described_moguet_owned described_upstream_delegated
+    local ownership
     case "$cur" in
     --build-mode=*)
         # Applicability and agreement consume the same logical prior words.
@@ -617,10 +699,20 @@ _moguet() {
     done
 
     for candidate in "${filtered[@]}"; do
+        _moguet_option_ownership "$candidate"
+        ownership=$REPLY
         _moguet_description "$candidate"
-        described+=("$candidate:$REPLY")
+        case "$ownership" in
+        intercepted-pacman) described_intercepted_pacman+=("$candidate:$REPLY") ;;
+        moguet-owned) described_moguet_owned+=("$candidate:$REPLY") ;;
+        upstream-delegated) described_upstream_delegated+=("$candidate:$REPLY") ;;
+        *) described+=("$candidate:$REPLY") ;;
+        esac
     done
     _describe -t moguet-values 'moguet value' described
+    _describe -J -t moguet-options-intercepted-pacman 'pacman-compatible options' described_intercepted_pacman
+    _describe -J -t moguet-options-moguet-owned 'Moguet options' described_moguet_owned
+    _describe -J -t moguet-options-upstream-delegated 'pacman delegated options' described_upstream_delegated
     # Package tokens use compadd directly, without description delimiters.
     if (( CURRENT == 3 && ${#words} == 3 )) && [[ $words[CURRENT] != -* ]]; then
         case "$words[2]" in

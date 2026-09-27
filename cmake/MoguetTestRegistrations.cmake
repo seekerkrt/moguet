@@ -1007,6 +1007,16 @@ moguet_add_ctest(
 set_tests_properties(completion.dynamic_shells PROPERTIES TIMEOUT 90)
 
 moguet_add_ctest(
+    NAME completion.presentation
+    TARGETS moguet-cli-authority-exporter
+    COMMAND "${CMAKE_COMMAND}" -E env
+        "MOGUET_CLI_AUTHORITY_EXPORTER=$<TARGET_FILE:moguet-cli-authority-exporter>"
+        PYTHONDONTWRITEBYTECODE=1
+        python3 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test-completion-presentation.py"
+)
+set_tests_properties(completion.presentation PROPERTIES TIMEOUT 90)
+
+moguet_add_ctest(
     NAME completion.pacman_query_projection
     TARGETS moguet-cli-authority-exporter
     COMMAND "${CMAKE_COMMAND}" -E env

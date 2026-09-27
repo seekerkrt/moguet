@@ -864,6 +864,10 @@ at Tab time or infer option semantics from it. Completion stops after `--`, a
 pending value or a tail whose arity is unknown. This is a narrow token projection,
 not a claim of full pacman compatibility.
 
+Zsh groups option candidates by CLI ownership; Fish shows that category in
+descriptions. Bash keeps raw option tokens. These labels do not change the
+available candidates or the inserted command arguments.
+
 ### Local recipe patches
 
 Patch customization is **Experimental**; its CLI, record schema and presentation may

@@ -228,6 +228,7 @@ class CliSchema:
 class Descriptions:
     operations: dict[str, str]
     options: dict[str, str]
+    ownership: dict[str, str]
 
 
 def fail(message: str) -> None:
@@ -578,6 +579,16 @@ def query_completion_tokens(schema: CliSchema) -> tuple[str, ...]:
                                         if item.projected and item.category == "upstream-delegated"])))
 
 
+def option_ownerships(schema: CliSchema) -> dict[str, str]:
+    """Presentation metadata only; explicit CLI ownership retains precedence."""
+    ownerships = {option.completion_token: option.ownership for option in schema.options
+                  if option.is_completion_visible}
+    for item in schema.query_tokens:
+        if item.projected and item.category == "upstream-delegated":
+            ownerships.setdefault(item.token, item.category)
+    return ownerships
+
+
 def query_provenance_comment(schema: CliSchema) -> str:
     return (f"# Upstream -Q spelling: pacman {schema.query_version}; raw help SHA256 {schema.query_input_sha256}\n"
             "# Pinned generation input; no runtime upstream discovery.") if schema.query_tokens else ""
@@ -663,7 +674,7 @@ def validate_description_map(
         )
 
     for token, description in descriptions.items():
-        if not description or "\n" in description or "\r" in description:
+        if not description or any(ord(char) < 32 or ord(char) == 127 for char in description):
             fail(f"invalid single-line description for {token!r}")
     return descriptions
 
@@ -695,6 +706,10 @@ def load_descriptions(schema: CliSchema, locale: str) -> Descriptions:
                 for option in schema.options
                 if option.is_completion_visible
             ),
+        ),
+        validate_description_map(
+            "ownership", raw.get("ownership"),
+            tuple(sorted(KNOWN_GRAMMAR_OWNERSHIPS | {"upstream-delegated"})),
         ),
     )
 
@@ -2182,18 +2197,34 @@ def render_zsh(schema: CliSchema, descriptions: Descriptions, locale: str,
 
     description_cases: list[str] = []
     for operation in schema.operations:
-        description = descriptions.operations[operation.token].replace(":", r"\:")
+        description = zsh_description(descriptions.operations[operation.token])
         description_cases.append(
             f"        {operation.token}) REPLY={shell_quote(description)} ;;"
         )
     for option in schema.options:
         if not option.is_completion_visible:
             continue
-        description = descriptions.options[option.token].replace(":", r"\:")
+        description = zsh_description(descriptions.options[option.token])
         description_cases.append(
             f"        {shell_quote(option.completion_token)}) "
             f"REPLY={shell_quote(description)} ;;"
         )
+
+    ownership_cases = "\n".join(
+        f"        {shell_quote(token)}) REPLY={shell_quote(ownership)} ;;"
+        for token, ownership in option_ownerships(schema).items()
+    )
+    categories = tuple(sorted(set(option_ownerships(schema).values())))
+    group_arrays = " ".join("described_" + category.replace("-", "_") for category in categories)
+    group_cases = "\n".join(
+        f'        {category}) described_{category.replace("-", "_")}+=("$candidate:$REPLY") ;;'
+        for category in categories
+    )
+    group_calls = "\n".join(
+        f"    _describe -J -t moguet-options-{category} "
+        f"{shell_quote(descriptions.ownership[category])} described_{category.replace('-', '_')}"
+        for category in categories
+    )
 
     canonical_comments = "\n".join(
         f"#   {syntax}" for syntax in schema.canonical_grammar
@@ -2212,6 +2243,14 @@ _moguet_option_id() {{
     REPLY=
     case "$1" in
 {option_id_cases}
+    esac
+    [[ -n $REPLY ]]
+}}
+
+_moguet_option_ownership() {{
+    REPLY=
+    case "$1" in
+{ownership_cases}
     esac
     [[ -n $REPLY ]]
 }}
@@ -2316,7 +2355,8 @@ _moguet() {{
     local operation candidate option_id cur=${{PREFIX-${{(Q)words[CURRENT]}}}}
     local words_are_logical=false
     local -a words=("${{words[@]}}")
-    local -a candidates filtered described
+    local -a candidates filtered described {group_arrays}
+    local ownership
     case "$cur" in
     {'|'.join(shell_quote(o.completion_token) + '*' for o in finite_completion_options(schema)) or '__no_finite_value__'})
         # Applicability and agreement consume the same logical prior words.
@@ -2353,10 +2393,16 @@ _moguet() {{
     done
 
     for candidate in "${{filtered[@]}}"; do
+        _moguet_option_ownership "$candidate"
+        ownership=$REPLY
         _moguet_description "$candidate"
-        described+=("$candidate:$REPLY")
+        case "$ownership" in
+{group_cases}
+        *) described+=("$candidate:$REPLY") ;;
+        esac
     done
     _describe -t moguet-values 'moguet value' described
+{group_calls}
     # Package tokens use compadd directly, without description delimiters.
     if (( CURRENT == 3 && ${{#words}} == 3 )) && [[ $words[CURRENT] != -* ]]; then
         case "$words[2]" in
@@ -2400,6 +2446,11 @@ compdef _moguet moguet
 
 def fish_quote(value: str) -> str:
     return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+
+def zsh_description(value: str) -> str:
+    # _describe's records use colon delimiters and backslash escaping.
+    return value.replace("\\", "\\\\").replace(":", r"\:")
 
 
 def fish_contains(ids: tuple[int, ...]) -> str:
@@ -2652,7 +2703,7 @@ def render_fish(schema: CliSchema, descriptions: Descriptions, locale: str,
             "complete -c moguet -f -n "
             f"{fish_quote(f'__moguet_candidate_available {option.identity}')} "
             f"-a {fish_quote(option.completion_token)} -d "
-            f"{fish_quote(descriptions.options[option.token])}"
+            f"{fish_quote(descriptions.ownership[option.ownership] + ': ' + descriptions.options[option.token])}"
         )
     lines.extend([
         "",
@@ -2718,7 +2769,8 @@ def render_fish(schema: CliSchema, descriptions: Descriptions, locale: str,
             "    for candidate in " + ' '.join(map(fish_quote, generic)),
             "        test (string sub -l (string length -- \"$current\") -- \"$candidate\") = \"$current\"; or continue",
             "        printf '%s\\n' \"$candidate\"", "    end", "end", "",
-            "complete -c moguet -f -a '(__moguet_query_options)'",
+            "complete -c moguet -f -a '(__moguet_query_options)' -d "
+            + fish_quote(descriptions.ownership["upstream-delegated"]),
         ])
     return "\n".join(lines) + "\n"
 

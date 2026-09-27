@@ -26,6 +26,12 @@
     "del-patch": "Forget a local patch association without deleting user material",
     "list-patch": "List saved patch associations without checking external material"
   },
+  "ownership": {
+    "moguet-owned": "Moguet options",
+    "intercepted-pacman": "pacman-compatible options",
+    "delegated-pacman": "pacman delegated options",
+    "upstream-delegated": "pacman delegated options"
+  },
   "options": {
     "--details": "Show detailed diagnostic and provenance information for remote build, plan, deps, -S --select, -Qua, -Syu/-Su, upgrade-aur/all, --dry-run -S, and list-patch; presentation only",
     "-h": "Show the help message and exit",

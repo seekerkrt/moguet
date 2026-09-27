@@ -327,4 +327,5 @@ moguet_add_focused_ctest_alias(test-source-build-rmdeps TESTS cli.source_build_r
 
 moguet_add_focused_ctest_alias(test-repository-prefix-helper TESTS completion.repository_prefix_helper)
 moguet_add_focused_ctest_alias(test-dynamic-completion TESTS completion.dynamic_shells)
+moguet_add_focused_ctest_alias(test-completion-presentation TESTS completion.presentation)
 moguet_add_focused_ctest_alias(test-pacman-query-projection TESTS completion.pacman_query_projection)
