@@ -727,8 +727,27 @@ read、material digest再計算を行いません。materialが消失・変更�
 健全性を保証する表示ではありません。壊れた・非対応・unsafe・identity不一致のregistry recordは
 skipせずcommand全体をerrorで停止します。storeがない場合も作成せず登録なしと表示します。
 local v1とAUR v2のassociationを混在して一覧できます。AURはcanonical Git URLと解決済みPackageBaseで
-識別し、listingからremoteへ接続しません。AUR登録・更新は現在internal APIであり、public creation UXは
-review-edit patch capture側に残します。既存patch commandの登録対象はlocal sourceのままです。
+識別し、listingからremoteへ接続しません。AUR登録・更新はinternal APIを使い、通常review済みAURの編集は
+以下の明示saveからassociationを作成できます。既存patch commandの登録対象はlocal sourceのままです。
+
+`PKGBUILD`を編集し、`Proceed with build?`をacceptしたnormal reviewed ordinary AUR経路では、
+別の保存同意として`Save this edit as patch customization? [y/N]`を尋ねます。Noや空入力なら
+patch生成・公開・登録をせず、今回のaccepted editで継続します。`--noconfirm`とnon-TTYは安全なNoとし、
+piped `yes`を保存許可へ昇格しません。Yes後にdefaultなしでpatch directoryを入力します。
+cache・source checkout・registry外の既存user-owned directoryを指定してください。絶対パスを受理し、
+相対パスはコマンド開始時の作業ディレクトリ基準で解決します。この入力はshellを経由せず、`~`をHOMEへ展開しません。
+`~user`の解決や`$HOME`等の環境変数展開も行いません。保存先の自動作成はせず、symlink、unsafe permission、
+traversal pathを拒否します。
+
+YesではGit `PKGBUILD` patchを生成し、accepted bytesのexact reproductionを検証します。
+別の明示的な`makepkg --printsrcinfo`同意でowned copy内のsource identityを確認し、今回のmanual-edit
+dependency planは変更しません。`PKGBUILD-<SHA-256>.patch`を上書きせず公開し、**生成時の期待digest**を登録します。
+既存associationへのappend・update・replaceはしません。全phase成功後だけsame accepted editでbuildを継続します。
+保存失敗はnonzeroで停止し、公開後の登録失敗ではuser materialを残してregistryが未完了または不確実と報告します。
+cancel・EOF・input failureはNoと分けて停止します。このExperimental creation flowはcompatibility、official/local、
+Auto `-S`、targetless、dry-runを対象としません。authoritative develのSave Yesは非対応停止し、編集した`.SRCINFO`で
+黙示降格しません。Save Noは既存manual-edit behaviorを維持します。Save同意は将来のApply同意とは別で、
+`.install`編集やsource payloadは保存しません。
 
 `upgrade` / `upgrade-aur` / `upgrade-all`はexact source解決後にAUR associationを発見し、
 PackageBaseごとに今回の適用を`[y/N]`で尋ねます。No、空入力、non-TTY、`--noconfirm`では

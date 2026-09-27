@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.10.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-27 09:18+0900\n"
+"POT-Creation-Date: 2026-09-27 11:51+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -6152,6 +6152,9 @@ msgstr ""
 msgid "Experimental: accepted ordinary reviewed {} edits can be saved with separate default-No consent to an explicit existing patch directory"
 msgstr ""
 
+msgid "Use an existing patch directory with an absolute path or a path relative to the command's starting directory; '~' is not expanded."
+msgstr ""
+
 #, c++-format
 msgid "Register ordered {} patches from a user-maintained directory; do not enable automatic application"
 msgstr ""
@@ -8145,7 +8148,7 @@ msgstr ""
 msgid "Published patch material remains at {}. Registration is incomplete or uncertain."
 msgstr ""
 
-msgid "Patch directory:"
+msgid "Patch directory (absolute path or relative to the command's starting directory; '~' is not expanded):"
 msgstr ""
 
 msgid "Save this edit as patch customization?"

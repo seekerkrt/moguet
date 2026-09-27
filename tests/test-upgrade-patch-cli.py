@@ -19,6 +19,9 @@ import time
 
 from patch_cli_fixture import BINARY, REPO, Case, RECIPE, require, write
 
+DIRECTORY_PROMPT = "Patch directory (absolute path or relative to the command's starting directory; '~' is not expanded):"
+DIRECTORY_RULE = "Use an existing patch directory with an absolute path or a path relative to the command's starting directory; '~' is not expanded."
+
 
 def recipe(base, version='2', child=None):
     return RECIPE.replace('patch-cli-base', base).replace('patch-cli-child', child or base).replace('pkgver=1', 'pkgver='+version)
@@ -194,7 +197,7 @@ if os.environ.get('PATCH_EDIT_SRCINFO') == '1':
                         if before_answer: before_answer(question)
                         os.write(fd,b'\x04' if answer=='EOF' else (answer+'\n').encode())
                         answered+=1
-                    if b'Patch directory: ' in output and not destination_answered:
+                    if (DIRECTORY_PROMPT+' ').encode() in output and not destination_answered:
                         os.write(fd,(destination+'\n').encode()); destination_answered=True
                 _,status=os.waitpid(pid,0); code=os.waitstatus_to_exitcode(status)
             except BaseException:
@@ -261,8 +264,9 @@ with tempfile.TemporaryDirectory(prefix='moguet-upgrade-patch-cli-') as temporar
             require(c.probe_aur()==('2:custom:stock' if shape=='ordinary' else '2:before:stock'), 'current build lost the accepted edit')
             records=list((c.root/'config/moguet/patches.d').glob('*.toml'))
             if save=='n':
-                require(not records and not list(c.material.glob('PKGBUILD-*.patch')) and 'Patch directory:' not in text, 'Save No performed persistence')
+                require(not records and not list(c.material.glob('PKGBUILD-*.patch')) and DIRECTORY_PROMPT not in text, 'Save No performed persistence')
             else:
+                require(text.count(DIRECTORY_PROMPT)==1, 'Save destination prompt lost path rules')
                 generated=list(c.material.glob('PKGBUILD-*.patch'))
                 require(len(records)==1 and len(generated)==1, 'explicit Save Yes did not register ordinary AUR')
                 record=records[0].read_text(); material=generated[0]
@@ -273,9 +277,47 @@ with tempfile.TemporaryDirectory(prefix='moguet-upgrade-patch-cli-') as temporar
                 require(c.probe_aur(version='3')=='3:custom:stock', '#649 could not reuse the generated customization')
             require(all((c.material/name).read_bytes()==data for name,data in existing_material.items()),
                     'save modified unrelated user material')
+        for spelling in ('absolute', 'literal-tilde'):
+            c=UpgradeCase(root/('generated-'+spelling),rpc)
+            destination=c.material if spelling=='absolute' else c.root/'~'/'patches'
+            destination.mkdir(parents=True,exist_ok=True)
+            home_destination=c.root/'home/patches'
+            home_destination.mkdir()
+            text=c.run_upgrade(review_edit=True,save_choice='y',
+                               destination=str(destination) if spelling=='absolute' else '~/patches')
+            records=list((c.root/'config/moguet/patches.d').glob('*.toml'))
+            generated=list(destination.glob('PKGBUILD-*.patch'))
+            require(text.count(DIRECTORY_PROMPT)==1 and len(records)==1 and len(generated)==1 and
+                    str(destination) in records[0].read_text() and c.probe_aur()=='2:custom:stock',
+                    'absolute/literal-tilde destination changed save behavior: '+spelling+'\n'+text)
+            require(not list(home_destination.iterdir()), 'literal tilde published into HOME')
+        for existing in (True, False):
+            c=UpgradeCase(root/('generated-tilde-'+str(existing)),rpc)
+            leaf='patches' if existing else 'missing-patches'
+            home_destination=c.root/'home'/leaf
+            if existing: home_destination.mkdir()
+            libc=ctypes.CDLL(None,use_errno=True); fd=libc.inotify_init1(os.O_NONBLOCK|os.O_CLOEXEC)
+            require(fd>=0,'inotify failed')
+            # Existing HOME material must not be opened/read/published into;
+            # absent material must not be created under HOME.
+            mask=(0x1|0x20|0x100|0x80) if existing else (0x100|0x80)
+            require(libc.inotify_add_watch(fd,os.fsencode(home_destination if existing else c.root/'home'),mask)>=0,
+                    'HOME destination watch failed')
+            try:
+                text=c.run_upgrade(review_edit=True,save_choice='y',destination='~/'+leaf,ok=False)
+                try: events=os.read(fd,65536)
+                except BlockingIOError: events=b''
+                require(not events, 'tilde destination accessed/created/published HOME material')
+            finally: os.close(fd)
+            require(DIRECTORY_PROMPT in text and 'Patch directory is empty, unsafe or unavailable' in text and
+                    DIRECTORY_RULE in text and not c.build_log.read_text() and not c.command_log.read_text() and
+                    not list(c.material.glob('PKGBUILD-*.patch')) and not (c.root/'config/moguet/patches.d').exists() and
+                    not (c.root/'~').exists(), 'invalid tilde destination did not fail closed')
+            require(not list(home_destination.iterdir()) if existing else not home_destination.exists(),
+                    'tilde destination changed HOME material')
         c=UpgradeCase(root/'generated-unsafe',rpc)
         text=c.run_upgrade(review_edit=True,save_choice='y',destination='cache/moguet',ok=False)
-        require('Patch directory is empty, unsafe or unavailable' in text and not c.build_log.read_text() and
+        require('Patch directory is empty, unsafe or unavailable' in text and DIRECTORY_RULE in text and not c.build_log.read_text() and
                 not c.command_log.read_text(), 'unsafe destination failed after build continuation')
         c=UpgradeCase(root/'generated-authoritative-devel',rpc,('patch-devel',))
         c.add_upstream('patch-devel',recipe('patch-devel').replace('depends=()', "depends=()\nsource=('git+https://example.invalid/upstream.git')\nsha256sums=('SKIP')"))

@@ -644,6 +644,21 @@ void test_generated_material_publication() {
     expect_failure(save(f.material, {f.material}), Kind::Unsafe);
     expect_failure(save(f.material, {f.root}), Kind::Unsafe);
     if(::geteuid() != 0) expect_failure(save("/usr"), Kind::Unsafe);
+    expect(take<fs::path>(validate_generated_patch_destination(f.material, f.root, {})) == f.material,
+           "absolute destination changed");
+    const auto home_material = f.root / "home" / "material";
+    fs::create_directory(home_material);
+    for(const fs::path input : {"~/material", "$HOME/material", "~user/material"}) {
+        expect(std::holds_alternative<PatchAssociationFailure>(save(input)), "shell-style destination expanded or created");
+        expect(!fs::exists(f.root / *input.begin()), "invalid destination created a literal directory");
+    }
+    expect(fs::is_empty(home_material), "shell-style destination published into HOME");
+    const auto literal_material = f.root / "~" / "material";
+    fs::create_directories(literal_material);
+    const auto literal = take<PublishedRecipePatch>(save("~/material"));
+    expect(literal.material_root == literal_material && read(literal_material / literal.expected_entry.file) == bytes.bytes() &&
+               fs::is_empty(home_material),
+           "tilde did not retain literal command-start-relative semantics");
     auto published = take<PublishedRecipePatch>(save("material"));
     expect(published.material_root == f.material, "relative directory used checkout cwd");
     const auto path = f.material / published.expected_entry.file;

@@ -8107,6 +8107,9 @@ msgstr "authoritative devel buildのpatch customization保存は非対応です�
 msgid "Patch directory is empty, unsafe or unavailable; build stopped."
 msgstr "patch directoryが空、unsafe、または利用できません。buildを停止しました。"
 
+msgid "Use an existing patch directory with an absolute path or a path relative to the command's starting directory; '~' is not expanded."
+msgstr "既存のpatch directoryを絶対パス、またはコマンド開始時の作業ディレクトリ基準の相対パスで指定してください。'~'は展開されません。"
+
 msgid "Recipe patch generation or exact reproduction verification failed; build stopped."
 msgstr "recipe patch生成またはexact reproduction検証に失敗しました。buildを停止しました。"
 
@@ -8140,8 +8143,8 @@ msgstr "{}のpatch material公開と登録は完了しています。今回のbu
 msgid "Published patch material remains at {}. Registration is incomplete or uncertain."
 msgstr "公開済みpatch materialは{}に残っています。登録は未完了または不確実です。"
 
-msgid "Patch directory:"
-msgstr "patch directory:"
+msgid "Patch directory (absolute path or relative to the command's starting directory; '~' is not expanded):"
+msgstr "patch directory（絶対パス、またはコマンド開始時の作業ディレクトリ基準の相対パス。'~'は展開されません）:"
 
 msgid "Save this edit as patch customization?"
 msgstr "今回の編集をpatch customizationとして保存しますか？"

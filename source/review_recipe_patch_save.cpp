@@ -28,6 +28,7 @@ namespace fs = std::filesystem;
             break;
         case RecipePatchSaveStage::Destination:
             message = localization::translate_message("Patch directory is empty, unsafe or unavailable; build stopped.");
+            message += " " + localization::translate_message("Use an existing patch directory with an absolute path or a path relative to the command's starting directory; '~' is not expanded.");
             break;
         case RecipePatchSaveStage::Generation:
             message = localization::translate_message("Recipe patch generation or exact reproduction verification failed; build stopped.");
@@ -73,7 +74,7 @@ namespace fs = std::filesystem;
 }
 
 fs::path request_patch_directory() {
-    std::cout << localization::translate_message("Patch directory:") << " " << std::flush;
+    std::cout << localization::translate_message("Patch directory (absolute path or relative to the command's starting directory; '~' is not expanded):") << " " << std::flush;
     std::string value;
     if(!std::getline(std::cin, value)) {
         if(std::cin.bad() || (!std::cin.eof() && std::cin.fail())) stop_confirmation(ConfirmationInputFailure{});

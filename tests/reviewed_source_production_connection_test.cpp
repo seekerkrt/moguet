@@ -611,11 +611,13 @@ int main() {
                 return capture_bounded_explicit_process_output_raw(invocation, policy);
             });
             set_patch_association_test_hook([&](auto, const auto&) { ++material_calls; });
+            auto declined_config = save_config;
+            declined_config.command_start_directory.clear();
             for(const std::string response : {"n\n", "\n"}) {
                 ReviewAnswers declined(response);
-                save_review_recipe_edit(&*edit, false, request(), checkout, cache_root, save_config, nullptr);
+                save_review_recipe_edit(&*edit, false, request(), checkout, cache_root, declined_config, nullptr);
             }
-            auto automatic = save_config;
+            auto automatic = declined_config;
             automatic.no_confirm = true;
             {
                 ReviewAnswers piped_yes("yes\n");
@@ -626,7 +628,7 @@ int main() {
             require(saved_stdin >= 0 && null_input >= 0 && ::dup2(null_input, STDIN_FILENO) >= 0, "Cannot make stdin noninteractive");
             {
                 ReviewAnswers piped_yes("yes\n");
-                save_review_recipe_edit(&*edit, false, request(), checkout, cache_root, save_config, nullptr);
+                save_review_recipe_edit(&*edit, false, request(), checkout, cache_root, declined_config, nullptr);
             }
             require(::dup2(saved_stdin, STDIN_FILENO) >= 0, "Cannot restore stdin");
             ::close(null_input);
