@@ -986,6 +986,7 @@ AurCheckoutAuthority prepare_aur_checkout_authority(
     const std::string acceptance_question =
         reviewed_source_acceptance_question(
             presented_target.lifecycle());
+    std::cout << '\n';
     ExplicitConfirmationResult confirmation = request_explicit_confirmation(
         acceptance_question, false);
     ReviewedSourceAcceptanceDisposition disposition =

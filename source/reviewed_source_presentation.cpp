@@ -809,6 +809,7 @@ void render_entry(
     state.append("\n", entry_index);
     render_readiness_diagnostic(state, entry.readiness, entry_index);
     if(state.failed()) return;
+    state.append("\n", entry_index);
     render_representation(state, entry, view, entry_index);
 }
 
@@ -826,6 +827,7 @@ void render_review_body(
     }
     for(std::size_t index = 0;
         index < body.entries.size() && !state.failed(); ++index) {
+        if(index != 0) state.append("\n", index);
         render_entry(state, body.entries[index], index);
     }
 }

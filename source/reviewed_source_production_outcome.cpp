@@ -284,6 +284,9 @@ format_production_source_build_staged_outcome(
     ReviewedSourceProductionOutcomePresentation presentation =
         format_reviewed_source_production_outcome(
             package_base, outcome.source_provenance);
+    // Consumers terminate each info line; separate provenance only when the
+    // build/install group follows, without introducing an empty log event.
+    if(!presentation.info_lines.empty()) presentation.info_lines.back() += '\n';
     presentation.info_lines.push_back(
         build_outcome_line(package_base, outcome.build_outcome));
     presentation.info_lines.push_back(
