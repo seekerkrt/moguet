@@ -36,13 +36,13 @@ contractの規範上の正本は各文書の日本語本文である。英語利
 | [root package selection](root-package-selection.md) | #217 | `-S --select`のsource-aware root selectionとroute固定 |
 | [local PKGBUILD](local-pkgbuild.md) | #271 | local root identity、metadata authority、source tree非破壊境界 |
 
-## Design Gate / implementation in progress
+## Implemented Experimental contract
 
-次はDesign Gate案と実装途中の内部contractを区別して記録する。public機能の完成を保証しない。
+次は実装済みのpublic機能であり、Experimentalとしてpublic surface / schema / UXの変更余地を残す。
 
-| Proposal | Origin Issue | Decision scope |
+| Contract | Origin Issue | Main boundary |
 | --- | --- | --- |
-| [Package/source patch customization](patch-customization.md) | #363 | local recipe patchのpublic登録・明示選択・consent、candidate・association・XDG config・strict acquisition |
+| [Package/source patch customization](patch-customization.md) | #363 / #649 / #650 / #665 | local登録・listing、AUR association・upgrade-familyの明示Apply、reviewed PKGBUILD / 既存top-level *.install editの明示Save、ordered seriesのstrict replay |
 
 ## 英語利用者向けの読み方
 

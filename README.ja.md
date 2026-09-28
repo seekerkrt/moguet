@@ -42,54 +42,68 @@ v2では日常利用できることを目指し、correctnessとregression preve
 <!-- parity:status -->
 ## Project status
 
-Moguet v2.0.0は、jpacker v1.16.0の実行基盤を土台に、identity、保存先、config、
-localization、packagingを移行するbreaking releaseです。localの`moguet` binary、
-XDG path、typed TOML config、gettextによる英日CLI surfaceは実装済みです。local
-package identity、payload、dependency metadata、documentation、jpacker v1.16.0からの
-非破壊transitionをv2 release contractとして確定しました。
+現在の公開stableは **[v2.10.1](https://github.com/seekerkrt/moguet/releases/tag/v2.10.1)** です。
+次の予定releaseは **v2.11.0** で、`develop`で開発しています。`main`はdefault branchと
+stable release lineです。次releaseのscopeは[v2.11.0 milestone](https://github.com/seekerkrt/moguet/milestone/32)を
+正とします。以下は現在の`develop`の実装状況であり、すべてが公開stableに含まれているわけではありません。
 
-Moguet v2.0.1は、採用済みXDG storage契約のうちsource-preference部分を完成させます。
-新しいstorage方針の追加ではなく、v2.0.0で欠けた実装の修正です。source-build
-preferenceは実行user自身のXDG config contextだけを使い、公開済みv2.0.0のtag、Release、
-release noteは歴史的記録のまま変更しません。
+### 実装済みのcurrent機能
 
-Moguet v2.9.0はordinary AUR helperの
-土台を完成させ、対応するremote AUR build routeでの限定的なdependency cleanup、
-Normal / Detailed presentationのcompact化、responsibility boundaryの簡素化、
-final RC validation workflowの整備をまとめています。対応範囲と利用者から見える変更の全体は
-[v2.9.0 release](https://github.com/seekerkrt/moguet/releases/tag/v2.9.0)を参照してください。
+- 日常的なAUR helperの主要workflowであるsearch/info、dependencyの調査・plan、fetch/review、
+  build/install、repository + AURのupdate orchestration、provider選択、source-aware routingを
+  実装済みです。split packageや混在dependencyの対応範囲には、文書化されたroute別の制限があります。
+- package単位のsource-build environmentには、明示的に使い分ける3つの形があります。
+  `moguet build <pkg> V=K...`は今回限りの指定です。
+  `moguet add-src <pkg> V=K...` / `moguet edit-src <pkg>`でpersistent preferenceを管理し、
+  `moguet build <pkg> --use-preference`で明示的に再利用します。
+  `moguet build <pkg> V=K... --save-preference`はremote build/install lifecycle成功後に、
+  明示したassignmentだけを保存済みpreferenceへ昇格します。明示assignmentが必須で、既存preferenceを
+  黙って上書きしません。通常のone-off buildは保存せず、patch編集のauthorityとも分離しています。
+  詳細は[source preference contract](https://github.com/seekerkrt/moguet/blob/develop/docs/contracts/source-build-preference-xdg.md)を参照してください。
+- Bash / Zsh / Fishのcontext-aware completionは、plain `moguet -S`のlocal sync package名prefix、
+  有限のtyped `--build-mode=`値、versionを特定したupstream snapshot由来のboundedなdelegated
+  `-Q` option tokenに対応します。package lookupはlocal-onlyでdatabaseをrefreshせず、provider failure時は
+  static completionへfallbackします。任意のpacman semanticsの推測や全operationのdynamic対応は行いません。
 
-Moguet v2.9.1はPATCH releaseです。pinned source snapshot acceptanceのNormal表示を
-compact化し、snapshot identityとclosure summaryを表示します。`--details`ではnodeごと・
-fileごとのexact identityを維持します。verification、acceptance、routing、build、
-install、exit semanticsは変更しません。
+### 実装済みのExperimental機能
 
-Moguet v2.10.0では、対話的なprovider選択に複数番号、range、除外を追加しました。
-認識できるlegacy SONAME v1のprovider capabilityには32-bitまたは64-bitの注記を付けますが、
-注記によって候補のfilterや選択は行いません。
+**Patch customizationは実装済みで、Experimentalです。** local association/listing、AUR association、
+upgrade-familyでの発見と明示Applyに対応します。reviewed ordinary AUR経路では、既存root `PKGBUILD`と
+既存top-level `*.install`のaccepted content editを、変更fileごとに1 patchを持つordered seriesとして
+明示保存し、将来のupstream更新へ再適用できます。series全体をstrictにreplayし、旧PKGBUILD-only recordとの
+互換性も維持します。永続的なadd/delete/rename/type/mode変更、任意・nested・binaryのsource payloadは
+非対応です。local consumerはPKGBUILD-onlyのままです。
+詳細は[patch customization contract](https://github.com/seekerkrt/moguet/blob/develop/docs/contracts/patch-customization.md)を参照してください。
 
-Moguet v2.10.1では、pinned source snapshot承認のNormal表示にroot tag数を残し、
-tag mappingの全件列挙を省きます。`--details`ではtag名とraw/peeled object IDを
-引き続き表示します。取得・検証・build inputとしての保持は変わりません。
+Experimentalはpublic surface、record schema、selection UXが今後も変わり得ることを示します。
+未実装やunsafeという意味ではなく、reviewやprovenanceによるupstreamの安全保証でもありません。
+patch保存と将来のApplyには、それぞれ別の明示選択が必要です。
 
-canonical repository identityはGitHub上のMoguetで、GitLab mirrorを持ちます。Moguet
-packageは`jpacker` command aliasを提供しません。AUR publicationは将来の別判断であり、
-この文書はAUR endpointが存在すると断定しません。
+### 将来の拡張候補
 
-現在のv2実装は、文書化したrouteごとの制限の範囲で、ordinary split package、provider選択、
-repositoryとAURを組み合わせた依存関係を含む、日常的なAUR利用の主要workflowに対応しています。
-[v2 support audit](https://github.com/seekerkrt/moguet/issues/606#issuecomment-5769277841)で
-新しいv2 blockerは見つかりませんでした。全AUR packageや全dependency topologyへの
-対応を約束するものではなく、対応済みの範囲、明示的な制限、意図したrejectを区別します。
+customization対応のauthoritative devel proof/provenanceや、現在の対応範囲を越えるcompletion contextは
+別follow-upです。特定releaseへの収録を約束するものではありません。generic profile abstractionは
+current requirementとして採用していません。
 
-将来のprofile / patch workflowは
-完成したv2 release boundaryではなくv3 planningで改めて検討します。原則とv2/v3境界は
-[project stance](https://github.com/seekerkrt/moguet/blob/develop/docs/project-stance.md)を参照してください。
+### 非目標と制限
 
-他のAUR helperではそのまま進む操作でも、Moguetでは追加の確認や選択を求める場合が
-あります。また、安全に処理を継続できると判断できない場合は、警告や理由を表示したうえで
-停止することがあります。reviewとprovenanceは判断と実際のbuild/installの対応を保つための
-もので、upstream codeやpackageの安全性そのものを保証しません。
+pacmanやmakepkgの再実装、`makepkg.conf`の置換、`/etc/makepkg.conf`の自動編集は行いません。
+pacman完全互換や全AUR package・全dependency topologyへの対応も主張しません。defaultのTab時AUR network検索や、
+利用者の明示的な意図なしでのpersistent config書き込みはcurrent contractに含めません。
+
+customizationの開発はv2.xで続けます。過去のv3 planning labelは次majorの予約ではなく、具体的なbreaking change、
+rebranding、generation reset等の互換性上の理由が生じた時点でmajorを改めて判断します。
+Experimental機能の実装だけを理由にmajor bumpするものではありません。
+詳しくは[project stance](https://github.com/seekerkrt/moguet/blob/develop/docs/project-stance.md)を参照してください。
+
+GitHubがcanonical、GitLabはmirrorです。MoguetがAUR helperであることと、Moguet自身のAUR package公開は別です。
+repositoryのPKGBUILDはrepository提供のpackaging手段であり、公開済みMoguet AUR pageはありません。
+AUR publicationは別の判断として残します。packageは`jpacker` command aliasを提供しません。
+過去のtransitionとrelease詳細は[release notes](RELEASE_NOTES.md)と[migration guide](docs/migration/v1-to-v2.ja.md)を参照してください。
+
+他のAUR helperではそのまま進む操作でも、Moguetでは追加の確認や選択が必要な場合があります。
+処理を進めてよいと確立できなければ、warningや理由を示して停止します。reviewとprovenanceは
+判断と実際のbuild/installの対応を保つ仕組みであり、upstream codeやpackageの安全性を保証しません。
 
 <!-- parity:safety -->
 ## 設計と安全境界
@@ -1001,8 +1015,10 @@ canonical development repositoryは
 active integration branchは`develop`、stable releaseは`main`です。
 [docs/development.md](https://github.com/seekerkrt/moguet/blob/develop/docs/development.md)、
 [docs/versioning.md](https://github.com/seekerkrt/moguet/blob/develop/docs/versioning.md)を
-参照してください。高度なruntime-aware completionやprofile・追加patch consumerなどの
-将来候補は[release roadmap](https://github.com/seekerkrt/moguet/issues/344)で扱います。
+参照してください。次releaseのscopeは[v2.11.0 milestone](https://github.com/seekerkrt/moguet/milestone/32)を正とします。
+current capabilityは`develop`の実装、public help/man、[current contracts](https://github.com/seekerkrt/moguet/blob/develop/docs/contracts/README.md)で確認できます。
+closedの[customization/release roadmap #344](https://github.com/seekerkrt/moguet/issues/344)は
+歴史的な経緯であり、current statusのauthorityではありません。
 
 <!-- parity:license -->
 ## License

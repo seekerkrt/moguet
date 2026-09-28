@@ -8,7 +8,7 @@
 
 ### 文書の位置づけ
 
-projectの目的、correctness / safety / review / provenanceの考え方、非目標、v2/v3境界は
+projectの目的、correctness / safety / review / provenanceの考え方、非目標、customizationとmajor versionの姿勢は
 [project stance](project-stance.md)を正本とする。この文書は、その姿勢を具体的な設計判断へ
 適用する原則と根拠を所有し、projectの方向性や将来計画を重複して定義しない。
 
@@ -152,7 +152,7 @@ version boundary、配布policy、component別の詳細は[docs/LICENSING.md](LI
 ### Status and authority
 
 The [project stance](project-stance.md) is the canonical source for project purpose,
-correctness, safety, review, provenance, non-goals, and the v2/v3 boundary. This
+correctness, safety, review, provenance, non-goals, and the customization / major-version stance. This
 document owns the principles and rationale for applying that stance to concrete
 design decisions; it does not separately define project direction or future plans.
 
@@ -310,9 +310,9 @@ decision 9〜15として旧`DECISIONS.md`に記載していた全文contractは�
 | 14 | [root package selection](contracts/root-package-selection.md) | `-S --select`によるsource-aware root selectionとroute固定 |
 | 15 | [local PKGBUILD](contracts/local-pkgbuild.md) | `build --local`のlocal root identity、metadata、source tree非破壊境界 |
 
-### v3 foundation contract
+### Source-aware identity foundation contract
 
-Issue #355で、public profile / patch workflowより前に利用する[source-aware package identity contract](contracts/source-package-identity.md)を追加した。このcontractはpackage child、PackageBase、repository / AUR / local source、source location、source revision、package release、architectureを分離し、既存production modelからのread-only projectionだけを許可する。CLI、storage、profile、patch適用、source commit取得を有効化するdecisionではない。
+Issue #355で、internal foundationとして[source-aware package identity contract](contracts/source-package-identity.md)を追加した。このcontractはpackage child、PackageBase、repository / AUR / local source、source location、source revision、package release、architectureを分離し、既存production modelからのread-only projectionだけを許可する。CLI、storage、profile、patch適用、source commit取得を有効化するdecisionではない。
 
 ### 上位原則とcontractの読み分け
 

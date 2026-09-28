@@ -43,6 +43,11 @@ Moguet は CLI ツールなので、互換性は内部 C++ API ではなく、�
 `v2.0.0`では、jpacker v1.16.0からMoguetへのidentity、storage、config、localization、
 packagingのbreaking transitionを行った。
 
+過去のv3 planning labelは次majorを予約しない。customizationはv2.xで継続し、profile / patchという
+テーマやExperimental機能の実装だけでmajorを上げない。具体的なbreaking change、rebranding、
+generation reset等の互換性上の理由が生じた時点で再判断する。current capabilityの分類は
+[project stance](project-stance.md)を参照する。
+
 ## MINOR
 
 `MINOR` は、後方互換な機能追加、機能拡張、対応範囲の拡大で上げる。

@@ -451,7 +451,7 @@ dependency edgeはmetadata trust boundaryで構成したtyped requirement、inst
 
 <a id="compat-split-package"></a>
 
-## Local recipe patch customization
+## Patch customization（Experimental）
 
 `add-patch <directory> <patch-directory> <patch-file>...`、`update-patch`の同形、
 `del-patch <directory> <package-base>`をclosed grammarとして公開する。
@@ -594,7 +594,7 @@ content provenanceをそれぞれ維持する。詳細は
 
 ## Common source-aware identity compatibility
 
-Issue #355のcommon identityは、後続profile / snapshot / patch workflow向けのinternal foundationであり、現時点のpublic CLIやproduction selection / build / install semanticsを変更しない。package child、PackageBase、repository / AUR / local source、source location、source revision、package release、architectureを別fieldで保持し、package名またはderived string keyへflattenしない。
+Issue #355のcommon identityはinternal foundationであり、それ自体はpublic CLIやproduction selection / build / install semanticsを変更しない。package child、PackageBase、repository / AUR / local source、source location、source revision、package release、architectureを別fieldで保持し、package名またはderived string keyへflattenしない。
 
 Issue #355のgeneric current repository / AUR modelはexact source commitを保持しないためrevisionは`Unknown`であり、known commitとして推測しない。Issue #411のreviewed-source lifecycleはAUR review / build用のexact OIDを別のpersistent / capability authorityとして保持するが、そのOIDをgeneric `source_package_identity_projection`へ注入して`Known`へ昇格させない。generic source identity projectionとreviewed-source persistent / build authorityは同じものではない。current local routeはGit repositoryをauthorityにせずfilesystem / content provenanceを使うためrevisionは`Inapplicable`である。`Unknown`、`Absent`、`Unavailable`、`Inapplicable`をknown matchやabsenceへ丸めない。
 
@@ -604,7 +604,7 @@ internal compatibility evaluatorはsource、PackageBase、child、revision、rel
 
 read-only projectionの一部はIssue #485のinternal production pathに限定接続されている。`project_dependency_source_package_identity()`は`SourceArtifactInstall`のtrusted bindingとinvocation-owned cleanup correlation / evidenceに、`project_artifact_source_package_identity()`はtrusted bindingのartifact整合とreceipt evidenceに利用される。このprojectionは既存のtrusted ownerへtyped identity / correlation evidenceを渡すだけであり、source-build routing、artifact identity、`SourceArtifactInstall` trusted transport、invocation-owned cleanupのauthorityをcommon modelへ移さず、既存routeを置換しない。
 
-generic compatibility evaluatorは引き続きpublic production workflow / routing decisionへ未接続である。public profile workflow、generic revision authority、generic compatibility-driven routing、v3 source-build / profile architectureはcurrent featureではない。詳細なstate、equality、compatibility、projection contractは[source-aware package identity contract](contracts/source-package-identity.md)を正本とする。
+generic compatibility evaluatorは引き続きpublic production workflow / routing decisionへ未接続である。generic revision authorityやgeneric compatibility-driven routingはcurrent featureではなく、generic profile abstractionはcurrent requirementとして採用していない。実装済みpatch customizationは別のselection / consent / acquisition authorityに従う。詳細なstate、equality、compatibility、projection contractは[source-aware package identity contract](contracts/source-package-identity.md)を正本とする。
 
 <a id="compat-packagebase-child-selection"></a>
 

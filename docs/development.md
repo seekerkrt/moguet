@@ -508,6 +508,11 @@ operatorが行う。automated VALIDはこれらの実行許可や完了を意味
 ccache / mold parityは必要なreleaseでの追加validationであり、上記default gateの代替にしない。
 それぞれのexact compile / link scopeとclean / incremental条件を`validation.md`に従って記録する。
 
+以下のstage例とその説明は**v2.8.0 release preparationのhistorical example**であり、当時のpath名を含む。
+current releaseのscope / stage対象のauthorityではない。次のv2.11.0のscopeは
+[v2.11.0 milestone](https://github.com/seekerkrt/moguet/milestone/32)を正とし、release preparation時に
+actual diffから新たなexact path setを定める。下記listをそのまま実行しない。
+
     git status --short
 
     git add -- \
@@ -547,7 +552,7 @@ ccache / mold parityは必要なreleaseでの追加validationであり、上記d
     gh pr create --base main --head release/vX.Y.Z
 
 上記の`git add`は、v2.8.0 release preparationでstage対象とする27 pathsを1件ずつ明示した
-current release用のexact path setです。`git add .`や代表pathだけのpartial listへ置き換えません。
+当時のrelease用のexact path setです。`git add .`や代表pathだけのpartial listへ置き換えません。
 commit前にcached path一覧をactual diffと再照合し、release scopeのunstaged / untracked pathや
 unrelatedなstaged pathがないことを確認します。
 
