@@ -47,57 +47,78 @@ upstream code as safe. See the [validation policy](https://github.com/seekerkrt/
 <!-- parity:status -->
 ## Project status
 
-Moguet v2.0.0 is a breaking identity, storage, configuration, localization,
-and packaging transition built on the jpacker v1.16.0 execution base. The
-local `moguet` binary, XDG paths, typed TOML configuration, and gettext-based
-English/Japanese CLI surface are implemented. The local package identity,
-payload, dependency metadata, documentation, and non-destructive transition
-from jpacker v1.16.0 form the v2 release contract.
+The current released stable version is **[v2.10.1](https://github.com/seekerkrt/moguet/releases/tag/v2.10.1)**.
+The next planned release is **v2.11.0**, developed on `develop`; `main` is the
+default branch and stable release line. The [v2.11.0 milestone](https://github.com/seekerkrt/moguet/milestone/32)
+owns the next release scope. The capabilities below describe the current `develop`
+implementation; they are not all available in the released stable version.
 
-Moguet v2.0.1 completes the source-preference part of that adopted XDG storage
-contract. It corrects an implementation omission in v2.0.0 rather than adding
-a new storage direction: source-build preferences now use only the executing
-user's XDG config context, while the published v2.0.0 tag, Release, and release
-notes remain historical records.
+### Implemented current
 
-Moguet v2.9.0 completed the ordinary AUR-helper foundation with bounded
-dependency cleanup for the supported remote-AUR build route, more compact
-Normal/Detailed presentation,
-simpler responsibility boundaries, and a dedicated final-RC validation workflow.
-See the [v2.9.0 release](https://github.com/seekerkrt/moguet/releases/tag/v2.9.0)
-for the supported scope and complete user-visible changes.
+- The main everyday AUR-helper workflows: search/info, dependency inspection and
+  planning, fetch/review, build/install, repository + AUR update orchestration,
+  provider selection, and source-aware routing. Supported split packages and
+  mixed dependencies remain subject to the documented route limits.
+- Per-package source-build environments have three explicit forms:
+  `moguet build <pkg> V=K...` is invocation-local;
+  `moguet add-src <pkg> V=K...` / `moguet edit-src <pkg>` manage persistent
+  preferences, reused explicitly with `moguet build <pkg> --use-preference`;
+  `moguet build <pkg> V=K... --save-preference` promotes only the explicit
+  assignments after a successful remote build/install lifecycle. Promotion
+  requires explicit assignments and never silently overwrites an existing
+  preference. Plain one-off builds do not save. Patch edits have a separate
+  authority. See the [source preference contract](https://github.com/seekerkrt/moguet/blob/develop/docs/contracts/source-build-preference-xdg.md).
+- Bash / Zsh / Fish context-aware completion includes local sync package-name
+  prefixes for plain `moguet -S`, finite typed `--build-mode=` values, and bounded
+  delegated `-Q` option tokens from a version-identified upstream snapshot.
+  Package lookup is local-only, does not refresh databases, and falls back to
+  static completion on provider failure. It does not infer arbitrary pacman
+  semantics or cover every operation dynamically.
 
-Moguet v2.9.1 is a PATCH release that makes pinned source snapshot acceptance
-more compact in Normal output. The snapshot identity and closure summary remain
-visible; `--details` retains exact per-node and per-file identity. Verification,
-acceptance, routing, build, install, and exit semantics are unchanged.
+### Implemented Experimental
 
-Moguet v2.10.0 extends interactive provider selection to multiple numbers,
-ranges, and exclusions. Recognized legacy SONAME v1 provider capabilities gain
-32-bit or 64-bit annotations; these do not filter or select candidates.
+**Patch customization is implemented and Experimental.** It includes local
+association/listing, AUR association, and upgrade-family discovery with explicit
+Apply. On the reviewed ordinary AUR route, accepted content edits to the existing
+root `PKGBUILD` and existing top-level `*.install` files can be explicitly saved
+as one ordered series, with one patch per changed file, and reapplied to future
+upstream updates. Whole-series replay is strict; older PKGBUILD-only records
+remain compatible. Persistent add/delete/rename/type/mode changes and arbitrary,
+nested, or binary source payloads are unsupported. The local consumer remains
+PKGBUILD-only. See the [patch customization contract](https://github.com/seekerkrt/moguet/blob/develop/docs/contracts/patch-customization.md).
 
-Moguet v2.10.1 keeps the root tag count in Normal pinned snapshot acceptance
-output without listing every tag mapping. `--details` still shows tag names and
-raw/peeled object IDs. Acquisition, verification, and retained build input are
-unchanged.
+Experimental means the public surface, record schema, and selection UX may
+still evolve. It does not mean unimplemented or unsafe, and neither review nor
+provenance guarantees upstream safety. Patch saving and future Apply require
+separate explicit choices.
 
-The canonical repository identity is Moguet on GitHub, with a GitLab mirror.
-The Moguet package does not provide a `jpacker` command alias. AUR publication
-is a separate future decision; this document does not claim that an AUR
-endpoint exists.
+### Future enhancement
 
-The current v2 implementation covers the main everyday AUR workflows, including
-ordinary split packages, provider selection, and combined repository/AUR
-dependencies within the documented route limits. The
-[v2 support audit](https://github.com/seekerkrt/moguet/issues/606#issuecomment-5769277841)
-found no new v2 blocker. This is not a promise to handle every AUR package or
-dependency topology: supported cases, explicit limitations, and intentional
-rejections remain distinct.
+Customization-aware authoritative devel proof/provenance and broader completion
+contexts remain follow-up areas beyond the implemented scope. They are not
+promises for a particular release. Generic profile abstraction is not an adopted
+current requirement.
 
-Future profile and patch workflows belong to v3 planning rather than the
-completed v2 release boundary. See the
-[project stance](https://github.com/seekerkrt/moguet/blob/develop/docs/project-stance.md)
-for the principles and v2/v3 boundary.
+### Non-goals and limits
+
+Moguet does not reimplement pacman or makepkg, replace `makepkg.conf`, or
+automatically edit `/etc/makepkg.conf`. It does not claim complete pacman
+compatibility or support for every AUR package or dependency topology. Default
+Tab-time AUR network search and persistent configuration writes without explicit
+user intent are outside the current contract.
+
+Customization work continues on v2.x. An old v3 planning label does not reserve
+the next major version; a concrete breaking change, rebranding, generation reset,
+or comparable compatibility reason would require a fresh major-version decision.
+Implemented Experimental functionality alone does not imply a major bump. See the
+[project stance](https://github.com/seekerkrt/moguet/blob/develop/docs/project-stance.md).
+
+GitHub is canonical and GitLab is a mirror. Moguet being an AUR helper does not
+mean that Moguet itself has a published AUR package: the repository PKGBUILD is
+a repository-provided packaging path, and there is no published Moguet AUR page.
+AUR publication remains a separate decision. The package provides no `jpacker`
+command alias. Historical transitions and release details remain in the
+[release notes](RELEASE_NOTES.md) and [migration guide](docs/migration/v1-to-v2.md).
 
 An operation that proceeds directly in another AUR helper may require an
 additional confirmation or selection in Moguet. If Moguet cannot establish
@@ -1187,7 +1208,11 @@ See
 [docs/development.md](https://github.com/seekerkrt/moguet/blob/develop/docs/development.md),
 and
 [docs/versioning.md](https://github.com/seekerkrt/moguet/blob/develop/docs/versioning.md).
-Future candidates, including advanced runtime-aware completion, profiles and additional patch consumers, are tracked in the [release roadmap](https://github.com/seekerkrt/moguet/issues/344).
+The [v2.11.0 milestone](https://github.com/seekerkrt/moguet/milestone/32) defines the next release scope.
+Current capability is described by the `develop` implementation, public help/man,
+and [current contracts](https://github.com/seekerkrt/moguet/blob/develop/docs/contracts/README.md).
+The closed [customization/release roadmap #344](https://github.com/seekerkrt/moguet/issues/344)
+is historical context, not the current status authority.
 
 <!-- parity:license -->
 ## License

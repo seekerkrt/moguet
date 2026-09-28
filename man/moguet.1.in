@@ -488,7 +488,7 @@ failure; registry state may be unchanged or uncertain. Only complete success con
 the same accepted edit. Cancellation, EOF and input failure stop separately from No.
 Creation excludes compatibility, official/local, Auto -S, targetless and dry-run routes.
 Authoritative devel plus Save Yes stops; edited SRCINFO cannot downgrade that decision.
-Save does not authorize future Apply or persist .install/source payload edits.
+Save does not authorize future Apply or persist source-build V=K preferences.
 .PP
 Experimental saved AUR patches are discovered by upgrade, upgrade-aur and upgrade-all
 using the exact canonical source URL and PackageBase. Each PackageBase has its own

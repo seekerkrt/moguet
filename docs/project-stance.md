@@ -3,12 +3,15 @@
 ## 概要
 
 この文書は、Moguetの目的、引き受ける責任、correctness / safety / review / provenance、
-非目標、v2/v3境界の規範上の正本である。v2で確立した姿勢を、今後の判断にも適用する。
+非目標、customizationとmajor versionの姿勢の規範上の正本である。v2で確立した姿勢を、今後の判断にも適用する。
 
 [README](../README.md)は利用者向けの入口、[設計ポリシー](decisions.md)は具体的な設計判断に
 適用する原則と根拠、[個別contract](contracts/README.md)はbehaviorごとの保証を所有する。
 route別の対応範囲は[compatibility](compatibility.md)、証拠の扱いは
-[validation policy](validation.md)、将来計画は[roadmap](https://github.com/seekerkrt/moguet/issues/344)へつなぐ。
+[validation policy](validation.md)を正とする。current release scopeは
+[v2.11.0 milestone](https://github.com/seekerkrt/moguet/milestone/32)、current capabilityはdevelopの実装、
+public help/man、現行contractで確認する。closedの[roadmap #344](https://github.com/seekerkrt/moguet/issues/344)は
+historical customization / release planningの記録であり、current status authorityではない。
 
 ## 日常的なAUR利用を扱う
 
@@ -121,8 +124,10 @@ Moguet が扱うべきなのは、全体設定ではなく、パッケージ単�
 
 たとえば、普段は `makepkg.conf` で `-O3 -march=native` を使っていても、特定のパッケージだけ安全性や安定性を優先して `-O2` に抑えたい場合がある。
 
-現在の`V=K`とsource-build preferenceはpackage単位のbuild environmentを扱う。
-profileやpatch差分の保存・再適用は、後述するv3の将来候補と区別する。
+現在の`V=K`とsource-build preferenceはpackage単位のbuild environmentを扱い、
+`/etc/makepkg.conf`を自動編集しない。上記のflagは説明例であり最適化の推奨ではない。
+assignmentを実際に利用するかはpackage / upstream build systemにも依存する。
+patch差分の明示保存・再適用は別authorityの実装済みExperimental機能であり、generic profile abstractionとは区別する。
 
 ## 既存 AUR helper への敬意
 
@@ -165,16 +170,39 @@ AI等で実装可能でも、rare edge caseのためにgeneric frameworkを先�
 継続して報告された場合は、その具体的use caseと責任境界を評価し、必要ならfocused extensionを
 検討する。万能solverを将来必ず作るというroadmapにも、永久に拡張しないという宣言にもしない。
 
-## v2 / v3境界と将来のbuild tuning
+## Current capabilityとcustomizationの姿勢
 
-v2は一般的なAUR helperとして日常利用できる土台を完成させ、correctness、safety、responsibility、
-failure behavior、public UX、validation、documentationを安定させる。v3機能の実装をv2完成の条件にしない。
+current released stableはv2.10.1、next planned releaseはv2.11.0である。以下はdevelopの現在地であり、
+公開stableの収録内容とは区別する。
 
-v3ではこの土台を壊さず、profile / patch workflow等のMoguet独自価値を検討する。
-将来のbuild tuningもArchの流儀を尊重し、例外的に調整したいpackageのbuild optionやPKGBUILD差分を
-記録し、更新時にpreview・確認して再適用し、不整合なら停止する方向で考える。
-これはcurrent capabilityの説明ではなく、[roadmap](https://github.com/seekerkrt/moguet/issues/344)の
-将来候補である。詳細scopeと順序はv2.9.0 FINAL GATE後の再査定で扱い、過去の予定表を収録保証にしない。
+- **Implemented current:** ordinary AUR-helperの主要workflow、provider選択、source-aware routing、
+  package単位のone-off environmentとpersistent preference、Bash / Zsh / Fishのcontext-aware completion。
+  `build <pkg> V=K...`は今回限り、`add-src` / `edit-src`は永続管理、`build <pkg> --use-preference`は明示再利用。
+  `build <pkg> V=K... --save-preference`はremoteのbuild/install lifecycle成功後、explicit assignmentだけを
+  既存preferenceへ上書きせず昇格する。plain buildの自動保存ではなく、patch保存とも別authorityである。
+  詳細は[source preference contract](contracts/source-build-preference-xdg.md)を正とする。
+  completionはlocal sync prefix、typed `--build-mode=`、bounded delegated `-Q` token等に限定し、
+  refreshやTab時AUR network検索をしない。[completion contract](contracts/shell-completion.md)の範囲を越えて主張しない。
+- **Implemented Experimental:** local patch association / listing、AUR association、upgrade-family discoveryと明示Apply、
+  reviewed ordinary AUR editからの明示Save。既存root PKGBUILDと既存top-level `*.install`のcontent editを、
+  changed-file-per-patchのordered logical seriesとして保存・strict whole-series replayできる。
+  旧PKGBUILD-only recordとの互換性を維持する。local consumerはPKGBUILD-onlyである。
+  Experimentalはpublic surface / schema / UXが変わり得ることを示し、未実装やunsafeという意味ではない。
+  詳細は[patch customization contract](contracts/patch-customization.md)を正とする。
+- **Future enhancement:** customization対応のauthoritative devel proof / provenance、現在のcompletion contextを越える拡張等は
+  別follow-upとして具体的な需要とauthorityを評価する。特定releaseへの収録は約束しない。
+- **Non-goal / intentionally unsupported or unclaimed:** generic profile abstractionはcurrent requirementに採用しない。
+  persistent patchのadd/delete/rename/type/mode変更、任意tracked payload、nested / binary / non-text customizationは非対応。
+  pacman完全互換、全AUR topology対応、任意pacman semantics推測、全operationのdynamic completion、fuzzy finder、
+  arbitrary profile completion、利用者の明示意図なしのpersistent config書き込みも主張しない。
+
+## Major versionの判断
+
+customization workはv2.x lineで続ける。過去のv3 labelだけを理由に次majorを予約しない。
+profile / patch customizationというテーマやExperimental機能の実装自体はmajor bumpを要求しない。
+具体的なbreaking change、rebranding、generation reset、同等の互換性上の理由が生じた時点で、
+[version policy](versioning.md)に従いmajorを改めて判断する。
+過去のplanningや公開release記録は当時の判断として保持し、current requirementや収録保証へ読み替えない。
 
 ## 判断基準
 

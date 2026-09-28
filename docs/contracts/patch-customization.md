@@ -2,11 +2,13 @@
 
 ## Statusとauthority
 
-**Production Slice 1–3のinitial local recipe consumerを実装済み。**
+**Patch customizationは実装済みのExperimental機能である。**
 [Issue #363 current body](https://github.com/seekerkrt/moguet/issues/363)をrequirements SSOTとする。
 以下は実装済みlocal contractとDesign Gateの比較根拠である。#649 Slice 2でAUR associationを追加した。
 ordinary AURのupgrade-family適用は#649 Slice 3、review編集からの明示保存は#650 Slice 3で実装済み。
-other text / source payloadは将来consumerとする。
+#665で既存root PKGBUILDと既存top-level `*.install`のcontent editをchanged-file-per-patchのordered seriesとして
+保存・再適用する範囲へ拡張した。詳細は末尾の#665追加契約を正とし、旧PKGBUILD-only record互換とlocal scopeを維持する。
+それ以外のtext / source payload integrationは未実装の拡張候補であり、収録releaseは約束しない。
 [#627 requirements reset](https://github.com/seekerkrt/moguet/issues/627)に従い、過去の
 profile / snapshot foundationを要求へ戻さない。requirementsはIssue、具体的な
 patch contractはこの文書、上位原則は[decisions](../decisions.md)と[stance](../project-stance.md)が所有する。
@@ -333,6 +335,9 @@ apply成功はshellの意味やsource安全性の認証ではない。phase間�
 
 ## 初期非採用とSlice案
 
+以下は#363のinitial local consumerを決めた時点の設計記録である。remote AURは#649、review編集の保存は#650、
+既存top-level `*.install`の永続化は#665で実装済みであり、ここでの将来候補をcurrent未実装一覧として扱わない。
+
 PKGBUILD-onlyは最初のconsumerの制限であり永久仕様ではない。次の候補はselected recipe-associated text inputs、
 その次がuser-supplied source payloadと明示的なrecipe側の`source[]` / checksum / `prepare()` integrationである。
 payloadを置いただけでsourceへ適用済みと扱わず、展開sourceへの適用はmakepkgに委ねる。
@@ -394,10 +399,11 @@ user-facing diagnosticはmissing / changed / unsafe / corrupt / mismatch / apply
 upstream version変更後のreuse、apply不能停止、acquisition後inode置換でも同じbytesを使うこと、原本保存、consent、closed grammarを確認する。
 consumer / association単体testはtyped failure・race・cleanupのfocused evidenceを引き続き所有する。
 
-## 将来consumer（initial scope外）
+## Initial scope外のconsumerと現在地
 
-remote、selected recipe-associated text、source payloadはそれぞれ別のauthority確認を要する。
-initial local journeyの未完了項目として扱わない。source payload適用は前述のmakepkg lifecycleが所有する。
+initial local journeyではremote、selected recipe-associated text、source payloadを分離した。
+remote AURと既存top-level `*.install`は後述#649 / #650 / #665で実装済みである。
+残るsource payload integrationは別の具体的需要とauthority確認を要し、適用は前述のmakepkg lifecycleが所有する。
 
 
 ## Issue #649 Slice 3: ordinary AUR upgrade consumer
