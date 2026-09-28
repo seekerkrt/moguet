@@ -140,6 +140,30 @@ assert_line_before() {
     fi
 }
 
+assert_reviewed_outcome_grouping() {
+    expected_count=$1
+    if ! awk -v expected="$expected_count" '
+        { lines[NR] = $0 }
+        END {
+            count = 0
+            for (i = 1; i <= NR; ++i) {
+                if (lines[i] !~ /^Build outcome for PackageBase /) continue
+                ++count
+                if (i < 3 || lines[i - 1] != "" ||
+                    lines[i - 2] !~ /^(Build input|Reviewed-source outcome) for PackageBase /) exit 1
+                base = lines[i]
+                sub(/^Build outcome for PackageBase /, "", base)
+                sub(/:.*/, "", base)
+                if (index(lines[i + 1], "Install outcome for PackageBase " base ": ") != 1) exit 1
+                if (i + 1 < NR && lines[i + 2] == "") exit 1
+            }
+            if (count != expected) exit 1
+        }
+    ' "$stdout_file"; then
+        fail_case "reviewed provenance/build/install grouping differs"
+    fi
+}
+
 assert_cache_absent() {
     if [ -e "$XDG_CACHE_HOME/moguet" ]; then
         fail_case "invalid invocation initialized the Moguet cache"
@@ -492,6 +516,7 @@ assert_not_contains "pacman upgrade-aur" "$command_log"
 
 setup_case all-no-change all-no-change
 run_status 0 upgrade-aur
+assert_reviewed_outcome_grouping 1
 assert_exact_line "AUR update: completed" "$stdout_file"
 assert_exact_line "no-change-pkg: no package change" "$stdout_file"
 assert_exact_line \
@@ -504,6 +529,7 @@ assert_not_contains "PackageBase result:" "$stdout_file"
 
 setup_case updated-no-change-mixed updated-no-change-mixed
 run_status 0 upgrade-aur
+assert_reviewed_outcome_grouping 2
 assert_exact_line "AUR update: completed" "$stdout_file"
 assert_exact_line "zeta-pkg: updated" "$stdout_file"
 assert_exact_line "alpha-pkg: no package change" "$stdout_file"
@@ -561,6 +587,7 @@ assert_not_contains "required child: split-suite-debug" "$stdout_file"
 
 setup_case transaction-failure transaction-failure
 run_status 1 upgrade-aur
+assert_reviewed_outcome_grouping 1
 assert_contains \
     "Reviewed-source outcome for PackageBase tx-suite: update review accepted" \
     "$stdout_file"
@@ -667,6 +694,7 @@ assert_not_contains "retrying" "$stdout_file"
 # outcome separately; install remains not attempted.
 setup_case reviewed-build-failure reviewed-build-failure
 run_status 1 upgrade-aur
+assert_reviewed_outcome_grouping 1
 assert_contains \
     "Reviewed-source outcome for PackageBase reviewed-build-pkg: update review accepted" \
     "$stdout_file"

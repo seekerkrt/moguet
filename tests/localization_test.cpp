@@ -129,6 +129,15 @@ int main(int argc, char* argv[]) {
                 reviewed_update,
                 ProductionSourceBuildCommandOutcome::Succeeded,
                 ProductionSourceInstallOutcome::Failed});
+    if(staged_presentation.info_lines.size() != 5 ||
+       staged_presentation.info_lines[0] != reviewed_presentation.info_lines[0] ||
+       staged_presentation.info_lines[1] != reviewed_presentation.info_lines[1] ||
+       staged_presentation.info_lines[2] != reviewed_presentation.info_lines[2] + "\n" ||
+       staged_presentation.info_lines[3].find('\n') != std::string::npos ||
+       staged_presentation.info_lines[4].find('\n') != std::string::npos) {
+        std::cerr << "Localized reviewed-source grouping differs\n";
+        return 1;
+    }
     std::cout << "reviewed_build_outcome="
               << staged_presentation.info_lines[3] << '\n';
     std::cout << "reviewed_install_outcome="

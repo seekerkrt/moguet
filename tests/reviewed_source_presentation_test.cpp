@@ -180,6 +180,15 @@ ReviewedSourceVerifiedMaterializedReview seal_for_render(
 }
 
 std::string render_success(ReviewedSourceMaterializedReview review) {
+    const std::size_t entry_count = std::visit([](const auto& value) -> std::size_t {
+        if constexpr(std::is_same_v<std::decay_t<decltype(value)>,
+                                    ReviewedSourceMaterializedAlreadyReviewed>) {
+            return 0;
+        } else {
+            return value.review.entries.size();
+        }
+    },
+                                               review);
     const ReviewedSourceVerifiedMaterializedReview verified =
         seal_for_render(std::move(review));
     ReviewedSourcePresentationResult result =
@@ -187,6 +196,24 @@ std::string render_success(ReviewedSourceMaterializedReview review) {
     auto* rendered = std::get_if<ReviewedSourceRenderedPresentation>(&result);
     if(rendered == nullptr) {
         throw std::runtime_error("Reviewed source presentation failed");
+    }
+    const std::string& text = rendered->text;
+    require(!text.starts_with('\n') && text.ends_with('\n') &&
+                !text.ends_with("\n\n") && text.find("\n\n\n") == std::string::npos,
+            "Review gained leading, trailing, or repeated blank lines");
+    std::size_t blank_count = 0;
+    for(std::size_t pos = 0; (pos = text.find("\n\n", pos)) != std::string::npos; pos += 2) {
+        ++blank_count;
+    }
+    require(blank_count == (entry_count == 0 ? 0 : 2 * entry_count - 1),
+            "Review must separate only metadata/content and adjacent entries");
+    if(entry_count != 0) {
+        require(text.find("review entries:\nreview entry 1:\n") != std::string::npos,
+                "First review entry gained an unnecessary separator");
+    }
+    for(std::size_t index = 2; index <= entry_count; ++index) {
+        require(text.find("\n\nreview entry " + std::to_string(index) + ":\n") != std::string::npos,
+                "Adjacent review entries lack exactly one blank line");
     }
     return std::move(rendered->text);
 }
@@ -644,6 +671,14 @@ void test_representation_and_readiness_diagnostics() {
 
     const std::string output = render_success(update_review(
         {full, patch, unchanged, binary, gitlink, mixed, sensitive}));
+    for(const std::string_view content : {
+            "  new full text:", "  verified text patch:", "  content: content unchanged",
+            "  content: binary/non-line-reviewable content; raw bytes withheld",
+            "  content: Gitlink/submodule metadata only; recursive review not performed",
+            "  content: mixed text and non-line-reviewable content; raw bytes withheld"}) {
+        require_contains(output, "\n\n" + std::string(content),
+                         "Metadata/content boundary lacks a blank line");
+    }
     for(const std::string_view representation : {
             "complete text patch", "complete full text",
             "no content change", "content containing NUL bytes",

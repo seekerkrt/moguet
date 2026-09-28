@@ -78,7 +78,40 @@ ProductionSourceBuildProvenance reviewed_provenance(
     return provenance;
 }
 
+void require_staged_grouping(const ProductionSourceBuildProvenance& provenance) {
+    const auto standalone = format_reviewed_source_production_outcome("matrix-base", provenance);
+    for(const auto build : {ProductionSourceBuildCommandOutcome::NotAttempted,
+                            ProductionSourceBuildCommandOutcome::Started,
+                            ProductionSourceBuildCommandOutcome::Failed,
+                            ProductionSourceBuildCommandOutcome::Succeeded}) {
+        for(const auto install : {ProductionSourceInstallOutcome::NotAttempted,
+                                  ProductionSourceInstallOutcome::Started,
+                                  ProductionSourceInstallOutcome::Failed,
+                                  ProductionSourceInstallOutcome::Succeeded}) {
+            const auto staged = format_production_source_build_staged_outcome(
+                "matrix-base", ProductionSourceBuildStagedOutcome{provenance, build, install});
+            require(staged.info_lines.size() == standalone.info_lines.size() + 2,
+                    "Grouping changed the number of info events");
+            for(std::size_t index = 0; index < standalone.info_lines.size(); ++index) {
+                require(staged.info_lines[index] == standalone.info_lines[index] +
+                                                        (index + 1 == standalone.info_lines.size() ? "\n" : ""),
+                        "Only the final provenance line may carry the group separator");
+                require(standalone.info_lines[index].find('\n') == std::string::npos,
+                        "Standalone provenance gained a separator");
+            }
+            const auto first_outcome = standalone.info_lines.size();
+            require(staged.info_lines[first_outcome].starts_with("Build outcome for PackageBase matrix-base: ") &&
+                        staged.info_lines[first_outcome + 1].starts_with("Install outcome for PackageBase matrix-base: "),
+                    "Terminal outcome order or PackageBase attribution changed");
+            require(staged.info_lines[first_outcome].find('\n') == std::string::npos &&
+                        staged.info_lines[first_outcome + 1].find('\n') == std::string::npos,
+                    "Terminal outcomes gained leading, intervening, or trailing blank lines");
+        }
+    }
+}
+
 void test_outcome_projection_matrix() {
+    require_staged_grouping(ProductionSourceBuildProvenance{});
     struct ReviewedCase {
         ProductionReviewedSourceOutcome outcome;
         std::optional<ReviewedSourceAbnormalStateReason> abnormal_reason;
@@ -127,6 +160,9 @@ void test_outcome_projection_matrix() {
         require_contains(
             presentation.info_lines[1], "generation 17",
             "Reviewed outcome lost state generation");
+        require_staged_grouping(reviewed_provenance(
+            test_case.outcome, ReviewedSourcePublicationStatus::Published,
+            ReviewedSourceEditorOverlayStatus::None, test_case.abnormal_reason));
     }
 
     ReviewedSourceProductionOutcomePresentation already =
@@ -142,6 +178,9 @@ void test_outcome_projection_matrix() {
     require_contains(
         already.info_lines[1], "remains at generation 17",
         "AlreadyReviewed lost unchanged generation");
+    require_staged_grouping(reviewed_provenance(
+        ProductionReviewedSourceOutcome::AlreadyReviewed,
+        ReviewedSourcePublicationStatus::AlreadyPublishedSameTarget));
 
     ReviewedSourceProductionOutcomePresentation raced =
         format_reviewed_source_production_outcome(
@@ -167,6 +206,10 @@ void test_outcome_projection_matrix() {
         overlay.info_lines.back(),
         "it is not the exact reviewed commit tree",
         "Editor overlay was flattened into the reviewed commit");
+    require_staged_grouping(reviewed_provenance(
+        ProductionReviewedSourceOutcome::UpdateReview,
+        ReviewedSourcePublicationStatus::Published,
+        ReviewedSourceEditorOverlayStatus::InvocationLocal));
 
     struct CompatibilityCase {
         ReviewedSourceCompatibilityBuildReason reason;
@@ -208,6 +251,9 @@ void test_outcome_projection_matrix() {
             presentation.info_lines.front(),
             "reviewed state was not advanced",
             "Compatibility outcome claimed reviewed state advance");
+        require_staged_grouping(provenance);
+        provenance.editor_overlay = ReviewedSourceEditorOverlayStatus::InvocationLocal;
+        require_staged_grouping(provenance);
     }
 }
 
@@ -453,6 +499,19 @@ public:
     }
 };
 
+class ReviewOutput final {
+    std::ostringstream output_;
+    std::streambuf* original_ = std::cout.rdbuf(output_.rdbuf());
+
+public:
+    ~ReviewOutput() {
+        std::cout.rdbuf(original_);
+    }
+    std::string text() const {
+        return output_.str();
+    }
+};
+
 std::string read_bytes(const fs::path& path) {
     std::ifstream input(path, std::ios::binary);
     require(static_cast<bool>(input), "Cannot read fixture bytes");
@@ -574,11 +633,17 @@ int main() {
 
         {
             ReviewAnswers answers("y\ny\ny\nn\n");
+            ReviewOutput output;
             SourceBuildPreparationOutcome outcome =
                 prepare_source_build_for_execution(
                     request(), std::string(PACKAGE_BASE),
                     SourceBuildUpdatePolicy::AlwaysBuild,
                     cache_root, reviewed_config(editor));
+            const std::string text = output.text();
+            const auto prompt = text.find(":: Accept this reviewed upstream revision? [y/n]");
+            require(prompt >= 3 && prompt != std::string::npos &&
+                        text.substr(prompt - 2, 2) == "\n\n" && text[prompt - 3] != '\n',
+                    "Production review/prompt boundary must contain exactly one blank line");
             auto* prepared =
                 std::get_if<PreparedSourceBuildNeedsBuild>(&outcome);
             require(prepared != nullptr,
