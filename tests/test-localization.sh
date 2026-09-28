@@ -306,6 +306,8 @@ assert_english_messages() {
     assert_line 'diagnostic_project=Do not run Moguet as root or with sudo.' "$output_file"
     assert_line 'diagnostic_command=Run moguet as a normal user; Moguet will invoke sudo/pacman when needed.' "$output_file"
     assert_line 'prompt=Rebuild package?' "$output_file"
+    assert_line "patch_directory_prompt=Patch directory (absolute path or relative to the command's starting directory; '~' is not expanded):" "$output_file"
+    assert_line "patch_directory_rule=Use an existing patch directory with an absolute path or a path relative to the command's starting directory; '~' is not expanded." "$output_file"
     assert_line 'soname_class_32=[SONAME: 32-bit]' "$output_file"
     assert_line 'soname_class_64=[SONAME: 64-bit]' "$output_file"
     assert_line 'reviewed_target_failure=Reviewed source target revision resolution failed; the build was not started.' "$output_file"
@@ -353,11 +355,17 @@ strip_ansi "$ja_help_short" "$ja_help_plain"
 
 assert_line 'USAGE' "$c_help_plain"
 assert_contains \
-    'Build one remote package or local PKGBUILD root without saving a preference' \
+    'Build one remote package or local PKGBUILD root; assignments are one-off unless explicitly saved' \
+    "$c_help_plain"
+assert_contains \
+    "Use an existing patch directory with an absolute path or a path relative to the command's starting directory; '~' is not expanded." \
     "$c_help_plain"
 assert_line '使用方法' "$ja_help_plain"
 assert_contains \
-    '設定を保存せず、リモートパッケージ1件またはローカルPKGBUILDルート1件をビルド' \
+    'リモートパッケージ1件またはローカルPKGBUILDルート1件をビルド。明示保存しない代入は今回だけ適用' \
+    "$ja_help_plain"
+assert_contains \
+    "既存のpatch directoryを絶対パス、またはコマンド開始時の作業ディレクトリ基準の相対パスで指定してください。'~'は展開されません。" \
     "$ja_help_plain"
 assert_contains '$XDG_CONFIG_HOME/moguet/config.toml' "$ja_help_plain"
 assert_contains 'review.pkgbuild = "prompt"|"skip"' "$ja_help_plain"
@@ -472,6 +480,8 @@ assert_line 'help=このヘルプを表示して終了' "$ja_output"
 assert_line 'diagnostic_project=Moguetをrootとして、またはsudo経由で実行しないでください。' "$ja_output"
 assert_line 'diagnostic_command=moguetは通常ユーザーとして実行してください。Moguetは必要に応じてsudo/pacmanを呼び出します。' "$ja_output"
 assert_line 'prompt=パッケージを再ビルドしますか？' "$ja_output"
+assert_line "patch_directory_prompt=patch directory（絶対パス、またはコマンド開始時の作業ディレクトリ基準の相対パス。'~'は展開されません）:" "$ja_output"
+assert_line "patch_directory_rule=既存のpatch directoryを絶対パス、またはコマンド開始時の作業ディレクトリ基準の相対パスで指定してください。'~'は展開されません。" "$ja_output"
 assert_line 'soname_class_32=[SONAME: 32ビット]' "$ja_output"
 assert_line 'soname_class_64=[SONAME: 64ビット]' "$ja_output"
 assert_line 'reviewed_target_failure=確認済みソースの対象リビジョンを解決できなかったため、ビルドを開始しませんでした。' "$ja_output"

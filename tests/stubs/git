@@ -86,6 +86,11 @@ if [ -n "${MOGUET_TEST_TRUSTED_GIT_BOUNDARY:-}" ] &&
 fi
 
 config_worktree=${trusted_git_worktree:-$PWD}
+if [ "${1:-}" = rev-parse ] && [ "${2:-}" = --verify ] &&
+   [ "${3:-}" = --output-object-format=storage ] && [ "${4:-}" = --end-of-options ] &&
+   [ "${5:-}" = 'refs/remotes/origin/main^{commit}' ]; then
+    exit "${MOGUET_TEST_GIT_REVIEW_TARGET_EXIT_CODE:-0}"
+fi
 if [ "${1:-}" = "fetch" ]; then
     fetch_no_auto_maintenance_count=0
     if [ -n "${MOGUET_TEST_GIT_FETCH_ARGV_LOG:-}" ]; then

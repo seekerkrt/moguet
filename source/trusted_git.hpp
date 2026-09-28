@@ -11,7 +11,9 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <variant>
+#include <vector>
 
 class ReviewedSourcePackageBaseLease;
 class InvocationOwnedSourceBuildContextAuthority;
@@ -281,6 +283,12 @@ public:
         const TrustedGitPinnedCheckoutOverlayObservation&) const =
         default;
 
+    // Semantic path/content/mode projection for the narrow persistent recipe
+    // save decision. The full observation above still seals inode/time facts.
+    bool persistent_recipe_changes_only(
+        const TrustedGitPinnedCheckoutOverlayObservation& after) const;
+    bool semantic_changed(const TrustedGitPinnedCheckoutOverlayObservation& after) const;
+
 private:
     friend std::variant<
         TrustedGitPinnedCheckoutOverlayObservation,
@@ -316,13 +324,15 @@ private:
         std::uintmax_t checkout_device,
         std::uintmax_t checkout_inode,
         ReviewedSourceObjectId tree,
-        std::string filesystem_manifest) noexcept;
+        std::string filesystem_manifest,
+        std::vector<std::pair<std::string, std::string>> semantic_entries) noexcept;
 
     AurReviewedSourceReviewIdentity identity_;
     std::uintmax_t checkout_device_ = 0;
     std::uintmax_t checkout_inode_ = 0;
     ReviewedSourceObjectId tree_;
     std::string filesystem_manifest_;
+    std::vector<std::pair<std::string, std::string>> semantic_entries_;
 };
 
 using TrustedGitPinnedCheckoutResult = std::variant<
@@ -336,6 +346,11 @@ using TrustedGitPinnedCheckoutRevalidationResult = std::variant<
 using TrustedGitPinnedCheckoutOverlayObservationResult = std::variant<
     TrustedGitPinnedCheckoutOverlayObservation,
     TrustedGitPinnedCheckoutFailure>;
+
+// Owning exact bytes of the root regular PKGBUILD only. No Git operation or
+// descendant inventory; the review route supplies source/target authority.
+[[nodiscard]] std::variant<std::string, TrustedGitPinnedCheckoutFailure>
+trusted_git_read_review_pkgbuild(const ValidatedCachePath& checkout);
 
 // Hash-verified bytes for every entry in one exact reviewed commit tree.
 // The capability is intentionally opaque outside the invocation-owned context

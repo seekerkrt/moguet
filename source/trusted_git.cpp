@@ -1305,9 +1305,13 @@ struct OverlayFilesystemManifestState {
 using OverlayDirectoryNamesResult = std::variant<
     std::vector<std::string>,
     TrustedGitPinnedCheckoutFailure>;
+struct OverlayFilesystemManifest {
+    std::string exact;
+    std::vector<std::pair<std::string, std::string>> semantic_entries;
+    bool operator==(const OverlayFilesystemManifest&) const = default;
+};
 using OverlayFilesystemManifestResult = std::variant<
-    std::string,
-    TrustedGitPinnedCheckoutFailure>;
+    OverlayFilesystemManifest, TrustedGitPinnedCheckoutFailure>;
 
 bool stable_overlay_status_equal(
     const struct stat& left,
@@ -1544,7 +1548,7 @@ read_overlay_regular_file(
         return pinned_checkout_boundary_failure(manifest.stage);
     }
     manifest.aggregate_regular_bytes += expected_size;
-    return reviewed_source_sha256_content_identity(content);
+    return content;
 }
 
 std::variant<std::string, TrustedGitPinnedCheckoutFailure>
@@ -1683,7 +1687,8 @@ scan_overlay_filesystem_directory(
                        child_path,
                        OverlayFilesystemEntryKind::RegularFile,
                        named_status,
-                       std::get<std::string>(std::move(content))})) {
+                       reviewed_source_sha256_content_identity(
+                           std::get<std::string>(content))})) {
                 return failure;
             }
             continue;
@@ -1756,8 +1761,19 @@ OverlayFilesystemManifestResult project_overlay_filesystem_manifest(
            root.get(), {}, 0, true, manifest)) {
         return std::move(*failure);
     }
-    return serialize_overlay_filesystem_manifest(
-        std::move(manifest.entries));
+    std::sort(manifest.entries.begin(), manifest.entries.end(), overlay_path_less);
+    OverlayFilesystemManifest result;
+    for(const auto& entry : manifest.entries) {
+        std::string fact;
+        fact.push_back(static_cast<char>(entry.kind));
+        append_overlay_manifest_integer(fact, static_cast<std::uint64_t>(entry.status.st_mode));
+        append_overlay_manifest_integer(fact, static_cast<std::uint64_t>(entry.status.st_uid));
+        append_overlay_manifest_integer(fact, static_cast<std::uint64_t>(entry.status.st_gid));
+        append_overlay_manifest_bytes(fact, entry.payload_identity);
+        result.semantic_entries.emplace_back(entry.path, std::move(fact));
+    }
+    result.exact = serialize_overlay_filesystem_manifest(std::move(manifest.entries));
+    return result;
 }
 
 using OverlayTreeProjectionResult = std::variant<
@@ -1767,6 +1783,7 @@ using OverlayTreeProjectionResult = std::variant<
 struct OverlayProjection {
     ReviewedSourceObjectId tree;
     std::string filesystem_manifest;
+    std::vector<std::pair<std::string, std::string>> semantic_entries;
 
     bool operator==(const OverlayProjection&) const = default;
 };
@@ -1910,15 +1927,16 @@ OverlayProjectionResult project_pinned_checkout_overlay(
            &manifest_after)) {
         return std::move(*failure);
     }
-    if(std::get<std::string>(manifest_before) !=
-       std::get<std::string>(manifest_after)) {
+    if(std::get<OverlayFilesystemManifest>(manifest_before) !=
+       std::get<OverlayFilesystemManifest>(manifest_after)) {
         return pinned_checkout_failure(
             TrustedGitPinnedCheckoutFailureReason::OverlayMismatch,
             stage);
     }
+    auto final_manifest = std::get<OverlayFilesystemManifest>(std::move(manifest_after));
     return OverlayProjection{
         std::get<ReviewedSourceObjectId>(std::move(tree)),
-        std::get<std::string>(std::move(manifest_after))};
+        std::move(final_manifest.exact), std::move(final_manifest.semantic_entries)};
 }
 
 OverlayProjectionResult observe_stable_pinned_checkout_overlay(
@@ -2287,10 +2305,53 @@ TrustedGitPinnedCheckoutOverlayObservation::
         std::uintmax_t checkout_device,
         std::uintmax_t checkout_inode,
         ReviewedSourceObjectId tree,
-        std::string filesystem_manifest) noexcept
+        std::string filesystem_manifest,
+        std::vector<std::pair<std::string, std::string>> semantic_entries) noexcept
     : identity_(std::move(identity)), checkout_device_(checkout_device),
       checkout_inode_(checkout_inode), tree_(std::move(tree)),
-      filesystem_manifest_(std::move(filesystem_manifest)) {
+      filesystem_manifest_(std::move(filesystem_manifest)),
+      semantic_entries_(std::move(semantic_entries)) {
+}
+
+bool TrustedGitPinnedCheckoutOverlayObservation::persistent_recipe_changes_only(
+    const TrustedGitPinnedCheckoutOverlayObservation& after) const {
+    auto permitted = [](const std::string& path) {
+        return path == "PKGBUILD" ||
+               (path.find('/') == std::string::npos && path.size() > 8 &&
+                path.ends_with(".install"));
+    };
+    auto less = [](const std::string& left, const std::string& right) {
+        return std::lexicographical_compare(left.begin(), left.end(), right.begin(), right.end(),
+                                            [](char a, char b) {
+                                                return static_cast<unsigned char>(a) < static_cast<unsigned char>(b);
+                                            });
+    };
+    std::size_t before_index = 0;
+    std::size_t after_index = 0;
+    while(before_index < semantic_entries_.size() ||
+          after_index < after.semantic_entries_.size()) {
+        if(after_index == after.semantic_entries_.size() ||
+           (before_index < semantic_entries_.size() &&
+            less(semantic_entries_[before_index].first, after.semantic_entries_[after_index].first))) {
+            if(!permitted(semantic_entries_[before_index].first)) return false;
+            ++before_index;
+        } else if(before_index == semantic_entries_.size() ||
+                  less(after.semantic_entries_[after_index].first, semantic_entries_[before_index].first)) {
+            if(!permitted(after.semantic_entries_[after_index].first)) return false;
+            ++after_index;
+        } else {
+            if(semantic_entries_[before_index].second != after.semantic_entries_[after_index].second &&
+               !permitted(semantic_entries_[before_index].first)) return false;
+            ++before_index;
+            ++after_index;
+        }
+    }
+    return true;
+}
+
+bool TrustedGitPinnedCheckoutOverlayObservation::semantic_changed(
+    const TrustedGitPinnedCheckoutOverlayObservation& after) const {
+    return semantic_entries_ != after.semantic_entries_;
 }
 
 TrustedGitReviewedRecipeSnapshot::TrustedGitReviewedRecipeSnapshot(
@@ -2408,7 +2469,7 @@ observe_clean_trusted_git_pinned_checkout_overlay(
         return TrustedGitPinnedCheckoutOverlayObservation(
             state.identity, state.checkout.device(),
             state.checkout.inode(), std::move(stable.tree),
-            std::move(stable.filesystem_manifest));
+            std::move(stable.filesystem_manifest), std::move(stable.semantic_entries));
     } catch(const TrustedCacheError& error) {
         return pinned_checkout_boundary_failure(
             TrustedGitPinnedCheckoutStage::OverlayObservation,
@@ -2449,7 +2510,7 @@ observe_trusted_git_pinned_checkout_overlay(
         return TrustedGitPinnedCheckoutOverlayObservation(
             state.identity, state.checkout.device(),
             state.checkout.inode(), std::move(stable.tree),
-            std::move(stable.filesystem_manifest));
+            std::move(stable.filesystem_manifest), std::move(stable.semantic_entries));
     } catch(const TrustedCacheError& error) {
         return pinned_checkout_boundary_failure(
             TrustedGitPinnedCheckoutStage::OverlayObservation,
@@ -3631,6 +3692,35 @@ int clone_persistent_checkout(
 }
 
 } // namespace
+
+std::variant<std::string, TrustedGitPinnedCheckoutFailure>
+trusted_git_read_review_pkgbuild(const ValidatedCachePath& checkout) {
+    constexpr auto stage = TrustedGitPinnedCheckoutStage::OverlayObservation;
+    ValidatedCachePath current = revalidate_trusted_cache_path(
+        checkout, CachePathRequirement::ExistingDirectory);
+    auto retained = retain_trusted_cache_directory(current);
+    retained.require_unchanged_identity();
+    OwnedFileDescriptor root(::open(
+        current.canonical_path().c_str(),
+        O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW));
+    struct stat root_status{};
+    struct stat named_status{};
+    if(!root.valid() || ::fstat(root.get(), &root_status) != 0 ||
+       static_cast<std::uintmax_t>(root_status.st_dev) != current.device() ||
+       static_cast<std::uintmax_t>(root_status.st_ino) != current.inode() ||
+       ::fstatat(root.get(), "PKGBUILD", &named_status, AT_SYMLINK_NOFOLLOW) != 0 ||
+       !S_ISREG(named_status.st_mode)) {
+        return pinned_checkout_boundary_failure(stage);
+    }
+    // Reuse only the bounded stable regular-file reader, not the whole-root
+    // manifest policy. Each read proves its own inode; editor atomic save may
+    // legitimately replace that inode between the pre/post reads.
+    OverlayFilesystemManifestState read_state;
+    read_state.stage = stage;
+    auto result = read_overlay_regular_file(root.get(), "PKGBUILD", named_status, read_state);
+    retained.require_unchanged_identity();
+    return result;
+}
 
 int trusted_git_clone_persistent_checkout(
     const ValidatedCachePath& destination,

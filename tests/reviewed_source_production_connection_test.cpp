@@ -1,5 +1,9 @@
 #include "app_config.hpp"
 #include "cache_authority.hpp"
+#include "generated_recipe_patch.hpp"
+#include "review_recipe_patch_save.hpp"
+#include "source_install.hpp"
+#include "xdg_generation_store.hpp"
 #include "reviewed_source_pinned_build.hpp"
 #include "reviewed_source_production_outcome.hpp"
 #include "reviewed_source_state_store.hpp"
@@ -13,8 +17,11 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <fcntl.h>
 #include <iostream>
+#include <iterator>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -71,7 +78,40 @@ ProductionSourceBuildProvenance reviewed_provenance(
     return provenance;
 }
 
+void require_staged_grouping(const ProductionSourceBuildProvenance& provenance) {
+    const auto standalone = format_reviewed_source_production_outcome("matrix-base", provenance);
+    for(const auto build : {ProductionSourceBuildCommandOutcome::NotAttempted,
+                            ProductionSourceBuildCommandOutcome::Started,
+                            ProductionSourceBuildCommandOutcome::Failed,
+                            ProductionSourceBuildCommandOutcome::Succeeded}) {
+        for(const auto install : {ProductionSourceInstallOutcome::NotAttempted,
+                                  ProductionSourceInstallOutcome::Started,
+                                  ProductionSourceInstallOutcome::Failed,
+                                  ProductionSourceInstallOutcome::Succeeded}) {
+            const auto staged = format_production_source_build_staged_outcome(
+                "matrix-base", ProductionSourceBuildStagedOutcome{provenance, build, install});
+            require(staged.info_lines.size() == standalone.info_lines.size() + 2,
+                    "Grouping changed the number of info events");
+            for(std::size_t index = 0; index < standalone.info_lines.size(); ++index) {
+                require(staged.info_lines[index] == standalone.info_lines[index] +
+                                                        (index + 1 == standalone.info_lines.size() ? "\n" : ""),
+                        "Only the final provenance line may carry the group separator");
+                require(standalone.info_lines[index].find('\n') == std::string::npos,
+                        "Standalone provenance gained a separator");
+            }
+            const auto first_outcome = standalone.info_lines.size();
+            require(staged.info_lines[first_outcome].starts_with("Build outcome for PackageBase matrix-base: ") &&
+                        staged.info_lines[first_outcome + 1].starts_with("Install outcome for PackageBase matrix-base: "),
+                    "Terminal outcome order or PackageBase attribution changed");
+            require(staged.info_lines[first_outcome].find('\n') == std::string::npos &&
+                        staged.info_lines[first_outcome + 1].find('\n') == std::string::npos,
+                    "Terminal outcomes gained leading, intervening, or trailing blank lines");
+        }
+    }
+}
+
 void test_outcome_projection_matrix() {
+    require_staged_grouping(ProductionSourceBuildProvenance{});
     struct ReviewedCase {
         ProductionReviewedSourceOutcome outcome;
         std::optional<ReviewedSourceAbnormalStateReason> abnormal_reason;
@@ -120,6 +160,9 @@ void test_outcome_projection_matrix() {
         require_contains(
             presentation.info_lines[1], "generation 17",
             "Reviewed outcome lost state generation");
+        require_staged_grouping(reviewed_provenance(
+            test_case.outcome, ReviewedSourcePublicationStatus::Published,
+            ReviewedSourceEditorOverlayStatus::None, test_case.abnormal_reason));
     }
 
     ReviewedSourceProductionOutcomePresentation already =
@@ -135,6 +178,9 @@ void test_outcome_projection_matrix() {
     require_contains(
         already.info_lines[1], "remains at generation 17",
         "AlreadyReviewed lost unchanged generation");
+    require_staged_grouping(reviewed_provenance(
+        ProductionReviewedSourceOutcome::AlreadyReviewed,
+        ReviewedSourcePublicationStatus::AlreadyPublishedSameTarget));
 
     ReviewedSourceProductionOutcomePresentation raced =
         format_reviewed_source_production_outcome(
@@ -160,6 +206,10 @@ void test_outcome_projection_matrix() {
         overlay.info_lines.back(),
         "it is not the exact reviewed commit tree",
         "Editor overlay was flattened into the reviewed commit");
+    require_staged_grouping(reviewed_provenance(
+        ProductionReviewedSourceOutcome::UpdateReview,
+        ReviewedSourcePublicationStatus::Published,
+        ReviewedSourceEditorOverlayStatus::InvocationLocal));
 
     struct CompatibilityCase {
         ReviewedSourceCompatibilityBuildReason reason;
@@ -201,6 +251,9 @@ void test_outcome_projection_matrix() {
             presentation.info_lines.front(),
             "reviewed state was not advanced",
             "Compatibility outcome claimed reviewed state advance");
+        require_staged_grouping(provenance);
+        provenance.editor_overlay = ReviewedSourceEditorOverlayStatus::InvocationLocal;
+        require_staged_grouping(provenance);
     }
 }
 
@@ -339,7 +392,7 @@ class TemporaryTree final {
 public:
     TemporaryTree() {
         std::string pattern =
-            "/tmp/moguet-reviewed-source-production-XXXXXX";
+            (fs::temp_directory_path() / "moguet-reviewed-source-production-XXXXXX").string();
         std::vector<char> writable(pattern.begin(), pattern.end());
         writable.push_back('\0');
         char* created = mkdtemp(writable.data());
@@ -429,6 +482,50 @@ void mutate_checkout_after_publication(
             "ignored-production-race.tmp",
         std::ios::binary | std::ios::trunc);
     output << "post-publication mutation\n";
+}
+
+class ReviewAnswers final {
+    std::istringstream answers_;
+    std::streambuf* original_;
+
+public:
+    explicit ReviewAnswers(std::string answers)
+        : answers_(std::move(answers)), original_(std::cin.rdbuf(answers_.rdbuf())) {
+        std::cin.clear();
+    }
+    ~ReviewAnswers() {
+        std::cin.rdbuf(original_);
+        std::cin.clear();
+    }
+};
+
+class ReviewOutput final {
+    std::ostringstream output_;
+    std::streambuf* original_ = std::cout.rdbuf(output_.rdbuf());
+
+public:
+    ~ReviewOutput() {
+        std::cout.rdbuf(original_);
+    }
+    std::string text() const {
+        return output_.str();
+    }
+};
+
+std::string read_bytes(const fs::path& path) {
+    std::ifstream input(path, std::ios::binary);
+    require(static_cast<bool>(input), "Cannot read fixture bytes");
+    return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+}
+
+std::string g_recipe_fault_command;
+SourceBuildRequest* g_recipe_fault_request = nullptr;
+std::optional<PackageBaseIdentity> g_recipe_fault_identity;
+bool g_recipe_fault_invoked = false;
+void mutate_after_recipe_snapshot() {
+    g_recipe_fault_invoked = true;
+    if(!g_recipe_fault_command.empty()) run(g_recipe_fault_command);
+    if(g_recipe_fault_request) g_recipe_fault_request->aur_review_identity = g_recipe_fault_identity;
 }
 
 } // namespace
@@ -535,15 +632,195 @@ int main() {
                 "Failed to set trusted Git test executable");
 
         {
+            ReviewAnswers answers("y\ny\ny\nn\n");
+            ReviewOutput output;
             SourceBuildPreparationOutcome outcome =
                 prepare_source_build_for_execution(
                     request(), std::string(PACKAGE_BASE),
                     SourceBuildUpdatePolicy::AlwaysBuild,
                     cache_root, reviewed_config(editor));
+            const std::string text = output.text();
+            const auto prompt = text.find(":: Accept this reviewed upstream revision? [y/n]");
+            require(prompt >= 3 && prompt != std::string::npos &&
+                        text.substr(prompt - 2, 2) == "\n\n" && text[prompt - 3] != '\n',
+                    "Production review/prompt boundary must contain exactly one blank line");
             auto* prepared =
                 std::get_if<PreparedSourceBuildNeedsBuild>(&outcome);
             require(prepared != nullptr,
                     "Accepted production review did not prepare a build");
+            const auto& edit = prepared->accepted_recipe_edit();
+            require(edit && edit->baseline_pkgbuild() == "pkgname=reviewed-production-fixture\npkgver=2\npkgrel=1\n" &&
+                        edit->accepted_pkgbuild() == edit->baseline_pkgbuild() + "# invocation-local editor overlay\n" &&
+                        edit->identity().package_base() == aur_identity() && edit->identity().target_revision() == target &&
+                        edit->checkout_device() == checkout.device() && edit->checkout_inode() == checkout.inode(),
+                    "Accepted PKGBUILD bytes or source/target/checkout correlation differs");
+            const auto generated = generate_recipe_patch(*edit);
+            const auto* patch = std::get_if<GeneratedRecipePatch>(&generated);
+            require(patch && patch->identity() == edit->identity() &&
+                        !validate_local_recipe_patch(patch->bytes()) &&
+                        read_bytes(checkout.canonical_path() / "PKGBUILD") == edit->accepted_pkgbuild(),
+                    "Slice 1 frozen correlation did not produce a verified patch or original recipe changed");
+            // Separate save consent is tested with the exact production-minted
+            // correlation, real Git producer, material owner and registry.
+            const auto destination = tree.path() / "patches";
+            fs::create_directory(destination);
+            const auto config_home = tree.path() / "config";
+            fs::create_directory(config_home);
+            require(setenv("XDG_CONFIG_HOME", config_home.c_str(), 1) == 0, "Cannot isolate patch registry");
+            auto save_config = reviewed_config(editor);
+            save_config.command_start_directory = tree.path();
+            unsigned generated_calls = 0;
+            unsigned material_calls = 0;
+            set_recipe_patch_diff_process_for_test([&](const auto& invocation, const auto& policy) {
+                ++generated_calls;
+                return capture_bounded_explicit_process_output_raw(invocation, policy);
+            });
+            set_patch_association_test_hook([&](auto, const auto&) { ++material_calls; });
+            auto declined_config = save_config;
+            declined_config.command_start_directory.clear();
+            for(const std::string response : {"n\n", "\n"}) {
+                ReviewAnswers declined(response);
+                save_review_recipe_edit(&*edit, false, request(), checkout, cache_root, declined_config, nullptr);
+            }
+            auto automatic = declined_config;
+            automatic.no_confirm = true;
+            {
+                ReviewAnswers piped_yes("yes\n");
+                save_review_recipe_edit(&*edit, false, request(), checkout, cache_root, automatic, nullptr);
+            }
+            const int saved_stdin = ::dup(STDIN_FILENO);
+            const int null_input = ::open("/dev/null", O_RDONLY | O_CLOEXEC);
+            require(saved_stdin >= 0 && null_input >= 0 && ::dup2(null_input, STDIN_FILENO) >= 0, "Cannot make stdin noninteractive");
+            {
+                ReviewAnswers piped_yes("yes\n");
+                save_review_recipe_edit(&*edit, false, request(), checkout, cache_root, declined_config, nullptr);
+            }
+            require(::dup2(saved_stdin, STDIN_FILENO) >= 0, "Cannot restore stdin");
+            ::close(null_input);
+            ::close(saved_stdin);
+            require(generated_calls == 0 && material_calls == 0 && fs::is_empty(destination) &&
+                        !fs::exists(config_home / "moguet"),
+                    "Save No/automatic performed generation or persistence I/O");
+            for(const std::string response : {"q\n", ""}) {
+                bool stopped = false;
+                try {
+                    ReviewAnswers canceled(response);
+                    save_review_recipe_edit(&*edit, false, request(), checkout, cache_root, save_config, nullptr);
+                } catch(const ConfirmationOperationStopped& error) {
+                    stopped = std::holds_alternative<ConfirmationCancelled>(error.result());
+                }
+                require(stopped, "Save cancel/EOF was flattened to No");
+            }
+            {
+                bool stopped = false;
+                try {
+                    ReviewAnswers broken("yes\n");
+                    std::cin.setstate(std::ios::badbit);
+                    save_review_recipe_edit(&*edit, false, request(), checkout, cache_root, save_config, nullptr);
+                } catch(const ConfirmationOperationStopped& error) {
+                    stopped = std::holds_alternative<ConfirmationInputFailure>(error.result());
+                }
+                require(stopped && generated_calls == 0, "Save input failure became implicit consent or cancellation");
+            }
+            {
+                bool failed = false;
+                try {
+                    ReviewAnswers empty("y\n\n");
+                    save_review_recipe_edit(&*edit, false, request(), checkout, cache_root, save_config, nullptr);
+                } catch(const RecipePatchSaveError& error) {
+                    failed = error.failure().stage == RecipePatchSaveStage::Destination;
+                }
+                require(failed && generated_calls == 0, "Empty destination used a default or generated patch");
+            }
+            {
+                bool failed = false;
+                try {
+                    ReviewAnswers explicit_yes("y\n");
+                    save_review_recipe_edit(nullptr, true, request(), checkout, cache_root, save_config, nullptr);
+                } catch(const RecipePatchSaveError& error) {
+                    failed = error.failure().stage == RecipePatchSaveStage::UnsupportedDevel;
+                }
+                require(failed && generated_calls == 0, "Authoritative devel save was not an unsupported hard stop");
+            }
+            for(const bool reproduce : {false, true}) {
+                set_recipe_patch_diff_process_for_test([&](const auto&, const auto&) {
+                    ++generated_calls;
+                    return BoundedCapturedProcessResult{
+                        reproduce ? "diff --git a/PKGBUILD b/PKGBUILD\n--- a/PKGBUILD\n+++ b/PKGBUILD\n@@ -1,3 +1,3 @@\n pkgname=reviewed-production-fixture\n-pkgver=2\n+pkgver=999\n pkgrel=1\n" : "", BoundedProcessExited{reproduce ? 1 : 75}, std::nullopt};
+                });
+                bool failed = false;
+                try {
+                    ReviewAnswers explicit_yes("y\npatches\n");
+                    save_review_recipe_edit(&*edit, false, request(), checkout, cache_root, save_config, nullptr);
+                } catch(const RecipePatchSaveError& error) {
+                    failed = error.failure().stage == RecipePatchSaveStage::Generation && error.failure().generation &&
+                             error.failure().generation->reason == (reproduce ? RecipePatchGenerationFailureReason::ReproductionMismatch : RecipePatchGenerationFailureReason::DiffToolFailure);
+                }
+                require(failed && fs::is_empty(destination) && material_calls == 0, "Yes generation/reproduction failure reached persistence or continued");
+            }
+            set_recipe_patch_diff_process_for_test({});
+            set_patch_association_test_hook({});
+            // Minimal evaluator fixture: makepkg remains an external process;
+            // dependency/build/install are outside this identity-only seam.
+            const auto bin = tree.path() / "bin";
+            fs::create_directory(bin);
+            write_file(bin / "makepkg", "#!/bin/sh\nprintf 'pkgbase = reviewed-production-fixture\\n\\tpkgver = 2\\n\\tpkgrel = 1\\n\\tarch = any\\npkgname = reviewed-production-fixture\\n'\n", fs::perms::owner_all);
+            const std::string original_path = std::getenv("PATH");
+            require(setenv("PATH", (bin.string() + ":" + original_path).c_str(), 1) == 0, "Cannot configure evaluator fixture");
+            fs::path retained;
+            set_patch_association_test_hook([&](PatchAssociationTestPoint point, const fs::path& path) {
+                if(point == PatchAssociationTestPoint::AfterMaterialVerification) retained = path;
+            });
+            fail_patch_association_operation_for_test(PatchAssociationTestPoint::BeforeWrite);
+            {
+                bool failed = false;
+                try {
+                    ReviewAnswers explicit_yes("yes\npatches\ny\n");
+                    save_review_recipe_edit(&*edit, false, request(), checkout, cache_root, save_config, nullptr);
+                } catch(const RecipePatchSaveError& error) {
+                    failed = error.failure().stage == RecipePatchSaveStage::Registration && error.failure().association &&
+                             error.failure().retained_material == retained;
+                }
+                require(failed && fs::exists(retained) && read_bytes(retained) == patch->bytes() &&
+                            std::holds_alternative<PatchAssociationAbsent>(read_patch_association(aur_identity())),
+                        "Registration failure flattened success or removed published material");
+            }
+            // Never retry the same failed publication. The next explicit
+            // operation chooses another directory and saves through the route.
+            fs::create_directory(tree.path() / "registered-patches");
+            {
+                ReviewAnswers explicit_yes("y\nregistered-patches\ny\n");
+                save_review_recipe_edit(&*edit, false, request(), checkout, cache_root, save_config, nullptr);
+            }
+            const auto saved = read_patch_association(aur_identity());
+            const auto* association = std::get_if<LoadedPatchAssociation>(&saved);
+            require(association && association->entries().size() == 1 &&
+                        association->entries().front().sha256 == xdg_generation_store_raw_contents_sha256(patch->bytes()) &&
+                        read_bytes(association->material_root() / association->entries().front().file) == patch->bytes() &&
+                        read_bytes(checkout.path() / "PKGBUILD") == edit->accepted_pkgbuild(),
+                    "Successful save changed authority or accepted build bytes");
+            require(std::holds_alternative<PatchAssociationForgotten>(forget_patch_association(*association)), "Cannot forget fixture association");
+            fs::create_directory(tree.path() / "complete-patches");
+            set_patch_association_test_hook([&](PatchAssociationTestPoint point, const fs::path&) {
+                if(point == PatchAssociationTestPoint::AfterPublication)
+                    write_file(checkout.path() / "PKGBUILD", edit->accepted_pkgbuild() + "# after registry commit\n");
+            });
+            bool continuation_stopped = false;
+            try {
+                ReviewAnswers explicit_yes("y\ncomplete-patches\ny\n");
+                save_review_recipe_edit(&*edit, false, request(), checkout, cache_root, save_config, nullptr);
+            } catch(const RecipePatchSaveError& error) {
+                continuation_stopped = error.failure().registration_completed &&
+                                       fs::exists(error.failure().retained_material) && error.failure().stage == RecipePatchSaveStage::IdentityValidation;
+            }
+            set_patch_association_test_hook({});
+            const auto complete_record = read_patch_association(aur_identity());
+            require(continuation_stopped && std::holds_alternative<LoadedPatchAssociation>(complete_record),
+                    "Postregistration recipe drift lost both commit facts or continued build");
+            require(std::holds_alternative<PatchAssociationForgotten>(forget_patch_association(std::get<LoadedPatchAssociation>(complete_record))), "Cannot forget complete fixture association");
+            write_file(checkout.path() / "PKGBUILD", edit->accepted_pkgbuild());
+            require(setenv("PATH", original_path.c_str(), 1) == 0, "Cannot restore fixture PATH");
+            set_patch_association_test_hook({});
             const ProductionSourceBuildProvenance& provenance =
                 prepared_source_build_provenance_for_test(*prepared);
             require(
@@ -718,6 +995,7 @@ int main() {
             shell_quote(remote) + " main");
         {
             AppConfig decline_config = reviewed_config(editor);
+            ReviewAnswers answers("n\n");
             decline_config.user_config.review.pkgbuild = ReviewPolicy::Skip;
             SourceBuildPreparationOutcome decline_outcome =
                 prepare_source_build_for_execution(
@@ -761,6 +1039,7 @@ int main() {
                     &compatibility_outcome);
             require(compatibility != nullptr,
                     "No-diff compatibility route did not prepare a build");
+            require(!compatibility->accepted_recipe_edit(), "Compatibility route captured a recipe edit");
             const ProductionSourceBuildProvenance& compatibility_provenance =
                 prepared_source_build_provenance_for_test(*compatibility);
             require(
@@ -781,6 +1060,9 @@ int main() {
             require_loaded_state(target, 1);
         }
 
+        // Each interactive branch now owns its script; the remaining review
+        // fault matrix only accepts upstream/no-op edit, never persistent save.
+        ReviewAnswers fault_matrix_answers("y\ny\ny\ny\ny\ny\ny\ny\ny\ny\ny\ny\ny\ny\ny\ny\ny\ny\ny\ny\n");
         const auto publish_upstream_version =
             [&](int version, const std::string& message) {
                 write_file(
@@ -941,6 +1223,7 @@ int main() {
                 &no_op_outcome);
             require(no_op != nullptr,
                     "No-op editor did not prepare reviewed build");
+            require(!no_op->accepted_recipe_edit(), "No-op editor minted an accepted PKGBUILD edit");
             const ProductionSourceBuildProvenance& provenance =
                 prepared_source_build_provenance_for_test(*no_op);
             require(provenance.review_status ==
@@ -959,10 +1242,155 @@ int main() {
         }
         static_cast<void>(conflict_target);
 
+        // Continue in the same small real-Git fixture. Each preparation owns a
+        // fresh local pre/post pair; scripted stdin changes only prompt answers.
+        write_file(work / "fixture.install", "# install script\n");
+        run("/usr/bin/git -C " + shell_quote(work) + " add fixture.install");
+        const auto install_target = publish_upstream_version(9, "install-only");
+        write_file(editor, "#!/bin/sh\nfor target do :; done\nprintf '# install edit\\n' >>\"$target\"\n",
+                   fs::perms::owner_all);
+        {
+            ReviewAnswers answers("y\nn\ny\ny\nn\n");
+            auto outcome = prepare_source_build_for_execution(request(), std::string(PACKAGE_BASE),
+                                                              SourceBuildUpdatePolicy::AlwaysBuild, cache_root, reviewed_config(editor));
+            auto& prepared = std::get<PreparedSourceBuildNeedsBuild>(outcome);
+            const auto& edit = prepared.accepted_recipe_edit();
+            require(edit && edit->baseline_recipe().size() == 2 &&
+                        edit->accepted_recipe().size() == 2 &&
+                        edit->baseline_pkgbuild() == edit->accepted_pkgbuild() &&
+                        edit->baseline_recipe()[1].relative_path == "fixture.install" &&
+                        edit->baseline_recipe()[1].file.contents == "# install script\n" &&
+                        edit->accepted_recipe()[1].file.contents == "# install script\n# install edit\n",
+                    ".install-only edit did not mint exact supported recipe correlation");
+            require(read_bytes(checkout.path() / "fixture.install") == "# install script\n# install edit\n",
+                    ".install-only editor did not actually edit the script");
+            require_loaded_state(install_target, 6);
+        }
+
+        const auto atomic_target = publish_upstream_version(10, "atomic-editor");
+        // Include CRLF and a missing final newline to prove raw byte ownership.
+        write_file(work / "PKGBUILD", read_bytes(work / "PKGBUILD") + "# exact baseline\r\n# no final newline");
+        run("/usr/bin/git -C " + shell_quote(work) + " add PKGBUILD");
+        run("/usr/bin/git -C " + shell_quote(work) + " commit -q -m exact-bytes");
+        run("/usr/bin/git -C " + shell_quote(work) + " push -q " + shell_quote(remote) + " main");
+        const auto exact_target = SourceRevisionIdentity::git_commit(capture(
+            "/usr/bin/git -C " + shell_quote(work) + " rev-parse HEAD"));
+        const std::string exact_baseline = read_bytes(work / "PKGBUILD");
+        write_file(editor,
+                   "#!/bin/sh\nfor target do :; done\ncat \"$target\" >\"$target.new\"\n"
+                   "printf '\\n# atomic edit\\r\\n' >>\"$target.new\"\nmv \"$target.new\" \"$target\"\n",
+                   fs::perms::owner_all);
+        {
+            ReviewAnswers answers("y\ny\nn\ny\nn\n");
+            auto outcome = prepare_source_build_for_execution(request(), std::string(PACKAGE_BASE),
+                                                              SourceBuildUpdatePolicy::AlwaysBuild, cache_root, reviewed_config(editor));
+            const auto& edit = std::get<PreparedSourceBuildNeedsBuild>(outcome).accepted_recipe_edit();
+            require(edit && edit->baseline_pkgbuild() == exact_baseline &&
+                        edit->accepted_pkgbuild() == exact_baseline + "\n# atomic edit\r\n" &&
+                        edit->identity().target_revision() == exact_target,
+                    "Atomic replace lost exact bytes or reused a previous revision baseline");
+            require_loaded_state(exact_target, 7);
+            write_file(checkout.path() / "PKGBUILD", "# later filesystem contents\n");
+            require(edit->baseline_pkgbuild() == exact_baseline &&
+                        edit->accepted_pkgbuild() == exact_baseline + "\n# atomic edit\r\n",
+                    "Correlation did not own frozen pre/post bytes");
+            const auto generated = generate_recipe_patch(*edit);
+            require(std::holds_alternative<GeneratedRecipePatch>(generated) &&
+                        std::get<GeneratedRecipePatch>(generated).identity() == edit->identity() &&
+                        read_bytes(checkout.path() / "PKGBUILD") == "# later filesystem contents\n",
+                    "Generator reopened mutable checkout instead of using frozen recipe bytes");
+        }
+        static_cast<void>(atomic_target);
+
+        for(const bool targetless : {false, true}) {
+            SourceBuildRequest auto_sync_request = request();
+            auto_sync_request.suppress_review_recipe_edit_capture = !targetless;
+            auto_sync_request.ordinary_devel_package_base = targetless;
+            g_recipe_fault_invoked = false;
+            set_reviewed_recipe_after_snapshot_hook_for_test(mutate_after_recipe_snapshot);
+            ReviewAnswers answers("y\nn\ny\n");
+            auto outcome = prepare_source_build_for_execution(auto_sync_request, std::string(PACKAGE_BASE),
+                                                              SourceBuildUpdatePolicy::AlwaysBuild, cache_root, reviewed_config(editor));
+            const auto& prepared = std::get<PreparedSourceBuildNeedsBuild>(outcome);
+            require(!prepared.accepted_recipe_edit() && !g_recipe_fault_invoked &&
+                        read_bytes(checkout.path() / "PKGBUILD") == exact_baseline + "\n# atomic edit\r\n",
+                    "Auto sync/targetless exclusion changed accepted editor behavior or captured bytes");
+            set_reviewed_recipe_after_snapshot_hook_for_test(nullptr);
+        }
+
+        for(const std::string response : {"n\n", "q\n", ""}) {
+            bool stopped = false;
+            try {
+                ReviewAnswers answers("y\nn\n" + response);
+                static_cast<void>(prepare_source_build_for_execution(request(), std::string(PACKAGE_BASE),
+                                                                     SourceBuildUpdatePolicy::AlwaysBuild, cache_root, reviewed_config(editor)));
+            } catch(const ConfirmationOperationStopped&) {
+                stopped = true;
+            }
+            require(stopped, "Proceed decline/cancel/EOF returned accepted recipe authority");
+            require_loaded_state(exact_target, 7);
+        }
+        write_file(editor, "#!/bin/sh\nexit 75\n", fs::perms::owner_all);
+        {
+            bool stopped = false;
+            try {
+                ReviewAnswers answers("y\n");
+                static_cast<void>(prepare_source_build_for_execution(request(), std::string(PACKAGE_BASE),
+                                                                     SourceBuildUpdatePolicy::AlwaysBuild, cache_root, reviewed_config(editor)));
+            } catch(const std::exception& error) {
+                stopped = std::string(error.what()).find("Editor failed.") != std::string::npos;
+            }
+            require(stopped, "Failed editor returned accepted recipe authority");
+            require_loaded_state(exact_target, 7);
+        }
+
+        write_file(editor, "#!/bin/sh\nfor target do :; done\nprintf '\\n# accepted edit\\n' >>\"$target\"\n",
+                   fs::perms::owner_all);
+        const auto expect_recipe_fault = [&](const std::string& command,
+                                             std::optional<PackageBaseIdentity> mismatch = std::nullopt) {
+            SourceBuildRequest current = request();
+            g_recipe_fault_command = command;
+            g_recipe_fault_request = mismatch ? &current : nullptr;
+            g_recipe_fault_identity = std::move(mismatch);
+            g_recipe_fault_invoked = false;
+            set_reviewed_recipe_after_snapshot_hook_for_test(mutate_after_recipe_snapshot);
+            bool stopped = false;
+            try {
+                ReviewAnswers answers("y\nn\ny\nn\n");
+                static_cast<void>(prepare_source_build_for_execution(current, std::string(PACKAGE_BASE),
+                                                                     SourceBuildUpdatePolicy::AlwaysBuild, cache_root, reviewed_config(editor)));
+            } catch(const ReviewedSourceProductionError&) {
+                stopped = true;
+            } catch(const TrustedCacheError&) {
+                stopped = true;
+            }
+            set_reviewed_recipe_after_snapshot_hook_for_test(nullptr);
+            g_recipe_fault_request = nullptr;
+            require(g_recipe_fault_invoked && stopped, "Post-snapshot drift/mismatch was not exercised or returned accepted recipe authority");
+            require_loaded_state(exact_target, 7);
+        };
+        expect_recipe_fault("printf '\\n# late mutation\\n' >>" + shell_quote(checkout.path() / "PKGBUILD"));
+        expect_recipe_fault("/usr/bin/git -C " + shell_quote(checkout.path()) + " checkout -q --force HEAD^");
+        expect_recipe_fault({}, PackageBaseIdentity::make(aur_identity().source(), "different-base"));
+        expect_recipe_fault({}, PackageBaseIdentity::make(PackageSourceIdentity::aur(
+                                                              SourceLocationIdentity::known_git_remote("https://aur.archlinux.org/different-source.git")),
+                                                          std::string(PACKAGE_BASE)));
+        expect_recipe_fault("/usr/bin/git -C " + shell_quote(checkout.path()) +
+                            " remote set-url origin https://aur.archlinux.org/different-source.git");
+        run("/usr/bin/git -C " + shell_quote(checkout.path()) + " remote set-url origin " + std::string(CANONICAL_REMOTE));
+        expect_recipe_fault("mv " + shell_quote(checkout.path() / "PKGBUILD") + " " + shell_quote(tree.path() / "unsafe-recipe") +
+                            " && ln -s " + shell_quote(tree.path() / "unsafe-recipe") + " " + shell_quote(checkout.path() / "PKGBUILD"));
+        fs::remove(checkout.path() / "PKGBUILD");
+        fs::rename(tree.path() / "unsafe-recipe", checkout.path() / "PKGBUILD");
+        // Named root replacement is rejected even if the contents are copied.
+        expect_recipe_fault("mv " + shell_quote(checkout.path()) + " " + shell_quote(tree.path() / "old-checkout") +
+                            " && cp -a " + shell_quote(tree.path() / "old-checkout") + " " + shell_quote(checkout.path()));
+
         std::cout << "reviewed source production connection tests passed\n";
         return 0;
     } catch(const std::exception& error) {
         set_reviewed_source_before_publication_hook_for_test(nullptr);
+        set_reviewed_recipe_after_snapshot_hook_for_test(nullptr);
         reset_reviewed_source_state_store_test_hooks();
         std::cerr << "reviewed source production connection test failure: "
                   << error.what() << '\n';

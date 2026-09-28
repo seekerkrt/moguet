@@ -58,6 +58,27 @@ _moguet_add_direct_ctest(
 )
 _moguet_add_direct_ctest(cpp.local_source_workspace local-source-workspace-test)
 _moguet_add_direct_ctest(cpp.local_source_build local-source-build-test)
+_moguet_add_direct_ctest(cpp.local_recipe_candidate local-recipe-candidate-test)
+_moguet_add_direct_ctest(cpp.generated_recipe_patch generated-recipe-patch-test)
+_moguet_add_direct_ctest(cpp.local_patch_association local-patch-association-test)
+moguet_add_ctest(
+    NAME cli.local_patch
+    TARGETS moguet-local-patch-cli-test
+    COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test-local-patch-cli.py" "$<TARGET_FILE:moguet-local-patch-cli-test>"
+)
+set_tests_properties(cli.local_patch PROPERTIES TIMEOUT 180)
+moguet_add_ctest(
+    NAME cli.upgrade_patch
+    TARGETS moguet-local-patch-cli-test
+    COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test-upgrade-patch-cli.py" "$<TARGET_FILE:moguet-local-patch-cli-test>"
+)
+set_tests_properties(cli.upgrade_patch PROPERTIES TIMEOUT 600)
+moguet_add_ctest(
+    NAME cli.upgrade_patch_bootstrap
+    TARGETS devel-tracking-bootstrap-test
+    COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test-devel-tracking-bootstrap.py" "$<TARGET_FILE:devel-tracking-bootstrap-test>" patch-selection
+)
+set_tests_properties(cli.upgrade_patch_bootstrap PROPERTIES TIMEOUT 120)
 _moguet_add_direct_ctest(cpp.package_identifier package-identifier-test)
 _moguet_add_direct_ctest(
     cpp.source_package_identity
@@ -515,12 +536,8 @@ moguet_add_ctest(
     NAME cpp.reviewed_source_production_connection
     TARGETS reviewed-source-production-connection-test
     COMMAND
-        sh -c
-        [=[
-printf 'y\ny\ny\nn\ny\ny\ny\ny\ny\ny\ny\n' |
-    script -qec "$1" /dev/null
-]=]
-        sh "$<TARGET_FILE:reviewed-source-production-connection-test>"
+        python3 "${PROJECT_SOURCE_DIR}/tests/run-with-pty.py" --no-input --timeout 180 --
+        "$<TARGET_FILE:reviewed-source-production-connection-test>"
 )
 
 moguet_add_ctest(
@@ -968,3 +985,44 @@ moguet_add_ctest(
         "$<TARGET_FILE:moguet-aur-rpc-validation-test>"
         "$<TARGET_FILE:moguet-source-install-characterization-test>"
 )
+
+moguet_add_ctest(
+    NAME completion.repository_prefix_helper
+    TARGETS moguet-repository-prefix-helper moguet-repository-prefix-worker
+    COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test-repository-prefix-helper.py"
+        "$<TARGET_FILE:moguet-repository-prefix-helper>"
+        "$<TARGET_FILE:moguet-repository-prefix-worker>"
+        "${CMAKE_CURRENT_BINARY_DIR}"
+)
+set_tests_properties(completion.repository_prefix_helper PROPERTIES TIMEOUT 30)
+
+moguet_add_ctest(
+    NAME completion.dynamic_shells
+    TARGETS moguet-cli-authority-exporter
+    COMMAND "${CMAKE_COMMAND}" -E env
+        "MOGUET_CLI_AUTHORITY_EXPORTER=$<TARGET_FILE:moguet-cli-authority-exporter>"
+        PYTHONDONTWRITEBYTECODE=1
+        python3 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test-dynamic-completion.py"
+        --results "${CMAKE_CURRENT_BINARY_DIR}/Testing/completion-semantic-results.json"
+)
+set_tests_properties(completion.dynamic_shells PROPERTIES TIMEOUT 90)
+
+moguet_add_ctest(
+    NAME completion.presentation
+    TARGETS moguet-cli-authority-exporter
+    COMMAND "${CMAKE_COMMAND}" -E env
+        "MOGUET_CLI_AUTHORITY_EXPORTER=$<TARGET_FILE:moguet-cli-authority-exporter>"
+        PYTHONDONTWRITEBYTECODE=1
+        python3 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test-completion-presentation.py"
+)
+set_tests_properties(completion.presentation PROPERTIES TIMEOUT 90)
+
+moguet_add_ctest(
+    NAME completion.pacman_query_projection
+    TARGETS moguet-cli-authority-exporter
+    COMMAND "${CMAKE_COMMAND}" -E env
+        "MOGUET_CLI_AUTHORITY_EXPORTER=$<TARGET_FILE:moguet-cli-authority-exporter>"
+        PYTHONDONTWRITEBYTECODE=1
+        python3 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test-pacman-query-completion.py"
+)
+set_tests_properties(completion.pacman_query_projection PROPERTIES TIMEOUT 20)

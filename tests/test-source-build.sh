@@ -122,8 +122,10 @@ setup_case() {
     unset MOGUET_TEST_MAKEPKG_ARTIFACT_IDENTITIES
     unset MOGUET_TEST_MAKEPKG_ENV_LOG
     unset MOGUET_TEST_MAKEPKG_ENV_KEYS
+    unset MOGUET_TEST_MAKEPKG_ARGV_LOG
     unset MOGUET_TEST_MAKEPKG_PACKAGELIST_EXIT_CODE
     unset MOGUET_TEST_MAKEPKG_PACKAGELIST_OUTPUT_FILE
+    unset MOGUET_TEST_MAKEPKG_SOURCE_PREFERENCE_COLLISION
 }
 
 create_existing_checkout() {
@@ -510,6 +512,179 @@ assert_command "git show-ref --verify --quiet refs/remotes/origin/main"
 assert_command "git show-ref --verify --quiet refs/remotes/origin/master"
 assert_command "git reset --hard origin/master"
 
+# Issue #362: plain remote build never opens the preference, even when the
+# saved entry is unsafe. One-off empty assignments keep Forward semantics.
+setup_case build-preference-default-zero-read
+create_existing_checkout
+mkdir -p "$source_preference_dir"
+chmod 0700 "$source_preference_dir"
+ln -s "$case_dir/missing-entry" "$source_preference_dir/clean-root"
+makepkg_argv_log=$case_dir/makepkg-argv.log
+: > "$makepkg_argv_log"
+export MOGUET_TEST_MAKEPKG_ARGV_LOG=$makepkg_argv_log
+run_ok --noedit --nodiff build clean-root LOCAL_EMPTY=
+assert_not_contains "Loading custom build flags" "$output_file"
+assert_file_line_count 'arg[1]=<LOCAL_EMPTY=>' 2 "$makepkg_argv_log"
+
+setup_case build-preference-unregistered
+run_fail --noedit --nodiff build clean-root --use-preference
+assert_contains \
+    "No saved source-build preference is registered for clean-root." \
+    "$output_file"
+if [ -s "$command_log" ] || [ -e "$case_dir/xdg-state/moguet" ]; then
+    echo "unregistered preference reached external command or state mutation" >&2
+    exit 1
+fi
+
+setup_case build-preference-valid-empty
+create_existing_checkout
+mkdir -p "$source_preference_dir"
+chmod 0700 "$source_preference_dir"
+: > "$source_preference_dir/clean-root"
+chmod 0600 "$source_preference_dir/clean-root"
+run_ok --noedit --nodiff build clean-root --use-preference
+assert_contains "Loading custom build flags from" "$output_file"
+assert_command "makepkg -sc"
+
+setup_case build-preference-ordered-assignments
+create_existing_checkout
+mkdir -p "$source_preference_dir"
+chmod 0700 "$source_preference_dir"
+printf 'PREF_ORDER=first\nPREF_ORDER=second\nPREF_EMPTY=\n' \
+    > "$source_preference_dir/clean-root"
+chmod 0600 "$source_preference_dir/clean-root"
+makepkg_argv_log=$case_dir/makepkg-argv.log
+: > "$makepkg_argv_log"
+export MOGUET_TEST_MAKEPKG_ARGV_LOG=$makepkg_argv_log
+run_ok --noedit --nodiff build clean-root --use-preference
+assert_makepkg_argv_log "$makepkg_argv_log" 'argv-begin
+arg[0]=<--packagelist>
+arg[1]=<PREF_ORDER=first>
+arg[2]=<PREF_ORDER=second>
+arg[3]=<PKGDEST=<owned>>
+argv-end
+argv-begin
+arg[0]=<-sc>
+arg[1]=<PREF_ORDER=first>
+arg[2]=<PREF_ORDER=second>
+arg[3]=<PKGDEST=<owned>>
+argv-end'
+unset MOGUET_TEST_MAKEPKG_ARGV_LOG
+
+setup_case build-preference-unsafe-symlink
+mkdir -p "$source_preference_dir"
+chmod 0700 "$source_preference_dir"
+ln -s "$case_dir/missing-entry" "$source_preference_dir/clean-root"
+run_fail --noedit --nodiff build clean-root --use-preference
+assert_contains "Source preference entry is not a regular file" "$output_file"
+if [ -s "$command_log" ] || [ -e "$case_dir/xdg-state/moguet" ]; then
+    echo "unsafe preference reached external command or state mutation" >&2
+    exit 1
+fi
+
+setup_case build-preference-raw-pkgdest
+mkdir -p "$source_preference_dir"
+chmod 0700 "$source_preference_dir"
+printf 'PKGDEST=/tmp/unclaimed\n' > "$source_preference_dir/clean-root"
+chmod 0600 "$source_preference_dir/clean-root"
+run_fail --noedit --nodiff build clean-root --use-preference
+assert_contains "PKGDEST" "$output_file"
+assert_command_prefix_absent "makepkg "
+
+# Issue #664: explicit producer -> atomic save -> existing consumer reuse.
+setup_case build-one-off-noconfirm-no-save
+run_ok --noedit --nodiff --noconfirm build clean-root CFLAGS=-O3 FOO=
+if [ -e "$source_preference_dir" ]; then
+    echo "plain build implicitly saved a preference" >&2
+    exit 1
+fi
+
+setup_case build-save-preference-and-reuse
+makepkg_argv_log=$case_dir/makepkg-argv.log
+: > "$makepkg_argv_log"
+export MOGUET_TEST_MAKEPKG_ARGV_LOG=$makepkg_argv_log
+run_ok --noedit --nodiff --noconfirm build clean-root \
+    CFLAGS=-O1 CFLAGS=-O3 'CUSTOM=two words # literal' FOO= --save-preference
+assert_contains "Saved source-build preference for clean-root." "$output_file"
+assert_file_line_count 'arg[4]=<FOO=>' 1 "$makepkg_argv_log"
+assert_file_line_count 'arg[5]=<FOO=>' 1 "$makepkg_argv_log"
+printf 'CFLAGS="-O1"\nCFLAGS="-O3"\nCUSTOM="two words # literal"\nFOO=""\n' > "$case_dir/expected-preference"
+cmp "$case_dir/expected-preference" "$source_preference_dir/clean-root"
+: > "$makepkg_argv_log"
+run_ok --noedit --nodiff --noconfirm build clean-root --use-preference
+assert_contains "Loading custom build flags from" "$output_file"
+assert_file_line_count 'arg[1]=<CFLAGS=-O1>' 1 "$makepkg_argv_log"
+assert_file_line_count 'arg[2]=<CFLAGS=-O3>' 1 "$makepkg_argv_log"
+assert_file_line_count 'arg[3]=<CUSTOM=two words # literal>' 1 "$makepkg_argv_log"
+assert_file_line_count 'arg[2]=<CFLAGS=-O1>' 1 "$makepkg_argv_log"
+assert_file_line_count 'arg[3]=<CFLAGS=-O3>' 1 "$makepkg_argv_log"
+assert_file_line_count 'arg[4]=<CUSTOM=two words # literal>' 1 "$makepkg_argv_log"
+assert_not_contains '<FOO=>' "$makepkg_argv_log"
+cmp "$case_dir/expected-preference" "$source_preference_dir/clean-root"
+
+# A save-only representability guard must not narrow plain one-off values.
+special_case_index=0
+for special_value in 'literal $HOME' 'literal ${HOME}' '"#'"'"'#"#' "$(printf 'first\nSECOND=injected')"; do
+    special_case_index=$((special_case_index + 1))
+    setup_case "build-save-special-$special_case_index"
+    run_fail build clean-root "CUSTOM=$special_value" --save-preference
+    assert_contains "Cannot save environment assignment CUSTOM exactly" "$output_file"
+    if [ -s "$command_log" ] || [ -e "$XDG_STATE_HOME/moguet" ] || [ -e "$source_preference_dir" ]; then
+        echo "nonrepresentable preference reached external command or filesystem mutation" >&2
+        exit 1
+    fi
+    run_ok --noedit --nodiff --noconfirm build clean-root "CUSTOM=$special_value"
+    if [ -e "$source_preference_dir" ]; then
+        echo "plain special-value build saved a preference" >&2
+        exit 1
+    fi
+done
+
+setup_case build-save-existing-preference
+mkdir -p "$source_preference_dir"
+chmod 700 "$XDG_CONFIG_HOME/moguet" "$source_preference_dir"
+printf 'ORIGINAL=keep-bytes\n' > "$source_preference_dir/clean-root"
+chmod 600 "$source_preference_dir/clean-root"
+cp "$source_preference_dir/clean-root" "$case_dir/expected-preference"
+run_fail --noconfirm build clean-root CFLAGS=-O3 --save-preference
+assert_contains "use edit-src clean-root to edit it" "$output_file"
+cmp "$case_dir/expected-preference" "$source_preference_dir/clean-root"
+if [ -s "$command_log" ] || [ -e "$XDG_STATE_HOME/moguet" ]; then
+    echo "existing preference reached build or state mutation" >&2
+    exit 1
+fi
+
+setup_case build-save-concurrent-preference
+export MOGUET_TEST_MAKEPKG_SOURCE_PREFERENCE_COLLISION=1
+run_fail --noedit --nodiff --noconfirm build clean-root CFLAGS=-O3 --save-preference
+assert_contains "Build/install succeeded, but source preference promotion failed:" "$output_file"
+assert_contains "use edit-src clean-root" "$output_file"
+printf 'COMPETING=keep-original\n' > "$case_dir/expected-preference"
+cmp "$case_dir/expected-preference" "$source_preference_dir/clean-root"
+assert_command_content_count 'sudo pacman -U' 1
+
+for save_failure in build artifact install-preparation install; do
+    setup_case "build-save-$save_failure-failure"
+    case $save_failure in
+        build) export MOGUET_TEST_MAKEPKG_EXIT_CODE=42 MOGUET_TEST_MAKEPKG_PACKAGELIST_EXIT_CODE=0 ;;
+        artifact) export MOGUET_TEST_MAKEPKG_ARTIFACT_IDENTITIES='clean-root|wrong-child|1.0-1' ;;
+        install-preparation) export MOGUET_TEST_PACKAGE_METADATA_QUERY_FAILURE_AT=1 ;;
+        install) export MOGUET_TEST_SUDO_EXIT_CODE=9 ;;
+    esac
+    run_fail --noedit --nodiff --noconfirm build clean-root CFLAGS=-O3 --save-preference
+    assert_not_contains "Saved source-build preference" "$output_file"
+    if [ "$save_failure" = install-preparation ]; then
+        assert_command "makepkg -sc --noconfirm"
+        assert_contains "Build outcome for PackageBase clean-root: succeeded." "$output_file"
+        assert_contains "Install outcome for PackageBase clean-root: failed." "$output_file"
+        assert_command_prefix_absent "sudo pacman -U"
+    fi
+    if [ -e "$source_preference_dir/clean-root" ]; then
+        echo "$save_failure failure created a source preference" >&2
+        exit 1
+    fi
+done
+
 # Issue #406 Slice 3: standalone repository builds always use the
 # PackageBase-set lifecycle and install only the archive-selected child.
 setup_case repository-packagebase-set-selected-only
@@ -585,13 +760,18 @@ setup_case changed-diff-cancel
 create_existing_checkout
 export MOGUET_TEST_GIT_DIFF_QUIET_EXIT_CODE=1
 export MOGUET_TEST_GIT_CHANGED_FILES='PKGBUILD\n'
-run_tty_fail 'q\n' --noedit build clean-root
+run_tty_fail 'q\n' --noedit build clean-root CFLAGS=-O3 --save-preference
 assert_contains "Cancelled:" "$output_file"
 assert_not_contains "Build Error:" "$output_file"
 assert_command "git fetch origin"
 assert_command_absent "git diff HEAD..origin/main --color=always"
 assert_command_absent "git reset --hard origin/main"
 assert_command_prefix_absent "makepkg "
+assert_not_contains "Saved source-build preference" "$output_file"
+if [ -e "$source_preference_dir/clean-root" ]; then
+    echo "cancelled source preparation promoted a preference" >&2
+    exit 1
+fi
 
 setup_case changed-diff-nodiff
 create_existing_checkout
@@ -921,13 +1101,15 @@ printf 'post_install() { :; }\n' > "$checkout_dir/-option.install"
 export MOGUET_TEST_CONFIG_FILE="$config_file"
 export MOGUET_TEST_EDITOR_ARGV_LOG="$editor_argv_log"
 export EDITOR='moguet-test-editor --environment-option'
-run_config_tty_ok 'y\ny\ny\n' build clean-root
+run_config_tty_ok 'y\ny\ny\n' build clean-root FIRST=one SECOND=two --save-preference
 assert_command "moguet-test-editor --environment-option ./PKGBUILD"
 assert_command "moguet-test-editor --environment-option ./-option.install"
 assert_command "makepkg --packagelist"
 assert_command "makepkg -sc"
 assert_command_before "moguet-test-editor --environment-option ./PKGBUILD" "moguet-test-editor --environment-option ./-option.install"
 assert_command_before "moguet-test-editor --environment-option ./-option.install" "makepkg --packagelist"
+printf 'FIRST="one"\nSECOND="two"\n' > "$case_dir/expected-preference"
+cmp "$case_dir/expected-preference" "$source_preference_dir/clean-root"
 assert_editor_argv_log 'argv-begin
 arg[0]=<--environment-option>
 arg[1]=<./PKGBUILD>

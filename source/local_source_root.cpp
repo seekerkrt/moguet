@@ -1,9 +1,13 @@
 #include "local_source_root.hpp"
 
 #include <array>
+#include <algorithm>
 #include <cerrno>
 #include <cstdint>
+#include <dirent.h>
 #include <filesystem>
+#include <limits>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -53,6 +57,12 @@ public:
 
     int release() noexcept {
         return std::exchange(descriptor_, -1);
+    }
+};
+
+struct LocalDirectoryCloser {
+    void operator()(DIR* directory) const noexcept {
+        static_cast<void>(::closedir(directory));
     }
 };
 
@@ -271,7 +281,7 @@ void validate_root_status(
 void validate_file_status(
     const struct stat& status, std::uintmax_t owner,
     std::uintmax_t expected_owner, LocalSourceRootStage stage,
-    const fs::path& path) {
+    const fs::path& path, bool require_single_link = false) {
     if(S_ISLNK(status.st_mode)) {
         throw_local_source_failure(
             stage, LocalSourceRootErrorCode::Symlink, path);
@@ -288,6 +298,8 @@ void validate_file_status(
         throw_local_source_failure(
             stage, LocalSourceRootErrorCode::UnsafePermissions, path);
     }
+    if(require_single_link && status.st_nlink != 1)
+        throw_local_source_failure(stage, LocalSourceRootErrorCode::UnsafePermissions, path);
 }
 
 LocalSourceDirectoryIdentity make_directory_identity(
@@ -341,7 +353,8 @@ void require_same_file_observation(
 }
 
 std::string read_descriptor_contents(
-    int descriptor, LocalSourceRootStage stage, const fs::path& path) {
+    int descriptor, LocalSourceRootStage stage, const fs::path& path,
+    std::size_t max_bytes = std::numeric_limits<std::size_t>::max()) {
     std::string contents;
     std::array<char, 8192> buffer{};
     off_t offset = 0;
@@ -350,7 +363,10 @@ std::string read_descriptor_contents(
         const ssize_t read_size =
             ::pread(descriptor, buffer.data(), buffer.size(), offset);
         if(read_size > 0) {
-            contents.append(buffer.data(), static_cast<std::size_t>(read_size));
+            const auto chunk = static_cast<std::size_t>(read_size);
+            if(chunk > max_bytes || contents.size() > max_bytes - chunk)
+                throw_local_source_failure(stage, LocalSourceRootErrorCode::ReadFailure, path);
+            contents.append(buffer.data(), chunk);
             offset += read_size;
             continue;
         }
@@ -502,7 +518,9 @@ std::optional<LocalSourceOpenedFile> inspect_local_source_file(
     LocalSourceInjectionPoint inspection_injection,
     LocalSourceInjectionPoint open_injection,
     LocalSourceInjectionPoint read_injection, bool optional_file,
-    bool revalidation, const LocalSourceOpenOverrides* overrides) {
+    bool revalidation, const LocalSourceOpenOverrides* overrides,
+    std::size_t max_bytes = std::numeric_limits<std::size_t>::max(),
+    bool require_single_link = false) {
     maybe_inject_local_source_failure(
         overrides, inspection_injection, inspection_stage,
         LocalSourceRootErrorCode::MetadataFailure, display_path);
@@ -526,7 +544,7 @@ std::optional<LocalSourceOpenedFile> inspect_local_source_file(
         observed_owner(named_before, object, overrides);
     validate_file_status(
         named_before, named_before_owner, expected_owner,
-        inspection_stage, display_path);
+        inspection_stage, display_path, require_single_link);
     const LocalSourceFileIdentity before_identity =
         make_file_identity(named_before, named_before_owner);
 
@@ -557,7 +575,7 @@ std::optional<LocalSourceOpenedFile> inspect_local_source_file(
         observed_owner(opened_status, object, overrides);
     validate_file_status(
         opened_status, opened_owner, expected_owner, open_stage,
-        display_path);
+        display_path, require_single_link);
     const LocalSourceFileIdentity opened_identity =
         make_file_identity(opened_status, opened_owner);
     require_same_file_observation(
@@ -567,7 +585,7 @@ std::optional<LocalSourceOpenedFile> inspect_local_source_file(
         overrides, read_injection, read_stage,
         LocalSourceRootErrorCode::ReadFailure, display_path);
     std::string contents = read_descriptor_contents(
-        descriptor.get(), read_stage, display_path);
+        descriptor.get(), read_stage, display_path, max_bytes);
 
     struct stat descriptor_after{};
     if(::fstat(descriptor.get(), &descriptor_after) != 0) {
@@ -580,7 +598,7 @@ std::optional<LocalSourceOpenedFile> inspect_local_source_file(
         observed_owner(descriptor_after, object, overrides);
     validate_file_status(
         descriptor_after, descriptor_after_owner, expected_owner,
-        read_stage, display_path);
+        read_stage, display_path, require_single_link);
     const LocalSourceFileIdentity descriptor_after_identity =
         make_file_identity(descriptor_after, descriptor_after_owner);
     require_same_file_observation(
@@ -600,7 +618,7 @@ std::optional<LocalSourceOpenedFile> inspect_local_source_file(
         observed_owner(named_after, object, overrides);
     validate_file_status(
         named_after, named_after_owner, expected_owner, read_stage,
-        display_path);
+        display_path, require_single_link);
     require_same_file_observation(
         descriptor_after_identity,
         make_file_identity(named_after, named_after_owner), read_stage,
@@ -1096,6 +1114,77 @@ void LocalSourceRoot::require_unchanged_identity() const {
         invocation_anchor_descriptor_, directory_descriptor_, lookup_path_,
         canonical_path_, expected_owner_, directory_identity_,
         LocalSourceRootStage::RootRevalidation);
+}
+
+bool same_supported_recipe_content_and_mode(
+    const SupportedRecipeSnapshot& left, const SupportedRecipeSnapshot& right) {
+    if(left.size() != right.size()) return false;
+    for(std::size_t i = 0; i < left.size(); ++i) {
+        if(left[i].relative_path != right[i].relative_path ||
+           left[i].file.contents != right[i].file.contents ||
+           left[i].file.identity.mode != right[i].file.identity.mode ||
+           left[i].file.identity.owner != right[i].file.identity.owner)
+            return false;
+    }
+    return true;
+}
+
+SupportedRecipeSnapshot snapshot_supported_recipe_files(const LocalSourceRoot& root) {
+    constexpr std::size_t single_limit = 64U * 1024U * 1024U;
+    constexpr std::size_t aggregate_limit = 256U * 1024U * 1024U;
+    root.require_unchanged_identity();
+    SupportedRecipeSnapshot result{{"PKGBUILD", root.pkgbuild_}};
+    std::size_t aggregate_bytes = root.pkgbuild_.contents.size();
+    if(aggregate_bytes > aggregate_limit)
+        throw_local_source_failure(LocalSourceRootStage::PkgbuildRead,
+                                   LocalSourceRootErrorCode::ReadFailure, root.pkgbuild_.path);
+    const int scan_descriptor = ::openat(root.directory_descriptor_, ".", O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+    if(scan_descriptor < 0)
+        throw_local_source_system_failure(LocalSourceRootStage::RootRevalidation,
+                                          LocalSourceRootErrorCode::MetadataFailure,
+                                          root.canonical_path_, errno, false);
+    std::unique_ptr<DIR, LocalDirectoryCloser> directory(::fdopendir(scan_descriptor));
+    if(!directory) {
+        const int open_error = errno;
+        static_cast<void>(::close(scan_descriptor));
+        throw_local_source_system_failure(LocalSourceRootStage::RootRevalidation,
+                                          LocalSourceRootErrorCode::MetadataFailure,
+                                          root.canonical_path_, open_error, false);
+    }
+    std::vector<std::string> names;
+    errno = 0;
+    while(const dirent* entry = ::readdir(directory.get())) {
+        const std::string name(entry->d_name);
+        if(name.size() > std::string_view(".install").size() && name.ends_with(".install")) {
+            if(names.size() >= 1024)
+                throw_local_source_failure(LocalSourceRootStage::RootRevalidation,
+                                           LocalSourceRootErrorCode::MetadataFailure, root.canonical_path_);
+            names.push_back(name);
+        }
+        errno = 0;
+    }
+    if(errno != 0)
+        throw_local_source_system_failure(LocalSourceRootStage::RootRevalidation,
+                                          LocalSourceRootErrorCode::MetadataFailure,
+                                          root.canonical_path_, errno, false);
+    std::sort(names.begin(), names.end());
+    for(const std::string& name : names) {
+        auto opened = inspect_local_source_file(
+            root.directory_descriptor_, name, root.canonical_path_ / name,
+            root.expected_owner_, LocalSourceObject::Pkgbuild,
+            LocalSourceRootStage::PkgbuildInspection,
+            LocalSourceRootStage::PkgbuildOpen,
+            LocalSourceRootStage::PkgbuildRead,
+            LocalSourceInjectionPoint::PkgbuildInspection,
+            LocalSourceInjectionPoint::PkgbuildOpen,
+            LocalSourceInjectionPoint::PkgbuildRead,
+            false, true, nullptr,
+            std::min(single_limit, aggregate_limit - aggregate_bytes), true);
+        aggregate_bytes += opened->snapshot.contents.size();
+        result.push_back({name, std::move(opened->snapshot)});
+    }
+    root.require_unchanged_identity();
+    return result;
 }
 
 LocalSourceRoot open_local_source_root(

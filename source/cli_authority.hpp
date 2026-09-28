@@ -23,6 +23,10 @@ enum class OperationId {
     Revert,
     EditSource,
     ListSources,
+    AddPatch,
+    UpdatePatch,
+    DeletePatch,
+    ListPatch,
     Count,
 };
 
@@ -47,6 +51,10 @@ inline constexpr std::array<OperationSpec, static_cast<std::size_t>(OperationId:
         {OperationId::Revert, "revert", true},
         {OperationId::EditSource, "edit-src", true},
         {OperationId::ListSources, "list-src", true},
+        {OperationId::AddPatch, "add-patch", true},
+        {OperationId::UpdatePatch, "update-patch", true},
+        {OperationId::DeletePatch, "del-patch", true},
+        {OperationId::ListPatch, "list-patch", true},
     }};
 
 constexpr const OperationSpec& operation_spec(OperationId id) noexcept {
@@ -133,6 +141,11 @@ inline constexpr std::string_view BUILD_MODE_CLEAN_OPTION =
 // Operation-local source selector。GlobalOptionSpecへ昇格させず、build routing
 // だけが解釈する。
 inline constexpr std::string_view LOCAL_SOURCE_OPTION = "--local";
+inline constexpr std::string_view USE_SOURCE_PREFERENCE_OPTION =
+    "--use-preference";
+inline constexpr std::string_view SAVE_SOURCE_PREFERENCE_OPTION =
+    "--save-preference";
+inline constexpr std::string_view USE_PATCHES_OPTION = "--use-patches";
 
 // PKGBUILD exportだけが解釈するoperation-local attached-value option。
 // GlobalOptionSpecやCliOverridesへ昇格させない。
@@ -157,6 +170,30 @@ inline constexpr std::string_view PACMAN_SYNC_SEARCH_SYNTAX = "-Ss <query>";
 inline constexpr std::string_view PACMAN_SYNC_INFO_SYNTAX = "-Si <pkg>";
 inline constexpr std::string_view PACMAN_FOREIGN_UPDATES_SYNTAX = "-Qua";
 inline constexpr std::string_view PACMAN_NEEDED_OPTION = "--needed";
+
+// Lexical arity only: these delegated tokens are neither a route allowlist nor
+// completion suggestions. Keep the parser's existing finite value knowledge here.
+struct PacmanValueOptionSpec {
+    std::string_view token;
+    bool changes_database_context = false;
+};
+inline constexpr std::array<PacmanValueOptionSpec, 17> PACMAN_VALUE_OPTIONS = {{PacmanValueOptionSpec{"--arch"}, {"--assume-installed"}, {"--cachedir"}, {"--color"}, {"--config", true}, {"--dbpath", true}, {"--gpgdir"}, {"--hookdir"}, {"--ignore"}, {"--ignoregroup"}, {"--logfile"}, {"--overwrite"}, {"--print-format"}, {"--root", true}, {"--sysroot", true}, {"-b", true}, {"-r", true}}};
+
+constexpr const PacmanValueOptionSpec* find_pacman_value_option(
+    std::string_view argument) noexcept {
+    const auto token = argument.substr(0, argument.find('='));
+    for(const auto& option : PACMAN_VALUE_OPTIONS)
+        if(token == option.token) return &option;
+    return nullptr;
+}
+
+constexpr bool pacman_option_needs_following_value(
+    std::string_view argument) noexcept {
+    return argument.find('=') == std::string_view::npos &&
+           find_pacman_value_option(argument) != nullptr;
+}
+
+inline constexpr std::string_view END_OF_OPTIONS_TOKEN = "--";
 
 // Public token compatibility remains in MOGUET_OPERATIONS and
 // MOGUET_GLOBAL_OPTIONS above. The structured contract below is keyed by
@@ -197,7 +234,34 @@ enum class OperandKind {
     SourcePreferenceItem,
     EnvironmentAssignment,
     DelegatedPacmanArgument,
+    PatchDirectory,
+    PatchFile,
+    PackageBase,
 };
+
+// Exact public examples carry known operand meaning without closing pacman's
+// delegated grammar. Tail modifiers may invalidate this projection at runtime.
+struct DelegatedOperationExampleSpec {
+    std::string_view syntax;
+    OperandKind operand_kind;
+
+    constexpr std::string_view token() const noexcept {
+        return syntax.substr(0, syntax.find(' '));
+    }
+};
+inline constexpr std::array<DelegatedOperationExampleSpec, 6> DELEGATED_OPERATION_EXAMPLES = {{DelegatedOperationExampleSpec{PACMAN_SYNC_INSTALL_SYNTAX, OperandKind::Package},
+                                                                                               {PACMAN_SYSTEM_UPGRADE_SYNTAX, OperandKind::None},
+                                                                                               {PACMAN_SYSTEM_UPGRADE_NO_REFRESH_SYNTAX, OperandKind::None},
+                                                                                               {PACMAN_SYNC_SEARCH_SYNTAX, OperandKind::Query},
+                                                                                               {PACMAN_SYNC_INFO_SYNTAX, OperandKind::Package},
+                                                                                               {PACMAN_FOREIGN_UPDATES_SYNTAX, OperandKind::None}}};
+
+constexpr const DelegatedOperationExampleSpec* find_delegated_operation_example(
+    std::string_view token) noexcept {
+    for(const auto& example : DELEGATED_OPERATION_EXAMPLES)
+        if(example.token() == token) return &example;
+    return nullptr;
+}
 
 enum class OperandOrderingRule {
     None,
@@ -213,6 +277,7 @@ enum class TargetPolicy {
     OneOrMore,
     OrderedItems,
     Delegated,
+    FixedSequence,
 };
 
 inline constexpr std::size_t UNBOUNDED_OPERAND_COUNT =
@@ -225,7 +290,7 @@ struct OperandTermSpec {
 };
 
 struct OperandContract {
-    std::array<OperandTermSpec, 2> terms{};
+    std::array<OperandTermSpec, 3> terms{};
     std::size_t term_count = 0;
     OperandOrderingRule ordering = OperandOrderingRule::None;
 };
@@ -254,6 +319,14 @@ constexpr OperandContract operand_with_trailing_assignments(
                                PrimaryThenEnvironmentAssignments};
 }
 
+constexpr OperandContract patch_registration_operands() noexcept {
+    return {{{{OperandKind::Directory, 1, 1}, {OperandKind::PatchDirectory, 1, 1}, {OperandKind::PatchFile, 1, UNBOUNDED_OPERAND_COUNT}}}, 3, OperandOrderingRule::PreserveInputOrder};
+}
+
+constexpr OperandContract patch_forget_operands() noexcept {
+    return {{{{OperandKind::Directory, 1, 1}, {OperandKind::PackageBase, 1, 1}, {}}}, 2, OperandOrderingRule::PreserveInputOrder};
+}
+
 enum class OptionId {
     Edit,
     NoEdit,
@@ -277,6 +350,9 @@ enum class OptionId {
     EndOfOptions,
     // Preserve existing exported option IDs when adding new globals.
     Details,
+    UseSourcePreference,
+    UsePatches,
+    SaveSourcePreference,
     Count,
 };
 
@@ -376,6 +452,7 @@ enum class OptionOccurrence {
 enum class OptionConflictRule {
     None,
     MutuallyExclusive,
+    OperationLocalExclusion,
     FinalValueMustAgree,
 };
 
@@ -493,6 +570,9 @@ struct OptionContract {
     OptionPublicDefinitionRole public_definition_role;
     OptionCompletionVisibility completion_visibility;
     std::string_view related_contract_identity;
+    // A valueless control can supply one canonical value to its final-value
+    // family. Runtime and completion share this binding, not a second enum.
+    std::string_view fixed_value{};
 };
 
 // OptionContract describes lexical/default metadata. Once an operation route
@@ -603,7 +683,7 @@ inline constexpr std::array<OptionContract,
          GrammarOwnership::MoguetOwned,
          OptionPublicDefinitionRole::Definition,
          OptionCompletionVisibility::SuggestedAndDescribed,
-         "cli.option.build-mode.rebuild"},
+         "cli.option.build-mode.rebuild", BUILD_MODE_REBUILD},
         {OptionId::CleanBuild,
          global_option_spec(GlobalOptionId::CleanBuild).token,
          no_token_aliases(),
@@ -617,7 +697,7 @@ inline constexpr std::array<OptionContract,
          GrammarOwnership::MoguetOwned,
          OptionPublicDefinitionRole::Definition,
          OptionCompletionVisibility::SuggestedAndDescribed,
-         "cli.option.build-mode.clean"},
+         "cli.option.build-mode.clean", BUILD_MODE_CLEAN},
         {OptionId::RmDeps,
          global_option_spec(GlobalOptionId::RmDeps).token,
          no_token_aliases(),
@@ -742,7 +822,7 @@ inline constexpr std::array<OptionContract,
          OptionCompletionVisibility::SuggestedAndDescribed,
          "cli.pacman.needed"},
         {OptionId::EndOfOptions,
-         "--",
+         END_OF_OPTIONS_TOKEN,
          no_token_aliases(),
          OptionValueContract{OptionValueKind::Marker, {}, 0},
          OptionOccurrence::Once,
@@ -766,6 +846,42 @@ inline constexpr std::array<OptionContract,
          OptionPublicDefinitionRole::Definition,
          OptionCompletionVisibility::SuggestedAndDescribed,
          "cli.presentation.detail"},
+        {OptionId::UseSourcePreference,
+         USE_SOURCE_PREFERENCE_OPTION,
+         no_token_aliases(),
+         no_option_value(),
+         OptionOccurrence::Once,
+         no_option_conflicts(),
+         OptionLexicalPlacement::OperationLocal,
+         option_scope(OptionSemanticScope::SourceBuild),
+         GrammarOwnership::MoguetOwned,
+         OptionPublicDefinitionRole::SyntaxOnly,
+         OptionCompletionVisibility::SuggestedAndDescribed,
+         "cli.build.remote"},
+        {OptionId::UsePatches,
+         USE_PATCHES_OPTION,
+         no_token_aliases(), no_option_value(), OptionOccurrence::Once,
+         OptionConflictSet{{OptionId::Edit, OptionId::DryRun, OptionId::UseSourcePreference, OptionId::Edit},
+                           3,
+                           OptionConflictRule::OperationLocalExclusion,
+                           {}},
+         OptionLexicalPlacement::OperationLocal,
+         option_scope(OptionSemanticScope::LocalSourceBuild),
+         GrammarOwnership::MoguetOwned, OptionPublicDefinitionRole::SyntaxOnly,
+         OptionCompletionVisibility::SuggestedAndDescribed,
+         "cli.build.local"},
+        {OptionId::SaveSourcePreference,
+         SAVE_SOURCE_PREFERENCE_OPTION,
+         no_token_aliases(), no_option_value(), OptionOccurrence::Once,
+         OptionConflictSet{{OptionId::UseSourcePreference, OptionId::DryRun, OptionId::LocalSource, OptionId::Edit},
+                           3,
+                           OptionConflictRule::OperationLocalExclusion,
+                           {}},
+         OptionLexicalPlacement::OperationLocal,
+         option_scope(OptionSemanticScope::SourceBuild),
+         GrammarOwnership::MoguetOwned, OptionPublicDefinitionRole::SyntaxOnly,
+         OptionCompletionVisibility::SuggestedAndDescribed,
+         "cli.build.remote"},
     }};
 
 constexpr const OptionContract& option_contract(OptionId id) noexcept {
@@ -1063,12 +1179,18 @@ struct OperationFormSpec {
 
 // option_relations lists semantic effects for the form. Parser-global lexical
 // acceptance is deliberately separate and remains owned by GlobalOptionSpec.
-inline constexpr std::array<OperationFormSpec, 14> MOGUET_OPERATION_FORMS = {{
+inline constexpr std::array<OperationFormSpec, 18> MOGUET_OPERATION_FORMS = {{
     {OperationId::Build,
      "cli.build.remote",
      operand_with_trailing_assignments(OperandKind::Package),
      TargetPolicy::ExactlyOne,
      operation_option_relations(
+         public_syntax_option_relation(
+             OptionId::UseSourcePreference,
+             OptionPublicSyntax::Optional),
+         public_syntax_option_relation(
+             OptionId::SaveSourcePreference,
+             OptionPublicSyntax::Optional),
          OptionId::Edit, OptionId::NoEdit,
          OptionId::Diff, OptionId::NoDiff,
          source_no_confirm_option_relation(), OptionId::DryRun,
@@ -1085,7 +1207,8 @@ inline constexpr std::array<OperationFormSpec, 14> MOGUET_OPERATION_FORMS = {{
          OptionId::CleanBuild,
          public_syntax_option_relation(
              OptionId::LocalSource,
-             OptionPublicSyntax::Required))},
+             OptionPublicSyntax::Required),
+         public_syntax_option_relation(OptionId::UsePatches, OptionPublicSyntax::Optional))},
     {OperationId::Upgrade,
      "cli.upgrade.registered-and-system",
      no_operands(),
@@ -1182,6 +1305,14 @@ inline constexpr std::array<OperationFormSpec, 14> MOGUET_OPERATION_FORMS = {{
      no_operands(),
      TargetPolicy::None,
      no_operation_option_relations()},
+    {OperationId::AddPatch, "cli.patch.add", patch_registration_operands(),
+     TargetPolicy::FixedSequence, operation_option_relations(consumed_option_relation(OptionId::NoConfirm))},
+    {OperationId::UpdatePatch, "cli.patch.update", patch_registration_operands(),
+     TargetPolicy::FixedSequence, operation_option_relations(consumed_option_relation(OptionId::NoConfirm))},
+    {OperationId::DeletePatch, "cli.patch.delete", patch_forget_operands(),
+     TargetPolicy::FixedSequence, operation_option_relations(consumed_option_relation(OptionId::NoConfirm))},
+    {OperationId::ListPatch, "cli.patch.list", no_operands(),
+     TargetPolicy::None, operation_option_relations(OptionId::Details)},
 }};
 
 struct OperationMetadata {
@@ -1278,6 +1409,18 @@ inline constexpr std::array<OperationMetadata,
          OperationSemanticScope::SourceMaintenance,
          DryRunSupport::Unsupported, 13, 1, "exit.read-only-query",
          "cli.list-sources"},
+        {OperationId::AddPatch, operation_spec(OperationId::AddPatch).token, no_token_aliases(),
+         GrammarOwnership::MoguetOwned, OperationSemanticScope::SourceMaintenance,
+         DryRunSupport::Unsupported, 14, 1, "exit.mutation", "cli.patch.add"},
+        {OperationId::UpdatePatch, operation_spec(OperationId::UpdatePatch).token, no_token_aliases(),
+         GrammarOwnership::MoguetOwned, OperationSemanticScope::SourceMaintenance,
+         DryRunSupport::Unsupported, 15, 1, "exit.mutation", "cli.patch.update"},
+        {OperationId::DeletePatch, operation_spec(OperationId::DeletePatch).token, no_token_aliases(),
+         GrammarOwnership::MoguetOwned, OperationSemanticScope::SourceMaintenance,
+         DryRunSupport::Unsupported, 16, 1, "exit.mutation", "cli.patch.delete"},
+        {OperationId::ListPatch, operation_spec(OperationId::ListPatch).token, no_token_aliases(),
+         GrammarOwnership::MoguetOwned, OperationSemanticScope::SourceMaintenance,
+         DryRunSupport::Unsupported, 17, 1, "exit.read-only-query", "cli.patch.list"},
     }};
 
 constexpr const OperationMetadata& operation_metadata(

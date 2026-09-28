@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import redirect_stderr
+from dataclasses import replace
 import io
 from pathlib import Path
 import sys
@@ -11,7 +12,7 @@ import sys
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPOSITORY_ROOT / "scripts"))
 
-from generate_completions import export_authority, parse_exported_schema  # noqa: E402
+from generate_completions import export_authority, parse_exported_schema, local_prefix_operations, finite_completion_options  # noqa: E402
 
 
 def fail(message: str) -> None:
@@ -244,6 +245,61 @@ def expect_rejected(label: str, schema: str, expected_diagnostic: str) -> None:
 
 def expect_current_authority_projection() -> None:
     schema = parse_exported_schema(export_authority())
+    save = next(option for option in schema.options if option.token == "--save-preference")
+    if save.placement != "operation-local" or save.occurrence != "once":
+        fail("save-preference must remain an operation-local, once option")
+    for operation in schema.operations:
+        for form in operation.forms:
+            if save.identity in form.option_ids and (
+                    operation.token != "build" or form.operand_terms[0].kind != "package"):
+                fail("save-preference leaked outside remote build")
+    contexts = dict(schema.operand_contexts)
+    if contexts.get("-S") != "package" or contexts.get("-Ss") != "query" or "-Sxyz" in contexts:
+        fail("exact package/query context authority differs")
+    if local_prefix_operations(schema) != ("-S",) or local_prefix_operations(
+        replace(schema, operand_contexts=(("-S", "query"), ("-Si", "package")))
+    ):
+        fail("local prefix projection must narrow shared package authority")
+    sync = next(operation for operation in schema.operations if operation.token == "-S")
+    if sync.forms[0].operand_terms[0].kind != "query":
+        fail("--select query semantics changed")
+    arity = dict(schema.lexical_value_options)
+    if len(arity) != 17 or arity.get("--color") is not False or not all(
+        arity.get(token) for token in ("--config", "--dbpath", "--root", "--sysroot", "-b", "-r")
+    ):
+        fail("lexical arity/alternate DB projection missing")
+    if [token for token, _ in schema.parser_boundaries] != ["--"]:
+        fail("hidden parser boundary missing")
+    current = export_authority()
+    finite, = finite_completion_options(schema)
+    bindings = [item for item in schema.options if item.fixed_value]
+    if not bindings or any(item.fixed_value not in finite.allowed_values or
+                           item.conflict_value_identity != finite.conflict_value_identity
+                           for item in bindings):
+        fail("public finite alias bindings differ from enum authority")
+    fixed_record = next(line for line in current.splitlines() if line.startswith("FIXED_VALUE\t"))
+    identity = fixed_record.split("\t")[1]
+    unrelated = next(item for item in schema.options if item.token == "--noconfirm")
+    for label, mutation, diagnostic in (
+        ("duplicate fixed binding", duplicate_first_record(current, "FIXED_VALUE"), "invalid fixed value binding"),
+        ("unknown fixed option", current + "FIXED_VALUE\t999\tx\n", "fixed value binding has unknown option"),
+        ("empty fixed value", current.replace(fixed_record, f"FIXED_VALUE\t{identity}\t"), "invalid fixed value binding"),
+        ("fixed value outside enum", current.replace(fixed_record, f"FIXED_VALUE\t{identity}\t__invalid__"), "invalid fixed value family projection"),
+        ("fixed value on valued option", current + f"FIXED_VALUE\t{finite.identity}\t{finite.allowed_values[0]}\n", "invalid fixed value family projection"),
+        ("fixed value without family", current + f"FIXED_VALUE\t{unrelated.identity}\t{finite.allowed_values[0]}\n", "invalid fixed value family projection"),
+        ("missing alias binding", current.replace(fixed_record + "\n", ""), "finite value family lacks fixed binding"),
+    ):
+        expect_rejected(label, mutation, diagnostic)
+    for record, diagnostic in (("OPERAND_CONTEXT", "invalid exact operand context"),
+                               ("LEXICAL_VALUE", "invalid lexical value option"),
+                               ("BOUNDARY", "duplicate parser boundary")):
+        expect_rejected("duplicate " + record, duplicate_first_record(current, record), diagnostic)
+    expect_rejected("unknown operand context", current + "OPERAND_CONTEXT\t-Sxyz\tpackage\n",
+                    "exact operand context has no open operation")
+    expect_rejected("future operand kind", current + "OPERAND_CONTEXT\t-Sxyz\tfuture\n",
+                    "invalid exact operand context")
+    expect_rejected("visible boundary", current.replace(next(line for line in current.splitlines() if line.startswith("BOUNDARY\t")), "BOUNDARY\t--help\t0"),
+                    "parser boundary must identify a hidden marker option")
     delegated_ids = set(schema.delegated_option_ids)
     delegated_tokens = {
         option.token
@@ -524,6 +580,17 @@ def main() -> int:
             ),
         ),
         (
+            "local selector excludes a global final-value option",
+            exported_schema(options=(
+                option_record(identity=0, token="--local-choice", placement="operation-local",
+                              conflict_rule="operation-local-exclusion", conflicts="1"),
+                option_record(identity=1, token="--left", conflict_rule="final-value-must-agree",
+                              conflicts="2", conflict_value_identity="fixture.choice"),
+                option_record(identity=2, token="--right", conflict_rule="final-value-must-agree",
+                              conflicts="1", conflict_value_identity="fixture.choice"),
+            )),
+        ),
+        (
             "symmetric final-value conflicts",
             exported_schema(
                 options=(
@@ -552,6 +619,14 @@ def main() -> int:
     expect_current_authority_projection()
 
     rejected_controls = (
+        (
+            "global option cannot own local exclusion",
+            exported_schema(options=(
+                option_record(identity=0, conflict_rule="operation-local-exclusion", conflicts="1"),
+                option_record(identity=1, token="--other"),
+            )),
+            "local exclusion requires operation-local placement",
+        ),
         (
             "unknown operand kind",
             exported_schema(
@@ -1025,7 +1100,7 @@ def main() -> int:
 
     print(
         "completion-schema-validator-test: "
-        f"{len(positive_controls) + len(rejected_controls) + 1} "
+        f"{len(positive_controls) + len(rejected_controls) + 16} "
         "scenarios passed"
     )
     return 0

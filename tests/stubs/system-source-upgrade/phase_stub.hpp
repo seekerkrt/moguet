@@ -121,6 +121,7 @@ void set_system_command_exit_status(int exit_status);
 void fail_system_command(std::string diagnostic);
 void enqueue_source_success(SourceBuildExecutionResult result);
 void enqueue_source_failure(std::string diagnostic);
+void enqueue_source_exception(std::exception_ptr exception);
 void enqueue_source_cache_failure();
 void enqueue_source_cleanup_failure(
     ArtifactInstallExecutionOutcome outcome,

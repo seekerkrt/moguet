@@ -53,6 +53,7 @@ struct ScriptedSourceExecution {
     PackageMetadataFailure metadata_failure{
         PackageMetadataErrorCode::QueryFailed, {}};
     std::string diagnostic;
+    std::exception_ptr exception = nullptr;
 };
 
 struct PhaseStubState {
@@ -121,6 +122,11 @@ ResolvedSourceBuildIdentity default_identity(
 }
 
 } // namespace
+
+bool SourceBuildEnvironment::defines(const std::string& key) const {
+    return std::any_of(ordered_assignments.begin(), ordered_assignments.end(),
+                       [&](const auto& assignment) { return assignment.key == key; });
+}
 
 ProviderSelectionCallback provider_selection_callback(const AppConfig&) {
     return g_state.provider_selector;
@@ -298,6 +304,12 @@ void enqueue_source_failure(std::string diagnostic) {
     ScriptedSourceExecution execution;
     execution.kind = ScriptedSourceExecutionKind::Failure;
     execution.diagnostic = std::move(diagnostic);
+    g_state.source_executions.push_back(std::move(execution));
+}
+void enqueue_source_exception(std::exception_ptr exception) {
+    ScriptedSourceExecution execution;
+    execution.kind = ScriptedSourceExecutionKind::Failure;
+    execution.exception = std::move(exception);
     g_state.source_executions.push_back(std::move(execution));
 }
 
@@ -1014,6 +1026,7 @@ SourceBuildExecutionResult execute_prepared_source_build_work_item_typed(
     ScriptedSourceExecution execution =
         std::move(g_state.source_executions.front());
     g_state.source_executions.pop_front();
+    if(execution.exception) std::rethrow_exception(execution.exception);
     switch(execution.kind) {
         case ScriptedSourceExecutionKind::Success:
             return execution.result;
@@ -1049,4 +1062,16 @@ SourceBuildExecutionResult execute_prepared_source_build_work_item_typed(
                 "Registered AUR singular execution received a PackageBase script.");
     }
     throw std::logic_error("Unknown scripted source execution kind.");
+}
+
+BuildPlan resolve_recipe_build_plan(const std::vector<std::string>&,
+                                    const AurRecipeMetadataSet&,
+                                    const ProviderSelectionCallback&) {
+    throw std::logic_error("This query fixture has no evaluated recipe metadata.");
+}
+
+ProductionSourceBuildWorkItem prepare_registered_recipe_source_build_work_item(
+    const ResolvedSourceBuildIdentity&, SourceBuildEnvironment,
+    const ProviderSelectionCallback&, const AurRecipeMetadataSet&) {
+    throw std::logic_error("This source fixture has no evaluated recipe metadata.");
 }

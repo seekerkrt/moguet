@@ -34,6 +34,10 @@ COMPILE_COMMANDS_LINK := compile_commands.json
 # These names are developer-facing compatibility aliases. CMake owns each
 # alias's exact build-target and CTest selection mapping.
 CMAKE_FOCUSED_ALIASES := \
+	test-repository-prefix-helper \
+	test-dynamic-completion \
+	test-completion-presentation \
+	test-pacman-query-projection \
 	test-installed-fixture-compile \
 	test-application-identity \
 	test-interactive-confirmation \
@@ -64,6 +68,11 @@ CMAKE_FOCUSED_ALIASES := \
 	test-local-dependency-plan-projection \
 	test-local-source-workspace \
 	test-local-source-build \
+	test-local-recipe-candidate \
+	test-generated-recipe-patch \
+	test-local-patch-association \
+	test-local-patch-cli \
+	test-upgrade-patch-cli \
 	test-user-config \
 	test-package-identifier \
 	test-source-package-identity \
@@ -237,6 +246,7 @@ COMPLIANCE_DOC_FILES := \
 PUBLIC_DOC_FILES := \
 	README.md \
 	README.ja.md \
+	RELEASE_NOTES.md \
 	docs/migration/v1-to-v2.md \
 	docs/migration/v1-to-v2.ja.md
 
@@ -299,6 +309,7 @@ export MOGUET_FRONTEND_USE_DEFAULT_COMPILE_OPTIONS
 	update-pot
 .PHONY: \
 	test-repository \
+	test-pacman-query-host \
 	test-host-release \
 	test-release-compat \
 	release-check \
@@ -392,7 +403,7 @@ cmake-dev-configure:
 		"-DMOGUET_COMPILE_COMMANDS_BUILD_DIR=$(abspath $(CMAKE_CTEST_BUILD_DIR))" \
 		-P $(CMAKE_COMPILE_COMMANDS_PUBLISHER)
 
-cmake-test-build: cmake-test-configure
+cmake-test-build: cmake-cli-authority-exporter-build
 	+$(CMAKE) --build $(CMAKE_CTEST_BUILD_DIR)
 
 cmake-cli-authority-exporter-build: cmake-test-configure
@@ -606,6 +617,9 @@ test-completion-schema: cmake-cli-authority-exporter-build scripts/generate_comp
 	MOGUET_CLI_AUTHORITY_EXPORTER="$(abspath $(CMAKE_CLI_AUTHORITY_EXPORTER))" \
 	PYTHONDONTWRITEBYTECODE=1 \
 	python3 tests/test-completion-schema-validator.py
+
+test-pacman-query-host:
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/pacman_query_completion.py --validate-host
 
 generate-completions: cmake-test-configure
 	+$(CMAKE) --build $(CMAKE_CTEST_BUILD_DIR) \

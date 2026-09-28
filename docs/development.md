@@ -243,6 +243,18 @@ Pythonのstdout rendererを実行して3つのtracked fileをpublishする。
 `scripts/generate_completions.py`はcheck-only / stdout-onlyでtracked write modeを持たず、callerが
 environment markerを自称してもこのfreshness boundaryを代替できない。
 
+tracked completionはinstall prefixに依存しないhelper置換tokenを持つ。CMakeはcanonical
+generated fileを`configure_file @ONLY`でbuild treeへ投影し、resolved
+`MOGUET_FULL_INTERNAL_EXECUTABLE_DIRECTORY`のprivate prefix helperへshell別にquoteしてbindする。
+installはこのconfigured版を使う。source-treeのprovider fixtureはgeneratorの
+`--render <shell> --repository-prefix-helper <absolute-path>`で同じadapterを生成できる。
+実行時PATH lookupやnormal Moguet startupはproviderのauthorityにしない。
+
+delegated `-Q`のupstream option spellingは、実pacmanのraw help/versionとhash metadataを
+`completions/upstream/pacman-query/`へ固定した入力から生成する。usual generation/freshnessは
+installed pacmanに依存しない。operatorによるtarget pacmanからの明示refreshとread-only host validationを
+分離する。bounds、失敗、ownership、opaque tailは[pacman query completion contract](contracts/pacman-query-completion.md)を正とする。
+
 #### Install / package consumer
 
 CMake install graphと`install_manifest.txt`がinstall / uninstall payloadのcanonical authorityである。
@@ -254,6 +266,31 @@ repository validation側で維持し、通常のpackage buildへfull CTestを追
 `/usr/libexec/moguet/moguet-source-artifact-install-helper` mode `0755`を含む。両者をpublic commandとして
 扱わず、owner-specific production root hookはconfigure / install graphが確定した対応するabsolute
 helper pathだけを使用する。
+
+canonical uninstall helperはmanifestのabsolute lexical entryとconfigure済みinstall rootsを検証し、
+manifest内のregular fileだけをdescriptor-relativeな`unlinkat`で削除する。directory cleanupは行わない。
+missing target / ancestorは`Already absent`とし、invalid manifest、unsafe topology / owner / mode、
+観測したreplacementは全entryのpreflightで拒否する。削除直前にもancestorとleafのidentityを再検証し、
+unlink failureは非0で直ちに停止する。先行削除をrollbackせず、成功したentryは`Removed`として表示する。
+
+ancestorはrootまたは実行userの所有するdirectoryで、group / other writableを拒否する。
+DESTDIRなしのtemporary prefixではinstall rootより上のsticky directoryだけを例外とする。
+payloadは実行user所有、group / other non-writableのregular fileを要求し、leaf symlinkへのreplacementを拒否する。
+DESTDIRのcomponentは従来どおりnofollowで開き、DESTDIR内のpayloadへ同じlogical path契約を適用する。
+唯一のancestor alias例外はfilesystem packageの`/usr/local/share/man -> ../man`である。
+exact link text、実行user ownership、link identityを検証し、保持した`/usr/local` descriptorから
+`man` directoryをnofollowで開く。alias destinationを含む全ancestorのowner / mode / identityを再検証し、
+任意symlink traversal、canonicalizationだけによる削除authority、trusted rootsの一般的な拡張は行わない。
+同UID / rootのconcurrent writerに対するatomicなcheck-and-unlinkや、install以後のcontent変更検出は保証しない。
+manifestは利用者が選んだtrusted build treeのauthorityであり、sudo利用時にuser-ownedであることだけを理由に拒否しない。
+
+completionとlocaleのabsolute `/usr/share` destinationはnon-`/usr` PREFIXでも維持する既存契約であり、
+canonical manifestに含まれる。`/usr/share`を一律除外するpolicyではないが、manifestはpacman ownershipや
+後から同pathへreinstallされたpackage payloadを識別するreceiptではない。packageのremove / restoreはpacmanへ委ねる。
+manual installとpackage payloadが重なるhostはcanonical uninstallのsupported ownership条件を満たさない。
+特にpacmanでstable packageを復元した後、その古いmanual manifestでcanonical uninstallを実行してはいけない。
+coexistence検証はDESTDIR、またはcompletion / localeも含めた独立destinationで行う。
+この制限はinstall layoutを変更したり、package database ownership engineを追加したりするものではない。
 
 ### Host validation execution graph
 
@@ -471,6 +508,11 @@ operatorが行う。automated VALIDはこれらの実行許可や完了を意味
 ccache / mold parityは必要なreleaseでの追加validationであり、上記default gateの代替にしない。
 それぞれのexact compile / link scopeとclean / incremental条件を`validation.md`に従って記録する。
 
+以下のstage例とその説明は**v2.8.0 release preparationのhistorical example**であり、当時のpath名を含む。
+current releaseのscope / stage対象のauthorityではない。v2.11.0のscopeは
+[v2.11.0 milestone](https://github.com/seekerkrt/moguet/milestone/32)を正とし、release preparationでは
+actual diffから新たなexact path setを定めた。下記listをそのまま実行しない。
+
     git status --short
 
     git add -- \
@@ -510,7 +552,7 @@ ccache / mold parityは必要なreleaseでの追加validationであり、上記d
     gh pr create --base main --head release/vX.Y.Z
 
 上記の`git add`は、v2.8.0 release preparationでstage対象とする27 pathsを1件ずつ明示した
-current release用のexact path setです。`git add .`や代表pathだけのpartial listへ置き換えません。
+当時のrelease用のexact path setです。`git add .`や代表pathだけのpartial listへ置き換えません。
 commit前にcached path一覧をactual diffと再照合し、release scopeのunstaged / untracked pathや
 unrelatedなstaged pathがないことを確認します。
 
@@ -552,6 +594,58 @@ CMake、fixture package metadata、上記以外のproduction source / container 
 今回のrelease preparationまたはfinding fixによる変更contractがないため、current listへ含めません。
 v2.1.0固有の履歴は下記の`v2.1.0 post-release closure`として別に扱います。将来のreleaseでは、このlistを
 流用せず、そのreleaseで監査済みのexact path setへ置き換えます。
+
+### v2.11.0 release preparation exact path set
+
+v2.11.0では、feature / contract / completion / localization等の実装変更はdevelop上で完了済みであり、
+release preparation自体のtracked変更は次の15 pathsへ限定する。
+
+```text
+VERSION
+CMakeLists.txt
+Makefile
+README.md
+README.ja.md
+RELEASE_NOTES.md
+docs/development.md
+man/moguet.1
+man/ja/moguet.1
+po/moguet.pot
+po/ja.po
+tests/evaluated_devel_source_build_test.cpp
+tests/fixtures/current-package/install-payload.txt
+tests/test-build-authority-closure.sh
+tests/test-install-layout.sh
+```
+
+`PKGBUILD`はroot `VERSION`を動的に読むため変更しない。
+`man/moguet.1.in` / `man/ja/moguet.1.in`は`@VERSION@`を保持するversion-independent templateなので
+変更せず、generated manだけを再生成する。completionもversion-independentであり、
+`po/POTFILES.in`もextraction inventory変更がないためrelease preparationでは変更しない。
+
+fresh final RCのhost laneでは、completion CTestが使用する`EXCLUDE_FROM_ALL`の
+`moguet-cli-authority-exporter`がclean build後のfull CTest frontendからbuildされない
+dependency edge欠落を検出した。`cmake-test-build`がexporterをexplicit prerequisiteとして
+buildするよう修正し、`tests/test-build-authority-closure.sh`でそのedgeをregression guardする。
+
+fresh final RC epoch 2では、installed `README.md` / `README.ja.md`が
+`RELEASE_NOTES.md`を相対参照する一方、canonical install payloadへ
+`RELEASE_NOTES.md`が含まれていないdocumentation closure欠落を検出した。
+release notesを正式なinstalled public documentとしてCMake / Make frontend /
+current-package payload authorityへ追加し、install-layoutの通常・custom・uninstall
+contractで所有を固定する。package-transitionはcurrent-package payload authorityを
+そのままconsumeするため、個別のtransition recipe変更は行わない。
+
+fresh final RC epoch 4ではhost lane通過後、Arch validation containerで
+`cpp.devel_tracking_bootstrap`のpatch-selection fixtureが失敗した。
+containerは`XDG_CONFIG_HOME`を明示する一方、ReviewedBuildFixtureが
+HOME / XDG_CACHE_HOME / XDG_STATE_HOMEだけをfixture-localへ隔離していたため、
+先行する`cli.upgrade_patch_bootstrap`とpatch association registryを共有していた。
+fixture-localな`XDG_CONFIG_HOME`も所有させ、CTest間のambient config state依存を除去した。
+同一のshared XDG_CONFIG_HOMEを使った#31→#157の再現試験と、
+`make test-container`全体の再検証はいずれもPASSした。
+
+このpath setはv2.11.0だけのrelease-preparation authorityであり、後続releaseへ流用しない。
 
 merge 後:
 

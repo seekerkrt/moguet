@@ -560,6 +560,17 @@ ReviewedSourceEditorOverlayProof::status() const {
     return require_state().status;
 }
 
+bool ReviewedSourceEditorOverlayProof::persistent_recipe_changes_only() const {
+    const auto& state = require_state();
+    return state.pre_editor.persistent_recipe_changes_only(state.post_editor);
+}
+
+
+bool ReviewedSourceEditorOverlayProof::semantic_changed() const {
+    const auto& state = require_state();
+    return state.pre_editor.semantic_changed(state.post_editor);
+}
+
 ReviewedSourceEditorBoundaryResult
 begin_reviewed_source_editor_boundary(
     const AcceptedReviewedSourceCheckout& checkout) {

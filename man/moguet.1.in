@@ -97,8 +97,9 @@ and rejects target operands for
 .BR upgrade-aur ,
 .BR upgrade-all ,
 .BR clean ,
+.BR list-src ,
 and
-.BR list-src .
+.BR list-patch .
 .BR deps ,
 .BR plan ,
 .BR fetch ,
@@ -108,11 +109,34 @@ and source-maintenance forms marked with an ellipsis remain multi-target.
 .SH COMMANDS
 .\" PUBLIC COMMANDS BEGIN
 .TP
-.B "build <pkg> [V=K...] | build --local <directory> [V=K...]"
+.B "build [--use-preference] [--save-preference] <pkg> [V=K...] | build --local [--use-patches] <directory> [V=K...]"
 Without
 .BR --local ,
-build one official-repository or AUR package from source without saving a
-source-build preference.
+build one official-repository or AUR package from source.
+The default uses only invocation-local assignments. With
+.BR --use-preference ,
+read the saved preference for the requested package; an unregistered preference
+or any accompanying
+.B V=K
+assignment fails before the build. Saved empty values are omitted, while
+invocation-local empty values are forwarded.
+With
+.BR --save-preference ,
+save only the explicit ordered V=K assignments as a new source-build preference
+after the complete build/install lifecycle succeeds. Require at least one
+assignment; reject --use-preference, --dry-run and local builds.
+Existing preferences fail before building; use edit-src to change them.
+Publication also requires an absent destination, so a concurrent entry is never
+overwritten. Optional --rmdeps cleanup failure does not prevent promotion after
+build/install success, but the command still reports that failure.
+Plain build and --noconfirm never imply saving. Recipe edits require their
+separate patch-customization save consent.
+Saving also requires the complete ordered environment to round-trip exactly
+through the existing preference parser and format. Values changed by variable
+expansion, comment handling or line splitting are rejected before building;
+literal $HOME and embedded newlines are examples. Plain one-off values and the
+existing preference parser/format remain unchanged. The exact bytes prepared
+before building are published after success.
 With
 .BR --local ,
 treat exactly one user-owned directory as a local PackageBase source and never
@@ -132,6 +156,20 @@ child declared by the accepted metadata is installed as an explicit root after
 dependency planning and artifact validation.
 Dependency artifacts retain dependency install reasons, and an already
 explicit installed package is never demoted.
+.
+With
+.BR --use-patches ,
+explicitly select the saved local recipe series. Plain local builds do not read this store.
+This option is local-only, cannot repeat, and conflicts with --edit, --dry-run and --use-preference.
+Original and modified recipes can be displayed for read-only review; --noedit skips previews.
+Initial identity evaluation and patched metadata evaluation require separate no-default consent;
+non-TTY input and --noconfirm do not authorize either. Existing build/install confirmation remains.
+The complete digest-verified series is applied, in order, from the same owned bytes to a fresh
+candidate; only postpatch metadata drives planning and building. Original source is preserved.
+Upstream updates use a fresh current candidate. Missing, changed, unsafe, corrupt, identity or
+apply/build failures stop without stock fallback or automatic repair. The initial scope is
+regular PKGBUILD text modification with Git strip level 1. Source patch payloads are separate;
+their future application belongs to PKGBUILD source/checksum/prepare and makepkg.
 .
 .TP
 .B "upgrade"
@@ -396,6 +434,82 @@ the grouped reinstall; pacman failure retains diagnostic priority.
 Review the displayed pacman transaction before confirming it.
 .
 .TP
+.B "add-patch <directory> <patch-directory> <patch-file>..."
+Associate ordered PKGBUILD patches with the canonical local source path and PackageBase.
+Patch files are distinct leaf names in the selected directory; the directory must be
+absolute or relative without '..'. Metadata evaluation requires no-default consent.
+Material remains user-owned; references, order and SHA-256 digests are saved under
+XDG config's moguet/patches.d. Registration enables neither automatic application nor execution consent.
+.
+.TP
+.B "update-patch <directory> <patch-directory> <patch-file>..."
+Explicitly replace an existing association's material references, order and expected digests
+after reviewing the changed material. Duplicate registration and absent update fail.
+.
+.TP
+.B "del-patch <directory> <package-base>"
+Forget only the association for the specified source and PackageBase, without evaluating
+PKGBUILD or opening material. Missing material does not prevent forgetting; missing
+registration fails. User material is never removed, rewritten or chmodded.
+.
+.TP
+.B "list-patch"
+List saved patch associations: PackageBase, source kind and canonical location, patch count,
+and material root, ordered by PackageBase, source kind (local then AUR), then source location (bytewise).
+With --details, also show the record schema version, ordered filenames and saved expected
+SHA-256 digests. Neither form opens or checks external source/material paths or rehashes
+patch bytes. Missing or changed material does not prevent listing; material health is not verified.
+Malformed, unsupported, unsafe or mismatched registry records fail the whole listing; they are
+never silently skipped. An absent/empty registry is reported without creating it.
+Patch customization is Experimental; CLI, record schema and presentation may change.
+Local v1 and AUR v2 records can coexist. AUR identity uses the canonical Git URL and
+resolved PackageBase; listing does not contact the remote. AUR registration/update are
+internal APIs. Ordinary reviewed AUR edits can create an association through explicit save.
+.PP
+After editing root PKGBUILD or an existing top-level *.install and accepting Proceed with build?, the normal reviewed ordinary
+AUR route asks Save this edit as patch customization? [y/N]. No, empty input,
+--noconfirm and non-TTY input continue the accepted edit without patch generation or
+persistence. Piped yes is not save permission. Yes asks for a patch directory with no default.
+Use an existing user-owned directory outside cache, checkout and registry. Absolute paths
+are accepted; relative paths use command-start cwd. The input does not pass through a shell:
+~ and ~user are not expanded, and environment variables such as $HOME are not substituted.
+The destination is not created automatically. Unsafe paths, symlinks, ownership/permission violations are refused.
+One strict Git patch is generated per changed supported file. The ordered series must
+reproduce the accepted recipe files exactly. Existing top-level *.install content edits
+are supported; add, delete, rename, type and mode changes are not. Nested files and
+other source payload are not saved. PKGBUILD material is named PKGBUILD-<SHA-256>.patch;
+install material is named INSTALL-<path-SHA-256>-<patch-SHA-256>.patch. Existing
+PKGBUILD-only records remain compatible. Separate
+explicit makepkg --printsrcinfo consent validates source identity in an owned copy without
+replanning the current build. Publication never overwrites, and registration retains the
+generated expected SHA-256. Existing associations are refused without append/update/replace.
+Any save failure stops with nonzero status. Published material remains after registration
+failure; registry state may be unchanged or uncertain. Only complete success continues
+the same accepted edit. Cancellation, EOF and input failure stop separately from No.
+Creation excludes compatibility, official/local, Auto -S, targetless and dry-run routes.
+Authoritative devel plus Save Yes stops; edited SRCINFO cannot downgrade that decision.
+Save does not authorize future Apply or persist source-build V=K preferences.
+.PP
+Experimental saved AUR patches are discovered by upgrade, upgrade-aur and upgrade-all
+using the exact canonical source URL and PackageBase. Each PackageBase has its own
+[y/N] selection. No, empty input, non-TTY
+and --noconfirm continue with the stock path without acquiring or hashing material.
+Yes verifies the saved series and reapplies the same owned bytes to a fresh current
+upstream candidate. Fresh modified metadata drives the combined dependency plan.
+Upstream review and explicit metadata evaluation consent remain separate; additional
+editor changes are not combined. Any selected-path failure stops without stock or
+Legacy fallback. Registry failure is never treated as absence.
+.PP
+Selected recipe preparation may precede the system transaction; build/install
+transaction order and partial outcomes remain unchanged. Dry-run observes the stock
+plan without patch selection/evaluation. Exact target-less -Su/-Syu, Auto -S and plain
+build do not discover patches. Authoritative devel plus saved patches is unsupported:
+Yes stops both forced GitRevision/bootstrap updates and ordinary version updates
+whose unmodified recipe/install policy select authoritative execution. No preserves
+the stock route. An overlay never silently downgrades authoritative execution.
+
+.
+.TP
 .B "-S <pkg> | -S --select [--needed] <query>"
 Install packages.
 Auto routing uses official repositories first, honors an applicable source
@@ -557,6 +671,7 @@ remote
 .BR build ,
 .BR plan ,
 .BR deps ,
+.BR list-patch ,
 .BR "-S --select" ,
 .BR -Qua ,
 exact target-less
@@ -932,15 +1047,19 @@ Formal Japanese translation of this man page.
 .
 .TP
 .I /usr/share/bash-completion/completions/moguet
-Bash completion for the public CLI schema.
+Bash completion for the public CLI schema and the first plain
+.B moguet -S
+package prefix from the existing default local sync DB. Provider failure
+retains static completion; extra options, query, AUR and alternate DB contexts
+do not use the package provider.
 .
 .TP
 .I /usr/share/zsh/site-functions/_moguet
-zsh completion for the public CLI schema.
+zsh completion with the same static and local package prefix scope.
 .
 .TP
 .I /usr/share/fish/vendor_completions.d/moguet.fish
-fish completion for the public CLI schema.
+fish completion with the same static and local package prefix scope.
 .
 .TP
 .I /usr/share/locale/ja/LC_MESSAGES/moguet.mo

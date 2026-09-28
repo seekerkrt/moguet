@@ -18,6 +18,7 @@ struct StateLogDirectoryAccess;
 
 struct TrustedCacheDirectoryAccess;
 struct SourcePreferenceDirectoryAccess;
+struct PatchAssociationDirectoryAccess;
 struct XdgGenerationStoreDirectoryAccess;
 
 namespace xdg_directory_safety {
@@ -135,6 +136,7 @@ class PreparedDirectory final {
     friend struct xdg_state_log::StateLogDirectoryAccess;
     friend struct ::TrustedCacheDirectoryAccess;
     friend struct ::SourcePreferenceDirectoryAccess;
+    friend struct ::PatchAssociationDirectoryAccess;
     friend struct ::XdgGenerationStoreDirectoryAccess;
 
 public:
@@ -209,6 +211,11 @@ PreparedDirectory prepare_directory(
     const xdg_paths::SourcePreferencePaths& paths);
 std::optional<PreparedDirectory> open_existing_directory(
     const xdg_paths::SourcePreferencePaths& paths);
+
+PreparedDirectory prepare_directory(const xdg_paths::PatchAssociationPaths& paths);
+PreparedDirectory prepare_directory(const xdg_paths::PatchAssociationPaths& paths,
+                                    const DirectoryCreationPrecondition& creation_precondition);
+std::optional<PreparedDirectory> open_existing_directory(const xdg_paths::PatchAssociationPaths& paths);
 
 // Resolver-owned XDG state-store directory. Lookup does not create it;
 // missing is represented only by nullopt.

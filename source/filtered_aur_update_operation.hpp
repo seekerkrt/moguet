@@ -144,7 +144,7 @@ class PreparedFilteredAurUpdateOperation final {
         DevelRequiresCheckPolicy devel_requires_check_policy,
         SavedSourcePreferencePolicy saved_source_preference_policy,
         const AppConfig& config,
-        std::optional<ValidatedCacheRoot> cache_root);
+        std::optional<ValidatedCacheRoot> cache_root, UpgradePatchPolicy patch_policy);
     friend FilteredAurUpdateExecutionResult
     execute_prepared_filtered_aur_update_operation(
         PreparedFilteredAurUpdateOperation prepared,
@@ -322,7 +322,7 @@ PreparedFilteredAurUpdateOperation prepare_filtered_aur_update_operation(
     DevelRequiresCheckPolicy devel_requires_check_policy,
     SavedSourcePreferencePolicy saved_source_preference_policy,
     const AppConfig& config,
-    std::optional<ValidatedCacheRoot> cache_root = std::nullopt);
+    std::optional<ValidatedCacheRoot> cache_root = std::nullopt, UpgradePatchPolicy patch_policy = UpgradePatchPolicy::Ignore);
 
 FilteredAurUpdateObservation observe_filtered_aur_update_operation(
     AurUpdateQueryResult query_result,

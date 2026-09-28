@@ -3,8 +3,10 @@
 #include "cli_routing.hpp"
 #include "local_source_root.hpp"
 #include "local_source_workspace.hpp"
+#include "source_preference.hpp"
 
 #include <string>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -20,6 +22,8 @@ struct PreparedLocalSourceBuildRoute {
 struct RemoteSourceBuildInvocation {
     std::string package_name;
     SourceBuildEnvironment source_environment;
+    bool use_source_preference = false;
+    std::optional<PreparedSourcePreferenceContents> source_preference_to_save;
 };
 
 PreparedLocalSourceBuildRoute prepare_local_source_build_route(
@@ -30,7 +34,7 @@ void require_executable_local_source_build_route(
     const PreparedLocalSourceBuildRoute& route);
 
 RemoteSourceBuildInvocation require_remote_source_build_invocation(
-    const std::vector<std::string>& args);
+    const ParsedCliArguments& parsed);
 
 std::string local_source_workspace_failure_diagnostic(
     const LocalSourceWorkspaceFailure& failure);
@@ -39,8 +43,11 @@ int cmd_build_local(
     PreparedLocalSourceBuildRoute route,
     const AppConfig& config);
 
+// Closed public patch lifecycle, dispatched before default state-log creation.
+int cmd_patch_association(const ParsedCliArguments& parsed, const AppConfig& config);
+
 int cmd_build(
-    const std::vector<std::string>& args,
+    RemoteSourceBuildInvocation invocation,
     const AppConfig& config);
 
 int cmd_add_src(const std::vector<std::string>& args);

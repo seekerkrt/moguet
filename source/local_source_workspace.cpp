@@ -2278,3 +2278,9 @@ void require_cache_identity_outside_source_tree_for_test(
         source_root, cache_device, cache_inode);
 }
 #endif
+
+LocalSourceWorkspace create_aur_patch_workspace(const ValidatedCacheRoot& cache_root) {
+    cache_root.require_unchanged_identity();
+    const auto path = create_source_workspace_path(cache_root);
+    return LocalSourceWorkspace(retain_trusted_cache_directory(path));
+}

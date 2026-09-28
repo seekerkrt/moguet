@@ -57,3 +57,9 @@ BuildPlan resolve_build_plan_for_preflight(
     }
     return g_state.resolver_handler(targets);
 }
+
+BuildPlan resolve_recipe_build_plan(const std::vector<std::string>&,
+                                    const AurRecipeMetadataSet&,
+                                    const ProviderSelectionCallback&) {
+    throw std::logic_error("This query fixture has no evaluated recipe metadata.");
+}

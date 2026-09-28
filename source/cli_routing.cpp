@@ -578,12 +578,18 @@ DryRunOperation classify_dry_run_operation(
         case cli_authority::OperationId::Build: {
             const bool local_build = local_source_build_requested(parsed);
             std::size_t local_selector_count = 0;
+            std::size_t preference_option_count = 0;
             for(const ParsedCliToken& token : parsed.tokens) {
                 switch(token.role) {
                     case CliTokenRole::PacmanOption:
                         if(local_build &&
                            token.value == cli_authority::LOCAL_SOURCE_OPTION) {
                             ++local_selector_count;
+                            break;
+                        }
+                        if(!local_build &&
+                           token.value == cli_authority::USE_SOURCE_PREFERENCE_OPTION) {
+                            ++preference_option_count;
                             break;
                         }
                         return DryRunOperation::Unsupported;
@@ -597,7 +603,8 @@ DryRunOperation classify_dry_run_operation(
                         break;
                 }
             }
-            if(local_build && local_selector_count != 1) {
+            if((local_build && local_selector_count != 1) ||
+               preference_option_count > 1) {
                 return DryRunOperation::Unsupported;
             }
             return local_build ? DryRunOperation::LocalBuild
@@ -627,6 +634,10 @@ DryRunOperation classify_dry_run_operation(
         case cli_authority::OperationId::Revert:
         case cli_authority::OperationId::EditSource:
         case cli_authority::OperationId::ListSources:
+        case cli_authority::OperationId::AddPatch:
+        case cli_authority::OperationId::UpdatePatch:
+        case cli_authority::OperationId::DeletePatch:
+        case cli_authority::OperationId::ListPatch:
         case cli_authority::OperationId::Count:
             return DryRunOperation::Unsupported;
     }
@@ -684,6 +695,10 @@ LocalSourceBuildInvocation require_local_source_build_invocation(
                 }
                 break;
             case CliTokenRole::PacmanOption:
+                if(token.value == cli_authority::USE_PATCHES_OPTION) {
+                    invocation.use_patches = true;
+                    break;
+                }
                 if(token.value != local_source_option) {
                     // TRANSLATORS: The placeholders are literal CLI syntax tokens.
                     reject_local_source_build_invocation(

@@ -10,6 +10,9 @@ contractの規範上の正本は各文書の日本語本文である。英語利
 
 | Contract | Origin Issue | Main boundary |
 | --- | --- | --- |
+| [Local sync package prefix provider](local-sync-package-prefix.md) | #253 Slice 1a/1b/5 | shared operand/lexical authority、local-only libalpm prefix、bounded private helper、generated shell接続とstatic fallback |
+| [Delegated query option spelling](pacman-query-completion.md) | #253 Slice 3 | pinned raw upstream input、bounded token-only extraction、Moguet ownership precedence、exact -Q / opaque tail boundary |
+| [Shell completion closure](shell-completion.md) | #253 Slice 1–5 | finite values、ownership表示、全候補のlexical boundary、cross-shell regressionとread-only process境界 |
 | [Source-aware package identity](source-package-identity.md) | #355 | source、PackageBase、package child、revision、release、architectureの分離とread-only projection |
 | [Reviewed AUR source state](reviewed-source-state.md) | #411 | PackageBase単位のexact reviewed revision、explicit acceptance、CAS publication、pinned build、legacy migration |
 | [Trusted Git remote revision observer](git-remote-revision-observer.md) | #475 | authority-approved request、HTTPS-only Git observation、bounded process、strict SHA-1 / SHA-256 result、mutation-free boundary |
@@ -32,6 +35,14 @@ contractの規範上の正本は各文書の日本語本文である。英語利
 | [ambiguous provider selection](ambiguous-provider-selection.md) | #272 | invocation-localな明示選択とmutation前preflight |
 | [root package selection](root-package-selection.md) | #217 | `-S --select`のsource-aware root selectionとroute固定 |
 | [local PKGBUILD](local-pkgbuild.md) | #271 | local root identity、metadata authority、source tree非破壊境界 |
+
+## Implemented Experimental contract
+
+次は実装済みのpublic機能であり、Experimentalとしてpublic surface / schema / UXの変更余地を残す。
+
+| Contract | Origin Issue | Main boundary |
+| --- | --- | --- |
+| [Package/source patch customization](patch-customization.md) | #363 / #649 / #650 / #665 | local登録・listing、AUR association・upgrade-familyの明示Apply、reviewed PKGBUILD / 既存top-level *.install editの明示Save、ordered seriesのstrict replay |
 
 ## 英語利用者向けの読み方
 

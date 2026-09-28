@@ -9,7 +9,12 @@
 #include <string>
 #include <vector>
 
-// AUR RPC の package info response を、依存解決や表示で扱いやすくした型。
+enum class AurPackageMetadataOrigin { Rpc,
+                                      EvaluatedRecipe };
+
+// AUR package planner view. RPC is the default producer; an explicitly selected
+// recipe consumer can supply fresh evaluation with a distinct origin. Semantic
+// package source remains AUR in both cases.
 // NOTE: メンバ名は AUR RPC JSON key と 1:1 で対応させるため PascalCase のまま維持する。
 struct AurPackageInfo {
     std::string Name;
@@ -27,7 +32,13 @@ struct AurPackageInfo {
     std::optional<long long> OutOfDate;
     // Non-JSON Slice 4 projection populated once by the production RPC parser.
     std::optional<AurPackageConstraintMetadata> constraint_metadata;
+    AurPackageMetadataOrigin metadata_origin = AurPackageMetadataOrigin::Rpc;
+    bool recipe_architecture_supported = true;
 };
+
+// Invocation-local, evaluated child metadata. Never installed into AurClient's
+// RPC cache; only explicit source-aware planners receive this input.
+using AurRecipeMetadataSet = std::map<std::string, AurPackageInfo>;
 
 // AUR RPC の parse/schema/semantic violation。transport failure や not-found と区別して伝播する。
 class AurRpcResponseError : public std::runtime_error {

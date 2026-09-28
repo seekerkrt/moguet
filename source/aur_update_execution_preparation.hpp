@@ -153,6 +153,9 @@ struct AurUpdateExternallySatisfiedBuildUnit {
 // POLICY(#267): execution-bearing generic invocationを外部へ公開せず、parallel
 // vectorのcount/order/identityをpreparation後に書き換えられないようにする。
 // moveはexecution capabilityを移し、move元を明示的にinvalid化する。
+class AurUpgradePatchSet;
+void attach_aur_upgrade_patch_candidates(AurUpdateSourceBuildPreparation&, const AurUpgradePatchSet&);
+
 class PreparedAurUpdateSourceBuildInvocation final {
     PreparedProductionSourceBuildInvocation production_invocation_;
     std::vector<AurUpdatePreparedWorkItemAttribution>
@@ -180,6 +183,7 @@ class PreparedAurUpdateSourceBuildInvocation final {
         bool needed,
         const AppConfig& config);
     friend struct AurUpdateSourceBuildPreparation;
+    friend void attach_aur_upgrade_patch_candidates(AurUpdateSourceBuildPreparation&, const AurUpgradePatchSet&);
     friend AurUpdateSourceBuildExecutionResult
     execute_prepared_aur_update_source_build_invocation(
         PreparedAurUpdateSourceBuildInvocation invocation,

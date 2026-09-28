@@ -1,3 +1,144 @@
+# Moguet v2.11.0
+
+This tracked file is the source of truth for release bodies. The English and
+Japanese sections for each release describe the same scope.
+
+## English
+
+Moguet v2.11.0 is a MINOR feature release that makes source-build
+customization more explicit and reusable, expands the Experimental recipe
+patch workflow, adds context-aware shell completion, and includes
+release-preparation safety and presentation improvements.
+
+### Explicit source-build preferences
+
+* Plain remote `build <pkg>` continues to use only invocation-local settings.
+  `build <pkg> --use-preference` explicitly reuses the saved source-build
+  preference for that package. Missing preferences and preference/`V=K`
+  conflicts fail before build or package mutation instead of silently falling
+  back or defining an implicit merge policy.
+* `build <pkg> V=K... --save-preference` can promote the explicit ordered
+  assignments to the persistent source-build preference only after the remote
+  build/install lifecycle succeeds. Existing entries are not silently
+  overwritten, and the values must round-trip exactly through the existing
+  preference format before the build begins.
+* Preference reuse and promotion remain separate from patch customization.
+  Plain one-off builds still do not persist settings automatically.
+
+### Experimental patch customization
+
+* Patch customization now supports a complete explicit workflow around the
+  existing build authorities: local association and `build --local
+  --use-patches`, registry inspection with `list-patch`, source-aware AUR
+  associations, and explicit Apply decisions in `upgrade`, `upgrade-aur`, and
+  `upgrade-all`.
+* A reviewed ordinary AUR edit can be explicitly saved as generated recipe
+  patch material. The accepted upstream baseline and edited content are
+  correlated, generated patches are replayed against the expected baseline,
+  and successful publication registers the resulting ordered customization
+  for later use.
+* Persistent reviewed-recipe customization now covers content modifications
+  to the root `PKGBUILD` and existing top-level `*.install` files. Changed
+  files are represented as an ordered file-per-patch series and the complete
+  series must reproduce the accepted edited recipe state.
+* The feature remains Experimental. Registration is not automatic selection,
+  future Apply requires separate consent, and a selected customization that
+  becomes missing, changed, unsafe, unsupported, or unapplicable does not
+  silently fall back to a stock build. Add/delete/rename/type/mode changes,
+  arbitrary nested source payloads, and binary customization remain outside
+  the persistent scope.
+
+### Context-aware shell completion
+
+* Bash, Zsh, and Fish completion gained context-aware dynamic projections for
+  supported CLI surfaces instead of relying only on static command and option
+  lists.
+* Plain sync-package completion can query local repository package prefixes
+  without refreshing package databases. Finite typed option values such as
+  `--build-mode=` are projected from CLI authority, and delegated pacman
+  `-Q` option tokens come from a version-identified bounded upstream snapshot.
+* Dynamic provider failure falls back conservatively to the static completion
+  surface. Completion does not attempt to infer arbitrary pacman semantics or
+  turn runtime package lookup into a package-database mutation.
+
+### Safety, project status, and presentation
+
+* Canonical uninstall handling now recognizes the supported
+  `/usr/local/share/man -> ../man` filesystem alias through its dedicated
+  validated path instead of rejecting the normal Arch filesystem layout.
+  Arbitrary symlink traversal is still rejected.
+* Patch-save destination input handling was tightened so invalid or ambiguous
+  input does not become an implicit storage choice.
+* Current-facing README, project stance, compatibility, contract, development,
+  versioning, and man-page wording were re-audited against the implemented
+  product. Historical v3 planning no longer reserves the next major version;
+  future major-version changes require a concrete compatibility reason.
+* Final real-package dogfood identified dense reviewed-source output as a UX
+  issue. Review entries, content, acceptance, provenance, and build/install
+  outcome groups now have clearer visual spacing without changing wording,
+  review authority, acceptance, publication, or execution semantics.
+
+## 日本語
+
+Moguet v2.11.0は、source-build customizationをより明示的かつ再利用可能にし、
+Experimentalなrecipe patch workflowを拡張し、context-aware shell completionを追加すると
+ともに、release前のsafety / presentation改善をまとめたMINOR feature releaseです。
+
+### Source-build preferenceの明示制御
+
+* 通常のremote `build <pkg>`は引き続きinvocation-localな設定だけを使います。
+  `build <pkg> --use-preference`を指定した場合だけ、そのpackageの保存済み
+  source-build preferenceを明示的に再利用します。未登録やpreferenceと`V=K`の競合は、
+  silent fallbackや暗黙のmerge policyを作らず、build / package mutation前に停止します。
+* `build <pkg> V=K... --save-preference`では、remote build/install lifecycleが成功した
+  後だけ、明示したordered assignmentをpersistent source-build preferenceへ昇格できます。
+  既存entryを黙って上書きせず、build開始前に既存formatでexact round-tripできることも
+  要求します。
+* preferenceの再利用・昇格とpatch customizationは別authorityのままです。
+  通常のone-off buildが自動的に設定を永続化することもありません。
+
+### Experimental patch customization
+
+* patch customizationは、既存build authorityを維持したまま、local associationと
+  `build --local --use-patches`、`list-patch`によるregistry確認、source-awareな
+  AUR association、`upgrade` / `upgrade-aur` / `upgrade-all`での明示的なApply判断まで
+  一連のworkflowとして利用できるようになりました。
+* reviewed ordinary AURで受理した編集を、generated recipe patch materialとして明示的に
+  保存できます。受理したupstream baselineと編集後contentを相関させ、生成patchを期待baselineへ
+  replayして検証したうえで、成功したordered customizationを後日の利用向けに登録します。
+* persistentなreviewed-recipe customizationは、root `PKGBUILD`に加えて既存top-level
+  `*.install`のcontent modificationにも対応しました。変更fileごとのordered patch seriesとし、
+  series全体で受理済みrecipe stateをexactに再現できることを要求します。
+* この機能は引き続きExperimentalです。登録しただけでは自動選択せず、future Applyには別の
+  consentが必要です。選択後にmaterialがmissing / changed / unsafe / unsupported / apply不能に
+  なった場合もstock buildへsilent fallbackしません。add / delete / rename / type / mode変更、
+  arbitrary nested source payload、binary customizationはpersistent scope外です。
+
+### Context-aware shell completion
+
+* Bash / Zsh / Fish completionで、staticなcommand / option一覧だけでなく、対応CLI surfaceに
+  context-awareなdynamic projectionを追加しました。
+* plain sync package completionではpackage DBをrefreshせずlocal repository package prefixを
+  queryできます。`--build-mode=`等の有限typed valueはCLI authorityから投影し、delegated
+  pacman `-Q` option tokenはversionを特定したbounded upstream snapshotを正とします。
+* dynamic providerが失敗した場合は保守的にstatic completionへfallbackします。
+  arbitraryなpacman semanticsを推測したり、completion用package lookupをpackage DB mutationへ
+  変えたりしません。
+
+### Safety、project status、presentation
+
+* canonical uninstallでは、Arch filesystem layoutで利用される
+  `/usr/local/share/man -> ../man`を専用の検証済み経路で扱えるようにし、正常なaliasを
+  一律拒否しなくなりました。arbitrary symlink traversalは引き続き拒否します。
+* patch保存先の入力規則を明確化し、invalid / ambiguousな入力を暗黙の保存先へ変換しません。
+* README、project stance、compatibility、contract、development、versioning、man pageの
+  current-facing表現を実装済みproductへ再同期しました。過去のv3 planningだけで次majorを
+  予約せず、major version変更はconcreteなcompatibility理由が生じた時点で改めて判断します。
+* 最終実package dogfoodでreviewed-source出力の情報密度をUX findingとして確認し、
+  review entry、content、acceptance、provenance、build/install outcomeの意味のまとまりへ
+  visual spacingを追加しました。wording、review authority、acceptance、publication、
+  execution semanticsは変更していません。
+
 # Moguet v2.10.1
 
 This tracked file is the source of truth for release bodies. The English and

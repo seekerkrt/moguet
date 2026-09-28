@@ -22,11 +22,11 @@ ${XDG_CONFIG_HOME:-$HOME/.config}/moguet/source-build.d/<package-name>
 
 `add-src`、`edit-src`、`list-src`、`del-src`、`revert`と、build / upgrade側のreaderは、同じXDG authorityだけを使用する。unsetまたはemptyの`XDG_CONFIG_HOME`は`$HOME/.config`へfallbackする。明示した`XDG_CONFIG_HOME`はabsoluteかつ安全で既存のbase directoryでなければfail closedとし、そのbase自体をMoguetが作成しない。
 
-root実行時もroot自身のXDG contextを使い、`SUDO_USER`等から別userの保存先を推測しない。package install / reinstall / uninstallはuser XDG directoryやsource preference fileを作成・削除しない。必要なmanaged directoryは、最初にstorageを必要とするadd / editが既存のXDG directory safety boundaryを通して作成する。
+root実行時もroot自身のXDG contextを使い、`SUDO_USER`等から別userの保存先を推測しない。package install / reinstall / uninstallはuser XDG directoryやsource preference fileを作成・削除しない。必要なmanaged directoryは、最初にstorageを必要とするadd / edit、または後述の明示promotionが既存のXDG directory safety boundaryを通して作成する。
 
 ### Filesystem operation
 
-read、list、build、upgradeはdirectoryを作成しない。missingなdelete / revertもdirectoryを作成しない。managed directoryはmode `0700`、entryはmode `0600`で作成する。package name validationはdirectory作成とexternal commandより前に完了する。
+read、list、plain build、upgradeはdirectoryを作成しない。missingなdelete / revertもdirectoryを作成しない。`build --save-preference`の成功後publicationだけは明示writeとしてdirectoryを作成できる。managed directoryはmode `0700`、entryはmode `0600`で作成する。package name validationはdirectory作成とexternal commandより前に完了する。
 
 preference filesystem操作はdescriptor基準とし、final symlinkを拒否し、write / renameをatomicに行う。missing store / entryだけを正常なabsenceとして扱い、次はhard errorとする。
 
@@ -43,6 +43,35 @@ preference filesystem操作はdescriptor基準とし、final symlinkを拒否し
 非協調same-euid processまたはrootがfinal identity checkとpathname syscallの間で行うreplacementまで完全なrace-freeとはしない。ただし、identity mismatchを観測した後は正体を証明できないnameをunlink、exchange、restoreしない。safe cleanupを証明できないartifactは保持し、typed errorで停止する。
 
 source preferenceのfilesystem操作では`sudo`やshell command constructionを使わない。ただし`revert`後のpacman transactionは別責務であり、必要な`sudo`は維持する。
+
+### One-off environmentの明示promotion
+
+remote `build <pkg> V=K... --save-preference`は最低1件のexplicit assignmentを要求し、
+`--use-preference`、`--dry-run`、local buildとの併用をfilesystem / network / build mutation前に拒否する。
+plain one-offと`--noconfirm`は保存を意味しない。
+
+保存対象は今回の`SourceBuildEnvironment::ordered_assignments`だけで、order、duplicate、emptyを保持する。
+inferred environment、build mode、makepkg.conf、PKGBUILD / `.install` editor overlayを取り込まない。
+recipe editのpatch customizationは別のexplicit保存同意とlifecycleを維持する。
+one-off emptyは`Forward`、saved consumerのemptyは既存の`Omit`のままとする。
+
+`--save-preference`だけは、explicit ordered environment全体をcurrent preference formatでexactに
+round-tripできる場合に限定する。既存canonical parserをoracleとし、length、各indexのkey/value、orderが
+すべて一致しなければbuild開始前にfail closedする。variable expansionやcomment/quote処理、改行によって
+値が変わる保存を認めない。たとえばliteralな`$HOME` / `${HOME}`や埋込み改行は拒否され得る。
+保存可能なquote、backslash、`#`、空白は値を変えずに保持する。whitelistやoptimization normalizationは行わない。
+preflightで検証したserialized bytesをowned化し、successful build/install後にその同一bytesを公開する。
+plain one-off buildのvalue contract、既存reader/parser/formatは変更しない。
+
+成立条件は`ProductionSourceBuildInvocationResult::is_success()`によるbuild/install lifecycle全体の成功である。
+Review / Build / ArtifactValidation / InstallPreparation / InstallTransaction / Cleanup / Otherのfailureで保存しない。
+後段のoptional `--rmdeps` cleanupだけのfailureはpromotionを妨げないが、command終了codeはそのfailureを保つ。
+
+existing preferenceはbuild前にfail closedし、`edit-src <pkg>`を案内する。overwrite、merge、appendは行わない。
+publication時にもdestination absentを要求し、build中またはfinal publication boundaryで作成されたentryを保全する。
+全assignmentをtemporary artifactへまとめて書き、既存LOCK_EX / descriptor-first / atomic absent-publication /
+fsync / identity validationを再利用する。部分appendやpartial preferenceを成功扱いしない。
+publication後のidentity / fsync failureは既存writerと同様に失敗を返し、正体不明の公開済みnameを削除しない。
 
 ### Legacy storeとmigration
 

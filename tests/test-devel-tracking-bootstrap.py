@@ -59,6 +59,7 @@ class Rpc(http.server.BaseHTTPRequestHandler):
 
 def main():
     cases = {
+        "patch-selection": b"n\ny\n",
         "accept": b"y\ny\n",
         "supplemental": b"y\ny\n",
         "no-cache": b"y\ny\n",

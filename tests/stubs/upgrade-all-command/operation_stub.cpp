@@ -2588,7 +2588,7 @@ PreparedUpgradeAllAurPreflight prepare_upgrade_all_aur_preflight(
 }
 
 UpgradeAllOperationPreparation prepare_upgrade_all_operation(
-    const AppConfig& config) {
+    const AppConfig& config, UpgradePatchPolicy) {
     const std::string scenario = current_scenario();
     append_event("upgrade-all prepare " + config_snapshot(config));
     if(scenario == "prepare-exception") {

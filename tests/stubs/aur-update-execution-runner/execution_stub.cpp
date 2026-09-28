@@ -75,7 +75,7 @@ using ScriptedOutcome = std::variant<
     ScriptedMetadataFailure,
     ScriptedTrustedCacheFailure,
     ScriptedTransactionFailure,
-    ScriptedUnknownFailure, ConfirmationResult>;
+    ScriptedUnknownFailure, ConfirmationResult, std::exception_ptr>;
 
 struct ScriptedExecution {
     stub::ExpectedExecution expected;
@@ -380,6 +380,9 @@ void enqueue_confirmation_stop(ExpectedExecution expected, ConfirmationResult re
 
 void enqueue_unknown_failure(ExpectedExecution expected) {
     enqueue(std::move(expected), ScriptedUnknownFailure{});
+}
+void enqueue_recipe_patch_save_failure(ExpectedExecution expected, RecipePatchSaveFailure failure) {
+    enqueue(std::move(expected), std::make_exception_ptr(RecipePatchSaveError(std::move(failure), "scripted recipe patch save failure")));
 }
 
 void fail_repository_provider_transaction(std::string diagnostic) {
@@ -700,6 +703,7 @@ execute_prepared_package_base_source_build_work_item_typed(
         }
         throw error;
     }
+    if(const auto* exception = std::get_if<std::exception_ptr>(&scripted.outcome)) std::rethrow_exception(*exception);
     if(std::holds_alternative<ScriptedUnknownFailure>(scripted.outcome)) {
         throw UnknownExecutionFailure{};
     }

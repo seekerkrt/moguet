@@ -14,7 +14,7 @@
 
 ### CLI入口とroot identity
 
-正式入口は`moguet build --local <directory> [V=K...]`とする。既存の`build <pkg> [V=K...]`はremote package name routeとして維持し、pathらしい文字列をlocal rootへ暗黙変換しない。`--local`は`build`だけが所有するoperation-local source selectorであり、`-Bi`、`build-local`、`-S --local`などのaliasは追加しない。directory operandはexactly oneとし、missing / multiple operand、invalid `V=K`、package targetとの併記、opaque operandはlocal-root filesystem access、cache / state作成、external commandより前に拒否する。
+正式入口は`moguet build --local [--use-patches] <directory> [V=K...]`とする。既存の`build <pkg> [V=K...]`はremote package name routeとして維持し、pathらしい文字列をlocal rootへ暗黙変換しない。`--local`は`build`だけが所有するoperation-local source selectorであり、`-Bi`、`build-local`、`-S --local`などのaliasは追加しない。directory operandはexactly oneとし、missing / multiple operand、invalid `V=K`、package targetとの併記、opaque operandはlocal-root filesystem access、cache / state作成、external commandより前に拒否する。
 
 directoryは1つのlocal PackageBase sourceを選ぶ。採用metadata snapshotに宣言されたvalidかつuniqueな全`pkgname` childをfirst-seen orderのrequired root targetとする。初期routeは先頭child、PackageBase名、またはproduced artifact全体をinstall targetとして推測しない。
 
@@ -23,6 +23,12 @@ local rootはrepository / AUR rootと異なるtyped identityである。descript
 root directory、root `PKGBUILD`、optional `.SRCINFO`はeffective user所有で、group / other writableではないことを要求する。final symlink、non-directory、special file、unsafe owner / permissionをfollowまたは黙って受け入れない。fileはdirectory descriptor相対のregular non-symlinkとして開き、device / inode、size、high-resolution mtime、content snapshotをprovenanceとして保持する。
 
 ### Metadata authorityとPKGBUILD評価
+
+以下の`.SRCINFO`採用は通常local buildのcontractである。`--use-patches`明示選択時は
+[patch customization contract](patch-customization.md)に従い、owned candidate上のfresh identity観測・
+strict series取得・prepatch評価・ordered apply・postpatch評価を行い、postpatch metadataだけからplanを作る。
+patch storeは選択時だけ読み、通常local buildのdefaultやsaved preference authorityを変更しない。
+
 
 既存の安全な`.SRCINFO`をread-only metadataの第一候補とする。少なくともPackageBase、ordered children、version、architecture、architecture-qualified fields、depends / makedepends / checkdepends / optdepends、provides、conflicts、replaces、各version constraintとchild scopeを保持する。qualified fieldをunqualifiedへflattenせず、local metadataをAUR RPC用identityへ変換しない。
 

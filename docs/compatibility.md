@@ -45,8 +45,8 @@ grammarは次のとおりである。
 
 <!-- CLI CANONICAL GRAMMAR BEGIN -->
 ```text
-build <pkg> [V=K...]
-build --local <directory> [V=K...]
+build [--use-preference] [--save-preference] <pkg> [V=K...]
+build --local [--use-patches] <directory> [V=K...]
 upgrade
 upgrade-aur
 upgrade-all
@@ -59,6 +59,10 @@ edit-src <pkg>...
 list-src
 del-src <pkg>...
 revert <pkg>...
+add-patch <directory> <patch-directory> <patch-file>...
+update-patch <directory> <patch-directory> <patch-file>...
+del-patch <directory> <package-base>
+list-patch
 -G <pkg> [--output-dir=DIR]
 -Gp <pkg>
 -S --select [--needed] <query>
@@ -71,7 +75,7 @@ revert <pkg>...
 
 remote / local `build`はprimary operandをexactly oneだけ取り、その後には`V=K`
 assignmentだけを許すため、extra bare operandを拒否する。`upgrade`、`upgrade-aur`、
-`upgrade-all`、`clean`、`list-src`はtarget-lessであり、target operandを拒否する。一方、
+`upgrade-all`、`clean`、`list-src`、`list-patch`はtarget-lessであり、target operandを拒否する。一方、
 `deps`、`plan`、`fetch`と`add-src`、`edit-src`、`del-src`、`revert`は表示どおり
 multi-targetを維持する。`add-src`ではpackage itemが後続assignmentのscopeを開始する。
 
@@ -447,6 +451,65 @@ dependency edgeはmetadata trust boundaryで構成したtyped requirement、inst
 
 <a id="compat-split-package"></a>
 
+## Patch customization（Experimental）
+
+`add-patch <directory> <patch-directory> <patch-file>...`、`update-patch`の同形、
+`del-patch <directory> <package-base>`をclosed grammarとして公開する。
+`list-patch` / `list-patch --details`で保存recordを一覧する。Normalはassociationの概要、Detailedは
+保存順のfile名・expected digest・schema versionを追加し、外部materialのopen・存在確認・再hashはしない。
+local v1とAUR専用v2を混在でき、AUR sourceのnetwork / 存在確認も行わない。
+AUR登録・更新は既存resolved source authorityを受けるinternal APIを使う。通常review済みAURの
+root PKGBUILDまたは既存top-level *.installのcontent editは、
+existing Proceed acceptance後に別の `Save this edit as patch customization? [y/N]` から明示保存できる。
+No・empty・--noconfirm・non-TTYはpatch生成・公開・registry I/Oなしでsame accepted editを継続する。
+Yes後だけdefaultなしのpatch directoryを入力し、command-start cwdからrelativeを解決する。
+changed supported fileごとのstrict materialをPKGBUILD先頭・*.install lexical順で保存し、series全体のexact reproductionを確認する。
+add/delete/rename/type/mode変更とnested fileはpersistent save対象外で、Yes時にfail closedする。
+既存PKGBUILD-only recordはmigrationなしでread/applyできる。
+safe existing user-owned directory、no-overwrite、register-only、expected generated digestのcommitまでの保持を要求する。
+既存associationへのimplicit append/update/replace、future Apply同意への流用はない。Yes後failureはnonzero停止し、
+公開済みmaterialを残してregistry未変更/uncertain、両commit後ならその完了factを保持する。
+compatibility、official/local、Auto -S、targetless、dry-runへsaveを起動しない。
+authoritative devel + Yesはhard stop、判断にはpre-editor upstream metadataを使う。
+metadata評価には別の明示同意が必要で、今回のmanual-edit planは再構成しない。
+exact lookupもregistry全体をstrictに読み、unknown identity / 不正recordをabsenceにしない。
+不正recordはskipせず一覧全体を失敗させる。表示順とread契約は[patch contract](contracts/patch-customization.md)を正とする。
+localでは`build --local --use-patches <directory> [V=K...]`が保存associationを明示選択する。
+通常local buildはpatch storeを読まず、登録・選択・実行同意を分離する。
+selectionのremote使用・誤配置・重複・attached value、`--edit` / `--dry-run`との併用はpre-logで拒否する。
+`--use-preference`は従来どおりremote専用。lifecycleは余分なoperand / optionをmutation前に拒否する。
+原本・patch後recipeのread-only previewとdefaultなしのmetadata評価確認を持ち、
+`--noconfirm` / non-TTYは評価同意を代替しない。forgetは明示PackageBaseによってrecipe評価を避ける。
+strict material取得後の同一owned bytesをfresh candidateへ適用し、postpatch metadataから既存buildへ渡す。
+選択後のfailureにstock fallbackはない。詳細は[patch contract](contracts/patch-customization.md)を正とする。
+
+### Upgrade-familyのAUR patch選択（Experimental）
+
+actual `upgrade` / `upgrade-aur` / `upgrade-all`は、exact current AUR sourceとKnown PackageBaseの確定後に
+保存associationをstrict lookupする。associationなしはpromptもmaterial取得もなくstockへ進む。
+発見時はPackageBaseごとにdefault-No確認を行い、No・空入力・non-TTY・`--noconfirm`はmaterialを
+open/read/hashせずstockへ進む。recordは変更しない。registry failureはabsenceへ丸めない。
+Yesだけがdigest検証済みの同一owned bytesをfresh current upstream candidateへ適用し、fresh metadataから
+batch planを作る。追加editor overlayは合成せず、upstream review・patch前後metadata評価・build確認を分離する。
+
+custom recipeではdependencyを知るためにrecipe自体の準備が必要であるため、上記の一般的なpreflight-before-Git規則に
+限定例外を設ける。query-level blockerは候補mutation前に判定し、explicit Yes後のrecipe-only clone/review/evaluationだけを
+最終batch planより前に許す。`upgrade` / `upgrade-all`の登録sourceではsystem transactionより前に行う場合がある。
+shared provider transaction・build・installは最終plan後、package transactionの既存順で実行する。
+post-system installed/devel observationとOnlyIfUpdated判定は実行時に維持し、準備時のskip/build判定を流用しない。
+fresh child集合外のrequired targetやenvironment drift、candidate変更、material/apply/metadata/plan/build/cleanup failureはhard stopであり、
+stock fallback・automatic repair・先行transactionのrollbackは行わない。
+
+既存no-overlay proofを持つauthoritative develとの組合せは非対応。forced intentと、ordinary version updateでも
+未改変current upstream recipe・install policyからauthoritativeを選ぶ場合の双方をYesで停止する。
+判定にpatch後overlayを使ってLegacyへ黙って降格しない。Noはstock authoritative経路を変更しない。
+customized devel recipe/build/provenance supportは別follow-upである。
+
+dry-runはstock planのread-only観測でありpatch storeを読まず、選択・candidate取得・評価へ進まない。
+exact targetless `-Su` / `-Syu`、Auto `-S`、plain remote/local buildにはsaved patchの自動選択を追加しない。
+plain reviewed AUR buildで#650のSave Yesを選んだ場合だけproducerがduplicate/registrationのregistryを利用する。
+CLI grammar / completion / #362 preference selectionは変えない。
+
 ## Remote source-build PackageBase summary
 
 PackageBaseはclone / fetch / build repositoryの単位であり、package nameはinstall targetである。official repositoryでは、requested childとPackageBaseの対応をconfigured repository順のstrict libalpm exact snapshotから取得する。`Present`だけをrepository sourceとして採用し、confirmed `NotFound`だけをAUR fallbackへ渡す。query / config / metadata failureをabsenceへflattenせず停止し、requested name、filename、URL、artifact pathからPackageBaseを推測しない。
@@ -531,7 +594,7 @@ content provenanceをそれぞれ維持する。詳細は
 
 ## Common source-aware identity compatibility
 
-Issue #355のcommon identityは、後続profile / snapshot / patch workflow向けのinternal foundationであり、現時点のpublic CLIやproduction selection / build / install semanticsを変更しない。package child、PackageBase、repository / AUR / local source、source location、source revision、package release、architectureを別fieldで保持し、package名またはderived string keyへflattenしない。
+Issue #355のcommon identityはinternal foundationであり、それ自体はpublic CLIやproduction selection / build / install semanticsを変更しない。package child、PackageBase、repository / AUR / local source、source location、source revision、package release、architectureを別fieldで保持し、package名またはderived string keyへflattenしない。
 
 Issue #355のgeneric current repository / AUR modelはexact source commitを保持しないためrevisionは`Unknown`であり、known commitとして推測しない。Issue #411のreviewed-source lifecycleはAUR review / build用のexact OIDを別のpersistent / capability authorityとして保持するが、そのOIDをgeneric `source_package_identity_projection`へ注入して`Known`へ昇格させない。generic source identity projectionとreviewed-source persistent / build authorityは同じものではない。current local routeはGit repositoryをauthorityにせずfilesystem / content provenanceを使うためrevisionは`Inapplicable`である。`Unknown`、`Absent`、`Unavailable`、`Inapplicable`をknown matchやabsenceへ丸めない。
 
@@ -541,7 +604,7 @@ internal compatibility evaluatorはsource、PackageBase、child、revision、rel
 
 read-only projectionの一部はIssue #485のinternal production pathに限定接続されている。`project_dependency_source_package_identity()`は`SourceArtifactInstall`のtrusted bindingとinvocation-owned cleanup correlation / evidenceに、`project_artifact_source_package_identity()`はtrusted bindingのartifact整合とreceipt evidenceに利用される。このprojectionは既存のtrusted ownerへtyped identity / correlation evidenceを渡すだけであり、source-build routing、artifact identity、`SourceArtifactInstall` trusted transport、invocation-owned cleanupのauthorityをcommon modelへ移さず、既存routeを置換しない。
 
-generic compatibility evaluatorは引き続きpublic production workflow / routing decisionへ未接続である。public profile workflow、patch / revision authority、generic compatibility-driven routing、v3 source-build / profile architectureはcurrent featureではない。詳細なstate、equality、compatibility、projection contractは[source-aware package identity contract](contracts/source-package-identity.md)を正本とする。
+generic compatibility evaluatorは引き続きpublic production workflow / routing decisionへ未接続である。generic revision authorityやgeneric compatibility-driven routingはcurrent featureではなく、generic profile abstractionはcurrent requirementとして採用していない。実装済みpatch customizationは別のselection / consent / acquisition authorityに従う。詳細なstate、equality、compatibility、projection contractは[source-aware package identity contract](contracts/source-package-identity.md)を正本とする。
 
 <a id="compat-packagebase-child-selection"></a>
 
@@ -619,7 +682,16 @@ canonical rootは次である。
 ${XDG_CONFIG_HOME:-$HOME/.config}/moguet/source-build.d/<package-name>
 ```
 
-unset / emptyの`XDG_CONFIG_HOME`は`$HOME/.config`へfallbackし、明示値はabsoluteかつ安全で既存base directoryでなければfail closedとする。root実行時もroot自身のXDG contextを使い、`SUDO_USER`から別userを推測しない。add / editだけが必要なdirectoryをsafe creation boundary経由で作成し、read / list / build / upgrade / missing delete / revertはdirectoryを作成しない。
+unset / emptyの`XDG_CONFIG_HOME`は`$HOME/.config`へfallbackし、明示値はabsoluteかつ安全で既存base directoryでなければfail closedとする。root実行時もroot自身のXDG contextを使い、`SUDO_USER`から別userを推測しない。add / editとremote `build --save-preference`の成功後publicationが必要なdirectoryをsafe creation boundary経由で作成し、read / list / plain build / upgrade / missing delete / revertはdirectoryを作成しない。
+
+`build <pkg> V=K... --save-preference`はexplicit ordered assignmentsだけをbuild/install lifecycle成功後に
+新規preferenceへ昇格する。assignmentが0件、`--use-preference` / `--dry-run`との併用、local buildを
+mutation前に拒否する。既存entryはbuild前に停止して`edit-src`を案内し、publicationでも既存entryを
+上書きしない。optional `--rmdeps` cleanupだけのfailureでは保存可能だが終了codeは失敗のままである。
+plain build / `--noconfirm`は保存を意味せず、recipe editのpatch保存同意とは別のauthorityである。
+保存時だけ、既存parserをoracleとしてenvironment全体のlength/key/value/orderのexact round-tripを要求し、
+表現不能な値はbuild前に拒否する。preflightで確定したowned bytesをそのまま公開し、既存parser/formatと
+plain one-offのvalue contractは変更しない。
 
 explicit `upgrade` / `upgrade-aur` / `upgrade-all`とsource-aware buildはこのauthorityをStrictに
 扱う。exact target-less `-Syu`のactual / dry-runはnormal AUR routeのIgnore policyを使い、
@@ -654,7 +726,7 @@ interactive stdinで番号、ASCII空白・comma区切りの複数番号、inclu
 
 ## Local PKGBUILD compatibility（production接続済み）
 
-正式入口は`moguet build --local <directory> [V=K...]`であり、`build <pkg>`はremote package routeとして維持する。local PKGBUILD routeはproduction CLIへ接続済みである。local directory、root `PKGBUILD`、`.SRCINFO`のfilesystem identity、owner、mode、containmentをdescriptor-firstで検証し、unsafe stateはfail closedとする。local rootをAUR RPCへqueryせず、metadata failureをAUR absenceやempty dependencyへfallbackしない。
+正式入口は`moguet build --local [--use-patches] <directory> [V=K...]`であり、`build <pkg>`はremote package routeとして維持する。local PKGBUILD routeはproduction CLIへ接続済みである。local directory、root `PKGBUILD`、`.SRCINFO`のfilesystem identity、owner、mode、containmentをdescriptor-firstで検証し、unsafe stateはfail closedとする。local rootをAUR RPCへqueryせず、metadata failureをAUR absenceやempty dependencyへfallbackしない。
 
 safe `.SRCINFO`をread-only authorityの第一候補とし、missing / invalid / known-staleとPKGBUILD evaluationを区別する。`--noedit`はevaluation consentではなく、`--noconfirm`、non-TTY、cancel、EOFはevaluationを自動承認しない。local source treeをreset、clean、overwrite、deleteせず、local rootはExplicit、dependency artifactsはDependencyとして扱い、existing Explicitを降格しない。artifactはPackageBase / required-child contractへ接続する。Issue #271 Slice 2〜5でmetadata、dependency plan、source workspace、artifact / install、public surfaceを揃え、production CLIへ接続済みである。詳細なfilesystem、execution、cleanup contractは[local PKGBUILD contract](contracts/local-pkgbuild.md)を参照する。
 

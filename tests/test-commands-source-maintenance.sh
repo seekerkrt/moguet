@@ -161,6 +161,7 @@ setup_case() {
     unset MOGUET_TEST_APP_CONFIG_CASE
     unset MOGUET_TEST_RELEASE_STATE_LOG_BEFORE_DISPATCH
     unset MOGUET_TEST_GIT_REMOTE_URL
+    unset MOGUET_TEST_GIT_REVIEW_TARGET_EXIT_CODE
     unset MOGUET_TEST_GIT_CLONE_EXIT_CODE
     unset MOGUET_TEST_GIT_CLONE_FAIL_DESTINATION
     unset MOGUET_TEST_GIT_CLONE_FAIL_DESTINATION_EXIT_CODE
@@ -896,7 +897,7 @@ setup_upgrade_transition_case() {
 setup_case build-missing-argument
 run_fail build
 assert_contains \
-    "Usage: moguet build <pkg> [V=K...] | build --local <directory> [V=K...]" \
+    "Usage: moguet build [--use-preference] [--save-preference] <pkg> [V=K...] | build --local [--use-patches] <directory> [V=K...]" \
     "$output_file"
 assert_total_command_count 0
 
@@ -996,6 +997,23 @@ run_fail build split-metadata-ambiguous-root
 assert_contains "ambiguous providers" "$output_file"
 assert_not_contains "conflicts/replaces metadata" "$output_file"
 
+setup_case build-save-reviewed-target-resolution-failure
+export MOGUET_TEST_GIT_REVIEW_TARGET_EXIT_CODE=7
+if ! validation_expect_status remote-reviewed-target-failure 1 "$output_file" "$output_file" \
+    script -qec "$test_binary --diff --noedit build split-child CFLAGS=-O3 --save-preference" /dev/null </dev/null; then
+    cat "$output_file" >&2
+    cat "$command_log" >&2
+    exit 1
+fi
+assert_contains "Reviewed source target revision resolution failed; the build was not started." "$output_file"
+assert_command_content_absent "makepkg"
+assert_command_content_absent "sudo"
+assert_not_contains "Saved source-build preference" "$output_file"
+if [ -e "$preference_dir/split-child" ]; then
+    echo "review failure promoted a preference" >&2
+    exit 1
+fi
+
 setup_case sync-plan-no-match-reaches-split
 run_fail -S --aur split-metadata-root
 assert_contains \
@@ -1043,7 +1061,7 @@ export MOGUET_TEST_PACMAN_REPO_PACKAGES=clean-root
 export MOGUET_TEST_MAKEPKG_PACKAGE_METADATA_STATE_AFTER_SUCCESS_FILE=$installed_after_success
 export MOGUET_TEST_PACMAN_U_SUCCESS_LOG=$install_success_log
 export MOGUET_TEST_REPLACE_WORKSPACE_AFTER_PACMAN_U=1
-run_fail --noedit --nodiff --noconfirm build clean-root
+run_fail --noedit --nodiff --noconfirm build clean-root CFLAGS=-O3 --save-preference
 assert_contains "Package installation succeeded, but artifact workspace cleanup failed:" "$output_file"
 assert_not_contains "Build Error:" "$output_file"
 assert_not_contains "Failed while building/installing PackageBase" "$output_file"
@@ -1051,6 +1069,11 @@ assert_not_contains "pacman -U failed" "$output_file"
 assert_command_prefix_count "sudo pacman -U --noconfirm -- " 1
 assert_file_equals "$installed_after_success" "$package_metadata_state"
 assert_cleanup_partial_success_fixture "$install_success_log"
+assert_not_contains "Saved source-build preference" "$output_file"
+if [ -e "$preference_dir/clean-root" ]; then
+    echo "workspace cleanup failure promoted a preference" >&2
+    exit 1
+fi
 
 echo "  ok: P0-1 cmd_build"
 

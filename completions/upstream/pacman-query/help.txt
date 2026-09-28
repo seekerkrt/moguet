@@ -1,0 +1,40 @@
+usage:  pacman {-Q --query} [options] [package(s)]
+options:
+  -b, --dbpath <path>  set an alternate database location
+  -c, --changelog      view the changelog of a package
+  -d, --deps           list packages installed as dependencies [filter]
+  -e, --explicit       list packages explicitly installed [filter]
+  -g, --groups         view all members of a package group
+  -i, --info           view package information (-ii for backup files)
+  -k, --check          check that package files exist (-kk for file properties)
+  -l, --list           list the files owned by the queried package
+  -m, --foreign        list installed packages not found in sync db(s) [filter]
+  -n, --native         list installed packages only found in sync db(s) [filter]
+  -o, --owns <file>    query the package that owns <file>
+  -p, --file <package> query a package file instead of the database
+  -q, --quiet          show less information for query and search
+  -r, --root <path>    set an alternate installation root
+  -s, --search <regex> search locally-installed packages for matching strings
+  -t, --unrequired     list packages not (optionally) required by any
+                       package (-tt to ignore optdepends) [filter]
+  -u, --upgrades       list outdated packages [filter]
+  -v, --verbose        be verbose
+      --arch <arch>    set an alternate architecture
+      --cachedir <dir> set an alternate package cache location
+      --color <when>   colorize the output
+      --config <path>  set an alternate configuration file
+      --confirm        always ask for confirmation
+      --debug          display debug messages
+      --disable-download-timeout
+                       use relaxed timeouts for download
+      --disable-sandbox
+                       disables all sandbox features used for the downloader process
+      --disable-sandbox-filesystem
+                       disables the filesystem part of the downloader process sandbox
+      --disable-sandbox-syscalls
+                       disables the syscalls part of the downloader process sandbox
+      --gpgdir <path>  set an alternate home directory for GnuPG
+      --hookdir <dir>  set an alternate hook location
+      --logfile <path> set an alternate log file
+      --noconfirm      do not ask for any confirmation
+      --sysroot        operate on a mounted guest system (root-only)

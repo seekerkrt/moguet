@@ -657,5 +657,8 @@ AurUpdateExecutionPreflight resolve_aur_update_execution_preflight(
     DevelRequiresCheckPolicy devel_requires_check_policy,
     const ProviderSelectionCallback& select_provider);
 bool has_executable_targets(const AurUpdateExecutionPreflight& preflight) noexcept;
+AurUpdateExecutionPreflight resolve_aur_update_execution_preflight_with_recipes(
+    const AurUpdatePlan& update_plan, DevelRequiresCheckPolicy policy,
+    const ProviderSelectionCallback& select_provider, const AurRecipeMetadataSet& recipes);
 bool has_blocking_targets(const AurUpdateExecutionPreflight& preflight) noexcept;
 bool can_execute(const AurUpdateExecutionPreflight& preflight) noexcept;

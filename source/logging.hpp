@@ -89,6 +89,10 @@ class Logger {
     static void write_noexcept_warning_fallback() noexcept;
 
 public:
+    // An explicit execution preparation can outgrow a read-only pre-log
+    // capture. Release its diagnostics before external commands begin; the
+    // original capture owner may still stop/replay safely afterwards.
+    static void flush_diagnostic_capture();
     static void set_diagnostics_to_stderr();
     static void init(const std::filesystem::path& path);
     static void init(

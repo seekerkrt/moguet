@@ -41,7 +41,7 @@ assert_reply() {
 
 root_candidates=(
     build upgrade upgrade-aur upgrade-all clean deps plan fetch
-    add-src edit-src list-src del-src revert
+    add-src edit-src list-src del-src revert add-patch update-patch del-patch list-patch
     -G -Gp -S -Syu -Su -Ss -Si -Qua
     -h --help -V --version
     --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode=
@@ -74,7 +74,7 @@ run_completion moguet list-src unexpected-target ""
 assert_reply "optionなしtargetless operationも不正operand後は閉じる"
 
 run_completion moguet up
-assert_reply "operation prefix" upgrade upgrade-aur upgrade-all
+assert_reply "operation prefix" upgrade upgrade-aur upgrade-all update-patch
 
 run_completion moguet deps --r
 assert_reply "deps固有option prefix" --recursive
@@ -101,45 +101,73 @@ run_completion moguet --d
 assert_reply "diagnostic and dry-run option prefix" --diff --dry-run --details
 
 # enum / package候補のdynamic completionは#253へ残す。
-run_completion moguet --build-mode=n
-assert_reply "typed build-mode valueは提示しない"
+# Finite attached values are covered by the shared authority scenarios in
+# test-dynamic-completion.py; this suite retains the ordinary static surface.
 
 run_completion moguet build ""
 assert_reply \
     "build form未選択時はremote/localのunion" \
-    --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= \
+    --use-preference --save-preference --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= \
     --rebuild --cleanbuild --details --local
 
 run_completion moguet build pkg ""
 assert_reply \
     "remote build target後はlocal selectorを提示しない" \
-    --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= \
+    --use-preference --save-preference --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= \
     --rebuild --cleanbuild --details
 
 run_completion moguet build pkg V=1 ""
 assert_reply \
     "remote buildのtrailing assignmentを維持" \
-    --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= \
+    --use-preference --save-preference --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= \
     --rebuild --cleanbuild --details
 
 run_completion moguet build pkg extra ""
 assert_reply "remote buildのsecond bare operand後は候補を提示しない"
 
+run_completion moguet build pkg V=1 --save-preference ""
+assert_reply "save is once and excludes use/dry/local" \
+    --edit --noedit --diff --nodiff --noconfirm --build-mode= --rebuild --cleanbuild --details
+run_completion moguet build pkg --use-preference "--save"
+assert_reply "reuse excludes save"
+run_completion moguet build --save-preference "--local"
+assert_reply "save excludes local before the package operand"
+run_completion moguet --dry-run build pkg V=1 "--save"
+assert_reply "dry-run excludes save"
+
 run_completion moguet build --local ""
 assert_reply \
     "local build固有scopeとonce selector" \
-    --edit --noedit --noconfirm --dry-run --build-mode= --rebuild --cleanbuild
+    --edit --noedit --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --use-patches
 
 run_completion moguet build --local directory V=1 ""
 assert_reply \
     "local buildのdirectory/trailing assignmentを維持" \
-    --edit --noedit --noconfirm --dry-run --build-mode= --rebuild --cleanbuild
+    --edit --noedit --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --use-patches
 
 run_completion moguet build --local directory extra ""
 assert_reply "local buildのsecond bare operand後は候補を提示しない"
 
+run_completion moguet build --local --use-patches directory ""
+assert_reply "patch selectionは重複・editor・dry-runを候補にしない" --noedit --noconfirm --build-mode= --rebuild --cleanbuild
+
+run_completion moguet --edit build --local ""
+assert_reply "editor選択後はpatch selectionを提示しない" --edit --noconfirm --dry-run --build-mode= --rebuild --cleanbuild
+
+run_completion moguet add-patch directory material first.patch ""
+assert_reply "registerはordered file operandsを許可する" --noconfirm
+run_completion moguet del-patch directory base extra ""
+assert_reply "forget extra operand後は閉じる"
+
 run_completion moguet clean ""
 assert_reply "cleanのroute-owned option" --noconfirm
+
+run_completion moguet list-patch ""
+assert_reply "list-patchはdetailsだけを提示" --details
+run_completion moguet list-patch --details ""
+assert_reply "list-patchのdetailsはrepeat-idempotent" --details
+run_completion moguet list-patch unexpected ""
+assert_reply "list-patch extra operand後は閉じる"
 
 run_completion moguet list-src ""
 assert_reply "list-srcはoptionを持たない"
@@ -235,12 +263,19 @@ run_completion moguet -S --select --dry-run --det
 assert_reply "selected dry-runでdetailsを重複提示しない" --details
 
 run_completion moguet -Q ""
-assert_reply "未列挙pacman operationもopen grammarとして扱う" --needed --noconfirm
+mapfile -t query_candidates < <(PYTHONDONTWRITEBYTECODE=1 python3 - "$script_dir/../scripts" <<'PY'
+import sys
+sys.path.insert(0, sys.argv[1])
+from generate_completions import load_schema, query_completion_tokens
+print('\n'.join(query_completion_tokens(load_schema())))
+PY
+)
+assert_reply "queryはsnapshotと既存authorityのtoken projectionを使う" "${query_candidates[@]}"
 
 run_completion moguet build --rebuild ""
 assert_reply \
     "repeat可能aliasを維持しconflict候補を除外" \
-    --edit --noedit --diff --nodiff --noconfirm --dry-run --rebuild --details --local
+    --use-preference --save-preference --edit --noedit --diff --nodiff --noconfirm --dry-run --rebuild --details --local
 
 zsh_completion="$(dirname -- "${completion_file}")/_moguet"
 fish_completion="$(dirname -- "${completion_file}")/moguet.fish"
@@ -249,6 +284,16 @@ if command -v zsh >/dev/null 2>&1; then
     MOGUET_COMPLETION_FILE="${zsh_completion}" zsh -f <<'ZSH'
 compdef() { return 0 }
 source "$MOGUET_COMPLETION_FILE"
+_describe() {
+    local entry name=$argv[-1]
+    for entry in "${(@P)name}"; do captured+=("${entry%%:*}"); done
+}
+functions[_moguet_under_test]=$functions[_moguet]
+_moguet() {
+    local -a captured
+    _moguet_under_test
+    reply=("${captured[@]}")
+}
 
 fail() {
     print -u2 -- "FAIL: Zsh completion semantic projection: $1"
@@ -309,6 +354,29 @@ CURRENT=4
 _moguet_collect_candidates build
 has_candidate --edit || fail 'remote build primary operand was closed'
 has_candidate --details || fail 'remote build lost --details'
+has_candidate --use-preference || fail 'remote build lost --use-preference'
+has_candidate --save-preference || fail 'remote build lost --save-preference'
+has_candidate --use-patches && fail 'remote build leaked --use-patches'
+
+words=(moguet build pkg V=1 --save-preference '')
+CURRENT=6
+_moguet
+has_candidate --save-preference && fail 'save repeated'
+has_candidate --use-preference && fail 'save leaked reuse'
+has_candidate --dry-run && fail 'save leaked dry-run'
+has_candidate --local && fail 'save leaked local route'
+words=(moguet build --save-preference '')
+CURRENT=4
+_moguet
+has_candidate --local && fail 'pre-operand save leaked local route'
+words=(moguet build pkg --use-preference '')
+CURRENT=5
+_moguet
+has_candidate --save-preference && fail 'reuse leaked save'
+words=(moguet --dry-run build pkg '')
+CURRENT=5
+_moguet
+has_candidate --save-preference && fail 'dry-run leaked save'
 
 words=(moguet build pkg extra '')
 CURRENT=5
@@ -319,8 +387,18 @@ words=(moguet build --local '')
 CURRENT=4
 _moguet_collect_candidates build
 has_candidate --edit || fail 'local build lost --edit'
+has_candidate --use-preference && fail 'local build leaked --use-preference'
+has_candidate --save-preference && fail 'local build leaked --save-preference'
 has_candidate --diff && fail 'local build leaked --diff'
 has_candidate --details && fail 'local build leaked --details'
+has_candidate --use-patches || fail 'local build lost --use-patches'
+words=(moguet build --local --use-patches directory '')
+CURRENT=6
+_moguet
+has_candidate --use-patches && fail 'patch selection repeated'
+has_candidate --edit && fail 'patch selection suggested editor'
+has_candidate --dry-run && fail 'patch selection suggested dry-run'
+has_candidate --noedit || fail 'patch selection lost noedit'
 
 words=(moguet build --local directory V=1 '')
 CURRENT=6
@@ -397,7 +475,7 @@ has_candidate --noconfirm || fail 'source-maintenance multi-target form was clos
 words=(moguet -Q '')
 CURRENT=3
 _moguet_find_operation || fail 'delegated operation not found'
-[[ $REPLY == __delegated__ ]] || fail 'delegated operation was closed'
+[[ $REPLY == -Q ]] || fail 'query completion context identity differs'
 _moguet_collect_candidates "$REPLY"
 has_candidate --noconfirm || fail 'delegated grammar lost --noconfirm'
 ZSH
@@ -448,14 +526,36 @@ __moguet_candidate_available 0; or fail 'remote build assignment flow was closed
 set mock_words moguet build pkg
 __moguet_candidate_available 0; or fail 'remote build primary operand was closed'
 __moguet_candidate_available 20; or fail 'remote build lost --details'
+__moguet_candidate_available 21; or fail 'remote build lost --use-preference'
+__moguet_candidate_available 23; or fail 'remote build lost --save-preference'
+__moguet_candidate_available 22; and fail 'remote build leaked --use-patches'
+set mock_words moguet build pkg V=1 --save-preference
+__moguet_candidate_available 23; and fail 'save repeated'
+__moguet_candidate_available 21; and fail 'save leaked reuse'
+__moguet_candidate_available 5; and fail 'save leaked dry-run'
+__moguet_candidate_available 15; and fail 'save leaked local route'
+set mock_words moguet build --save-preference
+__moguet_candidate_available 15; and fail 'pre-operand save leaked local route'
+set mock_words moguet build pkg --use-preference
+__moguet_candidate_available 23; and fail 'reuse leaked save'
+set mock_words moguet --dry-run build pkg
+__moguet_candidate_available 23; and fail 'dry-run leaked save'
 set mock_words moguet build pkg extra
 __moguet_candidate_available 0; and fail 'remote build second bare operand remained open'
 
 set mock_words moguet build --local
 __moguet_candidate_available 0; or fail 'local build lost --edit'
+__moguet_candidate_available 21; and fail 'local build leaked --use-preference'
+__moguet_candidate_available 23; and fail 'local build leaked --save-preference'
 __moguet_candidate_available 2; and fail 'local build leaked --diff'
 __moguet_candidate_available 20; and fail 'local build leaked --details'
 __moguet_candidate_available 15; and fail 'once --local remained available'
+__moguet_candidate_available 22; or fail 'local build lost --use-patches'
+set mock_words moguet build --local --use-patches directory
+__moguet_candidate_available 22; and fail 'patch selection repeated'
+__moguet_candidate_available 0; and fail 'patch selection suggested editor'
+__moguet_candidate_available 5; and fail 'patch selection suggested dry-run'
+__moguet_candidate_available 1; or fail 'patch selection lost noedit'
 set mock_words moguet build --local directory V=1
 __moguet_candidate_available 0; or fail 'local build assignment flow was closed'
 set mock_words moguet build --local directory
@@ -502,7 +602,7 @@ set mock_words moguet revert first second
 __moguet_candidate_available 4; or fail 'source-maintenance multi-target form was closed'
 
 set mock_words moguet -Q
-test (__moguet_operation) = __delegated__; or fail 'delegated operation was closed'
+test (__moguet_operation) = -Q; or fail 'query completion context identity differs'
 __moguet_candidate_available 20; and fail 'delegated grammar leaked --details'
 __moguet_candidate_available 4; or fail 'delegated grammar lost --noconfirm'
 FISH

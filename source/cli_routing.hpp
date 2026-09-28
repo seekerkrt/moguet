@@ -116,6 +116,7 @@ struct RootPackageSelectionInvocation {
 struct LocalSourceBuildInvocation {
     std::string directory;
     SourceBuildEnvironment source_environment;
+    bool use_patches = false;
 };
 
 std::optional<PkgbuildExportMode> pkgbuild_export_mode(const ParsedCliArguments& parsed);

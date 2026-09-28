@@ -66,6 +66,10 @@ int main(int argc, char* argv[]) {
               << '\n';
     std::cout << "prompt="
               << localization::translate_message("Rebuild package?") << '\n';
+    std::cout << "patch_directory_prompt="
+              << localization::translate_message("Patch directory (absolute path or relative to the command's starting directory; '~' is not expanded):") << '\n';
+    std::cout << "patch_directory_rule="
+              << localization::translate_message("Use an existing patch directory with an absolute path or a path relative to the command's starting directory; '~' is not expanded.") << '\n';
     std::cout << "soname_class_32="
               << localization::translate_message("[SONAME: 32-bit]") << '\n';
     std::cout << "soname_class_64="
@@ -125,6 +129,15 @@ int main(int argc, char* argv[]) {
                 reviewed_update,
                 ProductionSourceBuildCommandOutcome::Succeeded,
                 ProductionSourceInstallOutcome::Failed});
+    if(staged_presentation.info_lines.size() != 5 ||
+       staged_presentation.info_lines[0] != reviewed_presentation.info_lines[0] ||
+       staged_presentation.info_lines[1] != reviewed_presentation.info_lines[1] ||
+       staged_presentation.info_lines[2] != reviewed_presentation.info_lines[2] + "\n" ||
+       staged_presentation.info_lines[3].find('\n') != std::string::npos ||
+       staged_presentation.info_lines[4].find('\n') != std::string::npos) {
+        std::cerr << "Localized reviewed-source grouping differs\n";
+        return 1;
+    }
     std::cout << "reviewed_build_outcome="
               << staged_presentation.info_lines[3] << '\n';
     std::cout << "reviewed_install_outcome="

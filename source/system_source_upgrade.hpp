@@ -1,5 +1,7 @@
 #pragma once
 
+#include <exception>
+
 #include "dependency_plan.hpp"
 #include "package_metadata.hpp"
 #include "source_install.hpp"
@@ -384,6 +386,7 @@ enum class RegisteredSourceBuildFailureCategory {
     ArtifactIdentity,
     InstallPreparation,
     InstallTransaction,
+    PatchCustomizationSave,
     Other,
 };
 
@@ -393,6 +396,7 @@ struct RegisteredSourceBuildFailureSnapshot {
     std::string diagnostic;
     std::optional<ReviewedSourceProductionFailure>
         reviewed_source_failure;
+    std::exception_ptr failure_exception = nullptr;
 };
 
 struct RegisteredSourcePackageTransactionFailureSnapshot {
@@ -552,7 +556,7 @@ using SystemSourceUpgradePreparation = std::variant<
 
 SystemSourceUpgradePreparation prepare_system_source_upgrade(
     const AppConfig& config,
-    const SystemSourceUpgradeEventObserver& observer = {});
+    const SystemSourceUpgradeEventObserver& observer = {}, UpgradePatchPolicy patch_policy = UpgradePatchPolicy::Ignore);
 
 // by-value consumeにより、呼び出し元capabilityをmutation前にinvalid化する。
 // shared_cache_root keeps one actual-execution authority across the nested

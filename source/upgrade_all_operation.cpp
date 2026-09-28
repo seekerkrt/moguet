@@ -927,6 +927,17 @@ bool stop_for_aur_preflight_failure(
         return false;
     }
 
+    if(preflight.preparation_confirmation()) {
+        const auto& stop = *preflight.preparation_confirmation();
+        const bool cancelled = std::holds_alternative<ConfirmationCancelled>(stop);
+        result.status = cancelled ? UpgradeAllOperationStatus::StoppedOnAurCancellation : UpgradeAllOperationStatus::StoppedBeforeAurExecution;
+        result.stopped_phase = UpgradeAllOperationPhase::AurPreparation;
+        result.aur.status = cancelled ? UpgradeAllAurPhaseStatus::StoppedOnWorkItemCancellation : UpgradeAllAurPhaseStatus::BlockedBeforeExecution;
+        result.aur.preparation_confirmation = stop;
+        result.aur.diagnostic = confirmation_stop_diagnostic(stop);
+        return true;
+    }
+
     const bool is_inconsistent = std::any_of(
         preflight.issues().begin(), preflight.issues().end(),
         [](const UpgradeAllOperationIssue& issue) {
@@ -1302,7 +1313,7 @@ void PreparedUpgradeAllAurPreflight::prepare_aur_query_stage() {
 void PreparedUpgradeAllAurPreflight::prepare_filtered_operation_stage(
     const UpgradeAllOperationPreparedSnapshot& prepared,
     const AppConfig& config,
-    std::optional<ValidatedCacheRoot> cache_root) {
+    std::optional<ValidatedCacheRoot> cache_root, UpgradePatchPolicy patch_policy) {
     if(stopped_phase_ != UpgradeAllOperationPhase::None ||
        !aur_query_result_.has_value()) {
         return;
@@ -1321,7 +1332,11 @@ void PreparedUpgradeAllAurPreflight::prepare_filtered_operation_stage(
                 DevelRequiresCheckPolicy::BlockOperation,
                 SavedSourcePreferencePolicy::Strict,
                 config,
-                std::move(cache_root)));
+                std::move(cache_root), patch_policy));
+    } catch(const ConfirmationOperationStopped& stop) {
+        preparation_confirmation_ = stop.result();
+        stopped_phase_ = UpgradeAllOperationPhase::AurPreparation;
+        diagnostic_ = confirmation_stop_diagnostic(stop.result());
     } catch(const TrustedCacheError&) {
         throw;
     } catch(const std::logic_error& error) {
@@ -1364,13 +1379,13 @@ PreparedUpgradeAllAurPreflight prepare_upgrade_all_aur_preflight(
 }
 
 UpgradeAllOperationPreparation prepare_upgrade_all_operation(
-    const AppConfig& config) {
+    const AppConfig& config, UpgradePatchPolicy patch_policy) {
     try {
         // Preparation is a read-only production preflight. Actual execution
         // acquires one cache authority for registered-source and AUR phases.
         require_supported_production_source_build_options(config);
         SystemSourceUpgradePreparation source_preparation =
-            prepare_system_source_upgrade(config);
+            prepare_system_source_upgrade(config, {}, patch_policy);
         if(auto* blocked =
                std::get_if<SystemSourceUpgradeResult>(
                    &source_preparation)) {
@@ -1410,6 +1425,8 @@ UpgradeAllOperationPreparation prepare_upgrade_all_operation(
 
         return UpgradeAllOperationPreparationAccess::make(
             std::move(snapshot), std::move(prepared_source));
+    } catch(const ConfirmationOperationStopped&) {
+        throw;
     } catch(const std::exception& error) {
         UpgradeAllOperationResult result = make_preexecution_rejection(
             {},
@@ -1694,7 +1711,7 @@ UpgradeAllOperationResult execute_prepared_upgrade_all_operation(
     }
     try {
         aur_preflight.prepare_filtered_operation_stage(
-            snapshot, config, execution_cache_root);
+            snapshot, config, execution_cache_root, UpgradePatchPolicy::Interactive);
     } catch(const TrustedCacheError& error) {
         stop_for_cache_authority_failure(
             result, UpgradeAllOperationPhase::AurPreparation,

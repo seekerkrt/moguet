@@ -23,6 +23,7 @@
 #include "commands_source_maintenance.hpp"
 #include "commands_sync.hpp"
 #include "commands_upgrade_all.hpp"
+#include "diagnostic_projection.hpp"
 #include "dry_run.hpp"
 #include "interactive_confirmation.hpp"
 #include "localization.hpp"
@@ -251,6 +252,16 @@ int run_moguet(int argc, char* argv[]) {
         return run_dry_run(parsed, g_config);
     }
 
+    const auto* patch_operation = cli_authority::find_moguet_operation(parsed.operation);
+    if(patch_operation && (patch_operation->id == cli_authority::OperationId::AddPatch ||
+                           patch_operation->id == cli_authority::OperationId::UpdatePatch ||
+                           patch_operation->id == cli_authority::OperationId::DeletePatch ||
+                           patch_operation->id == cli_authority::OperationId::ListPatch)) {
+        // Config lifecycle has no default state-log side effect. Its closed
+        // runtime grammar has already rejected unrelated options/operands.
+        return cmd_patch_association(parsed, g_config);
+    }
+
     // POLICY(#505): only the shared exact targetless classifier may create
     // the composite capability. Auto option rejection and source-build option
     // rejection both finish before the repository transaction or state log.
@@ -392,6 +403,23 @@ int run_moguet(int argc, char* argv[]) {
         return 1;
     }
 
+    std::optional<RemoteSourceBuildInvocation> prepared_remote_source_build;
+    if(parsed.operation ==
+           cli_authority::operation_spec(
+               cli_authority::OperationId::Build)
+               .token &&
+       !prepared_local_source_build.has_value()) {
+        try {
+            // Explicit preference failure must precede even the default state
+            // log mutation; the owned environment is used without a second read.
+            prepared_remote_source_build.emplace(
+                require_remote_source_build_invocation(parsed));
+        } catch(const std::exception& error) {
+            Logger::error(error.what());
+            return 1;
+        }
+    }
+
     if(!validate_pre_log_operation_route(parsed)) return 1;
 
     if(parsed.operation ==
@@ -411,6 +439,11 @@ int run_moguet(int argc, char* argv[]) {
                 return cmd_upgrade_aur(
                     std::move(*prepared_aur_update), g_config);
             }
+        } catch(const ConfirmationOperationStopped& stop) {
+            if(aur_update_diagnostic_capture) aur_update_diagnostic_capture->replay();
+            report_runtime_diagnostic(project_confirmation_diagnostic(stop.result(), DiagnosticOperation::UpgradeAur, DiagnosticPhase::Preflight, {}),
+                                      confirmation_stop_diagnostic(stop.result()));
+            return 1;
         } catch(const std::exception& error) {
             if(aur_update_diagnostic_capture.has_value()) {
                 aur_update_diagnostic_capture->replay();
@@ -538,7 +571,9 @@ int run_moguet(int argc, char* argv[]) {
                cli_authority::operation_spec(
                    cli_authority::OperationId::Build)
                    .token) {
-                return cmd_build(targets, g_config);
+                return cmd_build(
+                    std::move(prepared_remote_source_build.value()),
+                    g_config);
             }
             if(operation ==
                cli_authority::operation_spec(
@@ -782,7 +817,7 @@ void print_help() {
         cli_operation_syntax(OperationId::Build),
         localization::format_translated_message(
             // TRANSLATORS: The placeholder is the literal PKGBUILD artifact identity.
-            "Build one remote package or local {} root without saving a preference",
+            "Build one remote package or local {} root; assignments are one-off unless explicitly saved",
             "PKGBUILD"));
     print_help_entry(
         cli_operation_syntax(OperationId::Upgrade),
@@ -891,6 +926,27 @@ void print_help() {
         localization::translate_message(
             "Remove preferences and reinstall binary packages"));
     std::cout << std::endl;
+    print_help_section(localization::translate_message("LOCAL RECIPE PATCHES"));
+    print_help_continuation(localization::format_translated_message(
+        "Experimental: accepted ordinary reviewed {} edits to root {} and existing top-level {} can be saved with separate default-No consent to an explicit existing patch directory", "AUR", "PKGBUILD", "*.install"));
+    print_help_continuation(localization::translate_message(
+        "Use an existing patch directory with an absolute path or a path relative to the command's starting directory; '~' is not expanded."));
+    print_help_entry(cli_operation_syntax(OperationId::AddPatch), localization::format_translated_message(
+                                                                      "Register ordered {} patches from a user-maintained directory; do not enable automatic application", "PKGBUILD"));
+    print_help_entry(cli_operation_syntax(OperationId::UpdatePatch), localization::translate_message(
+                                                                         "Explicitly replace a local patch association and its expected digests"));
+    print_help_entry(cli_operation_syntax(OperationId::ListPatch), localization::translate_message(
+                                                                       "List saved patch associations without checking external material"));
+    print_help_entry(cli_operation_syntax(OperationId::DeletePatch), localization::translate_message(
+                                                                         "Forget only the association record; preserve user patch material"));
+    print_help_continuation(localization::format_translated_message(
+        "Use {} with {} to select saved patches; require explicit metadata evaluation consent and stop if customization fails", cli_authority::USE_PATCHES_OPTION, "build --local"));
+    print_help_continuation(localization::format_translated_message(
+        "Experimental: {}, {} and {} offer saved {} recipe patches with a No default; noninteractive use keeps stock recipes",
+        "upgrade", "upgrade-aur", "upgrade-all", "AUR"));
+    print_help_continuation(localization::translate_message(
+        "Patch Yes requires fresh metadata and never falls back; authoritative devel customization is unsupported"));
+    std::cout << std::endl;
     print_help_section(
         localization::format_translated_message(
             // TRANSLATORS: The placeholder is the literal pacman program identity.
@@ -956,8 +1012,8 @@ void print_help() {
             "Show detailed diagnostic and provenance information"));
     print_help_continuation(localization::format_translated_message(
         // TRANSLATORS: The placeholders are literal supported CLI forms.
-        "For remote {}, {}, {}, {}, {}, {}, {}, {}, and {}; changes presentation only, not execution",
-        "build", "plan", "deps", "-S --select", "-Qua", "-Syu / -Su", "upgrade-aur", "upgrade-all", "--dry-run -S"));
+        "For remote {}, {}, {}, {}, {}, {}, {}, {}, {}, and {}; changes presentation only, not execution",
+        "build", "plan", "deps", "-S --select", "-Qua", "-Syu / -Su", "upgrade-aur", "upgrade-all", "--dry-run -S", "list-patch"));
     print_help_entry(
         cli_option_syntax(OptionId::Help),
         localization::translate_message(
@@ -1033,6 +1089,21 @@ void print_help() {
     print_help_entry(
         cli_option_syntax(OptionId::BuildMode),
         localization::translate_message("Select the source-build mode"));
+    print_help_entry(
+        cli_option_syntax(OptionId::UseSourcePreference),
+        localization::translate_message(
+            "Use the saved source-build preference for this remote build"));
+    print_help_continuation(localization::translate_message(
+        "Require a registered preference; do not combine with V=K assignments"));
+    print_help_entry(
+        cli_option_syntax(OptionId::SaveSourcePreference),
+        localization::translate_message(
+            "Save explicit V=K assignments as a new preference after remote build/install success"));
+    print_help_continuation(localization::format_translated_message(
+        "Require V=K; reject existing preferences, {} and {}; use {} to edit an existing preference",
+        "--use-preference", "--dry-run", "edit-src"));
+    print_help_continuation(localization::translate_message(
+        "Reject values that cannot round-trip exactly through the existing preference format before building"));
     print_help_entry(
         cli_option_syntax(OptionId::Rebuild),
         localization::format_translated_message(
@@ -1183,6 +1254,13 @@ std::string join_pacman_args(const std::vector<std::string>& args) {
 bool validate_optionless_moguet_operation(const std::string& operation, const std::vector<std::string>& flags) {
     for(const auto& flag : flags) {
         if(flag == operation) continue;
+        if(operation == cli_authority::operation_spec(
+                            cli_authority::OperationId::Build)
+                            .token &&
+           (flag == cli_authority::USE_SOURCE_PREFERENCE_OPTION ||
+            flag == cli_authority::SAVE_SOURCE_PREFERENCE_OPTION)) {
+            continue;
+        }
         // POLICY(#335): target-bearing source-preference operations alone use
         // semantic `--` to pass a leading-hyphen operand to package validation.
         if(flag == "--" &&

@@ -7,7 +7,7 @@ PackageBase単位で保持し、そのrevisionから次のbuild targetまでをr
 contractである。規範上の正本は日本語本文である。
 
 - Origin Issue: [#411](https://github.com/seekerkrt/moguet/issues/411)
-- Parent roadmap: [#344](https://github.com/seekerkrt/moguet/issues/344)
+- Historical parent roadmap (closed): [#344](https://github.com/seekerkrt/moguet/issues/344)
 - Follow-up to: [#151](https://github.com/seekerkrt/moguet/issues/151)
 - Related Issues: [#59](https://github.com/seekerkrt/moguet/issues/59)、[#355](https://github.com/seekerkrt/moguet/issues/355)、[#359](https://github.com/seekerkrt/moguet/issues/359)、[#363](https://github.com/seekerkrt/moguet/issues/363)
 - Related contracts: [source-aware package identity](source-package-identity.md)、[interactive confirmation](interactive-confirmation.md)、[XDG cache safety](xdg-cache-safety.md)

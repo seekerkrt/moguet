@@ -627,7 +627,7 @@ PreparedFilteredAurUpdateOperation prepare_upgrade_aur_operation(
     return prepare_filtered_aur_update_operation(
         std::move(query_result), NoExplicitSourceSatisfaction{},
         DevelRequiresCheckPolicy::BlockOperation,
-        SavedSourcePreferencePolicy::Strict, config);
+        SavedSourcePreferencePolicy::Strict, config, std::nullopt, UpgradePatchPolicy::Interactive);
 }
 
 int cmd_upgrade_aur(

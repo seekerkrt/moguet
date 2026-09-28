@@ -42,54 +42,69 @@ v2では日常利用できることを目指し、correctnessとregression preve
 <!-- parity:status -->
 ## Project status
 
-Moguet v2.0.0は、jpacker v1.16.0の実行基盤を土台に、identity、保存先、config、
-localization、packagingを移行するbreaking releaseです。localの`moguet` binary、
-XDG path、typed TOML config、gettextによる英日CLI surfaceは実装済みです。local
-package identity、payload、dependency metadata、documentation、jpacker v1.16.0からの
-非破壊transitionをv2 release contractとして確定しました。
+現在の公開stableは **[v2.11.0](https://github.com/seekerkrt/moguet/releases/tag/v2.11.0)** です。
+継続開発は`develop`へ統合し、`main`はdefault branch / stable release lineとして維持します。
+[v2.11.0 milestone](https://github.com/seekerkrt/moguet/milestone/32)は、このreleaseで提供した
+scopeの記録です。今後のrelease scopeはactive milestoneが設定された時点でそれを正とします。
+以下は現在の実装状況です。
 
-Moguet v2.0.1は、採用済みXDG storage契約のうちsource-preference部分を完成させます。
-新しいstorage方針の追加ではなく、v2.0.0で欠けた実装の修正です。source-build
-preferenceは実行user自身のXDG config contextだけを使い、公開済みv2.0.0のtag、Release、
-release noteは歴史的記録のまま変更しません。
+### 実装済みのcurrent機能
 
-Moguet v2.9.0はordinary AUR helperの
-土台を完成させ、対応するremote AUR build routeでの限定的なdependency cleanup、
-Normal / Detailed presentationのcompact化、responsibility boundaryの簡素化、
-final RC validation workflowの整備をまとめています。対応範囲と利用者から見える変更の全体は
-[v2.9.0 release](https://github.com/seekerkrt/moguet/releases/tag/v2.9.0)を参照してください。
+- 日常的なAUR helperの主要workflowであるsearch/info、dependencyの調査・plan、fetch/review、
+  build/install、repository + AURのupdate orchestration、provider選択、source-aware routingを
+  実装済みです。split packageや混在dependencyの対応範囲には、文書化されたroute別の制限があります。
+- package単位のsource-build environmentには、明示的に使い分ける3つの形があります。
+  `moguet build <pkg> V=K...`は今回限りの指定です。
+  `moguet add-src <pkg> V=K...` / `moguet edit-src <pkg>`でpersistent preferenceを管理し、
+  `moguet build <pkg> --use-preference`で明示的に再利用します。
+  `moguet build <pkg> V=K... --save-preference`はremote build/install lifecycle成功後に、
+  明示したassignmentだけを保存済みpreferenceへ昇格します。明示assignmentが必須で、既存preferenceを
+  黙って上書きしません。通常のone-off buildは保存せず、patch編集のauthorityとも分離しています。
+  詳細は[source preference contract](https://github.com/seekerkrt/moguet/blob/develop/docs/contracts/source-build-preference-xdg.md)を参照してください。
+- Bash / Zsh / Fishのcontext-aware completionは、plain `moguet -S`のlocal sync package名prefix、
+  有限のtyped `--build-mode=`値、versionを特定したupstream snapshot由来のboundedなdelegated
+  `-Q` option tokenに対応します。package lookupはlocal-onlyでdatabaseをrefreshせず、provider failure時は
+  static completionへfallbackします。任意のpacman semanticsの推測や全operationのdynamic対応は行いません。
 
-Moguet v2.9.1はPATCH releaseです。pinned source snapshot acceptanceのNormal表示を
-compact化し、snapshot identityとclosure summaryを表示します。`--details`ではnodeごと・
-fileごとのexact identityを維持します。verification、acceptance、routing、build、
-install、exit semanticsは変更しません。
+### 実装済みのExperimental機能
 
-Moguet v2.10.0では、対話的なprovider選択に複数番号、range、除外を追加しました。
-認識できるlegacy SONAME v1のprovider capabilityには32-bitまたは64-bitの注記を付けますが、
-注記によって候補のfilterや選択は行いません。
+**Patch customizationは実装済みで、Experimentalです。** local association/listing、AUR association、
+upgrade-familyでの発見と明示Applyに対応します。reviewed ordinary AUR経路では、既存root `PKGBUILD`と
+既存top-level `*.install`のaccepted content editを、変更fileごとに1 patchを持つordered seriesとして
+明示保存し、将来のupstream更新へ再適用できます。series全体をstrictにreplayし、旧PKGBUILD-only recordとの
+互換性も維持します。永続的なadd/delete/rename/type/mode変更、任意・nested・binaryのsource payloadは
+非対応です。local consumerはPKGBUILD-onlyのままです。
+詳細は[patch customization contract](https://github.com/seekerkrt/moguet/blob/develop/docs/contracts/patch-customization.md)を参照してください。
 
-Moguet v2.10.1では、pinned source snapshot承認のNormal表示にroot tag数を残し、
-tag mappingの全件列挙を省きます。`--details`ではtag名とraw/peeled object IDを
-引き続き表示します。取得・検証・build inputとしての保持は変わりません。
+Experimentalはpublic surface、record schema、selection UXが今後も変わり得ることを示します。
+未実装やunsafeという意味ではなく、reviewやprovenanceによるupstreamの安全保証でもありません。
+patch保存と将来のApplyには、それぞれ別の明示選択が必要です。
 
-canonical repository identityはGitHub上のMoguetで、GitLab mirrorを持ちます。Moguet
-packageは`jpacker` command aliasを提供しません。AUR publicationは将来の別判断であり、
-この文書はAUR endpointが存在すると断定しません。
+### 将来の拡張候補
 
-現在のv2実装は、文書化したrouteごとの制限の範囲で、ordinary split package、provider選択、
-repositoryとAURを組み合わせた依存関係を含む、日常的なAUR利用の主要workflowに対応しています。
-[v2 support audit](https://github.com/seekerkrt/moguet/issues/606#issuecomment-5769277841)で
-新しいv2 blockerは見つかりませんでした。全AUR packageや全dependency topologyへの
-対応を約束するものではなく、対応済みの範囲、明示的な制限、意図したrejectを区別します。
+customization対応のauthoritative devel proof/provenanceや、現在の対応範囲を越えるcompletion contextは
+別follow-upです。特定releaseへの収録を約束するものではありません。generic profile abstractionは
+current requirementとして採用していません。
 
-将来のprofile / patch workflowは
-完成したv2 release boundaryではなくv3 planningで改めて検討します。原則とv2/v3境界は
-[project stance](https://github.com/seekerkrt/moguet/blob/develop/docs/project-stance.md)を参照してください。
+### 非目標と制限
 
-他のAUR helperではそのまま進む操作でも、Moguetでは追加の確認や選択を求める場合が
-あります。また、安全に処理を継続できると判断できない場合は、警告や理由を表示したうえで
-停止することがあります。reviewとprovenanceは判断と実際のbuild/installの対応を保つための
-もので、upstream codeやpackageの安全性そのものを保証しません。
+pacmanやmakepkgの再実装、`makepkg.conf`の置換、`/etc/makepkg.conf`の自動編集は行いません。
+pacman完全互換や全AUR package・全dependency topologyへの対応も主張しません。defaultのTab時AUR network検索や、
+利用者の明示的な意図なしでのpersistent config書き込みはcurrent contractに含めません。
+
+customizationの開発はv2.xで続けます。過去のv3 planning labelは次majorの予約ではなく、具体的なbreaking change、
+rebranding、generation reset等の互換性上の理由が生じた時点でmajorを改めて判断します。
+Experimental機能の実装だけを理由にmajor bumpするものではありません。
+詳しくは[project stance](https://github.com/seekerkrt/moguet/blob/develop/docs/project-stance.md)を参照してください。
+
+GitHubがcanonical、GitLabはmirrorです。MoguetがAUR helperであることと、Moguet自身のAUR package公開は別です。
+repositoryのPKGBUILDはrepository提供のpackaging手段であり、公開済みMoguet AUR pageはありません。
+AUR publicationは別の判断として残します。packageは`jpacker` command aliasを提供しません。
+過去のtransitionとrelease詳細は[release notes](RELEASE_NOTES.md)と[migration guide](docs/migration/v1-to-v2.ja.md)を参照してください。
+
+他のAUR helperではそのまま進む操作でも、Moguetでは追加の確認や選択が必要な場合があります。
+処理を進めてよいと確立できなければ、warningや理由を示して停止します。reviewとprovenanceは
+判断と実際のbuild/installの対応を保つ仕組みであり、upstream codeやpackageの安全性を保証しません。
 
 <!-- parity:safety -->
 ## 設計と安全境界
@@ -286,6 +301,15 @@ find "$stage_dir" -type f -print
 `install_manifest.txt`へのfrontendです。上記destination overrideは別のMake install recipeではなく、
 同じCMake graphへmappingされます。
 
+canonical uninstallはmanifest内のregular fileだけを削除し、directoryと無関係なfileを保持します。
+unsafe owner、group / otherが書込み可能なinstall directory / payload、leaf symlink、任意のancestor symlinkを拒否し、
+検証済みのfilesystem alias `/usr/local/share/man -> ../man`には対応します。
+completionとlocaleのdefaultは`PREFIX=/usr/local`でもabsoluteな`/usr/share` destinationです。
+manual manifestはpacman ownershipや、後のpackage reinstallで復元されたfileを識別する証拠ではありません。
+package版の削除はpacmanで行い、stable packageを復元した後に古いmanual manifestでcanonical uninstallを
+実行しないでください。coexistence検証には`DESTDIR`、またはcompletion / localeも独立させたdestinationを使います。
+詳細は[install ownership contract](https://github.com/seekerkrt/moguet/blob/develop/docs/development.md#install--package-consumer)を参照してください。
+
 current development packageはprivate implementation helper
 `/usr/libexec/moguet/moguet-alpm-receipt-helper`と
 `/usr/libexec/moguet/moguet-source-artifact-install-helper`もinstallします。両者はowner / protocol /
@@ -364,8 +388,8 @@ Moguet-owned / interceptedのclosed grammarは次のとおりです。
 
 <!-- CLI CANONICAL GRAMMAR BEGIN -->
 ```text
-build <pkg> [V=K...]
-build --local <directory> [V=K...]
+build [--use-preference] [--save-preference] <pkg> [V=K...]
+build --local [--use-patches] <directory> [V=K...]
 upgrade
 upgrade-aur
 upgrade-all
@@ -378,6 +402,10 @@ edit-src <pkg>...
 list-src
 del-src <pkg>...
 revert <pkg>...
+add-patch <directory> <patch-directory> <patch-file>...
+update-patch <directory> <patch-directory> <patch-file>...
+del-patch <directory> <package-base>
+list-patch
 -G <pkg> [--output-dir=DIR]
 -Gp <pkg>
 -S --select [--needed] <query>
@@ -392,7 +420,7 @@ exact target-less `-Syu` / `-Su` formはMoguetがinterceptするsemantic route�
 repository-only formはcompatibleなdelegated pacman tailを引き続き受理します。
 その他のpacman operation formは、Moguetのallowlistではなくdelegated open grammarのまま
 です。closed grammarはremote / local `build`の2つ目のbare operandを拒否し、`upgrade`、
-`upgrade-aur`、`upgrade-all`、`clean`、`list-src`のtarget operandを拒否します。`...`を
+`upgrade-aur`、`upgrade-all`、`clean`、`list-src`、`list-patch`のtarget operandを拒否します。`...`を
 示したinspection / source-maintenance formはmulti-target behaviorを維持します。
 
 ```bash
@@ -415,7 +443,8 @@ moguet upgrade-all
 
 # remote package 1件、またはlocal PKGBUILD root 1件をbuild・install
 moguet build <pkg> [V=K...]
-moguet build --local <directory> [V=K...]
+moguet build <pkg> --use-preference
+moguet build --local [--use-patches] <directory> [V=K...]
 
 # buildせずAUR dependencyとbuild orderを調査
 moguet deps --recursive <pkg>...
@@ -596,8 +625,11 @@ sourceを限定します。両selected routeで同じ意味を持つoptionは`--
 non-TTYと`--noconfirm`ではqueryやpackage選択を行わず失敗します。
 
 source-build preferenceはmulti-targetの`add-src`、`edit-src`、`del-src`、`revert`と、
-target-lessの`list-src`で管理します。一時的な`build <pkg> [V=K...]`はremote packageを
-解決し、preferenceを保存しません。
+target-lessの`list-src`で管理します。`build <pkg> [V=K...]`はremote packageを
+解決し、今回指定したassignmentだけを使います。`build <pkg> --use-preference`は
+そのpackageの保存済みpreferenceを読みます。未登録、またはempty値を含む任意の
+`V=K`併用時はbuild前に失敗します。保存済みempty値は既存どおり省き、
+今回指定したempty値はforwardします。
 
 ### Reviewed AUR source workflow
 
@@ -672,8 +704,16 @@ C-only / C++-only packageでは必要なvariableが異なり得ます。実際�
 利用するかはpackageの`PKGBUILD`とupstream build systemが決めるため、Moguetはこれらの
 variableがcompiler invocationへ作用することを保証しません。
 
-`build`はone-off operationのままで、これらのassignmentを保存しません。設定を確認後、
-`add-src`を使うと、そのpackageのsource-build preferenceとして保存できます。
+plain `build`はone-offのままです。remote build/install成功後に今回のassignmentを保存する場合は
+同じinvocationへ`--save-preference`を指定します。保存済みpreferenceがあればbuild前に停止し、
+`edit-src <pkg>`を案内します。最低1件のexplicit V=Kが必要で、`--use-preference`、`--dry-run`、
+local buildとの併用は拒否します。ordered duplicateとemptyを保存し、再利用時のemptyは従来どおり省きます。
+optional `--rmdeps` cleanupだけの失敗はbuild/install成功後の保存を妨げませんが、終了codeは失敗です。
+`--noconfirm`は保存を意味せず、PKGBUILD / `.install`のpatch保存同意も別のままです。
+`add-src`で直接そのpackageのsource-build preferenceを登録することもできます。
+`--save-preference`だけは既存parser/formatでordered environment全体をexactに再利用できる値へ限定します。
+variable展開、comment、改行処理で値が変わる場合（literalな`$HOME`、埋込み改行等）はbuild前に拒否します。
+plain one-offのvalue contractと既存preference parser/formatは変更しません。
 complete overrideを保存する例:
 
 ```bash
@@ -692,7 +732,7 @@ moguet add-src obs-studio \
   CXXFLAGS="${CXXFLAGS/-O2/-O3}"
 ```
 
-`build --local <directory> [V=K...]`は、代わりにuser所有directoryを
+`build --local [--use-patches] <directory> [V=K...]`は、代わりにuser所有directoryを
 exactly oneのlocal PackageBase sourceとして扱います。pathらしいpackage operandからlocal
 rootを推測せず、そのrootをAURへqueryしません。
 
@@ -702,8 +742,108 @@ known-staleの場合、PKGBUILD reviewとdefaultなしの明示同意を終え�
 します。Moguetはinvocation-owned source snapshotからbuildし、user-owned treeを変更せず、
 採用metadataが宣言するvalidかつuniqueな全`pkgname` childをexplicit rootとしてinstall
 します。dependency artifactはdependency install reasonを保持し、既にexplicitなinstalled
-packageをdependencyへ降格しません。runtime stateを使うpackage-name completion等の高度な
-補完はfuture workであり、同梱completionはpublic CLI schemaに限定します。
+packageをdependencyへ降格しません。
+
+インストールされたBash・Zsh・Fish completionは、plain `moguet -S`の最初のoperandに
+local sync package名のliteral prefix候補を追加します。例は`moguet -S ch<Tab>`です。
+defaultの既存sync DBを読み、refreshしません。追加optionや既存operand、search (`-Ss`)、
+`--select`、`--aur`、別database/root指定、`--`がある行ではproviderを呼びません。
+providerが利用できない場合や失敗した場合も、通常のstatic option補完は継続します。
+`--build-mode=`のfiniteなattached valueは、compatible aliasを考慮してpublic CLI
+authorityから補完します。より広いruntime-aware completionは今後のscopeです。
+
+delegated `-Q`では、versionを特定したraw query-help snapshotからupstream pacmanのoption tokenも
+投影します。Tab時にhelpを実行せず、helpからoption semanticsを推測しません。`--`、pending value、
+arity未確認のtailの後では補完を止めます。限定したtoken projectionで、完全なpacman互換性の表明ではありません。
+
+ZshはCLI ownershipごとにoption候補をgroup化し、Fishは説明欄にcategoryを表示します。
+Bashは生のoption tokenを保持します。これらのlabelは候補集合や挿入されるcommand引数を変更しません。
+
+### Local recipe patch
+
+Patch customizationは**Experimental**です。CLI・record schema・表示はdogfoodで変更され得ますが、
+safetyとfailure semanticsは厳密に維持します。
+
+`moguet list-patch`は保存associationを一覧し、選択・適用はしません。Normalではassociationごとに
+PackageBase、source kindとcanonical source location、patch件数、material rootを1行で表示します。
+行はPackageBase→source kind（local、AUR）→source locationのbyte順で安定化し、series内は保存済みpatch順を維持します。
+`moguet list-patch --details`ではrecord schema version、ordered patch file名と**保存済み期待値**の
+SHA-256 digestも表示します。どちらも外部source / material pathのopen・存在確認、patch bytesの
+read、material digest再計算を行いません。materialが消失・変更されていても一覧でき、materialの
+健全性を保証する表示ではありません。壊れた・非対応・unsafe・identity不一致のregistry recordは
+skipせずcommand全体をerrorで停止します。storeがない場合も作成せず登録なしと表示します。
+local v1とAUR v2のassociationを混在して一覧できます。AURはcanonical Git URLと解決済みPackageBaseで
+識別し、listingからremoteへ接続しません。AUR登録・更新はinternal APIを使い、通常review済みAURの編集は
+以下の明示saveからassociationを作成できます。既存patch commandの登録対象はlocal sourceのままです。
+
+root `PKGBUILD`または既存のtop-level `*.install`を編集し、`Proceed with build?`をacceptしたnormal reviewed ordinary AUR経路では、
+別の保存同意として`Save this edit as patch customization? [y/N]`を尋ねます。Noや空入力なら
+patch生成・公開・登録をせず、今回のaccepted editで継続します。`--noconfirm`とnon-TTYは安全なNoとし、
+piped `yes`を保存許可へ昇格しません。Yes後にdefaultなしでpatch directoryを入力します。
+cache・source checkout・registry外の既存user-owned directoryを指定してください。絶対パスを受理し、
+相対パスはコマンド開始時の作業ディレクトリ基準で解決します。この入力はshellを経由せず、`~`をHOMEへ展開しません。
+`~user`の解決や`$HOME`等の環境変数展開も行いません。保存先の自動作成はせず、symlink、unsafe permission、
+traversal pathを拒否します。
+
+Yesでは変更したsupported fileごとにstrictなGit patchを1つ生成し、ordered series全体でaccepted recipe stateの
+exact reproductionを検証します。既存top-level `*.install`のcontent editを対象とし、add・delete・rename・type・mode変更、
+nested fileや他のsource payloadは保存対象外です。
+別の明示的な`makepkg --printsrcinfo`同意でowned copy内のsource identityを確認し、今回のmanual-edit
+dependency planは変更しません。`PKGBUILD-<SHA-256>.patch`または
+`INSTALL-<pathのSHA-256>-<patchのSHA-256>.patch`をfileごとに上書きせず公開し、complete ordered seriesと
+**生成時の期待digest**を登録します。既存のPKGBUILD-only associationはそのまま読取・適用できます。
+既存associationへのappend・update・replaceはしません。全phase成功後だけsame accepted editでbuildを継続します。
+保存失敗はnonzeroで停止し、公開後の登録失敗ではuser materialを残してregistryが未完了または不確実と報告します。
+cancel・EOF・input failureはNoと分けて停止します。このExperimental creation flowはcompatibility、official/local、
+Auto `-S`、targetless、dry-runを対象としません。authoritative develのSave Yesは非対応停止し、編集した`.SRCINFO`で
+黙示降格しません。Save Noは既存manual-edit behaviorを維持します。Save同意は将来のApply同意とは別で、
+source payloadやsource-buildの`V=K` preferenceは保存しません。
+
+`upgrade` / `upgrade-aur` / `upgrade-all`はexact source解決後にAUR associationを発見し、
+PackageBaseごとに今回の適用を`[y/N]`で尋ねます。No、空入力、non-TTY、`--noconfirm`では
+materialをopen・read・hashせずstock経路へ進み、associationを変更しません。registry破損は
+未登録とは区別して停止します。Yesではseries全体をstrict取得・digest検証し、freshなcurrent
+upstream candidateへorderedで再適用し、supported recipe file全体を確認します。変更後のfresh metadataからcombined dependency planを作ります。
+upstream reviewとpatch前後の明示的metadata評価同意は別に維持し、選択seriesへ追加editor編集を
+合成しません。Yes後のfailureは停止し、stock / Legacy fallbackやautomatic repairは行いません。
+
+custom recipeのclone・review・metadata評価は最終dependency planより前に行い、`upgrade`では
+system phaseより前に行う場合があります。package transactionの順序は維持し、先行transactionを
+rollbackしません。required childがfreshなchild集合外の場合やenvironmentが変わった場合はprepared candidateを失効させます。
+dry-runはstock planだけを観測し、patch選択・評価を行いません。exact targetless `-Su` / `-Syu`、
+Auto `-S`、plain remote build、plain local buildではsaved patchを発見しません。
+
+**authoritative devel executionとsaved patchの組合せは非対応**です。forced GitRevision / bootstrap
+intentと、通常version更新でも未改変current recipe・install policyからauthoritativeを選ぶ場合の
+双方で、Yesは明示停止します。overlay追加によってLegacyへ黙って降格しません。Noは既存stock
+のdevel経路を維持します。customization対応のdevel proof / provenanceは別follow-upです。
+
+`moguet add-patch <directory> <patch-directory> <patch-file>...`で、local sourceの
+canonical pathとPackageBaseにorderedなGit unified text patch seriesを関連付けます。
+patch fileは指定directory内の重複しないleaf名です。directoryはabsoluteか`..`を含まない
+relative pathを使います。初期consumerは既存regular `PKGBUILD`だけをstrip 1で変更します。
+material原本は利用者が所有し、Moguetはreference・順序・SHA-256 digestを
+`${XDG_CONFIG_HOME:-$HOME/.config}/moguet/patches.d/`へ保存します。
+
+`moguet build --local --use-patches <directory> [V=K...]`で保存seriesを明示選択します。
+通常のlocal buildはassociation storeを読みません。登録は自動適用や実行同意を意味しません。
+selectionはlocal専用・1回だけで、`--edit`、`--dry-run`、`--use-preference`とは併用できません。
+原本とpatch後recipeをread-only表示でき、`--noedit`はこのpreviewだけを省略します。
+metadata評価にはdefaultなしの明示同意が必要で、patch適用後にも別の評価確認があります。
+non-TTYと`--noconfirm`は評価を許可しません。既存build / installの確認も維持します。
+
+全patchをstrict取得・digest検証した同一owned bytesを、freshなinvocation-owned candidateへ適用します。
+postpatchのfresh metadataだけからplan / buildを作り、original sourceは変更しません。
+upstream recipe更新後もcurrent candidateで適用可能性を再確認します。missing / changed / unsafe /
+corrupt、identity変更、apply / build failureは停止し、stock buildへのfallbackや自動修復はしません。
+
+material編集をreviewした後、
+`moguet update-patch <directory> <patch-directory> <patch-file>...`で順序・期待digestを明示更新します。
+重複登録と未登録のupdate / forgetは失敗します。
+`moguet del-patch <directory> <package-base>`はassociationだけを削除し、material消失時にも使えます。
+recipeを評価せず、materialを書換え・削除しません。source patch payloadはこのconsumerの対象外であり、
+将来もPKGBUILDのsource / checksum / prepare lifecycleとmakepkgが適用authorityを持ちます。
+詳細は[patch customization contract](https://github.com/seekerkrt/moguet/blob/develop/docs/contracts/patch-customization.md)を参照してください。
 
 <!-- parity:configuration -->
 ## 設定
@@ -768,7 +908,8 @@ exact target-less `-Syu`とそのdry-runは、このdirectoryのsnapshot、列�
 行わず、child名 / PackageBase名のfallback preferenceも適用しません。Strict readerでは
 storeまたはentryがない場合だけを保存済みpreferenceなしとして扱い、invalid name、unsafe
 entry、permission error、I/O failureはhard errorです。read / list operationはdirectoryを
-作成しません。storageを最初に必要とする`add-src`または`edit-src`だけがmanaged directoryを
+作成しません。storageを最初に必要とする`add-src`、`edit-src`、または成功後の明示的な
+remote `build --save-preference` publicationがmanaged directoryを
 mode `0700`、entryをmode `0600`で作成します。package install / reinstall / uninstallは
 XDG preferenceもlegacy dataもcreate、migrate、removeしません。
 
@@ -875,8 +1016,10 @@ canonical development repositoryは
 active integration branchは`develop`、stable releaseは`main`です。
 [docs/development.md](https://github.com/seekerkrt/moguet/blob/develop/docs/development.md)、
 [docs/versioning.md](https://github.com/seekerkrt/moguet/blob/develop/docs/versioning.md)を
-参照してください。高度なruntime-aware completionやprofile / patch workflowなどの
-将来候補は[release roadmap](https://github.com/seekerkrt/moguet/issues/344)で扱います。
+参照してください。v2.11.0のrelease scopeは[v2.11.0 milestone](https://github.com/seekerkrt/moguet/milestone/32)に記録されています。今後のrelease scopeはactive milestoneが設定された時点でそれを正とします。
+current capabilityは`develop`の実装、public help/man、[current contracts](https://github.com/seekerkrt/moguet/blob/develop/docs/contracts/README.md)で確認できます。
+closedの[customization/release roadmap #344](https://github.com/seekerkrt/moguet/issues/344)は
+歴史的な経緯であり、current statusのauthorityではありません。
 
 <!-- parity:license -->
 ## License

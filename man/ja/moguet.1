@@ -1,4 +1,4 @@
-.TH MOGUET 1 "September 2026" "Moguet 2.10.1" "ユーザーコマンド"
+.TH MOGUET 1 "September 2026" "Moguet 2.11.0" "ユーザーコマンド"
 .\" parity:name
 .SH 名前
 .na
@@ -96,7 +96,8 @@ assignmentだけを許し、extra bare build operandを拒否します。
 .BR upgrade-aur 、
 .BR upgrade-all 、
 .BR clean 、
-.B list-src
+.BR list-src 、
+.B list-patch
 はtarget operandを拒否します。
 .BR deps 、
 .BR plan 、
@@ -108,10 +109,26 @@ assignmentだけを許し、extra bare build operandを拒否します。
 .na
 .\" PUBLIC COMMANDS BEGIN
 .TP
-.B "build <pkg> [V=K...] | build --local <directory> [V=K...]"
+.B "build [--use-preference] [--save-preference] <pkg> [V=K...] | build --local [--use-patches] <directory> [V=K...]"
 .B --local
-なしでは、source-build preferenceを保存せず、official repositoryまたはAURのpackageを
+なしでは、official repositoryまたはAURのpackageを
 1つsourceからbuildします。
+defaultでは今回指定したassignmentだけを使います。
+.B --use-preference
+を指定すると対象packageの保存済みpreferenceを読み、未登録または
+.B V=K
+との併用時はbuild前に失敗します。保存済みempty値は省き、今回指定したempty値はforwardします。
+.B --save-preference
+はbuild/install lifecycle全体の成功後、今回explicitに指定したordered V=Kだけを新規preferenceへ保存します。
+最低1件のassignmentが必要で、--use-preference、--dry-run、local buildとの併用を拒否します。
+既存preferenceがあればbuild前に停止し、edit-srcを案内します。公開時もdestinationが存在しないことを
+要求し、途中で別processが作ったentryを上書きしません。optional --rmdeps cleanupだけの失敗は
+build/install成功後の保存を妨げませんが、commandはその失敗を返します。
+plain buildと--noconfirmは保存を意味しません。recipe editのpatch保存同意は別のままです。
+保存時だけ、既存parser/formatでenvironment全体のlength/key/value/orderがexactにround-tripすることを
+要求します。variable展開、comment、改行処理で値が変わる場合（literalな$HOME、埋込み改行等）は
+build前に拒否します。plain one-offの値と既存parser/formatは変更せず、preflightで確定した同一bytesを
+成功後に公開します。
 .B --local
 を指定すると、exactly oneのuser所有directoryをlocal PackageBase sourceとして扱い、
 pathらしいpackage operandからそのsourceを推測しません。安全な既存
@@ -127,6 +144,20 @@ dependency planとartifact validationの後、採用metadataが宣言するvalid
 childをexplicit rootとしてinstallします。
 dependency artifactはdependency install reasonを保持し、既にexplicitなinstalled packageを
 dependencyへ降格しません。
+.
+.PP
+.B --use-patches
+は保存済みlocal recipe seriesの明示選択です。通常のlocal buildはstoreを読みません。
+local専用・1回だけのoptionで、--edit、--dry-run、--use-preferenceとは併用できません。
+原本とpatch後recipeをread-only表示でき、--noeditはpreviewを省略します。
+identity評価とpatch後metadata評価には別々のdefaultなしの同意が必要です。
+non-TTYと--noconfirmは評価を許可しません。既存build / install確認も維持します。
+全seriesのdigestを検証した同一owned bytesを、fresh candidateへ指定順で適用します。
+postpatch metadataだけからplan / buildを作り、original sourceを保存します。
+upstream更新後もcurrent candidateを作り直します。missing / changed / unsafe / corrupt、
+identity変更、apply / build failureはstock fallbackや自動修復をせず停止します。
+初期scopeはGit strip 1でのregular PKGBUILD text変更です。source patch payloadは別consumerで、
+将来の適用もPKGBUILDのsource / checksum / prepareとmakepkgの責務です。
 .
 .TP
 .B "upgrade"
@@ -360,6 +391,68 @@ grouped reinstallとpacman failureの診断優先順位を維持します。
 confirm前に表示されたpacman transactionをreviewしてください。
 .
 .TP
+.B "add-patch <directory> <patch-directory> <patch-file>..."
+local sourceのcanonical pathとPackageBaseにordered PKGBUILD patch seriesを登録します。
+patch fileは指定directory内の重複しないleaf名です。directoryはabsoluteか、
+..を含まないrelative pathを使います。metadata評価にはdefaultなしの明示同意が必要です。
+materialは利用者が所有し、reference・順序・SHA-256 digestだけをXDG configの
+moguet/patches.dへ保存します。登録は自動適用や実行同意を意味しません。
+.
+.TP
+.B "update-patch <directory> <patch-directory> <patch-file>..."
+変更したmaterialをreviewした後、既存associationのreference・順序・期待digestを明示更新します。
+重複登録と未登録のupdateは失敗します。
+.
+.TP
+.B "del-patch <directory> <package-base>"
+指定sourceとPackageBaseのassociationだけを削除します。PKGBUILDを評価せずmaterialを開きません。
+material消失時も削除でき、未登録なら失敗します。user materialの削除・書換え・chmodはしません。
+.
+.TP
+.B "list-patch"
+保存associationのPackageBase、source kindとcanonical location、patch件数、material rootを
+PackageBase→source kind（local、AUR）→source locationのbyte順で一覧します。--detailsではrecord schema version、
+保存済みpatch順のfile名と期待SHA-256 digestも表示します。どちらも外部source / material pathを
+open・存在確認せず、patch bytesのreadや再hashもしません。material消失・変更時にも一覧でき、
+materialの健全性を検証する表示ではありません。不正・非対応・unsafe・identity不一致のrecordは
+skipせず一覧全体を失敗させます。storeがない・空の場合は作成せず登録なしと表示します。
+patch customizationはExperimentalで、CLI・record schema・表示は変更され得ます。
+local v1とAUR v2のrecordを混在して一覧できます。AURはcanonical Git URLと解決済みPackageBaseで
+識別し、listingからremoteへ接続しません。AUR登録・更新はinternal APIを使い、通常review済みAURの編集は明示saveから登録できます。
+.PP
+root PKGBUILDまたは既存top-level *.installの編集後にProceed with build?をacceptしたnormal reviewed ordinary AUR経路は、
+Save this edit as patch customization? [y/N]で別の保存同意を求めます。No、空入力、--noconfirm、non-TTYでは
+patch生成・公開・登録をせず今回のaccepted editで継続します。piped yesは保存許可になりません。
+Yes後だけdefaultなしでpatch directoryを入力します。絶対パス、またはコマンド開始時の作業ディレクトリ基準の相対パスを使えます。
+この入力はshellを経由せず、~をHOMEへ展開しません。~userの解決や$HOME等の環境変数展開も行いません。保存先の自動作成はしません。
+cache・checkout・registry外の既存user-owned directoryだけを受理し、unsafe path、symlink、owner・permission違反は拒否します。
+変更したsupported fileごとにstrictなGit patchを1つ生成し、ordered series全体でaccepted recipe stateの
+exact reproductionを検証します。既存top-level *.installのcontent editを対象とし、add・delete・rename・type・mode変更、
+nested fileや他のsource payloadは保存しません。PKGBUILD materialはPKGBUILD-<SHA-256>.patch、.install materialは
+INSTALL-<pathのSHA-256>-<patchのSHA-256>.patchです。既存PKGBUILD-only recordはそのまま利用できます。
+別の明示makepkg --printsrcinfo同意で
+owned copy内のsource identityだけをfresh確認します。今回のdependency planは再構成しません。
+公開は上書きせず、生成時expected SHA-256を登録commitまで保持します。既存associationへのappend・update・replaceはしません。
+Yes後failureはnonzero停止です。公開後の登録失敗ではmaterialを残し、registryが未変更または不確実であることを示します。
+全phase成功後だけsame accepted editでbuildを継続します。cancel・EOF・input failureはNoと分けて停止します。
+compatibility、official/local、Auto -S、targetless、dry-runでcreationは起動しません。
+authoritative develのSave Yesは非対応停止で、編集したSRCINFOから黙示降格しません。
+Save同意を将来Apply同意へ再利用せず、source-buildのV=K preferenceも保存しません。
+.PP
+Experimentalなsaved AUR patchはupgrade、upgrade-aur、upgrade-allでexact source URLとPackageBaseから発見し、
+PackageBaseごとに[y/N]で今回の適用を確認します。No、空入力、non-TTY、--noconfirmではmaterialを取得・hashせず
+stock経路へ進み、associationを保持します。Yesでは保存series全体をstrict取得・digest検証し、同じowned bytesを
+freshなcurrent upstream candidateへ再適用します。freshな変更後metadataからcombined dependency planを生成します。
+upstream reviewと明示metadata評価同意は別に維持し、追加editor編集は合成しません。Yes後failureにstock / Legacy
+fallbackはありません。registry failureを未登録へ丸めません。
+.PP
+選択済みrecipe準備はsystem transactionより前に行う場合があります。build/install transaction順とpartial outcomeは
+維持します。dry-runはstock planだけを観測し、patch選択・評価を行いません。exact targetless -Su/-Syu、Auto -S、
+plain buildはpatchを発見しません。authoritative develとの組合せは非対応で、forced GitRevision/bootstrapと、通常version
+更新でも未改変recipe・install policyからauthoritativeを選ぶ場合の双方でYesは停止します。Noはstock経路を維持し、
+overlay追加によるLegacyへの黙示降格は行いません。
+.
+.TP
 .B "-S <pkg> | -S --select [--needed] <query>"
 packageをinstallします。
 Auto routingはofficial repositoryを優先し、適用可能なsource preferenceを尊重し、
@@ -500,6 +593,7 @@ allowlistではありません。repository-only
 .BR build 、
 .BR plan 、
 .BR deps 、
+.BR list-patch 、
 .BR "-S --select" 、
 .BR -Qua 、
 exact target-lessの
@@ -858,15 +952,19 @@ English authority man pageです。
 .
 .TP
 .I /usr/share/bash-completion/completions/moguet
-public CLI schema用Bash completionです。
+public CLI schemaとplain
+.B moguet -S
+の最初のpackage prefix用Bash completionです。defaultの既存local sync DBを読みます。
+provider失敗時もstatic補完を保持します。追加option、query、AUR、別DB指定では
+package providerを呼びません。
 .
 .TP
 .I /usr/share/zsh/site-functions/_moguet
-public CLI schema用zsh completionです。
+同じstatic / local package prefix scopeを持つzsh completionです。
 .
 .TP
 .I /usr/share/fish/vendor_completions.d/moguet.fish
-public CLI schema用fish completionです。
+同じstatic / local package prefix scopeを持つfish completionです。
 .
 .TP
 .I /usr/share/locale/ja/LC_MESSAGES/moguet.mo

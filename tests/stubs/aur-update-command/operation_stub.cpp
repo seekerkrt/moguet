@@ -1819,7 +1819,7 @@ PreparedFilteredAurUpdateOperation prepare_filtered_aur_update_operation(
     DevelRequiresCheckPolicy devel_requires_check_policy,
     SavedSourcePreferencePolicy saved_source_preference_policy,
     const AppConfig& config,
-    std::optional<ValidatedCacheRoot> cache_root) {
+    std::optional<ValidatedCacheRoot> cache_root, UpgradePatchPolicy) {
     if(!std::holds_alternative<NoExplicitSourceSatisfaction>(
            explicit_source_satisfaction)) {
         throw std::logic_error(

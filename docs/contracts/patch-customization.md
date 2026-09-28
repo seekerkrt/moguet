@@ -1,0 +1,598 @@
+# Package/source patch customization — local recipe consumer
+
+## Statusとauthority
+
+**Patch customizationは実装済みのExperimental機能である。**
+[Issue #363 current body](https://github.com/seekerkrt/moguet/issues/363)をrequirements SSOTとする。
+以下は実装済みlocal contractとDesign Gateの比較根拠である。#649 Slice 2でAUR associationを追加した。
+ordinary AURのupgrade-family適用は#649 Slice 3、review編集からの明示保存は#650 Slice 3で実装済み。
+#665で既存root PKGBUILDと既存top-level `*.install`のcontent editをchanged-file-per-patchのordered seriesとして
+保存・再適用する範囲へ拡張した。詳細は末尾の#665追加契約を正とし、旧PKGBUILD-only record互換とlocal scopeを維持する。
+それ以外のtext / source payload integrationは未実装の拡張候補であり、収録releaseは約束しない。
+[#627 requirements reset](https://github.com/seekerkrt/moguet/issues/627)に従い、過去の
+profile / snapshot foundationを要求へ戻さない。requirementsはIssue、具体的な
+patch contractはこの文書、上位原則は[decisions](../decisions.md)と[stance](../project-stance.md)が所有する。
+
+## 接続するcurrent authority
+
+### Source patch application authority（product invariant）
+
+recipe-side customizationとsource patch payloadは別責務である。source patch payloadは原則として
+`PKGBUILD` / makepkgのsource・prepare lifecycleを通じて適用する。Moguetは展開済みupstream source treeへ
+独自にpatchを適用するgeneric ownerにならない。将来のintegrationはrecipe candidateの`source[]`、checksum、
+`prepare()`等で行い、modified recipeからmetadata / dependency / build authorityを再評価したうえで、
+actual source取得・展開・prepare・buildをmakepkgへ渡す。直接source mutationの具体的要求が生じた場合は
+このIssueの暗黙拡張ではなく別design reviewを必要とする。
+
+この文書はIssue本文のproduction Slice番号を使う。過去handoffでDesign GateをSlice 1として数えた
+会話上のSlice 2は、以下のProduction Slice 1に対応する。source patch payloadは実装しない。
+
+### Production Slice 1: Candidate Consumer
+
+`prepare_local_recipe_build`はalready-selectedなowning patch bytesのordered vectorを受ける。
+external path lookup、digest/association store、登録、saved preference、public dispatchを所有しない。
+callerはcandidateでのidentity評価を許可した後だけこのmutation-capable seamを呼ぶ。
+public callerはapply後・postpatch評価前にread-only previewと別のno-default consentを行うcallbackを渡す。
+callbackが停止した場合はReview outcomeを保持し、postpatch評価・plan・buildへ進まない。
+association付きのcallerはacquired seriesのidentityを`expected_source`へ渡す。candidate作成前にsourceを、
+fresh prepatch評価後にPackageBaseを照合し、apply前に不一致を拒否する。これは適用可能性や実行同意を代替しない。
+全materialのPKGBUILD-only shapeをworkspace作成・評価前に検証し、非対応file / binary / mode変更 / 空materialは停止する。
+Git unified textのenvelopeだけを検査し、context照合と適用は実Gitへ委譲する。stripは1、入力bytesは同じ
+invocation-owned streamからcheck / applyへ渡し、Git config/indexとoriginal checkoutからauthorityを借りない。
+
+early `LocalSourceWorkspace`でfresh prepatch metadataを評価し、original canonical pathとPackageBaseの
+known identityを確立する。ordered apply後のfresh metadataについてPackageBaseとordered child namesの不変を確認し、
+そのmetadataだけからlocal planを生成する。original/candidateのphysical identity、prepatch/modified recipe snapshot、
+effective environmentを保持したmove-only `PreparedLocalRecipeBuild`だけを公開し、temporary pathをsemantic identityにしない。
+既存build ownerへのprivate transferで同じworkspaceを消費し、再snapshotやprepatch requestへの差し替えをしない。
+dependency executionは既存callerの責務、local build結果は既存artifact/install authorityへ渡せるcapabilityのままとする。
+
+material preflight failureでは全apply outcomeをNotAttemptedとし、rejected entry indexを別に保持する。
+apply中のfailureはApplied / Failed / NotAttemptedを保持し、tool non-zeroはConflictを推測せずToolFailureとする。
+metadata/identity/plan failureとbuild phase failureを分離し、candidateを公開しない。source cleanupは既存の一度だけの
+ownerへ委ね、primary failureとsecondary cleanup failureを保持する。途中で放棄されたprepared candidateは通常RAII cleanup、
+build後のsource cleanup failureはinstall可能な成功resultへ変換しない。original PKGBUILD / `.SRCINFO`へ書き戻さない。
+
+`test-local-recipe-candidate`は実Git / makepkg / archive readと既存query stubで、ordered apply、fresh dependency plan、
+original保全、identity guard、途中failure、cleanupを確認する。public接続は下記Slice 3が所有する。
+
+| Authority | 維持する責任と接続上の制約 |
+| --- | --- |
+| [#355 identity](source-package-identity.md) | source kind / location / repository、PackageBase、child、revision、releaseを分離する。value equalityやgeneric compatibilityはpatch適用許可ではない |
+| [local source](local-pkgbuild.md) | `LocalSourceRoot`の原本identity、`LocalSourceWorkspace`のowned snapshot / cleanup。semantic local pathとtemporary candidate pathを区別する |
+| [reviewed AUR source](reviewed-source-state.md) | exact upstream OID、review acceptance、pinned continuation、editor overlay。patch保存や将来の適用許可を所有しない |
+| local metadata / plan / request | `LocalSourceBuildMetadata`のrecipe / environment相関、local dependency projection。通常localは原本metadata / planの後にsnapshot。patch routeはearly candidateとpostpatch planを使う |
+| `ArtifactWorkspace` / `ArtifactMakepkgContext` | fresh PKGDEST、packagelist / build、artifact検証。source candidateやdurable materialのownerにはしない |
+| [source preference](source-build-preference-xdg.md) / `SourceBuildEnvironment` | `source-build.d`とordered assignments。#362の`--use-preference`、empty値、one-offとの競合規則を再所有しない |
+| XDG safety / strict readers | descriptor / named identity、owner / mode、I/O failureを扱う。preference parserのinvalid assignmentをwarningで無視する仕様はpatch recordへ流用しない |
+
+remote AURはRPC由来planをcheckout / editorより先に作る。既存editorへのapply追加だけでは
+modified dependency authorityにならない。remoteの`InvocationOwnedRecipeAcquisition`も
+devel bootstrap専用であり、汎用candidate ownerとして転用しない。
+
+## Ownership方式の比較と採用理由
+
+| 判断軸 | A: user directory / reference | B: managed copy / import | C: manual edit → generated diff |
+| --- | --- | --- | --- |
+| User ownership | bytesは利用者が管理。Moguetはassociationと今回のcopyのみ | originalは利用者、import済みbytesはMoguet管理。二つの版を区別 | 編集前baseline / 編集結果の相関と生成物ownerが必要 |
+| Durable persistence / path消失 | associationは残るが原本消失はMissingで停止 | import元消失後も保持できる | 生成方式だけでは保存先を決められずA/Bが別途必要 |
+| 再現性 / byte変更 | 保存digestと一致するbytesだけを固定。過去bytesの復元はしない | 保存bytesとdigestを固定できるがbuild全体の再現性とは別 | exact baselineとdiff生成対象の証明が追加で必要 |
+| Backup / restore | configとmaterial双方が必要。移設は明示rebind | associationとmanaged dataの整合したbackupが必要 | baseline情報と生成diffのbackupも必要 |
+| Update / replace | 利用者が編集後、明示更新でorder / digestを置換。旧digestの自動追随なし | reimport / replace / forget、partial import / publicationを所有 | 再編集、生成失敗、既存patchとの重複・順序も所有 |
+| Filesystem safety | 外部root / listed filesのsafe read、race / change検知、owned copy | Aのimport readに加えdurable write / publication / cleanup | editorとbaseline / modified candidateのlifetimeも追加 |
+| 実装量 / schema | 最小recordとnarrow reader / adapter。初版のstrict versionのみ | bytes store、整合publication、data resolver等が増える | diff authoring producerと保存方式の両方が必要 |
+| 既存authorityとの親和性 | user-owned input → owned candidateと整合 | 可能だがcacheやreviewed stateへbytesを押し込めない | invocation-local editor overlayをpersistent authorityへ昇格させない追加設計が必要 |
+| 将来source payload | type / phaseを別に追加できる。今は実装しない | 同様。import自体はprepareへのintegrationを解決しない | 既存のuser-supplied patchesを作り直す理由にならない |
+| 今不要な責任 | 自動追随、原本保管、汎用directory管理を持たない | 原本消失後の保管保証とmanaged lifecycle | authoring UI、baseline取得、diff生成 |
+
+**初期実装はA。** 現在のgoalは保持したassociationとpatch群の更新後reuseであり、original pathの
+消失後にもbytesを保管する保証は固定requirementではない。Aでも変更検知と安全なcopyは省略しない。
+Bはその保管保証が必要になった場合の次候補、Cはauthoring需要が確認できた場合の追加producerとする。
+
+## Design Gate 6項目の初期契約
+
+| Gate | Initial contract |
+| --- | --- |
+| 1. Material ownership | A。user-maintained directoryの明示されたpatch filesを正本とする。buildごとに検証済みbytesをinvocation-owned copyへ固定し、原本を変更・削除しない |
+| 2. Association / selection | Known sourceを持つ`PackageBaseIdentity`に1 series。初期はLocal + canonical original path + PackageBase。invocationで保存associationを明示選択する。名前の類似、child名、provider、default / inheritanceから推測しない |
+| 3. Series / root / phase | 非空のordered entries（relative material path + SHA-256）。初版typeはGit unified text patch、rootはowned recipe root、phaseはcustom build用metadata再評価前（recipe-side）、stripは1に固定する |
+| 4. Apply policy | explicit invocation / selection。登録は将来の自動適用許可ではない。選択済みmaterialのfailureをstock buildへfallbackしない |
+| 5. Initial scope | `build --local`相当のlocal routeに接続する、既存regular `PKGBUILD`のtext modificationだけ。remote / official / AUR、他file、source payload、任意source treeは初期非対応 |
+| 6. Persistence / XDG | association・order・期待digestは独立したXDG config namespace。material bytesは外部user directory、candidateとmaterial copyはinvocation-owned disposable storage |
+
+### Associationと更新時reuse
+
+source identityはofficial / AUR / localで同じvalue modelを使えるが、producerは異なる。
+officialはresolved source-buildのrepository name + Git URL + PackageBase、AURはresolved canonical
+Git URL + PackageBase、localはcanonical original path + freshに確認したPackageBaseが必要。
+repository rootのpackage nameだけではPackageBaseがなく、complete keyを作れない。
+temporary copyのpath、derived canonical keyの逆parse、artifact名をassociation keyにしない。
+
+初期local routeはprepatch candidateのfresh metadataでPackageBase / childrenを確認してからapplyする。
+local revisionは`Inapplicable`のまま許可し、Git OIDを要求しない。remoteへの拡張でも#411のexact OIDを
+generic projectionへ注入しない。release / OIDはupstream更新で変わるためdurable association keyには
+含めず、same associationはapply成功の証明としない。毎回current candidateへの適用を確認する。
+
+canonical pathは「この場所のsource」という利用者の指定であり、同じpathが過去と同じfilesystem object
+である保証ではない。各invocationでruntime owner / containmentを検証する。別pathへの移動や
+PackageBase変更は明示rebindとし、similar nameへの追随、rename推測、inodeの永続key化は行わない。
+postpatchのPackageBaseとordered child identityはprepatchと一致を要求する。version、dependency、
+build optionの変更はfresh metadataで扱う。split childrenは既存local selection / install reasonを維持する。
+
+### Issue #649 Slice 1: registry discovery
+
+`list-patch` / `list-patch --details`はassociation registryのread-only consumerであり、
+material acquisition / selection / execution consentではない。local-onlyのv1 recordを既存
+`LoadedPatchAssociation`（typed `PackageBaseIdentity`、material root、ordered entries）として読み、
+同じstrict TOML decoder / key照合 / filesystem safety / failure taxonomyを使う。
+新しいparser、database、remote schema、source frameworkは追加しない。
+
+既存`PresentationDetail::Normal` / `Detailed`を使う。Normalは1 associationにつきPackageBase、
+source kind・canonical location、patch件数、material rootの1行。Detailedは受理済みrecord schema
+version、series順のfile名・保存済みexpected SHA-256も表示する。terminal-facing pathは共通escapeを使い、
+identityへの逆流はない。record間はPackageBase→source kind（local、AUR）→canonical source locationのbyte順、
+series内は保存順である。local同士の既存順序は変わらない。
+
+readはno-create。shared lock下でstoreのentryを列挙し、全recordの読取りが成功してから表示する。
+missing store / empty storeだけを登録なしとする。recordの破損・非対応version / source kind・unsafe・
+key不一致・観測中の消失/変更・I/O failureは全体failureとなり、skipやpartial successへ丸めない。
+専用namespace内のdot fileは残留publication artifactとしてUnsafe、`.toml`以外はCorruptとして停止する。
+source / materialの存在確認、open、bytes read、material SHA-256再計算はNormal / Detailedともに行わない。
+保存済みexpected digestはactual material healthの観測ではない。登録後にmaterialやsourceが消えても
+registry discoveryは可能である。strict acquisitionは既存の明示build selection等が所有する。
+
+Patch customizationはExperimental（[#649](https://github.com/seekerkrt/moguet/issues/649)）。
+remote/AUR association、upgrade-family対話consumer、material health checkはこのSliceに含まない。
+
+### Issue #649 Slice 2: AUR association
+
+この拡張はAURのassociation保存・発見までであり、upgradeへの接続・適用・確認は追加しない。
+registration presence != selection != execution consentを維持する。
+
+**Identity authority:** `resolve_source_build_identity()`のAUR exact metadataから得たKnown PackageBaseと、
+`ResolvedAurSourceBuildIdentity`内の`SourceCheckoutIdentity`が所有するcanonical Git URLを使う。
+`aur_patch_association_identity()`はrequested childとPackageBaseをそれぞれ検証し、既存の
+`PackageBaseIdentity`（Aur + Known GitRemote + PackageBase）へread-onlyに投影する。
+canonical URLは`https://aur.archlinux.org/<PackageBase>.git`であり、既存checkout ownerの生成値と
+exact一致を要求する。URL alias、任意Git hosting、repository sourceを一般化して受理しない。
+child、provider、display/search labelをPackageBaseへ補完せず、derived `aur:<base>` keyの逆parseもしない。
+split siblingsは解決済みPackageBaseを共有する。release / revisionはdurable keyに含めない。
+
+#355のgeneric root / provider / update projectionが返すUnknown locationはそのままInvalidIdentityで停止する。
+Slice 3のconsumerはcurrent exact source resolutionを通してKnown identityを得てから
+`read_patch_association(const PackageBaseIdentity&)`へ渡す必要がある。generic Unknownへ既定URLを注入する
+bridgeは認めない。Known URLとPackageBaseの不整合はAssociationMismatchであり、未登録へ丸めない。
+identity equalityはapply可能性、current recipe metadata、review acceptance、execution consentを証明しない。
+
+**Version boundary:** local v1 decoder / writer / key bytesを維持し、AUR専用v2を同じnamespaceへ追加する。
+v1の`local_source`はlocal absolute path専用であり、remote URLを同fieldへ入れると意味が曖昧になるためversionを分ける。
+v2はexact integer `schema_version=2`、`source_kind='aur'`、`source_url`、`package_base`、
+`material_root`、`patches`の6 fieldだけを受ける。material / ordered entriesの契約はv1と同じである。
+v1にはlocal、v2にはAURしか許さず、同じlocal identityの別version表現を作らない。
+version別decoderを明示し、unknown version/source kindはUnsupported、field/type不正はCorruptで停止する。
+読み書きはlocal v1を自動rewriteせず、startup migrationやgeneric migration frameworkを持たない。
+旧binaryはAUR v2をUnsupportedとして拒否するため、mixed registryは旧binaryへ後方可読ではない。
+
+filenameは以下のbytesを既存SHA-256でhashしたlowercase hex + `.toml`である。
+`NUL`は1 byteの区切りで、field内のNULはidentity validatorが拒否する。表示文字列を入力にはしない。
+
+```text
+local v1: moguet-local-recipe-patch-v1 NUL canonical-local-path NUL PackageBase
+AUR   v2: moguet-aur-recipe-patch-v2 NUL aur NUL canonical-Git-URL NUL PackageBase
+```
+
+strict decodeは実filenameと本文identity由来keyを常に照合する。別名で置いたduplicate/conflicting recordも
+key mismatchとして失敗し、skipしない。local A / local B / AURの同名PackageBaseは別associationである。
+`read_patch_association()`とlocal互換entryは同じcomplete registry snapshotを読み、exact identityだけを返す。
+安全に読めたregistryに該当identityがない場合だけAbsentとし、他keyの破損・非対応・unsafe・I/O error、
+観測中の消失/変更もlookup全体のfailureとする。一覧も同じsnapshotを使う。
+Normal / Detailedともsource/materialのopen・read・再hash、RPC、Git、network、remote存在確認を行わない。
+Detailedのversionは各recordのdecoderが受理した1または2を示す。
+
+**Production write API:** `register_aur_patch_association()` / `update_aur_patch_association()`は
+`ResolvedAurSourceBuildIdentity`と利用者管理materialを受け、既存strict acquisition / digest固定 /
+atomic publicationを再利用する。callerがcurrent resolutionと明示保存意図を確立することが前提であり、
+API自体はsource取得・recipe評価・patch適用を行わない。updateはprevious observationとexact identityを要求する。
+`forget_patch_association()`はlocal/AUR双方のstrict reader tokenを受け、recordだけを削除する。
+local register/update wrapperは引き続き`ObservedLocalPatchSource`のfresh評価とfilesystem guardを要求する。
+local acquisition APIはAUR入力を拒否し、AURをlocal candidateへ渡すconsumerを先行導入しない。
+
+**Public surface:** `list-patch`はlocal/AURを混在表示するが、add/update/deleteのCLI grammarはlocal専用のまま。
+directory入力とlocal metadata評価の契約へremote source selectionを混ぜない。
+AUR creationは後述の#650 Slice 3の明示review-edit save producerが所有する。
+上記APIはproduction buildへ含まれ、明示registration producerが利用する。test専用のmodelではない。
+自動適用、remembered selection、upgrade confirmation、targetless `-Syu` / `-Su`変更、#362の変更は含まない。
+
+### Production Slice 2: association / persistence / strict acquisition
+
+配置は`${XDG_CONFIG_HOME:-$HOME/.config}/moguet/patches.d/<key>.toml`。keyはdomain-separatedな
+canonical original local pathとPackageBaseから既存SHA-256実装で導出し、本文identityと必ず照合する。
+別path / 別PackageBase / child名だけのlookupは別keyであり、同名packageへfallbackしない。
+1 associationにつき1 strict TOML recordとし、初版のfieldは次だけである。
+
+| Field | v1の意味 |
+| --- | --- |
+| `schema_version` | exact integer `1`。boolean / float / stringを変換して採用しない |
+| `source_kind` | `local`固定 |
+| `local_source` / `package_base` | original canonical pathとKnown PackageBase identity |
+| `material_root` | safeに取得するabsolute external root |
+| `patches` | 順序を持つ非空array。各entryは`file`（root直下のleaf）と`sha256`だけ |
+
+Git unified text / recipe-side / owned recipe root / PKGBUILD target / strip 1はv1で固定し、自由設定fieldにしない。
+unknown version / source kindはUnsupported、型不正・unknown field・duplicate key・truncated recordはCorruptで停止する。
+schema migration、generic DB、別manifest languageは追加しない。
+順序は登録時の明示listそのものとし、directory列挙順、glob、filename sort、mtimeを使わない。
+初版はroot直下のregular patch filesに限定し、空series、duplicate path、absolute / traversal pathを拒否する。
+
+register / update / forgetは内部APIであり、CLI spellingやbuild-time optionを公開しない。
+登録用`ObservedLocalPatchSource`は、callerが許可したowned snapshotでのfresh metadata評価から作り、
+original identityを保持する。stale `.SRCINFO`、child名、pure valueだけから登録用authorityを作らない。
+registerはcomplete acquisitionとdigest固定後にno-replace publicationし、既存recordを上書きしない。
+update / forgetはstrict readerの観測token（record path、filesystem identity、raw bytes）を要求し、
+cooperative lock下の再観測と一致しなければConcurrentChangeで停止する。materialの編集後もdigestへ自動追随しない。
+forgetはrecordだけを処理し、materialが消失していてもexternal pathを開いたり削除したりしない。
+read / acquisitionはstoreを作らない。plain `build --local`はこのstoreを読まず、存在だけで適用しない。
+**association presence、selection、execution consentは別**であり、public接続は下記Production Slice 3が所有する。
+
+configは既存XDG boundaryに沿い、unset / emptyはHOME fallback、明示baseはabsolute・既存・安全を要求する。
+managed directory / recordは0700 / 0600、euid ownership、descriptor / named identity、symlink拒否、
+atomic write / syncを必要とし、I/O、permission、race、partial publicationをabsenceへ丸めない。
+`source-build.d`やreviewed-sources stateに新fieldを混ぜず、root時も別userのcontextを推測しない。
+登録・更新でconfigをoriginal source / material内へ作成しない。mkdir前にはoriginal capabilityによるcreation precondition、
+既存namespaceにもphysical directory identityの分離検証を行う。
+
+publicationはcomplete temp write / file sync / expected-state再検証後のatomic renameをcommit pointとする。
+updateは旧recordを保持するexchange、forgetはrecordをowned temporary nameへ移す操作を使い、
+directory lineageと対象identityを再検証できた場合だけ旧recordをunlinkする。
+commit前failureは旧recordを保持する。commit後のsync / reproof failureはPublicationUncertainとし、
+未実行・成功のどちらにも丸めず、自動rollback / retryをしない。残留する同keyのinternal artifactはUnsafeとして扱う。
+非協調same-euidによる最終検査とpathname syscall間の置換まで完全race-freeとはせず、観測した不整合後は削除しない。
+
+external materialはprivate configと異なり、euid-ownedでgroup / other writableでないdirectory / regular file
+（0755 / 0644等）を許可する。rootへのlineageとlisted fileをdescriptor基準で確認し、symlink経由、
+unsafe owner / writable component、special file、root escapeを拒否する。原本のchmodはしない。
+euid ownershipの要求はmaterial rootとlisted fileに適用する。通常のroot-ownedなsystem ancestorを
+一律拒否するものではなく、ancestorの安全性とnamed lineageは別に検証する。
+root-owned sticky ancestor（`/tmp`等）とsearch-only ancestorを許可し、ancestorの列挙権限を要求しない。
+同名の重複だけでなく、別leaf名の同じdevice/inodeもduplicate materialとして拒否する。
+bounded readの前後でnamed / descriptor identityと変更を確認し、全entryのSHA-256一致を確認した同じbytesを
+owned copyから使う。apply時にexternal pathを開き直さない。未列挙fileはseriesに追加しない。
+missing、changed、unsafe、corrupt、I/O / raceは別reasonで停止し、changedをその場で自動承認・digest更新しない。
+snapshot固定後はexternal originalの監視を継続しない。copyと必要な相関情報をconsumerの寿命まで保持する。
+
+strict readerはAbsent / Loaded / Failureを区別する。Absentは安全なnamespace / recordの未登録だけであり、
+material消失はMissing、digest不一致はChanged、owner / mode / symlinkはUnsafe、replacementはConcurrentChange、
+record破損はCorrupt、未知schemaはUnsupported、patch形状不正はInvalidMaterial、I/OはIoFailureとする。
+identity評価toolの失敗はToolFailureとし、unknown identityはInvalidIdentity、本文とlookupの不一致はAssociationMismatch。
+`acquire_local_patch_series`は全seriesの検証を終えてから、同じowned bytesを`AcquiredLocalRecipeSeries`として返す。
+partial inputやCorrupt→empty Loadedの経路を持たず、consumerへ渡すためにmaterial pathを再openしない。
+`test-local-patch-association`がpersistence、failure、race、同一bytesのconsumer transferを確認する。
+
+Bを採る場合、durable materialはuser dataとしてXDG_DATA_HOME側が自然であり、再生成可能なcacheや
+review acceptance stateへ置かない。current resolverはConfig / State / Cacheのみなので、data用resolver / safety、
+atomic import、replace / forget、backup整合もその方式のscopeになる。Aではこれらを先行追加しない。
+[XDG specification](https://specifications.freedesktop.org/basedir/latest/)のconfig / data / state / cacheの責務分離に従う。
+
+### Apply policyの比較
+
+| 候補 | 初期判断 | 必要になる責任 / 理由 |
+| --- | --- | --- |
+| every time ask | 条件付き次候補 | 通常routeでassociationを発見しpromptする責任が増える。non-TTY時の扱いも必要。明示選択後のexecution consentとは別 |
+| first-use ask then remember | 初期不採用 | remembered authorityのscope、material / identity / upstream変更時の失効を新設する |
+| explicit invocation / selection | **採用** | invocationの意図と必要materialが明確。保存associationだけで既存buildの意味を変えない |
+| package-specific automatic apply | 初期不採用 | package名だけでは不足。source選択、失効、missing / changed / conflict、confirmation authorityが必要 |
+| defined-condition automatic apply | 初期不採用 | 自動化条件と再評価・失効policyが現在のgoalに不要 |
+| never automatic | 初期挙動として採用 | 明示選択なしには適用しない。将来の自動化を永久禁止する仕様にはしない |
+
+patch選択はPKGBUILD実行同意、upstream review acceptance、package transactionの確認を代替しない。
+初期localではowned candidate上のpatch前identity評価とpatch後metadata評価を行うことを表示し、
+既存localのno-default evaluation consentを維持する。source identity観測とcandidate prepatch評価の範囲を最初に表示し、
+patch後にはread-only previewと別のno-default評価同意を取る。
+`--noconfirm` / non-TTYを評価同意へ昇格させず、selected routeとdry-runの組合せはpre-logで拒否する。
+
+### Candidate、metadata、outcome
+
+初期consumerの必要順序は次のとおり。既存local route全体を汎用workspace managerへ変更しない。
+
+```text
+explicit selection + source/material preflight
+→ early owned recipe snapshot / candidate review + evaluation consent
+→ fresh prepatch metadata（association identity確認専用）
+→ association照合 + material snapshot照合 + ordered recipe apply
+→ modified candidate review / fresh postpatch metadata
+→ postpatch identity guard / dependency plan / prepared build request
+→ existing dependency execution
+→ same candidate + same effective settings/environmentでpackagelist / build
+→ artifact検証 / selection → source cleanup → install → artifact cleanup（既存ownerの境界を維持）
+```
+
+registrationでもsource identityを実証し、reuse時に再確認する。原本PKGBUILDをeditor / evaluation cwdへ
+渡す既存local分岐をpatch routeへ流用しない。初期は保存series以外のeditor mutationを合成せず、
+追加編集はexternal materialの明示更新と次invocationで扱う。reviewはcandidate内容を判断する境界として残す。
+prepatch metadata、original / copied `.SRCINFO`、RPC、prepatch dependency planをcustom buildへ流用しない。
+生成`.SRCINFO`相当の出力はinvocation内でparseし、user originalへwrite backしない。
+
+adapterはoriginal semantic identityとphysical candidate identityを別に保持し、selected bytes / series、
+modified recipe、fresh metadata、environment、plan / requestが同じcandidate generationに由来することを
+評価完了・plan採用・makepkg開始の境界で照合する。既存workspaceのdirectory identity検査だけを
+recipe bytes不変の証明にしない。candidate変更の観測後は以前のmetadata / requestを失効させ停止する。
+必要なphysical ownerはdependency preparationからbuildまで保持し、後段に必要なsemantic evidenceは別に残す。
+既存PKGDEST拒否、environmentの順序とempty policy、artifact / install authorityを弱めない。
+localにsaved preferenceを新しく適用せず、#362完了をdependencyにも新たな所有責任にも置かない。
+
+applyはGit unified text patchの既存toolに委譲する。初期はcontext付きの`a/PKGBUILD` → `b/PKGBUILD`の
+通常text変更のみで、作成・削除・rename・mode変更・binary・symlink・別path・source phaseをrejectする。
+allowlist以外をfilterで捨てて「成功」とせず、全入力がsupportedであることを確認する。
+Gitのcheck / applyを同じ固定bytes・root・policyで順番に行い、merge、reverse、reject残し、
+context無視、whitespace自動修正へfallbackしない。hunk適用器やshell semantics analyzerは作らない。
+[git apply](https://git-scm.com/docs/git-apply)の単patch失敗時の挙動をseries全体のatomicityと取り違えない。
+途中失敗時は部分適用candidateをbuildへ公開せず、owned cleanup / diagnostic retentionへ渡す。
+
+outcomeはInvalid、Unsupported、Missing、Changed、Unsafe、NotApplicable / Conflict、ToolFailure、Unknownを
+区別できる範囲で保持する。tool exit非zeroやstderrだけからconflictを捏造せず、分類不能ならUnknownで停止する。
+apply完了、metadata評価、build、install、cleanupは別outcomeとし、primary failureをcleanup errorで上書きしない。
+apply成功はshellの意味やsource安全性の認証ではない。phase間の全same-UID変更監視、sandbox、automatic repairは行わない。
+
+## 初期非採用とSlice案
+
+以下は#363のinitial local consumerを決めた時点の設計記録である。remote AURは#649、review編集の保存は#650、
+既存top-level `*.install`の永続化は#665で実装済みであり、ここでの将来候補をcurrent未実装一覧として扱わない。
+
+PKGBUILD-onlyは最初のconsumerの制限であり永久仕様ではない。次の候補はselected recipe-associated text inputs、
+その次がuser-supplied source payloadと明示的なrecipe側の`source[]` / checksum / `prepare()` integrationである。
+payloadを置いただけでsourceへ適用済みと扱わず、展開sourceへの適用はmakepkgに委ねる。
+remote追加時はmodified metadataからのreplanとreviewed upstream / customizationの分離を先に証明する。
+arbitrary source tree mutation、B/C同時実装、profile / patch DB / migration foundation、#484変更は初期scope外とする。
+
+最初に公開するproduction consumerはAの登録・明示更新・forget・明示選択からlocal buildまでの一つのjourneyとする。
+実装は次の小さいSliceに分け、途中のgeneric foundationや未完成public optionを公開しない。
+
+1. **Candidate consumer:** local early snapshot、PKGBUILDだけのordered apply、pre/post metadataとoriginal / candidate
+   identityの相関をnarrow adapterで実証する。apply失敗・metadata変化のfocused regressionを先に閉じる。
+2. **Associationとmaterial acquisition:** 初期consumer専用record、strict read / digest snapshot、明示登録・更新・forget。
+   configとexternal bytesの非破壊・missing / changed / unsafe / corruptを検証する。record encodingを固定する。
+3. **Public end-to-end接続:** 明示selection、consent、postpatch plan / request、既存build / install / cleanupへ接続。
+   CLI spellingとhelp / man / completion / docsを同期し、upstream変更後reuseとno stock fallbackをfull-CLIで確認する。
+
+このconsumer完成後の独立Sliceは実例に必要なselected recipe text inputsとし、対象input集合とcandidate generationの
+相関を拡張する。source payload integration、remote routeはそれぞれ別の具体的需要とauthorityを確認してから追加する。
+
+最初のSliceでは既存identity / source environment / local workspace / local buildとfull-CLI fixtureへ、
+wrong source / PackageBase、material変化・消失・unsafe / corrupt、series途中失敗、patch後dependency変更、
+original非変更、cleanup failureを追加する。tool protocolのfailure分類もfocusedに検証する。
+fixture側にpatch/buildを再実装しない。実行範囲は[validation policy](../validation.md)へ従う。
+
+## Production Slice 3: public selection / consent
+
+public grammarは次に固定する。既存add-src / del-srcのverb命名へ合わせ、updateはdigest / orderの明示再取得を表す。
+
+```text
+add-patch <directory> <patch-directory> <patch-file>...
+update-patch <directory> <patch-directory> <patch-file>...
+del-patch <directory> <package-base>
+build --local [--use-patches] <directory> [V=K...]
+```
+
+lifecycleはpre-logのclosed grammarで、必要数のoperandと`--noconfirm` / `--`だけを受ける。
+material directoryはabsoluteか`..`なしrelative path。filesはstrict readerが確認するleaf名である。
+register / updateはowned candidateでfresh identityを観測し、全material取得後に既存atomic publicationへ渡す。
+forgetは明示したcanonical source referenceとPackageBaseでrecordだけを削除し、recipe / materialを評価・取得しない。
+materialやsourceが消失してもcanonical identityを指定できればforgetできる。未登録update / forgetはhard failure。
+
+`--use-patches`はoperation-local selectionであり、local buildだけで1回使える。remote・誤配置・attached value・
+重複・`--edit` / `--dry-run`との併用はpre-logで拒否する。`--use-preference`はremote専用のまま。
+CLI authorityのoperation-local exclusionは既存global final-value optionの意味を変更せず、completionにも相互に投影する。
+通常local buildはassociation storeを一切consultせず、保存の存在から自動適用・remembered selectionを作らない。
+selectionは実行同意ではない。originalのsnapshotをread-only previewでき、no-default consent後にowned candidateでidentityを観測する。
+associationの全strict取得・digest検証を終えた同じowned bytesとexpected identityをcandidate consumerへ渡す。
+patch後のexact snapshotもread-only previewでき、別のno-default consent後にだけfresh metadata評価へ進む。
+`--noedit`はpreviewを省略するだけであり、`--noconfirm` / non-TTYは評価同意を代替しない。
+previewはterminal escape済み・64 KiB以下とし、巨大recipeは外部確認を案内して停止する。
+
+postpatch planの既存Proceed確認後、dependency preparation / execution前にもoriginal・candidate・metadataの不変を再確認する。
+同じeffective environmentで既存local packagelist / build / artifact / install / cleanupへ渡す。
+association / material / apply / metadata / identity / plan / build / cleanup failureはhard stopであり、stock fallbackはない。
+user-facing diagnosticはmissing / changed / unsafe / corrupt / mismatch / apply等を区別し、normal成功出力はBaseとseries件数だけを追加する。
+
+`test-local-patch-cli`は実Git / makepkg / native libalpm fixture / archiveを用い、sealed install inputは既存test adapterで観測する。
+実package transactionは行わない。poisoned storeでもplain buildが成功するzero-read境界、ordered apply、fresh dependency、
+upstream version変更後のreuse、apply不能停止、acquisition後inode置換でも同じbytesを使うこと、原本保存、consent、closed grammarを確認する。
+consumer / association単体testはtyped failure・race・cleanupのfocused evidenceを引き続き所有する。
+
+## Initial scope外のconsumerと現在地
+
+initial local journeyではremote、selected recipe-associated text、source payloadを分離した。
+remote AURと既存top-level `*.install`は後述#649 / #650 / #665で実装済みである。
+残るsource payload integrationは別の具体的需要とauthority確認を要し、適用は前述のmakepkg lifecycleが所有する。
+
+
+## Issue #649 Slice 3: ordinary AUR upgrade consumer
+
+### Routeとauthority
+
+対象はactual `upgrade`、`upgrade-aur`、`upgrade-all`のAUR source build。official binary/repository source、
+Auto `-S`、exact targetless `-Su` / `-Syu`、plain remote/local build、dry-runにはpatch discoveryを追加しない。
+CLI optionやpublic AUR creation commandは追加せず、producerは後述#650 Slice 3の明示saveが所有する。Experimentalを維持する。
+
+`upgrade`は登録preference sourceのsingular AUR lifecycle、`upgrade-aur`はforeign inventoryからの
+PackageBase batch lifecycleであり、`upgrade-all`はsystem/登録source後にfresh queryしたfiltered batchを使う。
+candidate/material lifecycleは共通化するが、required child、install reason、registered split拒否、transaction/resultの
+責務は既存ownerに残す。local builderの全child/Explicit意味をAURへ持ち込まない。
+
+exact source resolutionが返す`ResolvedAurSourceBuildIdentity`から既存のassociation projectionを使う。
+canonical URLとKnown PackageBaseがないchild/provider/search/display labelではlookupしない。
+complete strict registry readでexact identityがない場合だけabsence。corrupt/unsupported/unsafe/key mismatch/I/Oは停止する。
+選択はinvocation内のexact PackageBaseごとに一度であり、別PackageBaseへのYes再利用・durable remembered choiceはない。
+依存graphの再構成でも同じcandidate/回答を保持する。
+
+### No、Yes、非対話
+
+既存`request_confirmation`のdefault Noを使用する。interactive empty、explicit No、`--noconfirm`、non-TTYは
+Declinedとしてstockを選び、material root/filesのopen/read/digest検証を行わず、associationも変更しない。
+No/absenceではcustom candidate用のinstalled-state queryも追加せず、stockのquery順序とfailure authorityを維持する。
+batch側のsaved preference取得もYes後に限定する。No/absenceでは既存のgraph preflightとtyped preference preparationが順序を所有する。
+EOF/cancel/input failureをNoへ丸めない。YesはExplicitTokenだけを許し、upstream reviewやrecipe評価同意の代替にしない。
+
+Yes後にのみ明示AUR acquisition入口でloaded record observationを再照合し、保存expected SHA-256を検証する。
+全seriesを取得した同一owned bytesをcheck/applyへ渡し、digest後のpath再openやmaterial自動追随を行わない。
+local acquisition入口のlocal-only guard、local v1/AUR v2 persistence、listing external-material zero-readを維持する。
+通常run-log開始前にrecipe preparationが必要なrouteでは、Yes後にpreflightの診断captureをflushし、
+clone/review/evaluationのcommandを実行前にconsoleへ表示する。通常run-logの開始境界は既存ownerに残す。
+
+### Current candidateとmetadata
+
+invocation-ownedなfresh parentとnested cacheにcurrent AUR checkoutを作り、既存upstream review/materialization/leaseを使う。
+古いpatched candidateやpersistent checkoutをcustom入力としてreuseしない。shared PKGBUILD-only ordered applyは#363の
+shape guardとGit check/applyを使い、prepatch/modified snapshot、PackageBase/ordered childrenを照合する。
+required childrenがcurrent baselineに存在することも要求する。追加editor mutationはseriesと合成しない。
+pre/post metadata評価は別々のno-default consentを要求し、既存read-only previewを利用する。
+
+fresh evaluationのeffective architecture、base継承/child overrideを反映してchildごとのdependency/Provides/relationを
+planner inputへ投影する。`EvaluatedRecipe` originを明示し、semantic package sourceはAURを維持する。
+AurClientのRPC cacheを更新せず、root/recursive exact/provider discovery/provider refreshに同じinvocation-local inputを渡す。
+選択baseのfresh child集合にないchildを古いRPCから補完しない。required targetがfresh child集合外の場合やenvironmentが変わった場合は
+保持metadataを流用せず停止する。saved preferenceのOmitとplain localのForwardを変えない。
+
+query-level blockerはcandidate mutation前に処理する。explicit Yesのrecipe-only preparationは最終dependency plan前に
+必要であり、登録sourceではsystem transactionより前に行う場合がある。これはstock preflight-before-Git規則の限定例外。
+全candidateの選択/fresh metadataを反映したgraphが確定するまでshared provider transaction/build/installへ進めない。
+package transaction順とpartial outcomeは既存通りで、system failure後にbuild/installを開始しない。
+登録sourceのOnlyIfUpdated判定はretained current upstream versionとpost-system installed snapshot/baselineを使って実行時に行う。
+upstream更新がないためのnormal skipと、patch failure後のstock fallbackを区別する。
+
+candidate生成とartifactのownerを分け、build failure時のretained artifactをsource cleanupで削除しない。
+prepared slotは一度だけconsumeし、plan採用/依存mutation/build境界でsnapshotを照合する。
+primary failureとcleanup diagnostic、install成功後のcleanup failureを分離し、unused候補も明示cleanupする。
+Yes後のmaterial/identity/apply/metadata/plan/build/cleanup failureはすべてhard failureで、stock/Legacy/local retryはない。
+
+### Authoritative develの非対応境界
+
+このSliceはS3/S4/S5/S6のno-overlay/reviewed provenance proofを拡張しない。
+forced `authoritative_devel_update` / bootstrap intentはYesで明示停止する。
+ordinary version updateでも、未改変current upstreamと既存environment/install policyがauthoritative executionを選ぶ場合は停止する。
+patchをoverlayとして付けた後のselectorだけに頼らず、未改変snapshotで判定し、final required-child shapeでも再確認する。
+Noはmaterial取得なしで既存stock authoritative経路を継続する。suffix名だけで判定しない。
+custom recipeを未改変と偽装する、proof guardを外す、Legacyへ暗黙降格することは認めない。
+customized authoritative develのrecipe lineage、build proof、publication/次回assessmentは別follow-up designとする。
+
+### Validation
+
+既存local association/candidate regressionに加え、production-linked CLIとisolated XDG/ALPM、PTY、
+case-local bare Git/RPC、real makepkg、sealed-input install observationを使う。actual host package transactionを行わない。
+recipe A→current upstream B→saved series再適用、fresh dependencies、3 route、No zero-I/O、strict failures、
+multiple independent selection、dry-run/targetless zero-read、forced/ordinary authoritative拒否を対象とする。
+
+## Issue #650 Slice 2: invocation-local generated recipe patch
+
+`generate_recipe_patch()`はSlice 1の`ReviewRecipeEditCorrelation`だけをproduction inputとし、
+同じobjectのfrozen baseline / accepted PKGBUILD bytesからpatchを生成する内部seamである。
+original checkout、package名による再取得、`.SRCINFO`、editor後のmutable filesystemはdiff authorityにしない。
+相関objectはcontents-onlyであり、file mode snapshotや他fileの編集を生成対象へ追加しない。
+
+private invocation-owned directoryを`/ramdisk`へ作成し、利用不可の場合だけ`/tmp`へfallbackする。
+baseline / acceptedを同一modeの`a/PKGBUILD` / `b/PKGBUILD`として書き、system Gitの
+`diff --no-index --no-prefix`へexplicit argvで渡す。algorithmはmyers、contextは3、indent heuristic、
+external diff、textconv、rename、colorを無効化し、full index / text出力を指定する。
+完全なchild environmentとrepositoryless設定、global/system config / attributes遮断、autocrlf無効化により
+利用者のGit設定をgeneration authorityへ入れない。出力はtrim・EOL・encoding・final newline補正をしない。
+
+Gitのstdoutとstderrを合計16 MiB以内、30秒のbounded processでcaptureする。差分のexit 1だけを
+受理し、capture overflow、cancellation、launch / I/O / timeout / 異常終了はtyped failureとする。
+異なるfrozen bytesへのexit 0もfailureである。診断混入を含む出力は既存shape validatorを通す。
+empty、NUL、他path、multi-file、create/delete/rename/mode/binary framing、contextのないhunkは成功にしない。
+
+validator通過後、exact baselineのprivate copyへ`apply_recipe_patch_series()`でcheck / applyし、
+結果のPKGBUILDをaccepted bytesとbyte-for-byte比較する。一致とowned temporary cleanupの成功後だけ、
+source/target identityとpatch bytesをowningなimmutable `GeneratedRecipePatch`として返す。
+同じ入力bytesは`RecipePatchNoChange`であり、空patchをconsumerへ流さない。
+shape拒否、apply失敗、reproduction mismatch、cleanup失敗をfallbackやrepairで成功へ変換しない。
+apply失敗とbaseline/result bytes不一致は別reasonとし、private recipeのsnapshot/I/O失敗は既存
+`LocalSourceRootFailure`またはsystem errorを保持する。未知のvalidator/process内部exceptionは
+Git終了失敗へ分類せず、causeを持つ`InternalFailure`としてcleanup後に返す。
+
+Slice 3は以下の明示saveからだけこのseamを呼び、編集検出だけで自動生成しない。
+#649 production route、metadata replan、authoritative devel customizationは変更しない。
+
+## Issue #650 Slice 3: explicit save / publication / registration
+
+normal reviewed ordinary AURのeditor → existing Proceed acceptance → exact correlationだけを入力とする。
+orchestrationはcwd復元とordinary reviewed pin確定後のcheckout preparation出口に置く。review/editor helperは
+保存を所有しない。explicit authoritative devel editor overlayだけは既存selector rejectionより前にYesを非対応停止する。
+compatibility、official/local、Auto -S、targetless、dry-run、selected #649 seriesにはcapture/saveを追加しない。
+`ordinary_devel_package_base`は#564 ordinary update activation markerであり、#650 initial scope外のordinary update routeをcapture/saveから除外するfirewallとして使う。authoritative devel classificationそのもののauthorityにはせず、targetless route exclusionとこのflagを同義に扱わない。
+
+`request_confirmation`のdefault Noで `Save this edit as patch customization? [y/N]` を提示し、
+ExplicitTokenのYesだけをsave intentとする。No、empty、--noconfirm、non-TTYはgeneration/destination/material/registryへ
+入らずsame accepted editのstock manual buildを継続する。unsupported persistent patch shapeはNoで評価しない。
+piped yesを昇格せず、q-family/EOF/InputFailureは既存typed confirmation stopとして伝える。
+
+Yes後だけdefaultなしのpatch directory promptを入力する。promptとDestination failure診断、helpで
+absolute pathまたはcommand-start cwd基準のrelative path、および`~`非展開を明示する。
+shellを経由せず、`~`をHOMEへ展開しない。`~user`解決や`$HOME`等のenvironment variable展開も行わない。
+既存directoryのみを受理し、自動作成しない。
+absolute pathを受理し、command-start cwdからrelativeを解決して、
+control/NUL/backslash/..、symlink、ownership/mode、cache/checkout/registry内部およびregistryを包含するrootを拒否する。
+既存MaterialDirectoryがrootから全lineageをpin/revalidateする。解決失敗はYesでhard stop、Noへcwd failureを波及させない。
+complete no-create registry lookupでduplicateをpublication前に拒否し、registry writerでもraceを再確認する。
+
+generation/replay成功後、別のno-default makepkg --printsrcinfo同意を得る。既存LocalSourceWorkspaceのowned copyと
+evaluate_recipe_metadataでaccepted recipeのPackageBase/required childだけをfresh照合する。dependency/provider plan、RPC cache、
+saved preferenceは変更しない。authoritative判断にはpre-editor clean snapshotのowning .SRCINFO bytes/absenceを保持し、
+Yes後だけ既存requires_authoritative_devel_recipeのinstall/environment policyを使う。editor後の.SRCINFOをupstream authorityにしない。
+
+生成bytesからexpected SHA-256と固定長 `PKGBUILD-<digest>.patch` を得る。既存安全directory内へprivate temporaryを書き、
+fsync/read-back → renameat2(NOREPLACE) → published read-back/byte equality/digest → directory syncを行う。
+material publicationが第一commitで、失敗後にuser final materialをunlink/rollbackしない。cleanupはidentityとlineageが
+一致したinvocation temporaryだけ、一度だけ行う。material commit済pathとtemporary leftoverを別factとして保持する。
+destination preflightはpath validationであり、publication時にfreshなdirectory authorityを確立して、そのpublication期間の
+named/descriptor lineageを保持する。入力時からのdirectory inode継続保持や非協調same-UIDの連続監視は保証しない。
+
+`register_expected_aur_patch_association`はexpected entriesのsize/order/leaf/digestを検証し、既存publish/acquire_materialへ
+expectedを渡す。registry rename直前にも同じexpected取得を照合し、別のshape-valid patchへ差替えられても成功しない。
+local v1/AUR v2 schema、encoder、writer、#363/#649 consumerを作り直さず、通常manual register/updateの意味を維持する。
+generated bytes == published bytes == registryがcommitするexpected bytesをauthorityとし、observed bytesへdigestを追随しない。
+
+registry登録が第二commit。第一commit後failureはmaterialを残してoperation failure、registryは未変更またはPublicationUncertain。
+第二commit後のaccepted recipe driftもbuild停止とし、material/registry両方commit済のfactを保持する。
+generation/reproduction/destination/publication/integrity/registrationとcleanup/exception causeをtyped save failureへ保持し、
+existing batch/registered upgrade aggregateもexception_ptrを保持する。best-effort build、stock fallback、blind retryはない。
+Normal表示にも専用save failure categoryから元のphase/commit診断を渡し、genericなbuild/install failureへ潰さない。
+全phase成功後だけ同じaccepted recipeで既存buildを継続し、Save Yesを将来#649 Apply同意へ使わない。
+
+focused evidenceは既存production connection/association fixture、native makepkg/archive/isolated ALPM/PTYの
+upgrade-patch CLI fixtureを拡張する。No zero-I/O、unsupported shape No/Yes、strict destinations、no overwrite、digest tamper、
+registration failure/uncertain、commit後drift、scope exclusions、generated materialの#649 current-upstream reuseを確認する。
+
+## Issue #665: existing top-level `.install` content edit
+
+#650のPKGBUILD-only記述に対する現行の追加契約。normal reviewed ordinary AURの最初のeditor直前に
+PKGBUILD先頭、既存top-level `*.install`をbytewise lexical順でdescriptor-firstにsnapshotし、
+Proceed受理後に同じcheckout lineageからaccepted snapshotをfreezeする。path set、内容、owner、
+type、modeを比較し、inodeはeditorのatomic saveを許すためpre/post同一性を要求しない。
+post-Proceedからpublicationまでの同一性はidentityを含むexact snapshotで確認する。
+reviewed overlay全体のsemantic path/content/mode projectionを併用し、nested `.install`等の
+unsupported変更がsupported変更と混在してもSave Yesではfail closedする。Noは今回だけのoverlayで継続する。
+
+persistent supportは既存root PKGBUILDと既存top-level `*.install`のcontent modificationだけ。
+add/delete/rename、type/mode変更、nested path、binary contentは保存しない。top-level
+`.install`のbasenameはraw storage leafにせず、空白・非ASCII・Git C-style quoted pathも
+expected target bytesへ復号してstrict one-file envelopeを検証する。
+各changed fileをone-file patchにし、PKGBUILD、続いて`.install` lexical順に並べる。
+PKGBUILD material名は従来の`PKGBUILD-<patch SHA-256>.patch`、`.install`はraw basenameを
+storage leafへ使わず`INSTALL-<relative path SHA-256>-<patch SHA-256>.patch`とする。
+
+全materialを検証した後、baseline supported file setのprivate copyへordered replayし、
+accepted path set/content/owner/modeとのexact一致を確認する。live checkoutは検証用に変更しない。
+material全件のfinal name/collisionをpreflightし、既存のdescriptor-first temporary/fsync/
+RENAME_NOREPLACE/readback writerで順にpublishする。途中失敗ならregistryへ登録せず、
+既にpublishedのuser materialを削除せず全pathをfailureへ保持する。complete ordered expected
+entry setのみAUR v2 associationへ登録する。codec/versionは変えず、旧PKGBUILD-only recordを
+migrationなしでlist/read/acquire/Applyできる。
+
+future Apply Yesは全digestと各materialのexpected one-file target envelopeを検証してから
+fresh candidateへ順番に適用する。各patch前後にsupported recipe set全体のidentity、path、
+contents、modeを確認し、意図したtarget以外のmutation、missing/renamed target、途中のapply
+failureを拒否する。候補はephemeralで、series途中の失敗からpartial buildやstock fallbackへ進まない。
+replay後もfresh metadata/PackageBase/child identityとbuild前のsupported recipe stateを検証する。
+Saveとfuture Applyは別の明示同意であり、`--noconfirm`は両者のYesではない。
+source-build `V=K` preferenceとはstorage、consent、lifecycleを共有しない。

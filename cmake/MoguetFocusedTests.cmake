@@ -50,6 +50,9 @@ foreach(_moguet_direct_focus IN ITEMS
     local-dependency-plan-projection
     local-source-workspace
     local-source-build
+    local-recipe-candidate
+    generated-recipe-patch
+    local-patch-association
     package-identifier
     source-package-identity
     exact-artifact-transaction-protocol
@@ -296,6 +299,8 @@ moguet_add_focused_ctest_alias(
     TESTS cli.build_cache_symlink
 )
 moguet_add_focused_ctest_alias(test-source-build TESTS cli.source_build)
+moguet_add_focused_ctest_alias(test-local-patch-cli TESTS cli.local_patch)
+moguet_add_focused_ctest_alias(test-upgrade-patch-cli TESTS cli.upgrade_patch cli.upgrade_patch_bootstrap)
 moguet_add_focused_ctest_alias(test-source-selection TESTS cli.source_selection)
 moguet_add_focused_ctest_alias(test-needed-contract TESTS cli.needed_contract)
 moguet_add_focused_ctest_alias(test-pkgbuild-export TESTS cli.pkgbuild_export)
@@ -319,3 +324,8 @@ moguet_add_focused_ctest_alias(
 )
 
 moguet_add_focused_ctest_alias(test-source-build-rmdeps TESTS cli.source_build_rmdeps)
+
+moguet_add_focused_ctest_alias(test-repository-prefix-helper TESTS completion.repository_prefix_helper)
+moguet_add_focused_ctest_alias(test-dynamic-completion TESTS completion.dynamic_shells)
+moguet_add_focused_ctest_alias(test-completion-presentation TESTS completion.presentation)
+moguet_add_focused_ctest_alias(test-pacman-query-projection TESTS completion.pacman_query_projection)

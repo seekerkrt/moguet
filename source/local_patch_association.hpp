@@ -1,0 +1,195 @@
+#pragma once
+
+#include "local_recipe_candidate.hpp"
+
+#include <functional>
+#include <memory>
+#include <system_error>
+#include <variant>
+
+class ResolvedAurSourceBuildIdentity;
+class GeneratedRecipePatch;
+
+enum class PatchAssociationFailureKind {
+    Missing,
+    Changed,
+    Unsafe,
+    Corrupt,
+    Unsupported,
+    InvalidMaterial,
+    InvalidIdentity,
+    AssociationMismatch,
+    ConcurrentChange,
+    AlreadyExists,
+    IoFailure,
+    ToolFailure,
+    PublicationUncertain
+};
+
+struct PatchAssociationFailure {
+    PatchAssociationFailureKind kind;
+    std::filesystem::path path;
+    std::error_code system_error;
+    std::optional<std::filesystem::path> leftover;
+    std::optional<LocalSourceWorkspaceFailure> cleanup_failure;
+    // Generated material first commit only; distinct from owned temp leftovers.
+    std::optional<std::filesystem::path> published_material = std::nullopt;
+    std::vector<std::filesystem::path> published_materials = {};
+};
+
+struct PatchAssociationAbsent {};
+struct PatchAssociationForgotten {};
+
+// Registration identity comes from an evaluated owned snapshot, never stale
+// .SRCINFO or a guessed child name. Caller authorizes evaluation separately.
+class ObservedLocalPatchSource final {
+    LocalSourceRoot original_;
+    PackageBaseIdentity identity_;
+    ObservedLocalPatchSource(LocalSourceRoot original, PackageBaseIdentity identity);
+    friend struct PatchAssociationAccess;
+
+public:
+    ObservedLocalPatchSource(ObservedLocalPatchSource&&) noexcept = default;
+    ObservedLocalPatchSource(const ObservedLocalPatchSource&) = delete;
+    ObservedLocalPatchSource& operator=(ObservedLocalPatchSource&&) = delete;
+    const PackageBaseIdentity& identity() const noexcept;
+    void require_unchanged_identity() const;
+};
+
+struct PatchMaterialEntry {
+    std::string file;
+    std::string sha256;
+    bool operator==(const PatchMaterialEntry&) const = default;
+};
+
+class LoadedPatchAssociation final {
+    struct Observation;
+    std::shared_ptr<const Observation> observation_;
+    int schema_version_;
+    PackageBaseIdentity identity_;
+    std::filesystem::path material_root_;
+    std::vector<PatchMaterialEntry> entries_;
+    LoadedPatchAssociation(std::shared_ptr<const Observation>, int, PackageBaseIdentity,
+                           std::filesystem::path, std::vector<PatchMaterialEntry>);
+    friend struct PatchAssociationAccess;
+
+public:
+    const PackageBaseIdentity& identity() const noexcept;
+    const std::filesystem::path& material_root() const noexcept;
+    const std::vector<PatchMaterialEntry>& entries() const noexcept;
+    // The version accepted by the strict record decoder, not material health.
+    int schema_version() const noexcept;
+};
+
+class AcquiredLocalRecipeSeries final {
+    PackageBaseIdentity identity_;
+    std::vector<LocalRecipePatch> patches_;
+    AcquiredLocalRecipeSeries(PackageBaseIdentity, std::vector<LocalRecipePatch>);
+    friend struct PatchAssociationAccess;
+
+public:
+    AcquiredLocalRecipeSeries(AcquiredLocalRecipeSeries&&) noexcept = default;
+    AcquiredLocalRecipeSeries(const AcquiredLocalRecipeSeries&) = delete;
+    const PackageBaseIdentity& identity() const noexcept;
+    const std::vector<LocalRecipePatch>& patches() const noexcept;
+    // Pass identity() as expected_source to the candidate consumer, whose
+    // fresh prepatch guard is still required. No paths are reopened here.
+    std::vector<LocalRecipePatch> take_patches() &&;
+};
+
+using PatchAssociationReadResult = std::variant<PatchAssociationAbsent, LoadedPatchAssociation, PatchAssociationFailure>;
+using PatchAssociationWriteResult = std::variant<LoadedPatchAssociation, PatchAssociationFailure>;
+using PatchAssociationAcquireResult = std::variant<AcquiredLocalRecipeSeries, PatchAssociationFailure>;
+
+std::variant<ObservedLocalPatchSource, PatchAssociationFailure> observe_local_patch_source(
+    LocalSourceRoot original, const ValidatedCacheRoot& cache_root,
+    SourceBuildEnvironment environment);
+
+// Pure projection of resolved AUR checkout authority. No RPC, URL guessing from
+// a child/provider label, source existence check, or execution consent.
+std::variant<PackageBaseIdentity, PatchAssociationFailure> aur_patch_association_identity(
+    const ResolvedAurSourceBuildIdentity& source);
+
+// No-create exact lookup in a completely validated registry. Unknown identity
+// and registry failure are distinct from genuine absence. No material I/O.
+PatchAssociationReadResult read_patch_association(const PackageBaseIdentity& identity);
+// Compatibility entry point for the local consumer; rejects non-local input.
+PatchAssociationReadResult read_local_patch_association(const PackageBaseIdentity& identity);
+// Complete registry snapshot or failure, ordered by PackageBase then source
+// kind (local, aur) and location. Never opens source/material paths
+// or creates the store. A missing store is an empty registry, not a bad record.
+std::variant<std::vector<LoadedPatchAssociation>, PatchAssociationFailure> list_patch_associations();
+// Caller supplies current resolved source authority and explicit save/update
+// intent. Registration is not patch selection or permission to execute recipes.
+PatchAssociationWriteResult register_aur_patch_association(
+    const ResolvedAurSourceBuildIdentity& source, const std::filesystem::path& material_root,
+    const std::vector<std::string>& ordered_files);
+// Generated flow retains the producer's expected digest through acquisition
+// and the registry commit. It never adopts newly observed material bytes.
+PatchAssociationWriteResult register_expected_aur_patch_association(
+    const ResolvedAurSourceBuildIdentity& source, const std::filesystem::path& material_root,
+    const std::vector<PatchMaterialEntry>& expected_entries);
+
+struct PublishedRecipePatch {
+    std::filesystem::path material_root;
+    PatchMaterialEntry expected_entry;
+    std::vector<PatchMaterialEntry> expected_entries;
+};
+// Explicit save caller only. Existing safe user-owned directory, no overwrite,
+// no registry write. A failure after publication retains the final material in
+// failure.leftover; its original cause is retained (not relabelled success).
+std::variant<PublishedRecipePatch, PatchAssociationFailure> publish_generated_recipe_patch(
+    const GeneratedRecipePatch& patch, const std::filesystem::path& requested_directory,
+    const std::filesystem::path& command_start_directory,
+    const std::vector<std::filesystem::path>& excluded_roots);
+std::variant<std::filesystem::path, PatchAssociationFailure> validate_generated_patch_destination(
+    const std::filesystem::path& requested_directory, const std::filesystem::path& command_start_directory,
+    const std::vector<std::filesystem::path>& excluded_roots);
+PatchAssociationWriteResult update_aur_patch_association(
+    const ResolvedAurSourceBuildIdentity& source, const LoadedPatchAssociation& previous,
+    const std::filesystem::path& material_root, const std::vector<std::string>& ordered_files);
+std::variant<PatchAssociationForgotten, PatchAssociationFailure> forget_patch_association(
+    const LoadedPatchAssociation& previous);
+PatchAssociationWriteResult register_local_patch_association(
+    const ObservedLocalPatchSource& source, const std::filesystem::path& material_root,
+    const std::vector<std::string>& ordered_files);
+PatchAssociationWriteResult update_local_patch_association(
+    const ObservedLocalPatchSource& source, const LoadedPatchAssociation& previous,
+    const std::filesystem::path& material_root, const std::vector<std::string>& ordered_files);
+std::variant<PatchAssociationForgotten, PatchAssociationFailure> forget_local_patch_association(
+    const LoadedPatchAssociation& previous);
+
+// Complete, digest-verified series or failure: no partial input can escape.
+// A fresh record observation is required; a stale update token is rejected.
+PatchAssociationAcquireResult acquire_local_patch_series(const LoadedPatchAssociation& association);
+
+// Selected AUR consumer only. Rechecks the exact loaded registry observation
+// and returns the same digest-verified owned bytes used by the recipe consumer.
+PatchAssociationAcquireResult acquire_aur_patch_series(const LoadedPatchAssociation& association);
+
+// Display/diagnostic path only, never a filesystem capability.
+std::filesystem::path patch_association_record_path(const PackageBaseIdentity& identity);
+std::filesystem::path local_patch_association_record_path(const PackageBaseIdentity& identity);
+
+#ifdef MOGUET_ENABLE_PATCH_ASSOCIATION_TEST_HOOKS
+enum class PatchAssociationTestPoint {
+    AfterMaterialOpen,
+    AfterMaterialRead,
+    AfterSeriesRead,
+    AfterRecordRead,
+    AfterRegistryEnumeration,
+    BeforePublication,
+    BeforeWrite,
+    BeforeFileSync,
+    AfterPublication,
+    BeforeDirectorySync,
+    PartialRead,
+    WrongMaterialOwner,
+    BeforeMaterialPublication,
+    AfterMaterialPublication,
+    AfterMaterialVerification
+};
+using PatchAssociationTestHook = std::function<void(PatchAssociationTestPoint, const std::filesystem::path&)>;
+void set_patch_association_test_hook(PatchAssociationTestHook hook);
+void fail_patch_association_operation_for_test(PatchAssociationTestPoint point);
+#endif

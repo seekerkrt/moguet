@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <variant>
 
 namespace {
 
@@ -246,6 +247,26 @@ observe_clean_trusted_git_pinned_checkout_overlay(
         TrustedGitPinnedCheckoutFailureReason::InvalidCapability,
         TrustedGitPinnedCheckoutStage::OverlayObservation,
         std::nullopt, 0, 0, std::nullopt};
+}
+
+std::variant<std::string, TrustedGitPinnedCheckoutFailure>
+trusted_git_read_review_pkgbuild(const ValidatedCachePath&) {
+    // This profile cannot mint reviewed checkout authority. Never synthesize
+    // recipe bytes if the review-local capture path is reached unexpectedly.
+    return TrustedGitPinnedCheckoutFailure{
+        TrustedGitPinnedCheckoutFailureReason::InvalidCapability,
+        TrustedGitPinnedCheckoutStage::OverlayObservation,
+        std::nullopt, 0, 0, std::nullopt};
+}
+
+bool TrustedGitPinnedCheckoutOverlayObservation::persistent_recipe_changes_only(
+    const TrustedGitPinnedCheckoutOverlayObservation&) const {
+    throw std::logic_error("trusted-git-stub-cannot-observe-recipe-changes");
+}
+
+bool TrustedGitPinnedCheckoutOverlayObservation::semantic_changed(
+    const TrustedGitPinnedCheckoutOverlayObservation&) const {
+    throw std::logic_error("trusted-git-stub-cannot-observe-recipe-changes");
 }
 
 TrustedGitPinnedCheckoutOverlayObservationResult

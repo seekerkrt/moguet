@@ -233,6 +233,10 @@ public:
         return std::get_if<ResolvedRepositorySourceBuildIdentity>(&source_);
     }
 
+    const ResolvedAurSourceBuildIdentity* aur_identity() const noexcept {
+        return std::get_if<ResolvedAurSourceBuildIdentity>(&source_);
+    }
+
     bool operator==(const ResolvedSourceBuildIdentity&) const = default;
 
 private:
@@ -940,12 +944,16 @@ struct RemoteSourceBuildResult {
 RemoteSourceBuildResult build_source_target(
     const std::string& package_name,
     const SourceBuildEnvironment& custom_environment,
-    const AppConfig& config);
+    const AppConfig& config,
+    SourceEnvironmentEmptyValuePolicy empty_value_policy =
+        SourceEnvironmentEmptyValuePolicy::Forward);
 
 RemoteSourceBuildPreparation prepare_remote_source_build(
     const std::string& package_name,
     const SourceBuildEnvironment& custom_environment,
-    const AppConfig& config);
+    const AppConfig& config,
+    SourceEnvironmentEmptyValuePolicy empty_value_policy =
+        SourceEnvironmentEmptyValuePolicy::Forward);
 
 ResolvedSourceBuildIdentity resolve_source_build_identity(
     const std::string& package_name);
@@ -1137,3 +1145,7 @@ struct SourceInvocationExecutionTestHooks {
 };
 void set_source_invocation_execution_test_hooks(SourceInvocationExecutionTestHooks hooks);
 #endif
+
+ProductionSourceBuildWorkItem prepare_registered_recipe_source_build_work_item(
+    const ResolvedSourceBuildIdentity& identity, SourceBuildEnvironment environment,
+    const ProviderSelectionCallback& select_provider, const AurRecipeMetadataSet& recipes);

@@ -99,6 +99,11 @@ DiagnosticOperation diagnostic_operation(OperationId operation) noexcept {
             return DiagnosticOperation::EditSource;
         case OperationId::ListSources:
             return DiagnosticOperation::ListSources;
+        case OperationId::AddPatch:
+        case OperationId::UpdatePatch:
+        case OperationId::DeletePatch:
+        case OperationId::ListPatch:
+            return DiagnosticOperation::PatchCustomization;
         case OperationId::Count:
             return DiagnosticOperation::CliParsing;
     }
@@ -173,6 +178,20 @@ std::optional<CliInvocationIssue> validate_operand_contract(
     };
 
     switch(form.target_policy) {
+        case TargetPolicy::FixedSequence: {
+            std::size_t minimum = 0, maximum = 0;
+            for(std::size_t i = 0; i < form.operands.term_count; ++i) {
+                minimum += form.operands.terms[i].min_count;
+                const auto count = form.operands.terms[i].max_count;
+                if(count == cli_authority::UNBOUNDED_OPERAND_COUNT)
+                    maximum = count;
+                else if(maximum != cli_authority::UNBOUNDED_OPERAND_COUNT)
+                    maximum += count;
+            }
+            if(operand_count < minimum || operand_count > maximum)
+                return issue(CliInvocationIssueKind::InvalidPatchLifecycle);
+            return std::nullopt;
+        }
         case TargetPolicy::None:
             if(operand_count != 0) {
                 return issue(
@@ -284,6 +303,9 @@ std::string operand_placeholder(OperandKind kind) {
             return "<pkg>";
         case OperandKind::Directory:
             return "<directory>";
+        case OperandKind::PatchDirectory: return "<patch-directory>";
+        case OperandKind::PatchFile: return "<patch-file>";
+        case OperandKind::PackageBase: return "<package-base>";
         case OperandKind::Query:
             return "<query>";
         case OperandKind::SourcePreferenceItem:
@@ -371,14 +393,139 @@ ResolvedCliRuntimeContract resolve_cli_runtime_contract(
     }
 
     if(special == nullptr) return {};
-    return ResolvedCliRuntimeContract{
+    ResolvedCliRuntimeContract contract{
         nullptr, nullptr, special, special->owner};
+    if(special->is_open_grammar) {
+        bool has_unknown_tail = false;
+        for(const auto& token : parsed.tokens) {
+            if(token.role == CliTokenRole::EndOfOptions ||
+               (token.role == CliTokenRole::PacmanOption &&
+                token.value != cli_authority::PACMAN_NEEDED_OPTION)) {
+                has_unknown_tail = true;
+            }
+        }
+        if(!has_unknown_tail)
+            contract.delegated_example =
+                cli_authority::find_delegated_operation_example(parsed.operation);
+    }
+    return contract;
 }
 
 CliInvocationValidation validate_cli_invocation_contract(
     const ParsedCliArguments& parsed) {
     ResolvedCliRuntimeContract contract =
         resolve_cli_runtime_contract(parsed);
+
+    std::size_t patch_options = 0;
+    bool attached_patch_option = false;
+    for(const auto& token : parsed.tokens)
+        if((token.role == CliTokenRole::PacmanOption || token.role == CliTokenRole::Operation) &&
+           (token.value == cli_authority::USE_PATCHES_OPTION || token.value.starts_with("--use-patches="))) {
+            ++patch_options;
+            attached_patch_option = attached_patch_option || token.value != cli_authority::USE_PATCHES_OPTION;
+        }
+    if(patch_options != 0) {
+        const bool local = contract.operation && contract.operation->id == OperationId::Build &&
+                           primary_operand_kind(*contract.form) == OperandKind::Directory;
+        bool incompatible = false;
+        for(const auto& token : parsed.tokens)
+            if(token.role == CliTokenRole::MoguetGlobalOption &&
+               (token.value == "--edit" || token.value == "--dry-run")) incompatible = true;
+        if(!local || patch_options != 1 || incompatible || attached_patch_option)
+            return invalid_invocation(contract, {CliInvocationIssueKind::InvalidPatchSelection, parsed.operation, std::nullopt, TargetPolicy::None, OperandKind::None},
+                                      DiagnosticClass::Unsupported, DiagnosticOperation::CliParsing);
+    }
+    if(contract.operation && (contract.operation->id == OperationId::AddPatch ||
+                              contract.operation->id == OperationId::UpdatePatch || contract.operation->id == OperationId::DeletePatch)) {
+        for(const auto& token : parsed.tokens) {
+            if(token.role == CliTokenRole::Operation || token.role == CliTokenRole::Target ||
+               token.role == CliTokenRole::OpaqueOperand || token.role == CliTokenRole::EndOfOptions ||
+               (token.role == CliTokenRole::MoguetGlobalOption && token.value == "--noconfirm")) continue;
+            return invalid_invocation(contract, {CliInvocationIssueKind::InvalidPatchLifecycle, parsed.operation, token.value, TargetPolicy::FixedSequence, OperandKind::Directory},
+                                      DiagnosticClass::Unsupported, DiagnosticOperation::PatchCustomization);
+        }
+    }
+
+    if(contract.operation && contract.operation->id == OperationId::ListPatch) {
+        for(const auto& token : parsed.tokens) {
+            if(token.role == CliTokenRole::Operation || token.role == CliTokenRole::Target ||
+               token.role == CliTokenRole::OpaqueOperand || token.role == CliTokenRole::EndOfOptions ||
+               (token.role == CliTokenRole::MoguetGlobalOption && token.value == cli_authority::global_option_spec(cli_authority::GlobalOptionId::Details).token)) continue;
+            return invalid_invocation(contract, {CliInvocationIssueKind::InvalidPatchLifecycle, parsed.operation, token.value, TargetPolicy::None, OperandKind::None},
+                                      DiagnosticClass::Unsupported, DiagnosticOperation::PatchCustomization);
+        }
+    }
+
+    std::size_t save_preference_option_count = 0;
+    std::size_t preference_option_count = 0;
+    for(const ParsedCliToken& token : parsed.tokens) {
+        if((token.role == CliTokenRole::PacmanOption ||
+            token.role == CliTokenRole::Operation) &&
+           token.value == cli_authority::SAVE_SOURCE_PREFERENCE_OPTION) {
+            ++save_preference_option_count;
+        }
+        if((token.role == CliTokenRole::PacmanOption ||
+            token.role == CliTokenRole::Operation) &&
+           token.value == cli_authority::USE_SOURCE_PREFERENCE_OPTION) {
+            ++preference_option_count;
+        }
+    }
+    if(save_preference_option_count != 0) {
+        const bool is_remote_build =
+            contract.operation != nullptr &&
+            contract.operation->id == OperationId::Build &&
+            primary_operand_kind(*contract.form) == OperandKind::Package;
+        const bool has_assignment = is_remote_build && parsed.targets.size() > 1 &&
+                                    std::any_of(parsed.targets.begin() + 1, parsed.targets.end(), is_environment_assignment);
+        std::optional<CliInvocationIssueKind> kind;
+        std::optional<std::string> conflict;
+        if(!is_remote_build)
+            kind = CliInvocationIssueKind::MisplacedSourcePreferenceOption;
+        else if(save_preference_option_count > 1)
+            kind = CliInvocationIssueKind::DuplicateSourcePreferenceOption;
+        else if(preference_option_count != 0 || parsed.cli_overrides.dry_run) {
+            kind = CliInvocationIssueKind::SourcePreferencePromotionOptionConflict;
+            conflict = std::string(preference_option_count != 0
+                                       ? cli_authority::USE_SOURCE_PREFERENCE_OPTION
+                                       : "--dry-run");
+        } else if(!has_assignment)
+            kind = CliInvocationIssueKind::SourcePreferencePromotionRequiresAssignment;
+        if(kind) {
+            return invalid_invocation(
+                contract, CliInvocationIssue{*kind, parsed.operation, conflict.value_or(std::string(cli_authority::SAVE_SOURCE_PREFERENCE_OPTION)), TargetPolicy::ExactlyOne, OperandKind::Package},
+                DiagnosticClass::Invalid, DiagnosticOperation::Build);
+        }
+    }
+    if(preference_option_count != 0) {
+        const bool is_remote_build =
+            contract.operation != nullptr &&
+            contract.operation->id == OperationId::Build &&
+            primary_operand_kind(*contract.form) == OperandKind::Package;
+        const CliInvocationIssueKind kind =
+            !is_remote_build
+                ? CliInvocationIssueKind::MisplacedSourcePreferenceOption
+            : preference_option_count > 1
+                ? CliInvocationIssueKind::DuplicateSourcePreferenceOption
+                : CliInvocationIssueKind::SourcePreferenceAssignmentConflict;
+        bool has_assignment = false;
+        if(is_remote_build) {
+            for(std::size_t index = 1; index < parsed.targets.size(); ++index) {
+                if(is_environment_assignment(parsed.targets[index])) {
+                    has_assignment = true;
+                    break;
+                }
+            }
+        }
+        if(!is_remote_build || preference_option_count > 1 || has_assignment) {
+            return invalid_invocation(
+                contract,
+                CliInvocationIssue{
+                    kind, parsed.operation, std::nullopt,
+                    TargetPolicy::ExactlyOne, OperandKind::Package},
+                DiagnosticClass::Invalid,
+                DiagnosticOperation::Build);
+        }
+    }
 
     if(parsed.operation == cli_authority::LOCAL_SOURCE_OPTION) {
         return invalid_invocation(
@@ -515,6 +662,17 @@ CliInvocationValidation validate_cli_invocation_contract(
 std::string cli_invocation_issue_message(
     const CliInvocationIssue& issue) {
     switch(issue.kind) {
+        case CliInvocationIssueKind::InvalidPatchSelection:
+            // TRANSLATORS: The placeholders are literal CLI option/command tokens.
+            return localization::format_translated_message(
+                "Use {} once with {}; it cannot be combined with {} or {}.",
+                cli_authority::USE_PATCHES_OPTION, "build --local", "--edit", "--dry-run");
+        case CliInvocationIssueKind::InvalidPatchLifecycle: {
+            const auto* operation = cli_authority::find_moguet_operation(issue.operation);
+            return localization::format_translated_message(
+                "Invalid patch command arguments or options. Usage: {}",
+                operation ? cli_operation_syntax(operation->id) : issue.operation);
+        }
         case CliInvocationIssueKind::UnknownOperation:
             return localization::format_translated_message(
                 "Unknown operation: {}", issue.operation);
@@ -522,6 +680,26 @@ std::string cli_invocation_issue_message(
             return localization::format_translated_message(
                 "Option {} is supported only with operation {}.",
                 cli_authority::LOCAL_SOURCE_OPTION, "build");
+        case CliInvocationIssueKind::MisplacedSourcePreferenceOption:
+            return localization::format_translated_message(
+                "Option {} is supported only with remote {}.",
+                issue.operand.value_or(std::string(cli_authority::USE_SOURCE_PREFERENCE_OPTION)), "build");
+        case CliInvocationIssueKind::DuplicateSourcePreferenceOption:
+            return localization::format_translated_message(
+                "Option {} may be specified only once for remote {}.",
+                issue.operand.value_or(std::string(cli_authority::USE_SOURCE_PREFERENCE_OPTION)), "build");
+        case CliInvocationIssueKind::SourcePreferencePromotionRequiresAssignment:
+            return localization::format_translated_message(
+                "Option {} requires at least one explicit V=K assignment.",
+                cli_authority::SAVE_SOURCE_PREFERENCE_OPTION);
+        case CliInvocationIssueKind::SourcePreferencePromotionOptionConflict:
+            return localization::format_translated_message(
+                "Option {} cannot be combined with {}.",
+                cli_authority::SAVE_SOURCE_PREFERENCE_OPTION, issue.operand.value_or(""));
+        case CliInvocationIssueKind::SourcePreferenceAssignmentConflict:
+            return localization::format_translated_message(
+                "Option {} cannot be combined with invocation-local environment assignments.",
+                cli_authority::USE_SOURCE_PREFERENCE_OPTION);
         case CliInvocationIssueKind::MisplacedPkgbuildOutputDirectoryOption:
             return localization::format_translated_message(
                 "Option {} is supported only with operation {}.",

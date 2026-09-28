@@ -1735,3 +1735,19 @@ void activate_production_source_build_cache(
 ConfirmationResult request_confirmation(const std::string&, ConfirmationDefault, bool) {
     throw std::logic_error("Upgrade-all fixture received an unexpected bootstrap confirmation.");
 }
+
+std::string confirmation_stop_diagnostic(const ConfirmationResult&) {
+    throw std::logic_error("Upgrade-all query fixture received an unexpected preparation confirmation stop.");
+}
+
+BuildPlan resolve_recipe_build_plan(const std::vector<std::string>&,
+                                    const AurRecipeMetadataSet&,
+                                    const ProviderSelectionCallback&) {
+    throw std::logic_error("This query fixture has no evaluated recipe metadata.");
+}
+
+ProductionSourceBuildWorkItem prepare_registered_recipe_source_build_work_item(
+    const ResolvedSourceBuildIdentity&, SourceBuildEnvironment,
+    const ProviderSelectionCallback&, const AurRecipeMetadataSet&) {
+    throw std::logic_error("This source fixture has no evaluated recipe metadata.");
+}

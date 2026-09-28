@@ -11,6 +11,8 @@ set(MOGUET_PRODUCTION_SOURCES
     source/artifact_workspace.cpp
     source/aur_constraint_metadata.cpp
     source/aur_rpc.cpp
+    source/aur_upgrade_patch.cpp
+    source/recipe_patch_review.cpp
     source/aur_update_cli_presentation.cpp
     source/aur_update_execution_preflight.cpp
     source/aur_update_execution_preparation.cpp
@@ -74,6 +76,10 @@ set(MOGUET_PRODUCTION_SOURCES
     source/invocation_owned_source_build_context.cpp
     source/local_dependency_plan_projection.cpp
     source/local_package_metadata.cpp
+    source/local_patch_association.cpp
+    source/local_recipe_candidate.cpp
+    source/generated_recipe_patch.cpp
+    source/review_recipe_patch_save.cpp
     source/local_source_build.cpp
     source/local_source_build_dependency_preparation.cpp
     source/local_source_install.cpp
@@ -283,3 +289,21 @@ unset(_moguet_production_source_count)
 unset(_moguet_source)
 unset(_moguet_unique_production_sources)
 unset(_moguet_unique_source_count)
+
+# Read-only completion transport. The supervisor owns the bounded worker tree;
+# neither closure contains main startup, AUR, config/state or transaction code.
+set(MOGUET_REPOSITORY_PREFIX_HELPER_SOURCES
+    source/repository_package_prefix_helper_main.cpp
+    source/package_identifier.cpp
+    source/process.cpp
+    source/logging.cpp
+    source/shell_words.cpp
+)
+set(MOGUET_REPOSITORY_PREFIX_WORKER_SOURCES
+    source/repository_package_prefix_worker_main.cpp
+    source/package_metadata.cpp
+    source/package_identifier.cpp
+    source/process.cpp
+    source/logging.cpp
+    source/shell_words.cpp
+)

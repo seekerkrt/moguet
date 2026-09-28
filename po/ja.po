@@ -1,8 +1,8 @@
 msgid ""
 msgstr ""
-"Project-Id-Version: Moguet 2.10.1\n"
+"Project-Id-Version: Moguet 2.11.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-24 11:28+0900\n"
+"POT-Creation-Date: 2026-09-28 10:13+0900\n"
 "PO-Revision-Date: 2026-09-19 17:53+0900\n"
 "Last-Translator: Moguet contributors\n"
 "Language-Team: Japanese\n"
@@ -647,6 +647,138 @@ msgstr "{} {} の {} に対する応答を検証できませんでした: 応答
 #, c++-format
 msgid "{} {} response validation failed for {}: duplicate response {} {}"
 msgstr "{} {} の {} に対する応答を検証できませんでした: 応答の {} {} が重複しています"
+
+msgid "Saved recipe patches are not supported by authoritative devel execution. Update stopped; no stock or legacy fallback was attempted."
+msgstr "authoritative devel実行では保存済みrecipe patchを使用できません。更新を停止しました。stock / Legacyへの切替はしていません。"
+
+msgid "missing patch material or association"
+msgstr "patch materialまたはassociationがありません"
+
+msgid "patch material digest changed"
+msgstr "patch materialのdigestが変わっています"
+
+msgid "unsafe patch customization"
+msgstr "patch customizationの安全条件を満たしていません"
+
+msgid "corrupt patch association"
+msgstr "patch associationが壊れています"
+
+msgid "unsupported patch association"
+msgstr "非対応のpatch associationです"
+
+msgid "invalid patch material"
+msgstr "patch materialが不正です"
+
+msgid "patch association identity mismatch"
+msgstr "patch associationの識別情報が一致しません"
+
+msgid "patch association changed during the operation"
+msgstr "操作中にpatch associationが変更されました"
+
+msgid "patch customization I/O failure"
+msgstr "patch customizationの入出力に失敗しました"
+
+#, c++-format
+msgid "Saved patch customization failed: {} ({}). Update stopped."
+msgstr "保存済みpatch customizationを使用できません: {} ({})。更新を停止しました。"
+
+#, c++-format
+msgid "Evaluate patched {} metadata with {}?"
+msgstr "{}のpatch後metadataを{}で評価しますか？"
+
+#. TRANSLATORS: The placeholders are the literal PKGBUILD artifact name and makepkg option.
+#, c++-format
+msgid "Evaluate {} metadata with {}?"
+msgstr "{}メタデータを{}で評価しますか？"
+
+msgid "Patched recipe dependency metadata is invalid."
+msgstr "patch後recipeの依存metadataが不正です。"
+
+#, c++-format
+msgid "Patched recipe changed {} or child identity."
+msgstr "patch後recipeで{}またはchildの識別情報が変わりました。"
+
+msgid "Saved patch candidate cleanup failed."
+msgstr "保存済みpatch candidateのcleanupに失敗しました。"
+
+#, c++-format
+msgid "Invalid {} patch candidate lifecycle."
+msgstr "{} patch candidateの処理順序が不正です。"
+
+msgid "Current upstream recipe does not match the saved patch association."
+msgstr "current upstream recipeが保存済みpatch associationと一致しません。"
+
+#, c++-format
+msgid "Saved recipe patch application failed: {}. Update stopped; no stock fallback was attempted."
+msgstr "保存済みrecipe patchの適用に失敗しました: {}。更新を停止しました。stockへの切替はしていません。"
+
+#, c++-format
+msgid "{} patch candidate already cleaned."
+msgstr "{} patch candidateは既にcleanup済みです。"
+
+msgid "Saved recipe patch candidate changed after replay."
+msgstr "保存済みrecipe patchの再適用後にcandidateが変化しました。"
+
+msgid "Installed package state changed after patch candidate preparation. Update stopped."
+msgstr "patch candidateの準備後にinstalled packageの状態が変わりました。更新を停止しました。"
+
+msgid "Patch candidate identity or build environment changed after metadata evaluation."
+msgstr "metadata評価後にpatch candidateの識別情報またはbuild環境が変わりました。"
+
+#, c++-format
+msgid "{} patch candidate is unavailable or already consumed."
+msgstr "{} patch candidateを利用できないか、既に使用済みです。"
+
+msgid "Selected patch candidate has no fresh metadata."
+msgstr "選択済みpatch candidateにfresh metadataがありません。"
+
+#, c++-format
+msgid "Saved patch candidate cleanup failed: {}. Inspect the retained workspace: {}"
+msgstr "保存済みpatch candidateのcleanupに失敗しました: {}。保持されたworkspaceを確認してください: {}"
+
+#, c++-format
+msgid "Current {} source identity changed before patch discovery."
+msgstr "patchの発見前にcurrent {} sourceの識別情報が変わりました。"
+
+#, c++-format
+msgid "{} patch source identity changed."
+msgstr "{} patch sourceの識別情報が変わりました。"
+
+#, c++-format
+msgid "Saved patch customization found for {}."
+msgstr "{}の保存済みpatch customizationが見つかりました。"
+
+#, c++-format
+msgid "Apply saved patch customization to this update of {}?"
+msgstr "今回の{}の更新に保存済みpatch customizationを適用しますか？"
+
+#, c++-format
+msgid "Registered {} install reason is unknown."
+msgstr "登録済み{} sourceのinstall reasonが不明です。"
+
+#, c++-format
+msgid "Conflicting evaluated {} child identity."
+msgstr "評価済み{} childの識別情報が競合しています。"
+
+#, c++-format
+msgid "{} patch discovery requires exact update metadata."
+msgstr "{} patchの発見にはexactな更新metadataが必要です。"
+
+#, c++-format
+msgid "{} update install reason is unknown."
+msgstr "{}更新のinstall reasonが不明です。"
+
+#, c++-format
+msgid "{} patch discovery lost build-unit selection correlation."
+msgstr "{} patchの発見時にbuild unitと選択結果の対応が失われました。"
+
+#, c++-format
+msgid "{} patch discovery build-unit identity mismatch."
+msgstr "{} patchの発見時にbuild unitの識別情報が一致しません。"
+
+#, c++-format
+msgid "{} patch discovery received an unknown build-unit selection."
+msgstr "{} patchの発見で不明なbuild unit選択を受け取りました。"
 
 msgid "explicit"
 msgstr "明示指定"
@@ -2325,8 +2457,36 @@ msgid "Invalid environment assignment: {}"
 msgstr "不正な環境変数代入です: {}"
 
 #, c++-format
+msgid "Use {} once with {}; it cannot be combined with {} or {}."
+msgstr "{}は{}で1回だけ使用してください。{}や{}とは併用できません。"
+
+#, c++-format
+msgid "Invalid patch command arguments or options. Usage: {}"
+msgstr "patchコマンドの引数またはオプションが無効です。使用法: {}"
+
+#, c++-format
 msgid "Unknown operation: {}"
 msgstr "不明な操作です: {}"
+
+#, c++-format
+msgid "Option {} is supported only with remote {}."
+msgstr "オプション {} はリモート{}でのみ使用できます。"
+
+#, c++-format
+msgid "Option {} may be specified only once for remote {}."
+msgstr "オプション {} はリモート{}で1回だけ指定できます。"
+
+#, c++-format
+msgid "Option {} requires at least one explicit V=K assignment."
+msgstr "オプション {} には少なくとも1件の明示的なV=K代入が必要です。"
+
+#, c++-format
+msgid "Option {} cannot be combined with {}."
+msgstr "オプション {} は {} と併用できません。"
+
+#, c++-format
+msgid "Option {} cannot be combined with invocation-local environment assignments."
+msgstr "オプション {} は今回指定する環境変数代入と併用できません。"
 
 #, c++-format
 msgid "Option {} is not supported for operation {}."
@@ -3410,11 +3570,6 @@ msgstr "ローカルソースメタデータは安全でないため評価でき
 msgid "Local metadata evaluation is required for {}: {}."
 msgstr "{}にはローカルメタデータの評価が必要です: {}。"
 
-#. TRANSLATORS: The placeholders are the literal PKGBUILD artifact name and makepkg option.
-#, c++-format
-msgid "Evaluate {} metadata with {}?"
-msgstr "{}メタデータを{}で評価しますか？"
-
 #, c++-format
 msgid "Local package {} does not support architecture {}."
 msgstr "ローカルパッケージ {} はアーキテクチャ {} をサポートしていません。"
@@ -3510,12 +3665,154 @@ msgstr "診断用に保持したアーティファクト作業領域: {}"
 msgid "Local source workspace cleanup also failed: {}"
 msgstr "ローカルソース作業領域の後処理にも失敗しました: {}"
 
+#, c++-format
+msgid "Patch customization is not registered for this local source and {}. Use {}."
+msgstr "このlocal sourceと{}のpatch customizationは未登録です。{}を使ってください。"
+
+msgid "Required patch material or association is missing. Restore the material or inspect the saved association."
+msgstr "必要なpatch materialまたはassociationがありません。materialを復元するか保存済みassociationを確認してください。"
+
+msgid "Patch material changed. Review it and run update-patch explicitly; the saved digest was not changed."
+msgstr "patch materialが変更されています。内容を確認しupdate-patchを明示実行してください。保存digestは変更していません。"
+
+msgid "Patch customization is unsafe. Check ownership, permissions, symlinks and retained publication files."
+msgstr "patch customizationの安全性を確認できません。所有者・権限・symlink・残留publication fileを確認してください。"
+
+msgid "Patch association record is corrupt. Inspect the configuration before retrying."
+msgstr "patch association recordが破損しています。再試行前に設定を確認してください。"
+
+msgid "Patch association record uses an unsupported schema or source type."
+msgstr "patch association recordのschemaまたはsource typeは未対応です。"
+
+#, c++-format
+msgid "Invalid patch series. Use distinct ordered files containing supported {} text patches."
+msgstr "patch seriesが無効です。対応する{} text patchを含む重複しないfileを順序指定してください。"
+
+#, c++-format
+msgid "Patch association does not match the current local source and {}."
+msgstr "patch associationが現在のlocal sourceと{}に一致しません。"
+
+msgid "Patch customization changed during the operation. No automatic retry was attempted."
+msgstr "操作中にpatch customizationが変更されました。自動再試行はしていません。"
+
+msgid "Patch customization is already registered. Use update-patch to replace it explicitly."
+msgstr "patch customizationは登録済みです。update-patchで明示的に置換してください。"
+
+msgid "Patch customization could not be read or written because of an I/O failure."
+msgstr "I/O障害によりpatch customizationを読み書きできませんでした。"
+
+msgid "Local recipe identity evaluation failed. Patch customization was not used."
+msgstr "local recipeのidentity評価に失敗しました。patch customizationは使用していません。"
+
+msgid "Patch record operation may have completed. Inspect the configuration before retrying."
+msgstr "patch record操作が完了した可能性があります。再試行前に設定を確認してください。"
+
+#, c++-format
+msgid "Retained patch workspace or record: {}"
+msgstr "保持したpatch workspaceまたはrecord: {}"
+
+msgid "Patched recipe review stopped or the candidate changed; metadata evaluation was not started."
+msgstr "patch後recipeのreviewが停止したかcandidateが変更されました。metadata評価は開始していません。"
+
+msgid "Recipe patch application failed; stock build was not attempted."
+msgstr "recipe patchの適用に失敗しました。通常buildへの切替はしていません。"
+
+#, c++-format
+msgid "Patched recipe identity differs from the selected source, {} or ordered package children."
+msgstr "patch後recipeのidentityが選択したsource・{}・順序付きpackage childrenと異なります。"
+
+msgid "Prepatch recipe metadata evaluation failed."
+msgstr "patch前recipeのmetadata評価に失敗しました。"
+
+msgid "Patched recipe metadata evaluation failed; build was not started."
+msgstr "patch後recipeのmetadata評価に失敗しました。buildは開始していません。"
+
+msgid "Patched recipe dependency plan could not be prepared; build was not started."
+msgstr "patch後recipeのdependency planを準備できませんでした。buildは開始していません。"
+
+msgid "Recipe patch input or build settings failed preflight."
+msgstr "recipe patch入力またはbuild設定の事前検証に失敗しました。"
+
+msgid "Owned recipe candidate could not be prepared."
+msgstr "この呼出しが所有するrecipe candidateを準備できませんでした。"
+
+#, c++-format
+msgid "Patch {} failed; later patches were not attempted."
+msgstr "patch {}が失敗しました。後続patchは試行していません。"
+
+msgid "Selected patches require source identity evaluation and pre/post patch metadata evaluation in owned candidates. Editor overlays are not used."
+msgstr "選択patchにはowned candidateでのsource identity評価とpatch前後のmetadata評価が必要です。editor overlayは使いません。"
+
+#, c++-format
+msgid "Patch registration evaluates {} once in an owned candidate; it does not build or install."
+msgstr "patch登録ではowned candidateで{}を1回評価します。buildやinstallはしません。"
+
+#, c++-format
+msgid "Selected patch series for {}: {} patch(es)."
+msgstr "{}のpatch seriesを選択しました: {}件。"
+
+msgid "No patch customizations registered."
+msgstr "登録済みpatch customizationはありません。"
+
+msgid "Registered patch customizations:"
+msgstr "登録済みpatch customization:"
+
+#, c++-format
+msgid "  {}  {}:{}  patches={}  material={}"
+msgstr "  {}  {}:{}  patch件数={}  material={}"
+
+#, c++-format
+msgid "    Record schema version: {}"
+msgstr "    record schema version: {}"
+
+msgid "    Ordered patches (saved expected SHA-256; material not checked):"
+msgstr "    保存順のpatch（保存済み期待SHA-256。materialは未検証）:"
+
+#. TRANSLATORS: Placeholders are the saved position, patch filename and expected digest, not a current material observation.
+#, c++-format
+msgid "      {}. {}  SHA-256={}"
+msgstr "      {}. {}  SHA-256={}"
+
+#, c++-format
+msgid "Forgot patch association for {}; user material was preserved."
+msgstr "{}のpatch associationを削除しました。user materialは保持しています。"
+
+msgid "Use an absolute patch directory or a relative path without '..'."
+msgstr "patch directoryにはabsolute pathか'..'を含まないrelative pathを指定してください。"
+
+msgid "Patch files must be leaf names in the selected patch directory."
+msgstr "patch fileは選択したpatch directory内のleaf名で指定してください。"
+
+#, c++-format
+msgid "Saved patch association for {}: {} patch(es). Registration does not enable automatic application."
+msgstr "{}のpatch associationを保存しました: {}件。登録による自動適用はありません。"
+
 msgid "No package specified."
 msgstr "パッケージが指定されていません。"
 
 #, c++-format
+msgid "A source-build preference is already registered for {}; use {} to edit it."
+msgstr "{} のソースビルド設定は既に登録されています。編集には {} を使用してください。"
+
+#, c++-format
+msgid "No saved source-build preference is registered for {}."
+msgstr "{} の保存済みソースビルド設定は登録されていません。"
+
+#, c++-format
 msgid "Build Error: {}"
 msgstr "ビルドエラー: {}"
+
+#, c++-format
+msgid "Saved source-build preference for {}."
+msgstr "{} のソースビルド設定を保存しました。"
+
+#, c++-format
+msgid "Build/install succeeded, but source preference promotion failed: {}"
+msgstr "ビルド・インストールは成功しましたが、ソースビルド設定の保存に失敗しました: {}"
+
+#, c++-format
+msgid "Inspect the preference for {}; use {} to edit an existing entry."
+msgstr "{} の設定を確認してください。既存設定の編集には {} を使用してください。"
 
 #, c++-format
 msgid "Added {} to source-build list."
@@ -3649,6 +3946,18 @@ msgstr "{}キャッシュの削除をスキップしました。"
 #, c++-format
 msgid "{} cache is empty."
 msgstr "{}キャッシュは空です。"
+
+#, c++-format
+msgid "Show {} for read-only review?"
+msgstr "read-only reviewのため{}を表示しますか？"
+
+#, c++-format
+msgid "{} is too large for inline review. Inspect it externally and decline the preview on the next invocation."
+msgstr "{}が大きすぎるためinline表示できません。外部で内容を確認し、次の呼出しでpreviewを辞退してください。"
+
+#, c++-format
+msgid "Read-only {} candidate:"
+msgstr "read-only {} candidate:"
 
 #, c++-format
 msgid "Foreign package inventory is unavailable; installed annotations are omitted: {}"
@@ -5054,6 +5363,13 @@ msgstr "予期しない{}コマンドの失敗です: 不明な例外です。"
 msgid "{} package metadata constraint projection failed: {}"
 msgstr "{}パッケージメタデータの制約projectionに失敗しました: {}"
 
+msgid "Selected recipe child does not support the effective architecture."
+msgstr "選択recipeのchildは実効architectureに対応していません。"
+
+#, c++-format
+msgid "Current recipe child identity differs from {} metadata; no {} fallback for the selected {}."
+msgstr "現在のrecipeのchild identityが{} metadataと異なります。{}から選択した{}へfallbackしません。"
+
 #, c++-format
 msgid "{} provider candidate changed during dependency resolution: {}"
 msgstr "依存関係の解決中に{}プロバイダー候補が変更されました: {}"
@@ -5137,6 +5453,10 @@ msgstr "以前に選択したプロバイダーは、依存関係 {} の候補�
 #, c++-format
 msgid "Provider candidate changed during dependency resolution: {}"
 msgstr "依存関係の解決中にプロバイダー候補が変更されました: {}"
+
+#, c++-format
+msgid "Invalid evaluated {} recipe plan input."
+msgstr "評価済み{} recipeのplan入力が不正です。"
 
 msgid "already absent"
 msgstr "すでに存在しません"
@@ -5562,6 +5882,9 @@ msgstr "不明な{}更新分類です"
 msgid "{} entry has an unknown classification."
 msgstr "{}エントリに不明な分類があります。"
 
+msgid "Saved patch dependency preparation exceeded the candidate limit."
+msgstr "保存済みpatchの依存準備がcandidate件数の上限を超えました。"
+
 #. TRANSLATORS: {} is the literal service name "AUR".
 #, c++-format
 msgid "Prepared filtered {} update operation is invalid or has already been consumed."
@@ -5745,8 +6068,8 @@ msgstr "操作"
 
 #. TRANSLATORS: The placeholder is the literal PKGBUILD artifact identity.
 #, c++-format
-msgid "Build one remote package or local {} root without saving a preference"
-msgstr "設定を保存せず、リモートパッケージ1件またはローカル{}ルート1件をビルド"
+msgid "Build one remote package or local {} root; assignments are one-off unless explicitly saved"
+msgstr "リモートパッケージ1件またはローカル{}ルート1件をビルド。明示保存しない代入は今回だけ適用"
 
 msgid "Run the source-aware system update and apply saved source-build preferences"
 msgstr "保存済みソースビルド設定を適用するソース対応システム更新を実行"
@@ -5841,6 +6164,40 @@ msgstr "1件以上のソースビルド設定を削除"
 msgid "Remove preferences and reinstall binary packages"
 msgstr "1件以上の設定を削除してバイナリパッケージを再インストール"
 
+msgid "LOCAL RECIPE PATCHES"
+msgstr "LOCAL RECIPE PATCH"
+
+#, c++-format
+msgid "Experimental: accepted ordinary reviewed {} edits to root {} and existing top-level {} can be saved with separate default-No consent to an explicit existing patch directory"
+msgstr "Experimental: 通常review済み{}でacceptしたroot {}と既存top-level {}の編集は、別のdefault-No同意で明示した既存patch directoryへ保存できます"
+
+msgid "Use an existing patch directory with an absolute path or a path relative to the command's starting directory; '~' is not expanded."
+msgstr "既存のpatch directoryを絶対パス、またはコマンド開始時の作業ディレクトリ基準の相対パスで指定してください。'~'は展開されません。"
+
+#, c++-format
+msgid "Register ordered {} patches from a user-maintained directory; do not enable automatic application"
+msgstr "user-maintained directoryの{} patchを順序指定で登録する。自動適用は有効にしない"
+
+msgid "Explicitly replace a local patch association and its expected digests"
+msgstr "local patch associationと期待digestを明示的に置換する"
+
+msgid "List saved patch associations without checking external material"
+msgstr "外部materialを検証せず保存済みpatch associationを一覧"
+
+msgid "Forget only the association record; preserve user patch material"
+msgstr "association recordだけを削除しuser patch materialを保持する"
+
+#, c++-format
+msgid "Use {} with {} to select saved patches; require explicit metadata evaluation consent and stop if customization fails"
+msgstr "{}を{}で使い保存patchを選択する。metadata評価の明示同意を要求しcustomization失敗時は停止する"
+
+#, c++-format
+msgid "Experimental: {}, {} and {} offer saved {} recipe patches with a No default; noninteractive use keeps stock recipes"
+msgstr "Experimental: {}、{}、{}では保存済み{} recipe patchの適用を既定Noで確認します。非対話ではstock recipeを使用します"
+
+msgid "Patch Yes requires fresh metadata and never falls back; authoritative devel customization is unsupported"
+msgstr "patchのYes選択後はfresh metadataを使い、fallbackしません。authoritative develのcustomizationは非対応です"
+
 #. TRANSLATORS: The placeholder is the literal pacman program identity.
 #, c++-format
 msgid "{} COMPATIBILITY"
@@ -5900,8 +6257,8 @@ msgstr "詳細な診断情報と由来情報を表示"
 
 #. TRANSLATORS: The placeholders are literal supported CLI forms.
 #, c++-format
-msgid "For remote {}, {}, {}, {}, {}, {}, {}, {}, and {}; changes presentation only, not execution"
-msgstr "リモート{}、{}、{}、{}、{}、{}、{}、{}、{}で使用可能。表示だけを変更し、実行動作は変えません"
+msgid "For remote {}, {}, {}, {}, {}, {}, {}, {}, {}, and {}; changes presentation only, not execution"
+msgstr "リモート{}、{}、{}、{}、{}、{}、{}、{}、{}、{}で使用可能。表示だけを変更し、実行動作は変えません"
 
 msgid "Show this help message and exit"
 msgstr "このヘルプを表示して終了"
@@ -5975,6 +6332,22 @@ msgstr "{}のビルド、確認、計画段階は省略しません"
 
 msgid "Select the source-build mode"
 msgstr "ソースビルドモードを選択"
+
+msgid "Use the saved source-build preference for this remote build"
+msgstr "このリモートビルドで保存済みソースビルド設定を使用"
+
+msgid "Require a registered preference; do not combine with V=K assignments"
+msgstr "登録済み設定が必要です。V=Kの代入とは併用できません"
+
+msgid "Save explicit V=K assignments as a new preference after remote build/install success"
+msgstr "リモートビルド・インストール成功後、明示的なV=K代入を新規設定として保存"
+
+#, c++-format
+msgid "Require V=K; reject existing preferences, {} and {}; use {} to edit an existing preference"
+msgstr "V=Kが必要です。既存設定、{}、{}を拒否。既存設定の編集には {} を使用"
+
+msgid "Reject values that cannot round-trip exactly through the existing preference format before building"
+msgstr "既存の設定形式で正確に再利用できない値はビルド前に拒否"
 
 #. TRANSLATORS: The placeholder is a literal compatibility option form.
 #, c++-format
@@ -7684,6 +8057,9 @@ msgstr "レビュー前の {} 評価をスキップします。"
 msgid "Update status is unknown because {} is missing or incomplete. Continue to review/build?"
 msgstr "{} が存在しないか不完全なため、更新状態が不明です。レビューとビルドを続行しますか？"
 
+msgid "Selected patch has no recipe preparation intent."
+msgstr "選択済みpatchにrecipe準備のintentがありません。"
+
 #, c++-format
 msgid "Applying custom build flags: {}"
 msgstr "カスタムビルドフラグを適用します: {}"
@@ -7724,6 +8100,12 @@ msgstr "{} セットのソースビルドで、単一要求の識別情報に整
 msgid "{} set source-build multiple request must not expose a singular package name."
 msgstr "{} セットの複数対象ソースビルド要求で、単一のパッケージ名を公開してはいけません。"
 
+msgid "Selected patch has no execution intent."
+msgstr "選択済みpatchに実行のintentがありません。"
+
+msgid "Selected patch update lost installed snapshot."
+msgstr "選択済みpatchによる更新でinstalled snapshotが失われました。"
+
 msgid "Devel tracking bootstrap observations changed; no build was started."
 msgstr "devel追跡の初期化に使う観測結果が変更されたため、ビルドを開始しませんでした。"
 
@@ -7758,6 +8140,55 @@ msgstr "{} のソース取得またはビルド準備に失敗しました: {}"
 #, c++-format
 msgid "{} set source-build unexpectedly produced an update-status result."
 msgstr "{} セットのソースビルドが予期せず更新状態結果を生成しました。"
+
+msgid "Saving patch customization for authoritative devel builds is unsupported; build stopped."
+msgstr "authoritative devel buildのpatch customization保存は非対応です。buildを停止しました。"
+
+msgid "Patch directory is empty, unsafe or unavailable; build stopped."
+msgstr "patch directoryが空、unsafe、または利用できません。buildを停止しました。"
+
+msgid "Recipe patch generation or exact reproduction verification failed; build stopped."
+msgstr "recipe patch生成またはexact reproduction検証に失敗しました。buildを停止しました。"
+
+msgid "Accepted recipe identity validation failed; build stopped."
+msgstr "accepted recipeのidentity検証に失敗しました。buildを停止しました。"
+
+msgid "Generated patch publication or integrity verification failed; build stopped."
+msgstr "生成patchの公開またはintegrity検証に失敗しました。buildを停止しました。"
+
+msgid "Patch association registration failed; build stopped."
+msgstr "patch association登録に失敗しました。buildを停止しました。"
+
+msgid "patch material or association already exists"
+msgstr "patch materialまたはassociationが既に存在します"
+
+msgid "recipe identity evaluation failed"
+msgstr "recipe identity評価に失敗しました"
+
+msgid "patch registration commit is uncertain"
+msgstr "patch登録commitは不確実です"
+
+#, c++-format
+msgid "Patch customization failure: {} ({})."
+msgstr "patch customizationの失敗: {} ({})。"
+
+#, c++-format
+msgid "Patch material and registration are complete at {}. Current build continuation stopped."
+msgstr "{}のpatch material公開と登録は完了しています。今回のbuild継続を停止しました。"
+
+#, c++-format
+msgid "Published patch material remains at {}. Registration is incomplete or uncertain."
+msgstr "公開済みpatch materialは{}に残っています。登録は未完了または不確実です。"
+
+msgid "Patch directory (absolute path or relative to the command's starting directory; '~' is not expanded):"
+msgstr "patch directory（絶対パス、またはコマンド開始時の作業ディレクトリ基準の相対パス。'~'は展開されません）:"
+
+msgid "Save this edit as patch customization?"
+msgstr "今回の編集をpatch customizationとして保存しますか？"
+
+#, c++-format
+msgid "Saved patch customization: {}"
+msgstr "patch customizationを保存しました: {}"
 
 #, c++-format
 msgid "Registered source upgrade does not support split {} preference {} from {} {}; this route requires a singular package identity."
@@ -7869,6 +8300,10 @@ msgid "Remote source-build plan was rejected without a blocking detail."
 msgstr "blocking detailがないままremote source-build planが拒否されました。"
 
 #, c++-format
+msgid "Recipe patch work item requires {} identity."
+msgstr "recipe patchのwork itemには{}の識別情報が必要です。"
+
+#, c++-format
 msgid "{} required artifact target projection failed before source-build work-item preparation."
 msgstr "ソースビルド作業項目の準備前に、{} に必要なアーティファクト対象の投影に失敗しました。"
 
@@ -7898,6 +8333,13 @@ msgstr "{} の変数を展開できませんでした: {}"
 #, c++-format
 msgid "Ignoring invalid environment assignment: {}"
 msgstr "無効な環境変数の代入を無視します: {}"
+
+#, c++-format
+msgid "Cannot save environment assignment {} exactly in the existing source preference format; use a one-off build."
+msgstr "環境変数 {} の代入を既存のソース設定形式へ正確に保存できません。今回限りのビルドを使用してください。"
+
+msgid "Source preference serialization did not preserve the complete environment."
+msgstr "ソース設定の直列化で環境全体を保持できませんでした。"
 
 #, c++-format
 msgid "Failed to enumerate source preference directory {}: {}"
@@ -10022,6 +10464,9 @@ msgstr "{}のデフォルト状態ログを段階{}で安全に使用できま�
 msgid "Unknown state log error code."
 msgstr "不明な状態ログエラーコードです。"
 
+#~ msgid "Apply it to this update?"
+#~ msgstr "今回の更新に適用しますか？"
+
 #, c++-format
 #~ msgid "Select a provider from [{}], or press {} / enter {} to cancel:"
 #~ msgstr "[{}] からプロバイダーを選択してください。取り消すには {} を押すか {} を入力してください："
@@ -10086,10 +10531,6 @@ msgstr "不明な状態ログエラーコードです。"
 
 #~ msgid "Repository update diff policy"
 #~ msgstr "リポジトリ更新差分の確認方針"
-
-#, c++-format
-#~ msgid "Operation {} requires exactly one {} package target."
-#~ msgstr "操作 {} には {} パッケージ対象をちょうど1つ指定する必要があります。"
 
 #, c++-format
 #~ msgid "Usage: {} {} {}"
@@ -10187,9 +10628,6 @@ msgstr "不明な状態ログエラーコードです。"
 #~ msgid "Interactive package selection has an unknown input gate."
 #~ msgstr "対話形式のパッケージ選択の入力ゲートが不明です。"
 
-#~ msgid "package state changed"
-#~ msgstr "パッケージ状態が変更されました"
-
 #~ msgid "package state change unknown"
 #~ msgstr "パッケージ状態の変更は不明です"
 
@@ -10264,9 +10702,6 @@ msgstr "不明な状態ログエラーコードです。"
 #, c++-format
 #~ msgid "{} set source-build execution requires an {} {} work item."
 #~ msgstr "{} セットのソースビルド実行には {} {} の作業項目が必要です。"
-
-#~ msgid "redacted because candidate validation failed"
-#~ msgstr "候補の検証に失敗したため非表示"
 
 #~ msgid "An upgrade-all issue is missing its diagnostic."
 #~ msgstr "全体更新問題に診断がありません。"
@@ -10461,10 +10896,6 @@ msgstr "不明な状態ログエラーコードです。"
 #, c++-format
 #~ msgid "Failed to append environment key {} to {}."
 #~ msgstr "環境変数キー{}を{}へ追記できませんでした。"
-
-#, c++-format
-#~ msgid "Failed to read source preference file {}."
-#~ msgstr "ソース設定ファイル{}を読み取れませんでした。"
 
 #, c++-format
 #~ msgid "Failed to write temporary file {}."

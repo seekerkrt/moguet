@@ -80,6 +80,13 @@ std::size_t forbidden_operation_count() {
 
 } // namespace aur_update_execution_preflight_integration_stub
 
+CapturedCommandResult capture_explicit_process_output_raw(
+    const ExplicitProcessInvocation&, bool) {
+    // The shared metadata object also exposes the private prefix transport;
+    // preflight fixtures must never enter it or spawn a real configuration tool.
+    reject_forbidden_operation("capture_explicit_process_output_raw");
+}
+
 CapturedCommandResult capture_command_output_raw(const char* command) {
     const std::string command_text = command == nullptr ? "" : command;
     g_state.captured_commands.push_back(command_text);

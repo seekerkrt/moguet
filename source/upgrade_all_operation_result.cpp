@@ -8,6 +8,7 @@ namespace {
 
 PackageStateChange aur_package_state_change(
     const UpgradeAllAurPhaseResult& aur) noexcept {
+    if(aur.preparation_confirmation && !aur.operation_result) return PackageStateChange::NoChange;
     if(!aur.operation_result.has_value()) return PackageStateChange::Unknown;
 
     const FilteredAurUpdateExecutionResult& filtered =
@@ -56,7 +57,7 @@ ObservationReason system_source_observation_reason(
 
 bool aur_phase_not_attempted(
     const UpgradeAllAurPhaseResult& aur) noexcept {
-    return aur.status == UpgradeAllAurPhaseStatus::NotAttempted ||
+    return aur.preparation_confirmation.has_value() || aur.status == UpgradeAllAurPhaseStatus::NotAttempted ||
            aur.not_attempted_reason.has_value() ||
            (aur.operation_result.has_value() &&
             aur.operation_result->has_not_attempted_targets());
@@ -68,6 +69,11 @@ bool aur_phase_has_inconsistency(
         return true;
     }
     if(!aur.operation_result.has_value()) {
+        if(aur.preparation_confirmation) {
+            const bool cancelled = std::holds_alternative<ConfirmationCancelled>(*aur.preparation_confirmation);
+            return std::holds_alternative<ConfirmationAccepted>(*aur.preparation_confirmation) ||
+                   aur.status != (cancelled ? UpgradeAllAurPhaseStatus::StoppedOnWorkItemCancellation : UpgradeAllAurPhaseStatus::BlockedBeforeExecution);
+        }
         return aur.status != UpgradeAllAurPhaseStatus::NotAttempted;
     }
 

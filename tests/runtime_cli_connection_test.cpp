@@ -265,7 +265,7 @@ void test_operand_contract_connection() {
 
     for(const char* operation : {
             "upgrade", "upgrade-aur", "upgrade-all", "clean",
-            "list-src"}) {
+            "list-src", "list-patch"}) {
         expect_valid(
             invocation(operation),
             std::string{operation} + " targetless");
@@ -346,7 +346,7 @@ void test_runtime_help_connection() {
     const std::array expected = {
         std::pair{OperationId::Build,
                   std::string{
-                      "build <pkg> [V=K...] | build --local <directory> [V=K...]"}},
+                      "build [--use-preference] [--save-preference] <pkg> [V=K...] | build --local [--use-patches] <directory> [V=K...]"}},
         std::pair{OperationId::Upgrade, std::string{"upgrade"}},
         std::pair{OperationId::Clean, std::string{"clean"}},
         std::pair{OperationId::Deps,
@@ -359,6 +359,8 @@ void test_runtime_help_connection() {
                   std::string{"edit-src <pkg>..."}},
         std::pair{OperationId::ListSources,
                   std::string{"list-src"}},
+        std::pair{OperationId::ListPatch,
+                  std::string{"list-patch"}},
         std::pair{OperationId::DeleteSource,
                   std::string{"del-src <pkg>..."}},
         std::pair{OperationId::Revert,
@@ -371,8 +373,8 @@ void test_runtime_help_connection() {
     }
 
     const std::vector<std::string> canonical = {
-        "build <pkg> [V=K...]",
-        "build --local <directory> [V=K...]",
+        "build [--use-preference] [--save-preference] <pkg> [V=K...]",
+        "build --local [--use-patches] <directory> [V=K...]",
         "upgrade",
         "upgrade-aur",
         "upgrade-all",
@@ -385,6 +387,10 @@ void test_runtime_help_connection() {
         "list-src",
         "del-src <pkg>...",
         "revert <pkg>...",
+        "add-patch <directory> <patch-directory> <patch-file>...",
+        "update-patch <directory> <patch-directory> <patch-file>...",
+        "del-patch <directory> <package-base>",
+        "list-patch",
         "-G <pkg> [--output-dir=DIR]",
         "-Gp <pkg>",
         "-S --select [--needed] <query>",
@@ -396,6 +402,35 @@ void test_runtime_help_connection() {
     expect(
         cli_canonical_grammar() == canonical,
         "Canonical public grammar projection differs");
+}
+
+void test_source_preference_promotion_contract() {
+    using Kind = CliInvocationIssueKind;
+    const auto parse = [](std::vector<std::string> args) {
+        return require_parsed_invocation(args, "source preference promotion");
+    };
+    expect_valid(parse({"build", "pkg", "CFLAGS=-O1", "CFLAGS=-O3", "FOO=", "--save-preference"}),
+                 "explicit promotion");
+    expect_issue(parse({"build", "pkg", "--save-preference"}),
+                 Kind::SourcePreferencePromotionRequiresAssignment, DiagnosticClass::Invalid, "empty promotion");
+    expect_issue(parse({"build", "pkg", "--use-preference", "--save-preference"}),
+                 Kind::SourcePreferencePromotionOptionConflict, DiagnosticClass::Invalid, "use/save conflict");
+    expect_issue(parse({"--dry-run", "build", "pkg", "FOO=", "--save-preference"}),
+                 Kind::SourcePreferencePromotionOptionConflict, DiagnosticClass::Invalid, "dry/save conflict");
+    expect_issue(parse({"build", "--local", ".", "FOO=", "--save-preference"}),
+                 Kind::MisplacedSourcePreferenceOption, DiagnosticClass::Invalid, "local promotion");
+    expect_issue(parse({"-S", "pkg", "--save-preference"}),
+                 Kind::MisplacedSourcePreferenceOption, DiagnosticClass::Invalid, "delegated promotion");
+    expect_issue(parse({"--save-preference", "build", "pkg", "FOO="}),
+                 Kind::MisplacedSourcePreferenceOption, DiagnosticClass::Invalid, "global promotion");
+    expect_issue(parse({"build", "pkg", "FOO=", "--save-preference", "--save-preference"}),
+                 Kind::DuplicateSourcePreferenceOption, DiagnosticClass::Invalid, "duplicate promotion");
+    const auto parsed = parse({"build", "pkg", "1INVALID=value", "--save-preference"});
+    expect(!validate_cli_invocation_contract(parsed).is_valid(), "invalid assignment promotion accepted");
+    expect(!is_moguet_global_option("--save-preference"), "save option became global");
+    const auto& option = cli_authority::option_contract(cli_authority::OptionId::SaveSourcePreference);
+    expect(option.lexical_placement == cli_authority::OptionLexicalPlacement::OperationLocal,
+           "save option is not operation-local");
 }
 
 void test_system_update_runtime_authority() {
@@ -798,10 +833,63 @@ void test_terminal_safe_policy_and_runtime_boundary() {
         "Runtime presentation retained raw unsafe bytes");
 }
 
+void test_shared_operand_and_lexical_authority() {
+    using namespace cli_authority;
+    for(const auto& [arguments, kind] : std::vector<std::pair<std::vector<std::string>, OperandKind>>{
+            {{"-S", "ch"}, OperandKind::Package},
+            {{"-Ss", "ch"}, OperandKind::Query}}) {
+        const auto parsed = require_parsed_invocation(arguments, "known delegated context");
+        const auto contract = resolve_cli_runtime_contract(parsed);
+        expect(contract.is_delegated() && contract.delegated_example != nullptr &&
+                   contract.delegated_example->operand_kind == kind,
+               "exact package/query projection missing or changed delegation");
+        expect(validate_cli_invocation_contract(parsed).is_valid(), "delegated validity changed");
+    }
+    const auto select = resolve_cli_runtime_contract(require_parsed_invocation(
+        {"-S", "--select", "ch"}, "select query"));
+    expect(select.special_operation->operands.terms[0].kind == OperandKind::Query &&
+               select.delegated_example == nullptr,
+           "select became package context");
+    for(const auto& args : std::vector<std::vector<std::string>>{
+            {"-Sxyz", "ch"}, {"-S", "--search", "ch"}, {"-S", "--", "ch"}}) {
+        const auto parsed = require_parsed_invocation(args, "open grammar");
+        const auto contract = resolve_cli_runtime_contract(parsed);
+        expect(contract.is_delegated() && contract.delegated_example == nullptr &&
+                   validate_cli_invocation_contract(parsed).is_valid(),
+               "open grammar falsely classified or closed");
+    }
+    for(const auto& option : PACMAN_VALUE_OPTIONS) {
+        expect(pacman_option_takes_value(std::string(option.token)), "shared arity missing");
+        expect(!pacman_option_takes_value(std::string(option.token) + "=value"), "inline waits for value");
+        const auto parsed = require_parsed_invocation(
+            {"-S", std::string(option.token), "--", "ch"}, "pending value precedes marker");
+        expect(parsed.tokens[2].role == CliTokenRole::PacmanOptionValue &&
+                   !parsed.end_of_options && parsed.targets == std::vector<std::string>{"ch"},
+               "pending lexical interpretation changed");
+    }
+    for(const auto& args : std::vector<std::vector<std::string>>{
+            {"-S", "--color", "always", "ch"}, {"-S", "--color=always", "ch"}, {"-S", "-b", "/db", "ch"}, {"-S", "-r", "/root", "ch"}}) {
+        const auto parsed = require_parsed_invocation(args, "value syntax");
+        expect(parsed.targets == std::vector<std::string>{"ch"} &&
+                   !parsed.pending_option,
+               "value became operand");
+        expect(parsed.ordered_pacman_args == args, "forwarded argv changed");
+    }
+    const auto opaque = require_parsed_invocation({"-S", "--", "--color"}, "marker");
+    expect(opaque.end_of_options && opaque.tokens.back().role == CliTokenRole::OpaqueOperand,
+           "marker no longer shields opaque operand");
+    expect(!parse_invocation({"-S", "--color"}), "missing value accepted");
+    expect(find_pacman_value_option("--config=x")->changes_database_context &&
+               find_pacman_value_option("-b")->changes_database_context &&
+               !find_pacman_value_option("--color")->changes_database_context,
+           "alternate DB lexical fact missing");
+}
+
 } // namespace
 
 int main() {
     try {
+        test_shared_operand_and_lexical_authority();
         test_presentation_detail_plumbing();
         std::cout << "  ok: invocation-local presentation detail plumbing\n";
         test_presentation_option_ownership_boundaries();
@@ -809,6 +897,7 @@ int main() {
         test_operand_contract_connection();
         std::cout << "  ok: runtime operand contract connection\n";
         test_runtime_help_connection();
+        test_source_preference_promotion_contract();
         std::cout << "  ok: runtime help metadata connection\n";
         test_sync_invocation_route_classification();
         std::cout << "  ok: sync invocation route classification\n";

@@ -302,6 +302,56 @@ std::error_code current_system_error() {
     return std::error_code(errno, std::generic_category());
 }
 
+bool source_preference_contents_match_environment(const std::string& contents, const SourceBuildEnvironment& environment) {
+    std::istringstream input(contents);
+    const auto parsed = parse_source_preference(input, false, [](const std::string&) {});
+    if(parsed.ordered_assignments.size() != environment.ordered_assignments.size()) return false;
+    for(std::size_t index = 0; index < environment.ordered_assignments.size(); ++index) {
+        const auto& expected = environment.ordered_assignments[index];
+        const auto& actual = parsed.ordered_assignments[index];
+        if(expected.key != actual.key || expected.value != actual.value) return false;
+    }
+    return true;
+}
+
+std::string serialize_source_preference_environment(const SourceBuildEnvironment& environment) {
+    std::string contents;
+    SourceBuildEnvironment prefix;
+    for(const auto& assignment : environment.ordered_assignments) {
+        std::string key, value;
+        if(!split_env_assignment(assignment.key + "=", key, value) || key != assignment.key) {
+            throw std::invalid_argument(localization::format_translated_message(
+                "Invalid environment assignment: {}", assignment.key + "="));
+        }
+        prefix.ordered_assignments.push_back(assignment);
+        bool is_representable = false;
+        // Preference quoting is not shell quoting: its existing parser expands
+        // variables and strips comments without decoding shell escapes. Use
+        // only a spelling that the actual consumer reads back without change.
+        for(const std::string& encoded_value : std::array{
+                "\"" + assignment.value + "\"", "'" + assignment.value + "'", assignment.value}) {
+            const std::string candidate = contents + assignment.key + "=" + encoded_value + "\n";
+            if(source_preference_contents_match_environment(candidate, prefix)) {
+                contents = candidate;
+                is_representable = true;
+                break;
+            }
+        }
+        if(!is_representable) {
+            throw std::invalid_argument(localization::format_translated_message(
+                "Cannot save environment assignment {} exactly in the existing source preference format; use a one-off build.",
+                assignment.key));
+        }
+    }
+    // This final whole-environment check is the publication oracle, including
+    // duplicate keys, empty values and any parser interaction between lines.
+    if(!source_preference_contents_match_environment(contents, environment)) {
+        throw std::logic_error(localization::translate_message(
+            "Source preference serialization did not preserve the complete environment."));
+    }
+    return contents;
+}
+
 std::string source_preference_system_diagnostic(
     SourcePreferenceFailureKind kind,
     const fs::path& entry_path,
@@ -1100,6 +1150,18 @@ void replace_source_preference_entry_atomically(
                 entry_path, current_system_error()));
         }
         content_writer(temporary.get());
+#ifdef MOGUET_ENABLE_SOURCE_PREFERENCE_TEST_HOOKS
+        if(consume_source_preference_failure_for_test(entry_path, SourcePreferenceTestFailurePoint::Write)) {
+            throw_source_preference_failure(source_preference_system_failure(
+                SourcePreferenceFailureKind::WriteFailed, entry_path,
+                std::make_error_code(std::errc::io_error)));
+        }
+        if(consume_source_preference_failure_for_test(entry_path, SourcePreferenceTestFailurePoint::Sync)) {
+            throw_source_preference_failure(source_preference_system_failure(
+                SourcePreferenceFailureKind::SyncFailed, entry_path,
+                std::make_error_code(std::errc::io_error)));
+        }
+#endif
         if(::fsync(temporary.get()) != 0) {
             throw_source_preference_failure(source_preference_system_failure(
                 SourcePreferenceFailureKind::SyncFailed,
@@ -1174,6 +1236,11 @@ void replace_source_preference_entry_atomically(
         invoke_source_preference_race_for_test(
             entry_path,
             SourcePreferenceTestRacePoint::AtPublicationBoundary);
+        if(consume_source_preference_failure_for_test(entry_path, SourcePreferenceTestFailurePoint::Publication)) {
+            throw_source_preference_failure(source_preference_system_failure(
+                SourcePreferenceFailureKind::RenameFailed, entry_path,
+                std::make_error_code(std::errc::io_error)));
+        }
 #endif
         pre_publication_validator();
 
@@ -1616,6 +1683,33 @@ void create_source_preference_entry(const std::string& package_name) {
     replace_source_preference_entry_atomically(
         directory, package_name, entry_path, std::nullopt,
         [](int) {}, []() {});
+}
+
+PreparedSourcePreferenceContents::PreparedSourcePreferenceContents(std::string contents)
+    : contents_(std::move(contents)) {
+}
+
+const std::string& PreparedSourcePreferenceContents::serialized_contents() const noexcept {
+    return contents_;
+}
+
+PreparedSourcePreferenceContents prepare_source_preference_contents(const SourceBuildEnvironment& environment) {
+    return PreparedSourcePreferenceContents(serialize_source_preference_environment(environment));
+}
+
+void create_source_preference_from_environment_if_absent(
+    const std::string& package_name, const PreparedSourcePreferenceContents& prepared_contents) {
+    require_valid_package_name(package_name);
+    const std::string& contents = prepared_contents.serialized_contents();
+    const auto paths = xdg_paths::resolve_source_preference_process_environment();
+    const fs::path entry_path = paths.directory / package_name;
+    auto directory = prepare_source_preference_directory(paths);
+    replace_source_preference_entry_atomically(
+        directory, package_name, entry_path, std::nullopt,
+        [&contents, &entry_path](int descriptor) {
+            write_all(descriptor, contents.data(), contents.size(), entry_path);
+        },
+        []() {});
 }
 
 void append_source_preference_assignment(
