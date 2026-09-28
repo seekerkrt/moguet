@@ -42,10 +42,11 @@ v2では日常利用できることを目指し、correctnessとregression preve
 <!-- parity:status -->
 ## Project status
 
-現在の公開stableは **[v2.10.1](https://github.com/seekerkrt/moguet/releases/tag/v2.10.1)** です。
-次の予定releaseは **v2.11.0** で、`develop`で開発しています。`main`はdefault branchと
-stable release lineです。次releaseのscopeは[v2.11.0 milestone](https://github.com/seekerkrt/moguet/milestone/32)を
-正とします。以下は現在の`develop`の実装状況であり、すべてが公開stableに含まれているわけではありません。
+現在の公開stableは **[v2.11.0](https://github.com/seekerkrt/moguet/releases/tag/v2.11.0)** です。
+継続開発は`develop`へ統合し、`main`はdefault branch / stable release lineとして維持します。
+[v2.11.0 milestone](https://github.com/seekerkrt/moguet/milestone/32)は、このreleaseで提供した
+scopeの記録です。今後のrelease scopeはactive milestoneが設定された時点でそれを正とします。
+以下は現在の実装状況です。
 
 ### 実装済みのcurrent機能
 
@@ -1015,7 +1016,7 @@ canonical development repositoryは
 active integration branchは`develop`、stable releaseは`main`です。
 [docs/development.md](https://github.com/seekerkrt/moguet/blob/develop/docs/development.md)、
 [docs/versioning.md](https://github.com/seekerkrt/moguet/blob/develop/docs/versioning.md)を
-参照してください。次releaseのscopeは[v2.11.0 milestone](https://github.com/seekerkrt/moguet/milestone/32)を正とします。
+参照してください。v2.11.0のrelease scopeは[v2.11.0 milestone](https://github.com/seekerkrt/moguet/milestone/32)に記録されています。今後のrelease scopeはactive milestoneが設定された時点でそれを正とします。
 current capabilityは`develop`の実装、public help/man、[current contracts](https://github.com/seekerkrt/moguet/blob/develop/docs/contracts/README.md)で確認できます。
 closedの[customization/release roadmap #344](https://github.com/seekerkrt/moguet/issues/344)は
 歴史的な経緯であり、current statusのauthorityではありません。

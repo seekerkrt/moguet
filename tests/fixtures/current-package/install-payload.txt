@@ -6,6 +6,7 @@
 /usr/share/bash-completion/completions/moguet
 /usr/share/doc/moguet/README.ja.md
 /usr/share/doc/moguet/README.md
+/usr/share/doc/moguet/RELEASE_NOTES.md
 /usr/share/doc/moguet/THIRD_PARTY_NOTICES.md
 /usr/share/doc/moguet/docs/LICENSING.md
 /usr/share/doc/moguet/docs/contracts/source-build-rmdeps.md

@@ -509,9 +509,9 @@ ccache / mold parityは必要なreleaseでの追加validationであり、上記d
 それぞれのexact compile / link scopeとclean / incremental条件を`validation.md`に従って記録する。
 
 以下のstage例とその説明は**v2.8.0 release preparationのhistorical example**であり、当時のpath名を含む。
-current releaseのscope / stage対象のauthorityではない。次のv2.11.0のscopeは
-[v2.11.0 milestone](https://github.com/seekerkrt/moguet/milestone/32)を正とし、release preparation時に
-actual diffから新たなexact path setを定める。下記listをそのまま実行しない。
+current releaseのscope / stage対象のauthorityではない。v2.11.0のscopeは
+[v2.11.0 milestone](https://github.com/seekerkrt/moguet/milestone/32)を正とし、release preparationでは
+actual diffから新たなexact path setを定めた。下記listをそのまま実行しない。
 
     git status --short
 
@@ -594,6 +594,58 @@ CMake、fixture package metadata、上記以外のproduction source / container 
 今回のrelease preparationまたはfinding fixによる変更contractがないため、current listへ含めません。
 v2.1.0固有の履歴は下記の`v2.1.0 post-release closure`として別に扱います。将来のreleaseでは、このlistを
 流用せず、そのreleaseで監査済みのexact path setへ置き換えます。
+
+### v2.11.0 release preparation exact path set
+
+v2.11.0では、feature / contract / completion / localization等の実装変更はdevelop上で完了済みであり、
+release preparation自体のtracked変更は次の15 pathsへ限定する。
+
+```text
+VERSION
+CMakeLists.txt
+Makefile
+README.md
+README.ja.md
+RELEASE_NOTES.md
+docs/development.md
+man/moguet.1
+man/ja/moguet.1
+po/moguet.pot
+po/ja.po
+tests/evaluated_devel_source_build_test.cpp
+tests/fixtures/current-package/install-payload.txt
+tests/test-build-authority-closure.sh
+tests/test-install-layout.sh
+```
+
+`PKGBUILD`はroot `VERSION`を動的に読むため変更しない。
+`man/moguet.1.in` / `man/ja/moguet.1.in`は`@VERSION@`を保持するversion-independent templateなので
+変更せず、generated manだけを再生成する。completionもversion-independentであり、
+`po/POTFILES.in`もextraction inventory変更がないためrelease preparationでは変更しない。
+
+fresh final RCのhost laneでは、completion CTestが使用する`EXCLUDE_FROM_ALL`の
+`moguet-cli-authority-exporter`がclean build後のfull CTest frontendからbuildされない
+dependency edge欠落を検出した。`cmake-test-build`がexporterをexplicit prerequisiteとして
+buildするよう修正し、`tests/test-build-authority-closure.sh`でそのedgeをregression guardする。
+
+fresh final RC epoch 2では、installed `README.md` / `README.ja.md`が
+`RELEASE_NOTES.md`を相対参照する一方、canonical install payloadへ
+`RELEASE_NOTES.md`が含まれていないdocumentation closure欠落を検出した。
+release notesを正式なinstalled public documentとしてCMake / Make frontend /
+current-package payload authorityへ追加し、install-layoutの通常・custom・uninstall
+contractで所有を固定する。package-transitionはcurrent-package payload authorityを
+そのままconsumeするため、個別のtransition recipe変更は行わない。
+
+fresh final RC epoch 4ではhost lane通過後、Arch validation containerで
+`cpp.devel_tracking_bootstrap`のpatch-selection fixtureが失敗した。
+containerは`XDG_CONFIG_HOME`を明示する一方、ReviewedBuildFixtureが
+HOME / XDG_CACHE_HOME / XDG_STATE_HOMEだけをfixture-localへ隔離していたため、
+先行する`cli.upgrade_patch_bootstrap`とpatch association registryを共有していた。
+fixture-localな`XDG_CONFIG_HOME`も所有させ、CTest間のambient config state依存を除去した。
+同一のshared XDG_CONFIG_HOMEを使った#31→#157の再現試験と、
+`make test-container`全体の再検証はいずれもPASSした。
+
+このpath setはv2.11.0だけのrelease-preparation authorityであり、後続releaseへ流用しない。
 
 merge 後:
 

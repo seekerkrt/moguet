@@ -375,6 +375,12 @@ fi
 assert_contains "$exporter_target_block" 'moguet-cli-authority-exporter'
 assert_contains "$exporter_target_block" 'EXCLUDE_FROM_ALL'
 
+# Full CTest includes completion lanes that execute the EXCLUDE_FROM_ALL
+# CLI authority exporter. The full test frontend must build that runtime
+# dependency explicitly before CTest starts.
+assert_contains     "$makefile"     'cmake-test-build: cmake-cli-authority-exporter-build'
+assert_contains     "$makefile"     'cmake-cli-authority-exporter-build: cmake-test-configure'
+
 # Schema version 1 is the oldest preset format (CMake 3.19); the CMake project
 # itself keeps its independently declared 3.18 minimum and remains usable
 # without the optional preset CLI.

@@ -537,10 +537,11 @@ public:
           aur_remote_("https://aur.archlinux.org/example-base.git"),
           architecture_(std::move(architecture)) {
         cache_home_ = tree_.path() / "cache";
+        config_home_ = tree_.path() / "config";
         state_home_ = tree_.path() / "state";
         home_ = tree_.path() / "home";
         for(const fs::path& directory :
-            {cache_home_, state_home_, home_}) {
+            {cache_home_, config_home_, state_home_, home_}) {
             fs::create_directory(directory);
             fs::permissions(
                 directory, fs::perms::owner_all,
@@ -549,6 +550,9 @@ public:
         environment_.push_back(
             std::make_unique<ScopedEnvironmentVariable>(
                 "XDG_CACHE_HOME", cache_home_.string()));
+        environment_.push_back(
+            std::make_unique<ScopedEnvironmentVariable>(
+                "XDG_CONFIG_HOME", config_home_.string()));
         environment_.push_back(
             std::make_unique<ScopedEnvironmentVariable>(
                 "XDG_STATE_HOME", state_home_.string()));
@@ -1101,6 +1105,7 @@ private:
     std::string aur_remote_;
     ArchitectureFixture architecture_;
     fs::path cache_home_;
+    fs::path config_home_;
     fs::path state_home_;
     fs::path home_;
     fs::path repository_;

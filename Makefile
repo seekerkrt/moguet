@@ -246,6 +246,7 @@ COMPLIANCE_DOC_FILES := \
 PUBLIC_DOC_FILES := \
 	README.md \
 	README.ja.md \
+	RELEASE_NOTES.md \
 	docs/migration/v1-to-v2.md \
 	docs/migration/v1-to-v2.ja.md
 
@@ -402,7 +403,7 @@ cmake-dev-configure:
 		"-DMOGUET_COMPILE_COMMANDS_BUILD_DIR=$(abspath $(CMAKE_CTEST_BUILD_DIR))" \
 		-P $(CMAKE_COMPILE_COMMANDS_PUBLISHER)
 
-cmake-test-build: cmake-test-configure
+cmake-test-build: cmake-cli-authority-exporter-build
 	+$(CMAKE) --build $(CMAKE_CTEST_BUILD_DIR)
 
 cmake-cli-authority-exporter-build: cmake-test-configure

@@ -68,6 +68,7 @@ catalog_file=$stage_dir/usr/share/locale/ja/LC_MESSAGES/$GETTEXT_DOMAIN.mo
 built_catalog_file=$fixture_build_dir/cmake-production/locale/ja/LC_MESSAGES/$GETTEXT_DOMAIN.mo
 license_dir=$stage_dir/usr/share/licenses/$PACKAGE_NAME
 doc_dir=$stage_dir/usr/share/doc/$PACKAGE_NAME
+release_notes_file=$doc_dir/RELEASE_NOTES.md
 contracts_dir=$doc_dir/docs/contracts
 rmdeps_contract_file=$contracts_dir/source-build-rmdeps.md
 migration_dir=$doc_dir/docs/migration
@@ -292,6 +293,7 @@ assert_package_artifacts_installed() {
 
     assert_installed_file "$repo_root/README.md" "$doc_dir/README.md"
     assert_installed_file "$repo_root/README.ja.md" "$doc_dir/README.ja.md"
+    assert_installed_file "$repo_root/RELEASE_NOTES.md" "$release_notes_file"
     assert_installed_file "$repo_root/THIRD_PARTY_NOTICES.md" \
         "$doc_dir/THIRD_PARTY_NOTICES.md"
     assert_installed_file "$repo_root/sample/config.toml" \
@@ -341,6 +343,7 @@ assert_package_artifacts_absent() {
         "$license_dir/bjoern-hoehrmann-utf8-MIT.txt" \
         "$doc_dir/README.md" \
         "$doc_dir/README.ja.md" \
+        "$release_notes_file" \
         "$doc_dir/THIRD_PARTY_NOTICES.md" \
         "$config_sample_file" \
         "$licensing_file" \
@@ -505,6 +508,7 @@ custom_japanese_man=$custom_stage_dir$custom_jamandir/$COMMAND_NAME.1
 custom_catalog=$custom_stage_dir$custom_localedir/ja/LC_MESSAGES/$GETTEXT_DOMAIN.mo
 custom_license_dir=$custom_stage_dir$custom_licensedir
 custom_doc_dir=$custom_stage_dir$custom_docdir
+custom_release_notes=$custom_doc_dir/RELEASE_NOTES.md
 custom_contracts_dir=$custom_doc_dir/docs/contracts
 custom_rmdeps_contract=$custom_contracts_dir/source-build-rmdeps.md
 custom_migration_dir=$custom_doc_dir/docs/migration
@@ -555,6 +559,7 @@ assert_installed_file "$repo_root/LICENSES/bjoern-hoehrmann-utf8-MIT.txt" \
     "$custom_license_dir/bjoern-hoehrmann-utf8-MIT.txt"
 assert_installed_file "$repo_root/README.md" "$custom_doc_dir/README.md"
 assert_installed_file "$repo_root/README.ja.md" "$custom_doc_dir/README.ja.md"
+assert_installed_file "$repo_root/RELEASE_NOTES.md" "$custom_release_notes"
 assert_installed_file "$repo_root/THIRD_PARTY_NOTICES.md" \
     "$custom_doc_dir/THIRD_PARTY_NOTICES.md"
 assert_installed_file "$repo_root/sample/config.toml" \
@@ -600,6 +605,7 @@ for custom_owned_file in \
     "$custom_license_dir/bjoern-hoehrmann-utf8-MIT.txt" \
     "$custom_doc_dir/README.md" \
     "$custom_doc_dir/README.ja.md" \
+    "$custom_release_notes" \
     "$custom_doc_dir/THIRD_PARTY_NOTICES.md" \
     "$custom_config_sample" \
     "$custom_doc_dir/docs/LICENSING.md" \

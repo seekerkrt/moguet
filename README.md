@@ -47,11 +47,12 @@ upstream code as safe. See the [validation policy](https://github.com/seekerkrt/
 <!-- parity:status -->
 ## Project status
 
-The current released stable version is **[v2.10.1](https://github.com/seekerkrt/moguet/releases/tag/v2.10.1)**.
-The next planned release is **v2.11.0**, developed on `develop`; `main` is the
-default branch and stable release line. The [v2.11.0 milestone](https://github.com/seekerkrt/moguet/milestone/32)
-owns the next release scope. The capabilities below describe the current `develop`
-implementation; they are not all available in the released stable version.
+The current released stable version is **[v2.11.0](https://github.com/seekerkrt/moguet/releases/tag/v2.11.0)**.
+Ongoing development is integrated on `develop`; `main` is the default branch and
+stable release line. The [v2.11.0 milestone](https://github.com/seekerkrt/moguet/milestone/32)
+records the scope delivered by this release. Future release scope is defined by
+the active milestone when one is established. The capabilities below describe
+the current implementation.
 
 ### Implemented current
 
@@ -116,8 +117,9 @@ Implemented Experimental functionality alone does not imply a major bump. See th
 GitHub is canonical and GitLab is a mirror. Moguet being an AUR helper does not
 mean that Moguet itself has a published AUR package: the repository PKGBUILD is
 a repository-provided packaging path, and there is no published Moguet AUR page.
-AUR publication remains a separate decision. The package provides no `jpacker`
-command alias. Historical transitions and release details remain in the
+AUR publication remains a separate decision.
+The package provides no `jpacker` command alias. Historical transitions and
+release details remain in the
 [release notes](RELEASE_NOTES.md) and [migration guide](docs/migration/v1-to-v2.md).
 
 An operation that proceeds directly in another AUR helper may require an
@@ -1208,7 +1210,7 @@ See
 [docs/development.md](https://github.com/seekerkrt/moguet/blob/develop/docs/development.md),
 and
 [docs/versioning.md](https://github.com/seekerkrt/moguet/blob/develop/docs/versioning.md).
-The [v2.11.0 milestone](https://github.com/seekerkrt/moguet/milestone/32) defines the next release scope.
+The [v2.11.0 milestone](https://github.com/seekerkrt/moguet/milestone/32) records this release's scope. Future release scope is defined by the active milestone when one is established.
 Current capability is described by the `develop` implementation, public help/man,
 and [current contracts](https://github.com/seekerkrt/moguet/blob/develop/docs/contracts/README.md).
 The closed [customization/release roadmap #344](https://github.com/seekerkrt/moguet/issues/344)
