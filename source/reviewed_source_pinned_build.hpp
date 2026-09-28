@@ -413,6 +413,8 @@ public:
 
     [[nodiscard]] bool valid() const noexcept;
     [[nodiscard]] ReviewedSourceEditorOverlayStatus status() const;
+    [[nodiscard]] bool persistent_recipe_changes_only() const;
+    [[nodiscard]] bool semantic_changed() const;
 
 private:
     friend ReviewedSourceEditorOverlayProofResult

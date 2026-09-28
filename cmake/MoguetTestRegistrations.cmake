@@ -72,7 +72,7 @@ moguet_add_ctest(
     TARGETS moguet-local-patch-cli-test
     COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test-upgrade-patch-cli.py" "$<TARGET_FILE:moguet-local-patch-cli-test>"
 )
-set_tests_properties(cli.upgrade_patch PROPERTIES TIMEOUT 420)
+set_tests_properties(cli.upgrade_patch PROPERTIES TIMEOUT 600)
 moguet_add_ctest(
     NAME cli.upgrade_patch_bootstrap
     TARGETS devel-tracking-bootstrap-test

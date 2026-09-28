@@ -4,20 +4,54 @@
 #include "logging.hpp"
 #include "process.hpp"
 
+#include <algorithm>
 #include <cstdio>
+#include <fcntl.h>
 #include <memory>
 #include <regex>
 #include <sstream>
+#include <string_view>
 #include <sys/stat.h>
+#include <unistd.h>
 #include <utility>
 
 struct LocalRecipeCandidateAccess final {
     static int directory_descriptor(const LocalSourceRoot& root) noexcept {
         return root.directory_descriptor_;
     }
-    static void restore_recipe_mode(const LocalSourceRoot& root, std::uintmax_t mode) {
+    static void restore_recipe_mode(const LocalSourceRoot& root, const std::string& target,
+                                    std::uintmax_t mode) {
         root.require_unchanged_identity();
-        if(::fchmod(root.pkgbuild_descriptor_, static_cast<mode_t>(mode)) != 0)
+        if(target == "PKGBUILD") {
+            if(::fchmod(root.pkgbuild_descriptor_, static_cast<mode_t>(mode)) != 0)
+                throw std::runtime_error("local-recipe-mode-preservation-failed");
+            return;
+        }
+        const auto snapshot = snapshot_supported_recipe_files(root);
+        const auto found = std::find_if(snapshot.begin(), snapshot.end(), [&](const auto& file) {
+            return file.relative_path == target;
+        });
+        if(found == snapshot.end()) throw std::runtime_error("local-recipe-mode-target-missing");
+        const int descriptor = ::openat(root.directory_descriptor_, target.c_str(),
+                                        O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
+        if(descriptor < 0) throw std::runtime_error("local-recipe-mode-target-open-failed");
+        struct DescriptorCloser {
+            int value;
+            ~DescriptorCloser() {
+                static_cast<void>(::close(value));
+            }
+        } held{descriptor};
+        struct stat opened{};
+        struct stat named{};
+        if(::fstat(descriptor, &opened) != 0 ||
+           ::fstatat(root.directory_descriptor_, target.c_str(), &named, AT_SYMLINK_NOFOLLOW) != 0 ||
+           !S_ISREG(opened.st_mode) || opened.st_nlink != 1 ||
+           opened.st_dev != named.st_dev || opened.st_ino != named.st_ino ||
+           static_cast<std::uintmax_t>(opened.st_dev) != found->file.identity.device ||
+           static_cast<std::uintmax_t>(opened.st_ino) != found->file.identity.inode ||
+           static_cast<std::uintmax_t>(opened.st_uid) != found->file.identity.owner)
+            throw std::runtime_error("local-recipe-mode-target-changed");
+        if(::fchmod(descriptor, static_cast<mode_t>(mode)) != 0)
             throw std::runtime_error("local-recipe-mode-preservation-failed");
     }
 };
@@ -33,20 +67,129 @@ struct InputCloser {
     }
 };
 
+bool git_path_needs_quotes(std::string_view path) {
+    return std::any_of(path.begin(), path.end(), [](unsigned char byte) {
+        return byte < 0x20 || byte >= 0x7f || byte == '"' || byte == '\\';
+    });
+}
+
+std::string git_patch_path(std::string_view path) {
+    if(!git_path_needs_quotes(path)) return std::string(path);
+    std::string result{"\""};
+    for(const unsigned char byte : path) {
+        switch(byte) {
+            case '\a': result += "\\a"; break;
+            case '\b': result += "\\b"; break;
+            case '\t': result += "\\t"; break;
+            case '\n': result += "\\n"; break;
+            case '\v': result += "\\v"; break;
+            case '\f': result += "\\f"; break;
+            case '\r': result += "\\r"; break;
+            case '"': result += "\\\""; break;
+            case '\\': result += "\\\\"; break;
+            default:
+                if(byte < 0x20 || byte >= 0x7f) {
+                    result.push_back('\\');
+                    result.push_back(static_cast<char>('0' + ((byte >> 6) & 7)));
+                    result.push_back(static_cast<char>('0' + ((byte >> 3) & 7)));
+                    result.push_back(static_cast<char>('0' + (byte & 7)));
+                } else {
+                    result.push_back(static_cast<char>(byte));
+                }
+                break;
+        }
+    }
+    result.push_back('"');
+    return result;
+}
+
+std::optional<std::pair<std::string, std::size_t>> decode_git_quoted_path(
+    std::string_view line, std::size_t offset) {
+    if(offset >= line.size() || line[offset] != '"') return std::nullopt;
+    std::string result;
+    for(std::size_t i = offset + 1; i < line.size(); ++i) {
+        const unsigned char byte = static_cast<unsigned char>(line[i]);
+        if(byte == '"') return std::pair(std::move(result), i + 1);
+        if(byte != '\\') {
+            result.push_back(static_cast<char>(byte));
+            continue;
+        }
+        if(++i >= line.size()) return std::nullopt;
+        const char escaped = line[i];
+        switch(escaped) {
+            case 'a': result.push_back('\a'); break;
+            case 'b': result.push_back('\b'); break;
+            case 't': result.push_back('\t'); break;
+            case 'n': result.push_back('\n'); break;
+            case 'v': result.push_back('\v'); break;
+            case 'f': result.push_back('\f'); break;
+            case 'r': result.push_back('\r'); break;
+            case '"': result.push_back('"'); break;
+            case '\\': result.push_back('\\'); break;
+            default:
+                if(escaped < '0' || escaped > '7' || i + 2 >= line.size() ||
+                   line[i + 1] < '0' || line[i + 1] > '7' ||
+                   line[i + 2] < '0' || line[i + 2] > '7')
+                    return std::nullopt;
+                result.push_back(static_cast<char>(
+                    ((escaped - '0') << 6) | ((line[i + 1] - '0') << 3) |
+                    (line[i + 2] - '0')));
+                i += 2;
+                break;
+        }
+    }
+    return std::nullopt;
+}
+
+std::optional<std::string> patch_header_target(const std::string& bytes) {
+    constexpr std::string_view prefix = "diff --git ";
+    const auto newline = bytes.find('\n');
+    if(newline == std::string::npos || newline > 4096) return std::nullopt;
+    const std::string_view line(bytes.data(), newline);
+    if(!line.starts_with(prefix)) return std::nullopt;
+    const std::string_view framed = line.substr(prefix.size());
+    std::string old_path;
+    std::string new_path;
+    if(framed.starts_with('"')) {
+        auto old = decode_git_quoted_path(framed, 0);
+        if(!old || old->second >= framed.size() || framed[old->second] != ' ')
+            return std::nullopt;
+        auto current = decode_git_quoted_path(framed, old->second + 1);
+        if(!current || current->second != framed.size()) return std::nullopt;
+        old_path = std::move(old->first);
+        new_path = std::move(current->first);
+    } else {
+        const auto separator = framed.find(" b/");
+        if(separator == std::string_view::npos) return std::nullopt;
+        old_path = std::string(framed.substr(0, separator));
+        new_path = std::string(framed.substr(separator + 1));
+    }
+    if(!old_path.starts_with("a/") || new_path != "b/" + old_path.substr(2))
+        return std::nullopt;
+    return old_path.substr(2);
+}
+
 // This is an envelope/shape guard, not a hunk replay implementation. Count
 // framing prevents a second traditional diff hiding after a hunk from reaching
 // Git. Actual context matching and application remain Git's responsibility.
 std::optional<LocalRecipeCandidateFailureReason> validate_patch(
-    const std::string& bytes) {
+    const std::string& bytes, const std::string& target) {
     using Reason = LocalRecipeCandidateFailureReason;
+    if(target != "PKGBUILD") {
+        if(target.size() <= std::string_view(".install").size() || !target.ends_with(".install") ||
+           target.find('/') != std::string::npos || target.find('\0') != std::string::npos)
+            return Reason::UnsupportedPatch;
+    }
     if(bytes.empty() || bytes.size() > LOCAL_RECIPE_PATCH_MAX_BYTES ||
        bytes.find('\0') != std::string::npos || bytes.back() != '\n') {
         return Reason::InvalidMaterial;
     }
     std::istringstream input(bytes);
     std::string line;
+    const std::string old_path = "a/" + target;
+    const std::string new_path = "b/" + target;
     if(!std::getline(input, line) ||
-       line != "diff --git a/PKGBUILD b/PKGBUILD") {
+       line != "diff --git " + git_patch_path(old_path) + " " + git_patch_path(new_path)) {
         return Reason::UnsupportedPatch;
     }
     if(!std::getline(input, line)) return Reason::InvalidMaterial;
@@ -57,8 +200,12 @@ std::optional<LocalRecipeCandidateFailureReason> validate_patch(
         if(!std::regex_match(line, index_header)) return Reason::UnsupportedPatch;
         if(!std::getline(input, line)) return Reason::InvalidMaterial;
     }
-    if(line != "--- a/PKGBUILD" || !std::getline(input, line) ||
-       line != "+++ b/PKGBUILD") return Reason::UnsupportedPatch;
+    const std::string path_suffix =
+        !git_path_needs_quotes(old_path) && target.find(' ') != std::string::npos ? "\t" : "";
+    if(line != "--- " + git_patch_path(old_path) + path_suffix ||
+       !std::getline(input, line) ||
+       line != "+++ " + git_patch_path(new_path) + path_suffix)
+        return Reason::UnsupportedPatch;
 
     const std::regex hunk_header(
         R"(@@ -([0-9]+)(,([0-9]+))? \+([0-9]+)(,([0-9]+))? @@.*)");
@@ -172,8 +319,17 @@ void cleanup_failure_workspace(std::optional<LocalSourceWorkspace>& workspace,
 
 } // namespace
 
+std::optional<std::string> local_recipe_patch_header_target(const std::string& bytes) {
+    return patch_header_target(bytes);
+}
+
 std::optional<LocalRecipeCandidateFailureReason> validate_local_recipe_patch(const std::string& bytes) {
-    return validate_patch(bytes);
+    return validate_patch(bytes, "PKGBUILD");
+}
+
+std::optional<LocalRecipeCandidateFailureReason> validate_local_recipe_patch(
+    const std::string& bytes, const std::string& target_relative_path) {
+    return validate_patch(bytes, target_relative_path);
 }
 
 LocalRecipeCandidateError::LocalRecipeCandidateError(
@@ -219,11 +375,11 @@ void PreparedLocalRecipeBuild::require_unchanged_identity() const {
 
 LocalSourceRoot apply_recipe_patch_series(
     const LocalSourceRoot& before, const std::vector<LocalRecipePatch>& patches,
-    LocalRecipeCandidateFailure& failure) {
+    LocalRecipeCandidateFailure& failure, SupportedRecipeSnapshot* verified_recipe) {
     using Phase = LocalRecipeCandidatePhase;
     using Reason = LocalRecipeCandidateFailureReason;
     before.require_unchanged_identity();
-    auto expected = before.pkgbuild();
+    auto expected = snapshot_supported_recipe_files(before);
     std::size_t total = 0;
     if(patches.empty() || patches.size() > MAX_SERIES_ENTRIES)
         throw std::invalid_argument("local-recipe-invalid-series");
@@ -232,32 +388,63 @@ LocalSourceRoot apply_recipe_patch_series(
         if(patches[i].bytes.size() > LOCAL_RECIPE_PATCH_MAX_BYTES || total > MAX_SERIES_BYTES - patches[i].bytes.size())
             throw std::invalid_argument("local-recipe-series-limit");
         total += patches[i].bytes.size();
-        if(auto invalid = validate_patch(patches[i].bytes)) {
+        if(auto invalid = validate_patch(patches[i].bytes, patches[i].target_relative_path)) {
             failure.reason = *invalid;
             failure.rejected_patch_index = i;
             throw std::invalid_argument("local-recipe-patch-shape-rejected");
         }
     }
-    // Each snapshot expires only after a successful, known PKGBUILD mutation.
+    // Each snapshot expires only after a successful mutation of its one owned
+    // target. Every other supported recipe file must retain its full identity.
     for(std::size_t i = 0; i < patches.size(); ++i) {
         failure.phase = Phase::Apply;
         failure.reason = Reason::CandidateChanged;
         failure.patches[i] = LocalRecipePatchOutcome::Failed;
         auto current = open_local_source_root(before.canonical_path(), true);
-        if(current.directory_identity() != before.directory_identity() || current.pkgbuild() != expected)
+        if(current.directory_identity() != before.directory_identity() ||
+           snapshot_supported_recipe_files(current) != expected)
             throw std::runtime_error("local-recipe-prepatch-changed");
+        const auto target = std::find_if(expected.begin(), expected.end(), [&](const auto& file) {
+            return file.relative_path == patches[i].target_relative_path;
+        });
+        if(target == expected.end()) throw std::runtime_error("local-recipe-target-missing");
         apply_patch(patches[i], current, failure);
         failure.reason = Reason::CandidateChanged;
         auto next = open_local_source_root(before.canonical_path(), true);
         if(next.directory_identity() != before.directory_identity())
             throw std::runtime_error("local-recipe-candidate-identity-changed");
-        if(next.pkgbuild().identity.mode != before.pkgbuild().identity.mode)
-            LocalRecipeCandidateAccess::restore_recipe_mode(next, before.pkgbuild().identity.mode);
-        expected = open_local_source_root(before.canonical_path(), true).pkgbuild();
+        if(patches[i].target_relative_path == "PKGBUILD" &&
+           next.pkgbuild().identity.mode != before.pkgbuild().identity.mode)
+            LocalRecipeCandidateAccess::restore_recipe_mode(next, "PKGBUILD", before.pkgbuild().identity.mode);
+        if(patches[i].target_relative_path != "PKGBUILD") {
+            const auto current_snapshot = snapshot_supported_recipe_files(next);
+            const auto current_target = std::find_if(current_snapshot.begin(), current_snapshot.end(), [&](const auto& file) {
+                return file.relative_path == patches[i].target_relative_path;
+            });
+            if(current_target == current_snapshot.end()) throw std::runtime_error("local-recipe-target-missing-after-apply");
+            if(current_target->file.identity.mode != target->file.identity.mode)
+                LocalRecipeCandidateAccess::restore_recipe_mode(next, patches[i].target_relative_path,
+                                                                target->file.identity.mode);
+        }
+        auto next_snapshot = snapshot_supported_recipe_files(
+            open_local_source_root(before.canonical_path(), true));
+        if(next_snapshot.size() != expected.size())
+            throw std::runtime_error("local-recipe-target-topology-changed");
+        for(std::size_t j = 0; j < expected.size(); ++j) {
+            if(next_snapshot[j].relative_path != expected[j].relative_path ||
+               next_snapshot[j].file.identity.mode != expected[j].file.identity.mode ||
+               next_snapshot[j].file.identity.owner != expected[j].file.identity.owner ||
+               (next_snapshot[j].relative_path != patches[i].target_relative_path &&
+                next_snapshot[j] != expected[j]))
+                throw std::runtime_error("local-recipe-unexpected-mutation");
+        }
+        expected = std::move(next_snapshot);
         failure.patches[i] = LocalRecipePatchOutcome::Applied;
     }
     auto modified = open_local_source_root(before.canonical_path(), true);
-    if(modified.pkgbuild() != expected) throw std::runtime_error("local-recipe-modified-candidate-changed");
+    if(snapshot_supported_recipe_files(modified) != expected)
+        throw std::runtime_error("local-recipe-modified-candidate-changed");
+    if(verified_recipe) *verified_recipe = expected;
     return modified;
 }
 
@@ -279,10 +466,15 @@ PreparedLocalRecipeBuild prepare_local_recipe_build(
             throw std::invalid_argument("local-recipe-invalid-series");
         for(std::size_t i = 0; i < patches.size(); ++i) {
             const auto& patch = patches[i];
+            if(patch.target_relative_path != "PKGBUILD") {
+                failure.reason = Reason::UnsupportedPatch;
+                failure.rejected_patch_index = i;
+                throw std::invalid_argument("local-recipe-local-target-unsupported");
+            }
             if(patch.bytes.size() > LOCAL_RECIPE_PATCH_MAX_BYTES || total > MAX_SERIES_BYTES - patch.bytes.size())
                 throw std::invalid_argument("local-recipe-series-limit");
             total += patch.bytes.size();
-            if(const auto invalid = validate_patch(patch.bytes)) {
+            if(const auto invalid = validate_patch(patch.bytes, patch.target_relative_path)) {
                 failure.reason = *invalid;
                 failure.rejected_patch_index = i;
                 throw std::invalid_argument("local-recipe-patch-shape-rejected");

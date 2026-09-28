@@ -905,7 +905,7 @@ canonical AUR Git URL and resolved PackageBase; listing never contacts that remo
 AUR registration/update use internal APIs. Ordinary reviewed AUR edits can now create
 an association through the explicit save flow below. The existing patch commands still register local sources.
 
-After editing `PKGBUILD` and accepting `Proceed with build?`, a normal reviewed ordinary
+After editing root `PKGBUILD` or an existing top-level `*.install` and accepting `Proceed with build?`, a normal reviewed ordinary
 AUR build asks `Save this edit as patch customization? [y/N]`. No or an empty answer
 continues with the accepted edit without generating, publishing or registering a patch.
 `--noconfirm` and non-TTY input use safe No; piped `yes` is not save permission.
@@ -915,10 +915,15 @@ paths resolve from the command's starting directory. This input does not pass th
 a shell: `~`, `~user` and environment variables such as `$HOME` are not expanded.
 Moguet does not create the destination. Symlinks, unsafe permissions and traversal paths are rejected.
 
-Yes generates and byte-exactly verifies a Git `PKGBUILD` patch. A separate explicit
+Yes generates one strict Git patch per changed supported file and verifies that the ordered
+series exactly reproduces the accepted recipe state. Existing top-level `*.install` files
+are supported for content edits; add, delete, rename, type and mode changes are not.
+Other source payload and nested files are not saved. A separate explicit
 `makepkg --printsrcinfo` consent confirms the accepted source identity in an owned copy;
 the current manual-edit dependency plan is unchanged. Moguet publishes a deterministic
-`PKGBUILD-<SHA-256>.patch` without overwriting and registers the **generated expected digest**.
+`PKGBUILD-<SHA-256>.patch` or `INSTALL-<SHA-256-of-path>-<SHA-256-of-patch>.patch`
+per changed file without overwriting, then registers the complete ordered series and
+**generated expected digests**. Existing PKGBUILD-only associations remain readable and applicable.
 Existing associations are rejected; save never appends, updates or replaces them.
 Only complete success continues the current build with the same accepted edit.
 Any save failure stops with a nonzero result. After publication, a registration failure
@@ -929,14 +934,15 @@ This creation flow is Experimental and excludes compatibility, official/local so
 Auto `-S`, targetless and dry-run routes. Authoritative devel plus Save Yes is unsupported
 and stops; edited `.SRCINFO` cannot downgrade that decision. Save No preserves existing
 manual-edit behavior. Save consent is separate from future Apply consent and does not
-save `.install` edits or source payloads.
+save source payloads or source-build `V=K` preferences.
 
 `upgrade`, `upgrade-aur`, and `upgrade-all` discover saved AUR associations after exact
 source resolution and ask `Apply saved patch customization to this update of <PackageBase>? [y/N]` for each PackageBase.
 No, an empty answer, non-TTY input, and `--noconfirm` use the stock path without opening
 or hashing patch material. The association remains unchanged. Registry corruption is
 an error, not absence. Yes acquires and verifies the complete series, applies it to a
-fresh current-upstream candidate, and uses fresh metadata for the combined dependency
+fresh current-upstream candidate, checks every supported recipe file after ordered replay,
+and uses fresh metadata for the combined dependency
 plan. Upstream review and explicit pre/postpatch metadata-evaluation consent remain
 separate. Additional editor changes are not combined with the selected series.
 Any selected customization failure stops; there is no stock/Legacy fallback or repair.

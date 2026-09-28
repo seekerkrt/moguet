@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.10.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-28 07:00+0900\n"
+"POT-Creation-Date: 2026-09-28 10:13+0900\n"
 "PO-Revision-Date: 2026-09-19 17:53+0900\n"
 "Last-Translator: Moguet contributors\n"
 "Language-Team: Japanese\n"
@@ -715,6 +715,9 @@ msgstr "保存済みrecipe patchの適用に失敗しました: {}。更新を�
 #, c++-format
 msgid "{} patch candidate already cleaned."
 msgstr "{} patch candidateは既にcleanup済みです。"
+
+msgid "Saved recipe patch candidate changed after replay."
+msgstr "保存済みrecipe patchの再適用後にcandidateが変化しました。"
 
 msgid "Installed package state changed after patch candidate preparation. Update stopped."
 msgstr "patch candidateの準備後にinstalled packageの状態が変わりました。更新を停止しました。"
@@ -6165,8 +6168,8 @@ msgid "LOCAL RECIPE PATCHES"
 msgstr "LOCAL RECIPE PATCH"
 
 #, c++-format
-msgid "Experimental: accepted ordinary reviewed {} edits can be saved with separate default-No consent to an explicit existing patch directory"
-msgstr "Experimental: 通常review済み{}のaccepted editは別のdefault-No同意と明示した既存patch directoryへ保存できます"
+msgid "Experimental: accepted ordinary reviewed {} edits to root {} and existing top-level {} can be saved with separate default-No consent to an explicit existing patch directory"
+msgstr "Experimental: 通常review済み{}でacceptしたroot {}と既存top-level {}の編集は、別のdefault-No同意で明示した既存patch directoryへ保存できます"
 
 msgid "Use an existing patch directory with an absolute path or a path relative to the command's starting directory; '~' is not expanded."
 msgstr "既存のpatch directoryを絶対パス、またはコマンド開始時の作業ディレクトリ基準の相対パスで指定してください。'~'は展開されません。"

@@ -706,6 +706,93 @@ void test_generated_publication_partial_outcome() {
     expect(failure.leftover && read(*failure.leftover) == bytes.bytes(), "postpublication failure lost final material");
     expect(std::holds_alternative<PatchAssociationAbsent>(read_patch_association(identity)), "material publication wrote registry");
 }
+
+void test_generated_install_series_publication() {
+    Fixture f;
+    const ResolvedAurSourceBuildIdentity source("association-child", "association-base");
+    const auto identity = take<PackageBaseIdentity>(aur_patch_association_identity(source));
+    const auto review = AurReviewedSourceReviewIdentity::make(identity, SourceRevisionIdentity::git_commit(std::string(40, 'c')));
+    LocalSourceFileIdentity file_identity{};
+    file_identity.mode = 0600U;
+    file_identity.owner = static_cast<std::uintmax_t>(::geteuid());
+    const SupportedRecipeSnapshot baseline{{"PKGBUILD", {"PKGBUILD", file_identity, RECIPE}},
+                                           {"foo bar.install", {"foo bar.install", file_identity, "post_install() {\n  echo before\n}\n"}}};
+    auto accepted = baseline;
+    accepted[0].file.contents += "# accepted\n";
+    accepted[1].file.contents.replace(accepted[1].file.contents.find("before"), 6, "after");
+    auto generated = generate_recipe_patch_series_for_test(review, baseline, accepted);
+    expect(std::holds_alternative<GeneratedRecipePatch>(generated), "install series generation failed");
+    const auto& series = std::get<GeneratedRecipePatch>(generated);
+    expect(series.materials().size() == 2, "install series lost a material");
+
+    auto publication = publish_generated_recipe_patch(series, f.material, f.root, {});
+    const auto& published = take<PublishedRecipePatch>(publication);
+    expect(published.expected_entries.size() == 2 &&
+               published.expected_entries[0].file.starts_with("PKGBUILD-") &&
+               published.expected_entries[1].file.starts_with("INSTALL-") &&
+               published.expected_entries[1].file.size() == 143,
+           "ordered deterministic material naming changed");
+    for(std::size_t i = 0; i < 2; ++i)
+        expect(read(f.material / published.expected_entries[i].file) == series.materials()[i].bytes &&
+                   published.expected_entries[i].sha256 == xdg_generation_store_raw_contents_sha256(series.materials()[i].bytes),
+               "published material digest or bytes mismatch");
+    const auto second_path = f.material / published.expected_entries[1].file;
+    write(second_path, "tampered second material\n");
+    expect_failure(register_expected_aur_patch_association(source, f.material,
+                                                           published.expected_entries),
+                   Kind::Changed);
+    write(second_path, series.materials()[1].bytes);
+    fail_patch_association_operation_for_test(Point::BeforeWrite);
+    expect_failure(register_expected_aur_patch_association(source, f.material,
+                                                           published.expected_entries),
+                   Kind::IoFailure);
+    expect(std::holds_alternative<PatchAssociationAbsent>(read_patch_association(identity)) &&
+               read(f.material / published.expected_entries[0].file) == series.materials()[0].bytes &&
+               read(second_path) == series.materials()[1].bytes,
+           "multi-material registration failure removed user material or wrote a partial record");
+    const auto registered = take<LoadedPatchAssociation>(
+        register_expected_aur_patch_association(source, f.material, published.expected_entries));
+    expect(registered.entries() == published.expected_entries, "registry reordered install series");
+    const auto acquired = take<AcquiredLocalRecipeSeries>(acquire_aur_patch_series(registered));
+    expect(acquired.patches().size() == 2 && acquired.patches()[0].target_relative_path == "PKGBUILD" &&
+               acquired.patches()[1].target_relative_path == "foo bar.install",
+           "acquisition lost validated material targets");
+
+    Fixture collision;
+    const auto first = collision.material / published.expected_entries[0].file;
+    const auto second = collision.material / published.expected_entries[1].file;
+    set_patch_association_test_hook([&](Point point, const fs::path& path) {
+        if(point == Point::BeforeMaterialPublication && path == second) write(second, "user-owned collision\n");
+    });
+    const auto rejected = expect_failure(
+        publish_generated_recipe_patch(series, collision.material, collision.root, {}), Kind::AlreadyExists);
+    set_patch_association_test_hook({});
+    expect(rejected.published_materials.size() == 1 && rejected.published_materials[0] == first &&
+               read(first) == series.materials()[0].bytes && read(second) == "user-owned collision\n" &&
+               std::holds_alternative<PatchAssociationAbsent>(read_patch_association(identity)),
+           "second material collision lost retained material or wrote partial registry");
+
+    Fixture local;
+    write(local.material / published.expected_entries[1].file, series.materials()[1].bytes);
+    auto local_source = local.observe();
+    expect_failure(register_local_patch_association(local_source, local.material,
+                                                    {published.expected_entries[1].file}),
+                   Kind::InvalidMaterial);
+    expect(std::holds_alternative<PatchAssociationAbsent>(read_patch_association(local_source.identity())),
+           "generated install material widened local v1 registration");
+}
+
+void test_legacy_install_prefix_is_pkgbuild_material() {
+    Fixture f;
+    write(f.material / "INSTALL-legacy.patch", patch("before", "legacy"));
+    auto source = f.observe();
+    auto registered = take<LoadedPatchAssociation>(register_local_patch_association(
+        source, f.material, {"INSTALL-legacy.patch"}));
+    auto acquired = take<AcquiredLocalRecipeSeries>(acquire_local_patch_series(registered));
+    expect(acquired.patches().size() == 1 &&
+               acquired.patches()[0].target_relative_path == "PKGBUILD",
+           "legacy material leaf changed local v1 target semantics");
+}
 } // namespace
 
 int main() {
@@ -727,6 +814,8 @@ int main() {
         test_search_only_material_ancestor();
         test_generated_material_publication();
         test_generated_publication_partial_outcome();
+        test_generated_install_series_publication();
+        test_legacy_install_prefix_is_pkgbuild_material();
         std::cout << "local patch association tests passed (strict persistence, atomic outcomes, identity, digest, races, same bytes)\n";
         return 0;
     } catch(const std::exception& error) {

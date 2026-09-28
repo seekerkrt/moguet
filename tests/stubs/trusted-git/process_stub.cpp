@@ -259,6 +259,16 @@ trusted_git_read_review_pkgbuild(const ValidatedCachePath&) {
         std::nullopt, 0, 0, std::nullopt};
 }
 
+bool TrustedGitPinnedCheckoutOverlayObservation::persistent_recipe_changes_only(
+    const TrustedGitPinnedCheckoutOverlayObservation&) const {
+    throw std::logic_error("trusted-git-stub-cannot-observe-recipe-changes");
+}
+
+bool TrustedGitPinnedCheckoutOverlayObservation::semantic_changed(
+    const TrustedGitPinnedCheckoutOverlayObservation&) const {
+    throw std::logic_error("trusted-git-stub-cannot-observe-recipe-changes");
+}
+
 TrustedGitPinnedCheckoutOverlayObservationResult
 observe_trusted_git_pinned_checkout_overlay(
     const TrustedGitPinnedCheckout&,

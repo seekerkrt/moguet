@@ -132,16 +132,18 @@ class ReviewRecipeEditCorrelation final {
     AurReviewedSourceReviewIdentity identity_;
     std::uintmax_t checkout_device_;
     std::uintmax_t checkout_inode_;
-    std::string baseline_pkgbuild_;
-    std::string accepted_pkgbuild_;
+    SupportedRecipeSnapshot baseline_recipe_;
+    SupportedRecipeSnapshot accepted_recipe_;
+    bool unsupported_persistent_shape_ = false;
     std::optional<std::string> upstream_srcinfo_;
     std::optional<LocalSourceRootFailure> upstream_srcinfo_failure_;
 
     ReviewRecipeEditCorrelation(AurReviewedSourceReviewIdentity identity,
                                 std::uintmax_t checkout_device,
                                 std::uintmax_t checkout_inode,
-                                std::string baseline_pkgbuild,
-                                std::string accepted_pkgbuild,
+                                SupportedRecipeSnapshot baseline_recipe,
+                                SupportedRecipeSnapshot accepted_recipe,
+                                bool unsupported_persistent_shape,
                                 std::optional<std::string> upstream_srcinfo,
                                 std::optional<LocalSourceRootFailure> upstream_srcinfo_failure) noexcept;
     friend struct SourceBuildPreparationAccess;
@@ -160,11 +162,20 @@ public:
     std::uintmax_t checkout_inode() const noexcept {
         return checkout_inode_;
     }
+    const SupportedRecipeSnapshot& baseline_recipe() const noexcept {
+        return baseline_recipe_;
+    }
+    const SupportedRecipeSnapshot& accepted_recipe() const noexcept {
+        return accepted_recipe_;
+    }
     const std::string& baseline_pkgbuild() const noexcept {
-        return baseline_pkgbuild_;
+        return baseline_recipe_.front().file.contents;
     }
     const std::string& accepted_pkgbuild() const noexcept {
-        return accepted_pkgbuild_;
+        return accepted_recipe_.front().file.contents;
+    }
+    bool unsupported_persistent_shape() const noexcept {
+        return unsupported_persistent_shape_;
     }
     // Pre-editor fact only. Save Yes uses the existing devel selector; the
     // mutable edited .SRCINFO is never unmodified-upstream authority.

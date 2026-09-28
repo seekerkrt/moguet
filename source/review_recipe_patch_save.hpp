@@ -26,6 +26,7 @@ struct RecipePatchSaveFailure {
     std::optional<LocalSourceWorkspaceFailure> cleanup = std::nullopt;
     std::filesystem::path retained_material = {};
     bool registration_completed = false;
+    std::vector<std::filesystem::path> retained_materials = {};
 };
 
 // Keeps save failures intact across generic preparation/build error adapters.

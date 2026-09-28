@@ -55,13 +55,15 @@ ReviewRecipeEditCorrelation::ReviewRecipeEditCorrelation(
     AurReviewedSourceReviewIdentity identity,
     std::uintmax_t checkout_device,
     std::uintmax_t checkout_inode,
-    std::string baseline_pkgbuild,
-    std::string accepted_pkgbuild,
+    SupportedRecipeSnapshot baseline_recipe,
+    SupportedRecipeSnapshot accepted_recipe,
+    bool unsupported_persistent_shape,
     std::optional<std::string> upstream_srcinfo,
     std::optional<LocalSourceRootFailure> upstream_srcinfo_failure) noexcept
     : identity_(std::move(identity)), checkout_device_(checkout_device),
-      checkout_inode_(checkout_inode), baseline_pkgbuild_(std::move(baseline_pkgbuild)),
-      accepted_pkgbuild_(std::move(accepted_pkgbuild)), upstream_srcinfo_(std::move(upstream_srcinfo)),
+      checkout_inode_(checkout_inode), baseline_recipe_(std::move(baseline_recipe)),
+      accepted_recipe_(std::move(accepted_recipe)),
+      unsupported_persistent_shape_(unsupported_persistent_shape), upstream_srcinfo_(std::move(upstream_srcinfo)),
       upstream_srcinfo_failure_(std::move(upstream_srcinfo_failure)) {
 }
 
@@ -76,11 +78,12 @@ struct SourceBuildPreparationAccess {
     static ReviewRecipeEditCorrelation accept_recipe_edit(
         AurReviewedSourceReviewIdentity identity,
         const ValidatedCachePath& checkout,
-        std::string baseline, std::string accepted,
+        SupportedRecipeSnapshot baseline, SupportedRecipeSnapshot accepted,
+        bool unsupported_persistent_shape,
         std::optional<std::string> upstream_srcinfo,
         std::optional<LocalSourceRootFailure> upstream_srcinfo_failure) noexcept {
         return ReviewRecipeEditCorrelation(std::move(identity), checkout.device(), checkout.inode(),
-                                           std::move(baseline), std::move(accepted),
+                                           std::move(baseline), std::move(accepted), unsupported_persistent_shape,
                                            std::move(upstream_srcinfo), std::move(upstream_srcinfo_failure));
     }
     static PreparedSourceBuildNeedsBuild make(PreparedReviewedDevelSourceBuildExecution devel) noexcept {
@@ -743,7 +746,7 @@ struct PendingReviewRecipeEdit {
     AurReviewedSourceReviewIdentity identity;
     std::uintmax_t checkout_device;
     std::uintmax_t checkout_inode;
-    std::string baseline;
+    SupportedRecipeSnapshot baseline;
     std::optional<std::string> upstream_srcinfo = std::nullopt;
     std::optional<LocalSourceRootFailure> upstream_srcinfo_failure = std::nullopt;
 };
@@ -781,14 +784,13 @@ void require_review_recipe_lineage(
                authority);
 }
 
-std::string read_review_recipe_bytes(const ValidatedCachePath& checkout) {
-    auto read = trusted_git_read_review_pkgbuild(checkout);
-    if(auto* failure = std::get_if<TrustedGitPinnedCheckoutFailure>(&read)) {
-        stop_reviewed_source_route(
-            ReviewedSourceProductionFailureStage::EditorOverlayObservation,
-            ReviewedSourceProductionFailureReason::OverlayObservationFailure, std::move(*failure));
+SupportedRecipeSnapshot read_review_recipe_snapshot(const ValidatedCachePath& checkout) {
+    static_cast<void>(revalidate_trusted_cache_path(checkout, CachePathRequirement::ExistingDirectory));
+    try {
+        return snapshot_supported_recipe_files(open_local_source_root(checkout.canonical_path(), true));
+    } catch(const LocalSourceRootError&) {
+        stop_review_recipe_correlation(TrustedGitPinnedCheckoutFailureReason::OverlayMismatch);
     }
-    return std::get<std::string>(std::move(read));
 }
 
 ReviewedSourceCompatibilityBuildReason review_bypass_reason(
@@ -1839,7 +1841,7 @@ SourceBuildCheckoutPreparation prepare_source_build_checkout(
                 },
                            *aur_authority);
                 require_review_recipe_lineage(*pending_recipe_edit, *aur_authority, request, pkg_path);
-                pending_recipe_edit->baseline = read_review_recipe_bytes(pkg_path);
+                pending_recipe_edit->baseline = read_review_recipe_snapshot(pkg_path);
                 const auto upstream = open_local_source_root(pkg_path.canonical_path(), true);
                 if(const auto* metadata = upstream.metadata().file()) pending_recipe_edit->upstream_srcinfo = metadata->contents;
                 if(const auto* failure = upstream.metadata().unsafe_failure()) pending_recipe_edit->upstream_srcinfo_failure = *failure;
@@ -1847,7 +1849,7 @@ SourceBuildCheckoutPreparation prepare_source_build_checkout(
                 // prompt input and the stable read, not from an old display blob.
                 begin_editor_boundary();
                 require_review_recipe_lineage(*pending_recipe_edit, *aur_authority, request, pkg_path);
-                if(read_review_recipe_bytes(pkg_path) != pending_recipe_edit->baseline) {
+                if(read_review_recipe_snapshot(pkg_path) != pending_recipe_edit->baseline) {
                     stop_review_recipe_correlation(TrustedGitPinnedCheckoutFailureReason::OverlayMismatch);
                 }
                 if(!upstream.metadata().unsafe_failure()) upstream.require_unchanged_identity();
@@ -1863,10 +1865,10 @@ SourceBuildCheckoutPreparation prepare_source_build_checkout(
         } else {
             editor_invoked = review_build_files(pkg_path, config, run_checkout_command, before_first_editor);
         }
-        std::optional<std::string> post_recipe_bytes;
+        std::optional<SupportedRecipeSnapshot> post_recipe_snapshot;
         if(pending_recipe_edit) {
             require_review_recipe_lineage(*pending_recipe_edit, *aur_authority, request, pkg_path);
-            post_recipe_bytes.emplace(read_review_recipe_bytes(pkg_path));
+            post_recipe_snapshot.emplace(read_review_recipe_snapshot(pkg_path));
         }
         if(capture_recipe_edit && !editor_boundary) begin_editor_boundary();
         if(editor_boundary.has_value()) {
@@ -1894,13 +1896,15 @@ SourceBuildCheckoutPreparation prepare_source_build_checkout(
             pkg_path.canonical_path(), config, editor_invoked);
         if(pending_recipe_edit) {
             require_review_recipe_lineage(*pending_recipe_edit, *aur_authority, request, pkg_path);
-            if(read_review_recipe_bytes(pkg_path) != *post_recipe_bytes) {
+            if(read_review_recipe_snapshot(pkg_path) != *post_recipe_snapshot) {
                 stop_review_recipe_correlation(TrustedGitPinnedCheckoutFailureReason::OverlayMismatch);
             }
-            if(pending_recipe_edit->baseline != *post_recipe_bytes) {
+            if(!same_supported_recipe_content_and_mode(pending_recipe_edit->baseline, *post_recipe_snapshot) ||
+               (editor_overlay && editor_overlay->semantic_changed())) {
                 accepted_recipe_edit.emplace(SourceBuildPreparationAccess::accept_recipe_edit(
                     std::move(pending_recipe_edit->identity), pkg_path,
-                    std::move(pending_recipe_edit->baseline), std::move(*post_recipe_bytes),
+                    std::move(pending_recipe_edit->baseline), std::move(*post_recipe_snapshot),
+                    !editor_overlay || !editor_overlay->persistent_recipe_changes_only(),
                     std::move(pending_recipe_edit->upstream_srcinfo), std::move(pending_recipe_edit->upstream_srcinfo_failure)));
             }
         }

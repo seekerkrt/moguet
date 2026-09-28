@@ -13,6 +13,7 @@
 // or digest lookup belong to this consumer. One entry is one textual patch.
 struct LocalRecipePatch {
     std::string bytes;
+    std::string target_relative_path = "PKGBUILD";
 };
 
 // Shared single-material bound for acquisition, generation and shape checking.
@@ -45,6 +46,11 @@ enum class LocalRecipeCandidateFailureReason {
 
 // Pure shape check shared with acquisition; not applicability/authorization.
 std::optional<LocalRecipeCandidateFailureReason> validate_local_recipe_patch(const std::string& bytes);
+std::optional<LocalRecipeCandidateFailureReason> validate_local_recipe_patch(
+    const std::string& bytes, const std::string& target_relative_path);
+// Header projection only. Callers must still validate the full one-file
+// envelope against the returned target before using material as authority.
+std::optional<std::string> local_recipe_patch_header_target(const std::string& bytes);
 
 struct LocalRecipeCandidateFailure {
     LocalRecipeCandidatePhase phase;
@@ -57,12 +63,14 @@ struct LocalRecipeCandidateFailure {
     std::optional<ConfirmationResult> review_stop = std::nullopt;
 };
 
-// Shared PKGBUILD-only operation over an already isolated, caller-owned recipe
-// directory. The caller retains the workspace owner and metadata/review policy.
-// Returns the exact modified snapshot; never reopens external patch material.
+// Shared one-target-per-material operation over an already isolated, caller-owned
+// recipe directory. AUR v2 may select existing top-level *.install; local v1
+// registration remains PKGBUILD-only. The caller retains workspace ownership
+// and metadata/review policy. No external patch material is reopened.
 LocalSourceRoot apply_recipe_patch_series(
     const LocalSourceRoot& before, const std::vector<LocalRecipePatch>& patches,
-    LocalRecipeCandidateFailure& failure);
+    LocalRecipeCandidateFailure& failure,
+    SupportedRecipeSnapshot* verified_recipe = nullptr);
 
 // Optional public composition gate over the exact modified snapshot. No
 // persistence or UI policy belongs to the candidate owner itself.
