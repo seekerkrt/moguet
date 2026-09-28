@@ -973,6 +973,7 @@ install(
     FILES
         README.md
         README.ja.md
+        RELEASE_NOTES.md
         THIRD_PARTY_NOTICES.md
     DESTINATION "${MOGUET_INSTALL_DOCUMENT_DIRECTORY}"
 )
