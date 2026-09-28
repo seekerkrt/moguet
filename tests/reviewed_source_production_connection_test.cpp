@@ -1185,11 +1185,18 @@ int main() {
         write_file(editor, "#!/bin/sh\nfor target do :; done\nprintf '# install edit\\n' >>\"$target\"\n",
                    fs::perms::owner_all);
         {
-            ReviewAnswers answers("y\nn\ny\ny\n");
+            ReviewAnswers answers("y\nn\ny\ny\nn\n");
             auto outcome = prepare_source_build_for_execution(request(), std::string(PACKAGE_BASE),
                                                               SourceBuildUpdatePolicy::AlwaysBuild, cache_root, reviewed_config(editor));
             auto& prepared = std::get<PreparedSourceBuildNeedsBuild>(outcome);
-            require(!prepared.accepted_recipe_edit(), ".install-only edit minted a PKGBUILD correlation");
+            const auto& edit = prepared.accepted_recipe_edit();
+            require(edit && edit->baseline_recipe().size() == 2 &&
+                        edit->accepted_recipe().size() == 2 &&
+                        edit->baseline_pkgbuild() == edit->accepted_pkgbuild() &&
+                        edit->baseline_recipe()[1].relative_path == "fixture.install" &&
+                        edit->baseline_recipe()[1].file.contents == "# install script\n" &&
+                        edit->accepted_recipe()[1].file.contents == "# install script\n# install edit\n",
+                    ".install-only edit did not mint exact supported recipe correlation");
             require(read_bytes(checkout.path() / "fixture.install") == "# install script\n# install edit\n",
                     ".install-only editor did not actually edit the script");
             require_loaded_state(install_target, 6);

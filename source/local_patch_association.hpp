@@ -34,6 +34,7 @@ struct PatchAssociationFailure {
     std::optional<LocalSourceWorkspaceFailure> cleanup_failure;
     // Generated material first commit only; distinct from owned temp leftovers.
     std::optional<std::filesystem::path> published_material = std::nullopt;
+    std::vector<std::filesystem::path> published_materials = {};
 };
 
 struct PatchAssociationAbsent {};
@@ -132,6 +133,7 @@ PatchAssociationWriteResult register_expected_aur_patch_association(
 struct PublishedRecipePatch {
     std::filesystem::path material_root;
     PatchMaterialEntry expected_entry;
+    std::vector<PatchMaterialEntry> expected_entries;
 };
 // Explicit save caller only. Existing safe user-owned directory, no overwrite,
 // no registry write. A failure after publication retains the final material in

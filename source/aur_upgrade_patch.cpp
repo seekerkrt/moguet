@@ -140,6 +140,7 @@ struct AurUpgradePatchCandidate::State {
     ValidatedCacheRoot recipe_cache;
     std::optional<SourceBuildPreparationOutcome> prepared;
     std::optional<LocalSourceRoot> modified;
+    std::optional<SupportedRecipeSnapshot> modified_recipe;
     std::optional<LocalSourceBuildMetadata> metadata;
     std::string upstream_srcinfo;
     std::optional<std::string> upstream_version;
@@ -203,7 +204,9 @@ void AurUpgradePatchCandidate::apply_before_sealing(
     LocalRecipeCandidateFailure failure{LocalRecipeCandidatePhase::Preflight, LocalRecipeCandidateFailureReason::InvalidMaterial, {}, std::nullopt, std::nullopt, checkout.canonical_path()};
     try {
         auto patches = std::move(state.series).take_patches();
-        state.modified.emplace(apply_recipe_patch_series(before, patches, failure));
+        SupportedRecipeSnapshot verified_recipe;
+        state.modified.emplace(apply_recipe_patch_series(before, patches, failure, &verified_recipe));
+        state.modified_recipe.emplace(std::move(verified_recipe));
     } catch(const std::exception& error) {
         throw std::runtime_error(localization::format_translated_message(
             "Saved recipe patch application failed: {}. Update stopped; no stock fallback was attempted.", error.what()));
@@ -229,6 +232,10 @@ void AurUpgradePatchCandidate::require_unchanged() const {
     state_->workspace.require_unchanged_identity();
     if(state_->modified) {
         state_->modified->require_unchanged_identity();
+        if(!state_->modified_recipe ||
+           snapshot_supported_recipe_files(open_local_source_root(state_->modified->canonical_path(), true)) !=
+               *state_->modified_recipe)
+            throw std::runtime_error(localization::translate_message("Saved recipe patch candidate changed after replay."));
         if(state_->metadata) state_->metadata->require_matches(*state_->modified);
     }
 }

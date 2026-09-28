@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.10.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-28 07:00+0900\n"
+"POT-Creation-Date: 2026-09-28 10:13+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -720,6 +720,9 @@ msgstr ""
 
 #, c++-format
 msgid "{} patch candidate already cleaned."
+msgstr ""
+
+msgid "Saved recipe patch candidate changed after replay."
 msgstr ""
 
 msgid "Installed package state changed after patch candidate preparation. Update stopped."
@@ -6173,7 +6176,7 @@ msgid "LOCAL RECIPE PATCHES"
 msgstr ""
 
 #, c++-format
-msgid "Experimental: accepted ordinary reviewed {} edits can be saved with separate default-No consent to an explicit existing patch directory"
+msgid "Experimental: accepted ordinary reviewed {} edits to root {} and existing top-level {} can be saved with separate default-No consent to an explicit existing patch directory"
 msgstr ""
 
 msgid "Use an existing patch directory with an absolute path or a path relative to the command's starting directory; '~' is not expanded."

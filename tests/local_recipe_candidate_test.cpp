@@ -150,6 +150,98 @@ LocalRecipePatch dependency_patch() {
             " printf '%s:%s:%s\\n' \"$PWD\" \"$pkgdesc\" \"$RECIPE_PROBE\" >> \"$RECIPE_LOG\"\n"};
 }
 
+LocalRecipePatch install_patch(const std::string& before, const std::string& after,
+                               const std::string& target = "foo.install") {
+    return {"diff --git a/" + target + " b/" + target + "\n--- a/" + target +
+                "\n+++ b/" + target + "\n@@ -1,3 +1,3 @@\n post_install() {\n-  echo " + before +
+                "\n+  echo " + after + "\n }\n",
+            target};
+}
+
+void test_install_target_and_series_guard() {
+    const auto patch = install_patch("before", "after");
+    expect(!validate_local_recipe_patch(patch.bytes, "foo.install") &&
+               validate_local_recipe_patch(patch.bytes) &&
+               validate_local_recipe_patch(patch.bytes, "bar.install"),
+           "install envelope accepted the wrong target");
+    for(const auto& target : {"../foo.install", "nested/foo.install", ".git/config.install"})
+        expect(validate_local_recipe_patch(patch.bytes, target).has_value(), "unsafe install target accepted");
+    expect(validate_local_recipe_patch(patch.bytes + "diff --git a/bar.install b/bar.install\n", "foo.install").has_value(),
+           "hidden second diff accepted");
+    expect(validate_local_recipe_patch("diff --git a/foo.install b/foo.install\nnew file mode 100644\n", "foo.install").has_value(),
+           "install add framing accepted");
+    Fixture fixture;
+    write_file(fixture.source / "foo.install", "post_install() {\n  echo before\n}\n");
+    auto workspace = materialize_local_source_workspace(
+        open_local_source_root(fixture.source, true), prepare_test_trusted_cache_root());
+    const auto candidate_path = workspace.path();
+    LocalRecipeCandidateFailure failure{LocalRecipeCandidatePhase::Preflight,
+                                        LocalRecipeCandidateFailureReason::InvalidMaterial,
+                                        {},
+                                        std::nullopt,
+                                        std::nullopt,
+                                        candidate_path};
+    {
+        auto candidate = open_local_source_root(candidate_path, true);
+        auto modified = apply_recipe_patch_series(candidate, {patch}, failure);
+        expect(read_file(candidate_path / "foo.install") == "post_install() {\n  echo after\n}\n" &&
+                   modified.pkgbuild().contents == RECIPE &&
+                   failure.patches == std::vector<LocalRecipePatchOutcome>{LocalRecipePatchOutcome::Applied},
+               "install-only replay changed another recipe file");
+    }
+    workspace.cleanup();
+    expect(!fs::exists(candidate_path), "successful replay candidate cleanup failed");
+
+    auto failed_workspace = materialize_local_source_workspace(
+        open_local_source_root(fixture.source, true), prepare_test_trusted_cache_root());
+    const auto failed_path = failed_workspace.path();
+    LocalRecipeCandidateFailure second_failure{LocalRecipeCandidatePhase::Preflight,
+                                               LocalRecipeCandidateFailureReason::InvalidMaterial,
+                                               {},
+                                               std::nullopt,
+                                               std::nullopt,
+                                               failed_path};
+    bool stopped = false;
+    try {
+        auto candidate = open_local_source_root(failed_path, true);
+        static_cast<void>(apply_recipe_patch_series(
+            candidate, {patch, install_patch("missing", "unreachable")}, second_failure));
+    } catch(const std::runtime_error&) {
+        stopped = true;
+    }
+    expect(stopped && second_failure.patches.size() == 2 &&
+               second_failure.patches[0] == LocalRecipePatchOutcome::Applied &&
+               second_failure.patches[1] == LocalRecipePatchOutcome::Failed &&
+               !fs::exists(fixture.log),
+           "second material failure reached metadata/build or lost partial outcome");
+    failed_workspace.cleanup();
+    expect(!fs::exists(failed_path), "failed ephemeral replay candidate was retained");
+
+    Fixture unsafe;
+    write_file(unsafe.source / "foo.install", "post_install() {\n  echo before\n}\n");
+    fs::create_hard_link(unsafe.source / "foo.install", unsafe.root / "outside-hardlink");
+    bool rejected_link = false;
+    try {
+        static_cast<void>(snapshot_supported_recipe_files(open_local_source_root(unsafe.source, true)));
+    } catch(const LocalSourceRootError&) {
+        rejected_link = true;
+    }
+    expect(rejected_link, "hardlinked install target entered replay snapshot");
+
+    Fixture oversized;
+    write_file(oversized.source / "foo.install", "seed\n");
+    expect(::truncate((oversized.source / "foo.install").c_str(),
+                      static_cast<off_t>(64U * 1024U * 1024U + 1U)) == 0,
+           "oversized sparse install fixture failed");
+    bool rejected_size = false;
+    try {
+        static_cast<void>(snapshot_supported_recipe_files(open_local_source_root(oversized.source, true)));
+    } catch(const LocalSourceRootError& error) {
+        rejected_size = error.failure().code == LocalSourceRootErrorCode::ReadFailure;
+    }
+    expect(rejected_size, "oversized install target bypassed bounded snapshot");
+}
+
 void test_order_and_build() {
     Fixture fixture;
     fs::path candidate;
@@ -339,6 +431,7 @@ void test_build_failure_keeps_existing_outcome() {
 
 int main() {
     try {
+        test_install_target_and_series_guard();
         test_order_and_build();
         test_postpatch_plan();
         test_failures();

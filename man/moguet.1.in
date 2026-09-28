@@ -466,7 +466,7 @@ Local v1 and AUR v2 records can coexist. AUR identity uses the canonical Git URL
 resolved PackageBase; listing does not contact the remote. AUR registration/update are
 internal APIs. Ordinary reviewed AUR edits can create an association through explicit save.
 .PP
-After editing PKGBUILD and accepting Proceed with build?, the normal reviewed ordinary
+After editing root PKGBUILD or an existing top-level *.install and accepting Proceed with build?, the normal reviewed ordinary
 AUR route asks Save this edit as patch customization? [y/N]. No, empty input,
 --noconfirm and non-TTY input continue the accepted edit without patch generation or
 persistence. Piped yes is not save permission. Yes asks for a patch directory with no default.
@@ -474,7 +474,12 @@ Use an existing user-owned directory outside cache, checkout and registry. Absol
 are accepted; relative paths use command-start cwd. The input does not pass through a shell:
 ~ and ~user are not expanded, and environment variables such as $HOME are not substituted.
 The destination is not created automatically. Unsafe paths, symlinks, ownership/permission violations are refused.
-The generated Git PKGBUILD patch must reproduce the accepted bytes exactly. Separate
+One strict Git patch is generated per changed supported file. The ordered series must
+reproduce the accepted recipe files exactly. Existing top-level *.install content edits
+are supported; add, delete, rename, type and mode changes are not. Nested files and
+other source payload are not saved. PKGBUILD material is named PKGBUILD-<SHA-256>.patch;
+install material is named INSTALL-<path-SHA-256>-<patch-SHA-256>.patch. Existing
+PKGBUILD-only records remain compatible. Separate
 explicit makepkg --printsrcinfo consent validates source identity in an owned copy without
 replanning the current build. Publication never overwrites, and registration retains the
 generated expected SHA-256. Existing associations are refused without append/update/replace.

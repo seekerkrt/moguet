@@ -75,9 +75,17 @@ public:
 
 const GeneratedRecipePatch& success(const RecipePatchGenerationResult& result) {
     const auto* patch = std::get_if<GeneratedRecipePatch>(&result);
+    if(const auto* rejected = std::get_if<RecipePatchGenerationFailure>(&result))
+        std::cerr << "generation failure reason=" << static_cast<int>(rejected->reason)
+                  << " shape=" << (rejected->rejected_shape ? static_cast<int>(*rejected->rejected_shape) : -1)
+                  << " replay=" << (rejected->replay ? static_cast<int>(rejected->replay->reason) : -1)
+                  << " tool=" << (rejected->replay && rejected->replay->tool_exit_code ? *rejected->replay->tool_exit_code : -1)
+                  << "\n";
     require(patch != nullptr, "expected verified generated patch");
     require(patch->identity() == identity(), "source identity lost");
-    require(!patch->bytes().empty() && !validate_local_recipe_patch(patch->bytes()), "verified result has invalid shape");
+    require(!patch->bytes().empty() &&
+                !validate_local_recipe_patch(patch->bytes(), patch->materials().front().target_relative_path),
+            "verified result has invalid shape");
     return *patch;
 }
 const RecipePatchGenerationFailure& failure(const RecipePatchGenerationResult& result, Reason reason) {
@@ -135,6 +143,68 @@ void supported_edits() {
             {no_newline, edited(no_newline)}, {no_newline, BASELINE}, {BASELINE, no_newline}, {crlf, edited(crlf)}, {crlf + "# mixed LF\n", edited(crlf + "# mixed LF\n")}}) {
         const auto result = generate_recipe_patch_for_test(identity(), before, after);
         verify_independent_replay(before, after, success(result));
+    }
+}
+
+SupportedRecipeSnapshot recipe_files(std::initializer_list<std::pair<std::string, std::string>> files) {
+    SupportedRecipeSnapshot result;
+    LocalSourceFileIdentity identity{};
+    identity.mode = 0600U;
+    identity.owner = static_cast<std::uintmax_t>(::geteuid());
+    for(const auto& [path, contents] : files)
+        result.push_back({path, {path, identity, contents}});
+    return result;
+}
+
+void supported_recipe_series() {
+    const auto baseline = recipe_files({{"PKGBUILD", BASELINE},
+                                        {"bar.install", "post_install() {\n  echo bar\n}\n"},
+                                        {"foo.install", "post_install() {\n  echo foo\n}\n"}});
+    auto install_only = baseline;
+    install_only[2].file.contents.replace(install_only[2].file.contents.find("foo"), 3, "new");
+    const auto one = generate_recipe_patch_series_for_test(identity(), baseline, install_only);
+    const auto& install_materials = success(one).materials();
+    require(install_materials.size() == 1 && install_materials[0].target_relative_path == "foo.install" &&
+                !validate_local_recipe_patch(install_materials[0].bytes, "foo.install") &&
+                validate_local_recipe_patch(install_materials[0].bytes, "bar.install"),
+            "install-only material target was not exact");
+
+    auto combined = install_only;
+    combined[0].file.contents = edited(BASELINE);
+    combined[1].file.contents.replace(combined[1].file.contents.find("bar"), 3, "new");
+    const auto all = generate_recipe_patch_series_for_test(identity(), baseline, combined);
+    const auto& materials = success(all).materials();
+    require(materials.size() == 3 && materials[0].target_relative_path == "PKGBUILD" &&
+                materials[1].target_relative_path == "bar.install" &&
+                materials[2].target_relative_path == "foo.install",
+            "generated recipe series order or changed-file set mismatch");
+
+    auto added = baseline;
+    added.push_back({"new.install", {"new.install", baseline[0].file.identity, "content\n"}});
+    failure(generate_recipe_patch_series_for_test(identity(), baseline, added), Reason::UnsupportedEdit);
+    auto removed = baseline;
+    removed.pop_back();
+    failure(generate_recipe_patch_series_for_test(identity(), baseline, removed), Reason::UnsupportedEdit);
+    auto renamed = baseline;
+    renamed[2].relative_path = "renamed.install";
+    failure(generate_recipe_patch_series_for_test(identity(), baseline, renamed), Reason::UnsupportedEdit);
+    auto mode = baseline;
+    mode[1].file.identity.mode = 0700U;
+    failure(generate_recipe_patch_series_for_test(identity(), baseline, mode), Reason::UnsupportedEdit);
+    auto binary = baseline;
+    binary[2].file.contents.push_back('\0');
+    failure(generate_recipe_patch_series_for_test(identity(), baseline, binary), Reason::UnsupportedEdit);
+    for(const std::string& name : {std::string("foo bar.install"), std::string("\303\274ber.install"),
+                                   std::string("a\nb.install"), std::string("a\"b.install")}) {
+        auto special_before = recipe_files({{"PKGBUILD", BASELINE},
+                                            {name, "post_install() {\n  echo before\n}\n"}});
+        auto special_after = special_before;
+        special_after[1].file.contents.replace(special_after[1].file.contents.find("before"), 6, "after");
+        const auto result = generate_recipe_patch_series_for_test(identity(), special_before, special_after);
+        const auto& special = success(result).materials();
+        require(special.size() == 1 && special[0].target_relative_path == name &&
+                    local_recipe_patch_header_target(special[0].bytes) == name,
+                "quoted install target was not preserved byte-exactly");
     }
 }
 
@@ -315,6 +385,7 @@ void failures_and_tampering() {
 int main() {
     try {
         supported_edits();
+        supported_recipe_series();
         unchanged_and_unsupported();
         process_policy_and_contamination();
         failures_and_tampering();

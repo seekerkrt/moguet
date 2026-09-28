@@ -11,12 +11,18 @@
 class ReviewRecipeEditCorrelation;
 struct RecipePatchGenerationAccess;
 
-// Owning, immutable invocation-local material. Only successful shape checking
-// and byte-exact replay can mint it. No save consent or persistence authority.
+struct GeneratedRecipePatchMaterial {
+    std::string target_relative_path;
+    std::string bytes;
+};
+
+// Owning, ordered invocation-local material series. Only successful shape
+// checking and whole-series byte-exact replay can mint it.
 class GeneratedRecipePatch final {
     AurReviewedSourceReviewIdentity identity_;
-    std::string bytes_;
-    GeneratedRecipePatch(AurReviewedSourceReviewIdentity identity, std::string bytes);
+    std::vector<GeneratedRecipePatchMaterial> materials_;
+    GeneratedRecipePatch(AurReviewedSourceReviewIdentity identity,
+                         std::vector<GeneratedRecipePatchMaterial> materials);
     friend struct RecipePatchGenerationAccess;
 
 public:
@@ -25,6 +31,8 @@ public:
     GeneratedRecipePatch& operator=(const GeneratedRecipePatch&) = delete;
     GeneratedRecipePatch& operator=(GeneratedRecipePatch&&) = delete;
     const AurReviewedSourceReviewIdentity& identity() const noexcept;
+    const std::vector<GeneratedRecipePatchMaterial>& materials() const noexcept;
+    // Compatibility for existing PKGBUILD-only component consumers.
     const std::string& bytes() const noexcept;
 };
 
@@ -72,5 +80,10 @@ void set_recipe_patch_diff_process_for_test(RecipePatchDiffProcessForTest proces
 RecipePatchGenerationResult generate_recipe_patch_for_test(
     const AurReviewedSourceReviewIdentity& identity,
     const std::string& baseline, const std::string& accepted,
+    const RecipePatchDiffProcessForTest& process = {});
+RecipePatchGenerationResult generate_recipe_patch_series_for_test(
+    const AurReviewedSourceReviewIdentity& identity,
+    const SupportedRecipeSnapshot& baseline,
+    const SupportedRecipeSnapshot& accepted,
     const RecipePatchDiffProcessForTest& process = {});
 #endif

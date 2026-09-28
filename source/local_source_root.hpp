@@ -104,6 +104,19 @@ struct LocalSourceFileSnapshot {
     bool operator==(const LocalSourceFileSnapshot&) const = default;
 };
 
+// PKGBUILD first, followed by existing top-level *.install in lexical order.
+// The identity is retained for post-acceptance drift checks; editor atomic
+// replacement is allowed between independently captured snapshots.
+struct SupportedRecipeFileSnapshot {
+    std::string relative_path;
+    LocalSourceFileSnapshot file;
+    bool operator==(const SupportedRecipeFileSnapshot&) const = default;
+};
+using SupportedRecipeSnapshot = std::vector<SupportedRecipeFileSnapshot>;
+
+bool same_supported_recipe_content_and_mode(
+    const SupportedRecipeSnapshot& left, const SupportedRecipeSnapshot& right);
+
 enum class LocalSourceMetadataState {
     Missing,
     Unsafe,
@@ -243,6 +256,7 @@ class LocalSourceRoot final {
         std::uintmax_t directory_inode);
     friend struct LocalSourceMetadataEvaluationAccess;
     friend struct LocalRecipeCandidateAccess;
+    friend SupportedRecipeSnapshot snapshot_supported_recipe_files(const LocalSourceRoot& root);
 #ifdef MOGUET_ENABLE_LOCAL_SOURCE_WORKSPACE_TEST_HOOKS
     friend void require_cache_identity_outside_source_tree_for_test(
         const LocalSourceRoot& source_root,
@@ -288,6 +302,8 @@ public:
 LocalSourceRoot open_local_source_root(
     const std::filesystem::path& input_path,
     bool has_one_off_environment_assignment = false);
+
+SupportedRecipeSnapshot snapshot_supported_recipe_files(const LocalSourceRoot& root);
 
 #ifdef MOGUET_ENABLE_LOCAL_SOURCE_ROOT_TEST_HOOKS
 enum class LocalSourceRootTestFailurePoint {

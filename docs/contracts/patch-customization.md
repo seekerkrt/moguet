@@ -556,3 +556,37 @@ Normal表示にも専用save failure categoryから元のphase/commit診断を�
 focused evidenceは既存production connection/association fixture、native makepkg/archive/isolated ALPM/PTYの
 upgrade-patch CLI fixtureを拡張する。No zero-I/O、unsupported shape No/Yes、strict destinations、no overwrite、digest tamper、
 registration failure/uncertain、commit後drift、scope exclusions、generated materialの#649 current-upstream reuseを確認する。
+
+## Issue #665: existing top-level `.install` content edit
+
+#650のPKGBUILD-only記述に対する現行の追加契約。normal reviewed ordinary AURの最初のeditor直前に
+PKGBUILD先頭、既存top-level `*.install`をbytewise lexical順でdescriptor-firstにsnapshotし、
+Proceed受理後に同じcheckout lineageからaccepted snapshotをfreezeする。path set、内容、owner、
+type、modeを比較し、inodeはeditorのatomic saveを許すためpre/post同一性を要求しない。
+post-Proceedからpublicationまでの同一性はidentityを含むexact snapshotで確認する。
+reviewed overlay全体のsemantic path/content/mode projectionを併用し、nested `.install`等の
+unsupported変更がsupported変更と混在してもSave Yesではfail closedする。Noは今回だけのoverlayで継続する。
+
+persistent supportは既存root PKGBUILDと既存top-level `*.install`のcontent modificationだけ。
+add/delete/rename、type/mode変更、nested path、binary contentは保存しない。top-level
+`.install`のbasenameはraw storage leafにせず、空白・非ASCII・Git C-style quoted pathも
+expected target bytesへ復号してstrict one-file envelopeを検証する。
+各changed fileをone-file patchにし、PKGBUILD、続いて`.install` lexical順に並べる。
+PKGBUILD material名は従来の`PKGBUILD-<patch SHA-256>.patch`、`.install`はraw basenameを
+storage leafへ使わず`INSTALL-<relative path SHA-256>-<patch SHA-256>.patch`とする。
+
+全materialを検証した後、baseline supported file setのprivate copyへordered replayし、
+accepted path set/content/owner/modeとのexact一致を確認する。live checkoutは検証用に変更しない。
+material全件のfinal name/collisionをpreflightし、既存のdescriptor-first temporary/fsync/
+RENAME_NOREPLACE/readback writerで順にpublishする。途中失敗ならregistryへ登録せず、
+既にpublishedのuser materialを削除せず全pathをfailureへ保持する。complete ordered expected
+entry setのみAUR v2 associationへ登録する。codec/versionは変えず、旧PKGBUILD-only recordを
+migrationなしでlist/read/acquire/Applyできる。
+
+future Apply Yesは全digestと各materialのexpected one-file target envelopeを検証してから
+fresh candidateへ順番に適用する。各patch前後にsupported recipe set全体のidentity、path、
+contents、modeを確認し、意図したtarget以外のmutation、missing/renamed target、途中のapply
+failureを拒否する。候補はephemeralで、series途中の失敗からpartial buildやstock fallbackへ進まない。
+replay後もfresh metadata/PackageBase/child identityとbuild前のsupported recipe stateを検証する。
+Saveとfuture Applyは別の明示同意であり、`--noconfirm`は両者のYesではない。
+source-build `V=K` preferenceとはstorage、consent、lifecycleを共有しない。

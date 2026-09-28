@@ -70,6 +70,13 @@ namespace fs = std::filesystem;
                               ? localization::format_translated_message("Patch material and registration are complete at {}. Current build continuation stopped.", path)
                               : localization::format_translated_message("Published patch material remains at {}. Registration is incomplete or uncertain.", path));
     }
+    for(const auto& material : failure.retained_materials) {
+        if(material == failure.retained_material) continue;
+        const auto path = terminal_safe_text::escape_utf8(material.string());
+        message += " " + (failure.registration_completed
+                              ? localization::format_translated_message("Patch material and registration are complete at {}. Current build continuation stopped.", path)
+                              : localization::format_translated_message("Published patch material remains at {}. Registration is incomplete or uncertain.", path));
+    }
     throw RecipePatchSaveError(std::move(failure), message);
 }
 
@@ -96,7 +103,8 @@ void require_accepted_recipe(const ReviewRecipeEditCorrelation& edit, const Sour
        request.git_url != edit.identity().canonical_git_remote())
         fail_save({RecipePatchSaveStage::IdentityValidation});
     auto root = open_local_source_root(checkout.canonical_path(), true);
-    if(root.pkgbuild().contents != edit.accepted_pkgbuild()) fail_save({RecipePatchSaveStage::IdentityValidation});
+    if(snapshot_supported_recipe_files(root) != edit.accepted_recipe())
+        fail_save({RecipePatchSaveStage::IdentityValidation});
     root.require_unchanged_identity();
 }
 } // namespace
@@ -170,6 +178,9 @@ void save_review_recipe_edit(
         // RPC refresh or future Apply consent is derived from Save Yes.
         candidate.emplace(materialize_local_source_workspace(original, cache_root));
         auto root = open_local_source_root(candidate->path(), true);
+        const auto evaluation_recipe = snapshot_supported_recipe_files(root);
+        if(!same_supported_recipe_content_and_mode(evaluation_recipe, edit->accepted_recipe()))
+            fail_save({RecipePatchSaveStage::IdentityValidation});
         auto effective_environment = request.custom_environment;
         if(request.empty_value_policy == SourceEnvironmentEmptyValuePolicy::Omit)
             std::erase_if(effective_environment.ordered_assignments, [](const auto& assignment) { return assignment.value.empty(); });
@@ -186,6 +197,8 @@ void save_review_recipe_edit(
         for(const auto& child : required)
             if(std::none_of(metadata.metadata().children.begin(), metadata.metadata().children.end(),
                             [&](const auto& value) { return value.name == child; })) fail_save({RecipePatchSaveStage::IdentityValidation});
+        if(snapshot_supported_recipe_files(open_local_source_root(candidate->path(), true)) != evaluation_recipe)
+            fail_save({RecipePatchSaveStage::IdentityValidation});
         original.require_unchanged_identity();
         cleanup_attempted = true;
         candidate->cleanup();
@@ -230,17 +243,22 @@ void save_review_recipe_edit(
         RecipePatchSaveFailure stopped{RecipePatchSaveStage::Publication};
         stopped.association = *error;
         if(error->published_material) stopped.retained_material = *error->published_material;
+        stopped.retained_materials = error->published_materials;
         fail_save(std::move(stopped));
     }
     const auto& published = std::get<PublishedRecipePatch>(publication);
     const auto material_path = published.material_root / published.expected_entry.file;
+    std::vector<fs::path> material_paths;
+    for(const auto& entry : published.expected_entries)
+        material_paths.push_back(published.material_root / entry.file);
     const ResolvedAurSourceBuildIdentity source(request.package_name.empty() ? request.checkout_name : request.package_name,
                                                 request.checkout_name);
-    auto registration = register_expected_aur_patch_association(source, published.material_root, {published.expected_entry});
+    auto registration = register_expected_aur_patch_association(source, published.material_root, published.expected_entries);
     if(auto* error = std::get_if<PatchAssociationFailure>(&registration)) {
         RecipePatchSaveFailure stopped{RecipePatchSaveStage::Registration};
         stopped.association = *error;
         stopped.retained_material = material_path;
+        stopped.retained_materials = material_paths;
         fail_save(std::move(stopped));
     }
     // Same accepted bytes, never a stock or regenerated recipe, continue.
@@ -250,8 +268,10 @@ void save_review_recipe_edit(
         RecipePatchSaveFailure stopped{RecipePatchSaveStage::IdentityValidation};
         stopped.exception = std::current_exception();
         stopped.retained_material = material_path;
+        stopped.retained_materials = material_paths;
         stopped.registration_completed = true;
         fail_save(std::move(stopped));
     }
-    Logger::info(localization::format_translated_message("Saved patch customization: {}", terminal_safe_text::escape_utf8(material_path.string())));
+    for(const auto& path : material_paths)
+        Logger::info(localization::format_translated_message("Saved patch customization: {}", terminal_safe_text::escape_utf8(path.string())));
 }

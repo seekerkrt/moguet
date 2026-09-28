@@ -108,7 +108,7 @@ raise SystemExit(code)
             if previous.is_dir(): shutil.rmtree(previous)
         write(self.root/f'db/local/{name}-{version}/desc', f'%NAME%\n{name}\n\n%VERSION%\n{version}\n\n%BASE%\n{base or name}\n\n%ARCH%\nany\n\n%REASON%\n0\n\n%DESC%\nfixture\n\n')
 
-    def add_upstream(self, base, contents):
+    def add_upstream(self, base, contents, install_files=None):
         work=self.root/'upstreams'/base
         work.mkdir(parents=True, exist_ok=True)
         git=lambda *args: subprocess.run(['/usr/bin/git','-C',str(work),*args], check=True, capture_output=True)
@@ -117,9 +117,12 @@ raise SystemExit(code)
             git('config','user.email','fixture@example.invalid')
             git('config','user.name','Fixture')
         write(work/'PKGBUILD', contents)
+        for name, text in (install_files or {}).items():
+            require('/' not in name and name.endswith('.install'), 'fixture install name is not top-level')
+            write(work/name, text)
         result=subprocess.run(['/usr/bin/makepkg','--printsrcinfo'], cwd=work, env=self.env, text=True, capture_output=True, check=True)
         write(work/'.SRCINFO',result.stdout)
-        git('add','PKGBUILD','.SRCINFO'); git('commit','-qm','recipe')
+        git('add','PKGBUILD','.SRCINFO',*((install_files or {}).keys())); git('commit','-qm','recipe')
         remote=self.root/'remotes'/f'{base}.git'
         remote.parent.mkdir(exist_ok=True)
         if not remote.exists():
@@ -159,11 +162,21 @@ import os, sys
 from pathlib import Path
 path=Path(sys.argv[-1])
 text=path.read_text()
-if os.environ.get('PATCH_UNSUPPORTED_EDIT') == '1':
+if path.name.endswith('.install'):
+    text += '\\n# saved install marker\\n'
+elif os.environ.get('PATCH_UNSUPPORTED_EDIT') == '1':
     text=''.join(line.rstrip('\\n')+' \\n' for line in text.splitlines(True))
-else:
+elif os.environ.get('PATCH_EDIT_INSTALL') != 'only':
     text=text.replace("pkgdesc='before'", "pkgdesc='custom'")
 path.write_text(text)
+shape=os.environ.get('PATCH_INSTALL_TOPOLOGY')
+if path.name=='PKGBUILD' and shape=='add':
+    (path.parent/'added.install').write_text('post_install() { :; }\\n')
+if path.name=='PKGBUILD' and shape=='nested':
+    (path.parent/'nested').mkdir(exist_ok=True)
+    (path.parent/'nested/hidden.install').write_text('post_install() { :; }\\n')
+if path.name.endswith('.install') and shape=='mode':
+    path.chmod(0o700)
 if os.environ.get('PATCH_EDIT_SRCINFO') == '1':
     (path.parent/'.SRCINFO').write_text('pkgbase = patch-devel\\n\\tpkgver = 2\\n\\tpkgrel = 1\\n\\tarch = any\\npkgname = patch-devel\\n')
 ''', 0o755)
@@ -193,7 +206,10 @@ if os.environ.get('PATCH_EDIT_SRCINFO') == '1':
                     for match in prompts[answered:]:
                         question=match.group(1).decode(errors='replace')
                         answer='n' if question.startswith(('Show ', 'Edit ', 'Clean ', 'Rebuild ')) else 'y'
-                        if review_edit and question=='Edit PKGBUILD?': answer='y'
+                        if review_edit and question=='Edit PKGBUILD?':
+                            answer='n' if self.env.get('PATCH_EDIT_INSTALL')=='only' else 'y'
+                        if review_edit and question.startswith('Edit install script '):
+                            answer='y' if self.env.get('PATCH_EDIT_INSTALL') in ('only','both') else 'n'
                         if question=='Save this edit as patch customization?': answer=save_choice
                         if question.startswith('Apply saved patch customization to this update of '):
                             require(selection<len(choices),'unexpected repeated patch selection')
@@ -281,6 +297,86 @@ with tempfile.TemporaryDirectory(prefix='moguet-upgrade-patch-cli-') as temporar
                 require(c.probe_aur(version='3')=='3:custom:stock', '#649 could not reuse the generated customization')
             require(all((c.material/name).read_bytes()==data for name,data in existing_material.items()),
                     'save modified unrelated user material')
+        # #665: an existing top-level install script is a separate material in
+        # the same ordered AUR v2 association; both later replay paths use a
+        # genuine pinned fixture version transition, not a fabricated public update.
+        for shape in ('install-only', 'pkgbuild-and-install'):
+            c=UpgradeCase(root/('generated-'+shape),rpc)
+            original_install="post_install() {\n  :\n}\n"
+            recipe_with_install=lambda version: recipe('patch-upgrade',version).replace(
+                'pkgrel=1\n',
+                'pkgrel=1\n# stable install context one\n# stable install context two\n# stable install context three\n').replace(
+                'depends=()\n', 'depends=()\ninstall=patch-upgrade.install\n')
+            c.add_upstream('patch-upgrade',recipe_with_install('2'),
+                           {'patch-upgrade.install':original_install})
+            c.env['PATCH_EDIT_INSTALL']='only' if shape=='install-only' else 'both'
+            text=c.run_upgrade(review_edit=True,save_choice='y')
+            require(text.count('Save this edit as patch customization?')==1,
+                    'install edit missed explicit Save consent')
+            records=list((c.root/'config/moguet/patches.d').glob('*.toml'))
+            require(len(records)==1, 'install edit did not register one logical series')
+            material_names=[p.name for p in c.material.glob('*.patch')]
+            install_names=[name for name in material_names if name.startswith('INSTALL-')]
+            pkgbuild_names=[name for name in material_names if name.startswith('PKGBUILD-')]
+            require(len(install_names)==1 and len(pkgbuild_names)==(0 if shape=='install-only' else 1),
+                    'generated install material set mismatch')
+            if shape!='install-only':
+                require(records[0].read_text().index('PKGBUILD-') < records[0].read_text().index('INSTALL-'),
+                        'combined material order changed')
+            for name in install_names+pkgbuild_names:
+                require(hashlib.sha256((c.material/name).read_bytes()).hexdigest() in records[0].read_text(),
+                        'install series digest missing from association')
+            with tarfile.open(c.root/'archives/patch-upgrade-2-1-any.pkg.tar') as archive:
+                require(b'# saved install marker' in archive.extractfile('.INSTALL').read(),
+                        'current build lost accepted install edit')
+            c.add_upstream('patch-upgrade',recipe_with_install('3'),
+                           {'patch-upgrade.install':original_install})
+            c.run_upgrade()
+            with tarfile.open(c.root/'archives/patch-upgrade-3-1-any.pkg.tar') as archive:
+                require(b'# saved install marker' in archive.extractfile('.INSTALL').read(),
+                        'future Apply lost saved install edit')
+            require(c.probe_aur(version='3')==
+                    ('3:before:stock' if shape=='install-only' else '3:custom:stock'),
+                    'future replay changed PKGBUILD material selection')
+            if shape=='pkgbuild-and-install':
+                c.add_upstream('patch-upgrade',recipe_with_install('4'),
+                               {'patch-upgrade.install':"post_install() {\n  echo upstream-change\n}\n"})
+                failed=c.run_upgrade(ok=False)
+                require('Saved recipe patch application failed' in failed and
+                        not c.build_log.read_text() and not c.command_log.read_text() and
+                        not (c.root/'archives/patch-upgrade-4-1-any.pkg.tar').exists(),
+                        'second material failure built a partial candidate or used stock fallback')
+        for topology in ('add','nested','mode'):
+            c=UpgradeCase(root/('generated-install-unsupported-'+topology),rpc)
+            c.add_upstream('patch-upgrade',
+                           recipe('patch-upgrade').replace('depends=()\n',
+                               'depends=()\ninstall=patch-upgrade.install\n'),
+                           {'patch-upgrade.install':"post_install() {\n  :\n}\n"})
+            c.env['PATCH_EDIT_INSTALL']='only' if topology=='mode' else 'both'
+            c.env['PATCH_INSTALL_TOPOLOGY']=topology
+            text=c.run_upgrade(review_edit=True,save_choice='y',ok=False)
+            require(text.count('Save this edit as patch customization?')==1 and
+                    'generation or exact reproduction verification failed' in text and
+                    not list((c.root/'config/moguet/patches.d').glob('*.toml')) and
+                    not list(c.material.glob('INSTALL-*.patch')) and
+                    not list(c.material.glob('PKGBUILD-*.patch')) and
+                    not c.build_log.read_text() and not c.command_log.read_text(),
+                    'unsupported install topology persisted or reached build: '+topology)
+        c=UpgradeCase(root/'generated-install-save-no',rpc)
+        c.add_upstream('patch-upgrade',
+                       recipe('patch-upgrade').replace('depends=()\n',
+                           'depends=()\ninstall=patch-upgrade.install\n'),
+                       {'patch-upgrade.install':"post_install() {\n  :\n}\n"})
+        c.env['PATCH_EDIT_INSTALL']='only'
+        text=c.run_upgrade(review_edit=True,save_choice='n')
+        require(text.count('Save this edit as patch customization?')==1 and
+                not list((c.root/'config/moguet/patches.d').glob('*.toml')) and
+                not list(c.material.glob('INSTALL-*.patch')) and
+                DIRECTORY_PROMPT not in text,
+                'install-only Save No persisted material')
+        with tarfile.open(c.root/'archives/patch-upgrade-2-1-any.pkg.tar') as archive:
+            require(b'# saved install marker' in archive.extractfile('.INSTALL').read(),
+                    'install-only Save No lost invocation-local edit')
         # Source environment promotion never supplies the separate recipe Save consent.
         for patch_choice in ('n', 'y'):
             c=UpgradeCase(root/('environment-promotion-patch-'+patch_choice),rpc)
