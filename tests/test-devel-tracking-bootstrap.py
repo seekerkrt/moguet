@@ -170,9 +170,36 @@ def main():
         "publication-unknown", "cleanup-failure", "multi-publication-failure", "rpc-unmet", "multi-rpc-unmet")}
     version_only_cases |= {"version-only-same": b"", "version-only-older": b""}
     registered_version_cases = {"registered-legacy-version-" + mode: b"" for mode in ("newer", "rpc-unmet", "transaction-failure", "cleanup-failure")}
+    ordinary_version_split_cases = {"version-only-split-" + mode: b"y\ny\n" for mode in (
+        "newer", "su", "branch", "reordered", "legal-baseline", "build-failure", "selected-attribution", "prepared-child", "dynamic-drift",
+        "extra", "missing", "foreign-base", "source-drift", "artifact-drift", "guard-same", "guard-older", "rpc-unmet",
+        "nonzero", "unknown", "publication-failure", "publication-unknown", "cleanup-failure")}
+    ordinary_version_split_cases |= {
+        "tracking-version-split-newer": b"y\ny\n",
+        # Exact recipe/closure acceptance has no blank-input default. A blank
+        # must prompt again; the following No terminates without approval.
+        "version-only-split-closure-default-no": b"y\n\nn\n",
+        "version-only-split-closure-decline": b"y\nn\n",
+        "version-only-split-closure-cancel": b"y\nq\n",
+        "version-only-split-closure-eof": b"y\n\x04",
+        "version-only-split-closure-non-tty": b"y\n",
+        "version-only-split-recipe-default-no": b"\nn\n",
+        "version-only-split-recipe-decline": b"n\n",
+        "version-only-split-recipe-cancel": b"q\n",
+        "version-only-split-recipe-eof": b"\x04",
+        "version-only-split-non-tty": b"",
+        "version-only-split-noconfirm": b"",
+        "version-only-split-nodiff": b"",
+        "version-only-multi-split-rpc-unmet": b"y\ny\n",
+        "version-only-multi-split-publication-failure": b"y\ny\n",
+    }
+    # CTest runs the ordinary Version split shard separately alongside this
+    # existing suite, keeping both required without increasing its timeout.
     cases |= version_only_cases | registered_version_cases
     if len(sys.argv) > 2 and sys.argv[2] == "--version-only":
         cases = version_only_cases | registered_version_cases
+    elif len(sys.argv) > 2 and sys.argv[2] == "--ordinary-version-split":
+        cases = ordinary_version_split_cases
     elif len(sys.argv) > 2 and sys.argv[2] == "--update-presentation":
         selected = ("decline", "default-no", "non-tty", "noconfirm",
                     "advance-before-revalidation", "cancel", "eof",
@@ -181,15 +208,16 @@ def main():
         cases = {case: (cases | interaction_cases)[case] for case in selected}
     elif len(sys.argv) > 2:
         cases = ({case: cases[case] for case in closure_failure_details} if sys.argv[2] == "--closure-acquisition" else topology_cases if sys.argv[2] == "--topologies" else split_cases if sys.argv[2] == "--split" else interaction_cases if sys.argv[2] == "--closure-interaction" else pinned_cases if sys.argv[2] == "--pinned-s4"
-                 else {sys.argv[2]: (cases | pinned_cases | split_cases)[sys.argv[2]]})
+                 else {sys.argv[2]: (cases | pinned_cases | split_cases | ordinary_version_split_cases)[sys.argv[2]]})
     with http.server.ThreadingHTTPServer(("127.0.0.1", 0), Rpc) as server:
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         for case, answer in cases.items():
-            policy_case = case.removeprefix("version-only-")
+            policy_case = case.removeprefix("version-only-").removeprefix("tracking-version-")
+            split_mode = policy_case.removeprefix("multi-").removeprefix("split-")
             Rpc.relation = case.removeprefix("multi-") if case in ("multi-required-dependency", "multi-required-provider", "multi-shared-base") else ""
             Rpc.provider_case = case if case.startswith("multi-provider-") else ""
-            Rpc.version = "3-1" if case in registered_version_cases and case.endswith("rpc-unmet") else "1-1" if case in registered_version_cases else "2-1" if policy_case.endswith("rpc-unmet") else "1-1" if case in version_only_cases and policy_case not in ("same", "older") else "1-1" if Rpc.relation else "1-1" if case in ("newer", "multi-provider-ordinary") else "0-0" if policy_case == "older" else "0-1"
+            Rpc.version = "3-1" if case in ordinary_version_split_cases and split_mode in ("guard-same", "guard-older") else "3-1" if case in registered_version_cases and case.endswith("rpc-unmet") else "1-1" if case in registered_version_cases else "2-1" if policy_case.endswith("rpc-unmet") else "1-1" if case in ordinary_version_split_cases or (case in version_only_cases and policy_case not in ("same", "older")) else "1-1" if Rpc.relation else "1-1" if case in ("newer", "multi-provider-ordinary") else "0-0" if policy_case == "older" else "0-1"
             Rpc.decisions_only = case in ("multi-all-decline", "multi-decision-cancel", "multi-decisions")
             suffix = "-git" if Rpc.decisions_only else ""
             Rpc.names = ["bootstrap-a" + suffix, PACKAGE, "zz-bootstrap-c" + suffix] if policy_case.startswith("multi-") else [PACKAGE]
@@ -206,7 +234,7 @@ def main():
             # Representative cases now include an additional refused source
             # review and a complete subsequent update, not only reassessment.
             case_timeout = 180 if case in topology_cases else 90
-            if case != "non-tty":
+            if case != "non-tty" and case != "version-only-split-non-tty":
                 command = [sys.executable, str(ROOT / "tests/run-with-pty.py"),
                            "--timeout", str(case_timeout), "--", *command]
             completed = subprocess.run(command, input=answer, stdout=subprocess.PIPE,
@@ -227,6 +255,27 @@ def main():
                     raise SystemExit(f"VersionOnly source acceptance was skipped/repeated: {case}")
                 if "rollback" in output.lower():
                     raise SystemExit(f"VersionOnly partial claimed rollback: {case}")
+            if case in ordinary_version_split_cases:
+                if any(text in output for text in ("tracking baseline is missing", "Accept this full source review for devel tracking bootstrap?")):
+                    raise SystemExit(f"ordinary Version split was converted to bootstrap: {case}")
+                no_closure = split_mode in ("build-failure", "selected-attribution", "closure-non-tty", "non-tty", "noconfirm", "nodiff") or split_mode.startswith("recipe-")
+                expected_closure_prompts = 0 if no_closure else 2 if split_mode == "closure-default-no" else 1
+                if output.count("Use this exact upstream source snapshot as build input?") != expected_closure_prompts:
+                    print(output)
+                    raise SystemExit(f"ordinary Version split skipped/repeated exact closure approval: {case}")
+                if split_mode in ("closure-default-no", "recipe-default-no"):
+                    question = "Use this exact upstream source snapshot as build input?" if split_mode == "closure-default-no" else "Accept this reviewed upstream revision?"
+                    if output.count(question) != 2 or output.count("Please answer yes, no, or cancel.") != 1:
+                        print(output)
+                        raise SystemExit(f"ordinary Version split blank input became approval or skipped retry/decline: {case}")
+                if split_mode in ("newer", "su", "branch", "reordered", "legal-baseline"):
+                    route = "-Su" if split_mode == "su" else "-Syu"
+                    prefix = f"S673 ordinary Version split native {case} route={route} "
+                    if len([line for line in output.splitlines() if line.startswith(prefix)]) != 1:
+                        print(output)
+                        raise SystemExit(f"ordinary Version split native typed evidence missing/repeated: {case}")
+                if "rollback" in output.lower():
+                    raise SystemExit(f"ordinary Version split partial claimed rollback: {case}")
             bootstrap_reasons = {
                 "decline": "devel tracking bootstrap was declined; rerun when ready to review the source",
                 "default-no": "devel tracking bootstrap was declined; rerun when ready to review the source",

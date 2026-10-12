@@ -769,6 +769,15 @@ remain separate partial outcomes and produce a non-zero result. Registered
 `RequiresCheck` uses an explicit default-No rebuild confirmation; this does not
 replace source review. `--noconfirm` cannot supply review authority. See the
 [normal devel route contract](https://github.com/seekerkrt/moguet/blob/develop/docs/contracts/devel-normal-routes.md).
+For automatic Version updates through exact target-less Auto `-Syu` / `-Su`,
+a supported split PackageBase with one selected child and one floating HTTPS
+Git source also uses this reviewed build path. It validates dynamic `pkgver()`
+outputs after source preparation, checks all produced children, and installs
+only the selected child. Exact recipe acceptance and separate explicit source
+snapshot approval are required; `--devel` and `--noconfirm` do not supply them.
+This subset does not extend upgrade-family, registered or explicit builds,
+multiple Git sources, multiple selected children, or unsupported build/install
+intents. Other Legacy dynamic recipes retain their existing limitations.
 The provenance format remains schema v1 in a separate XDG state namespace.
 Unknown/future schemas and corrupt or unsafe history fail closed; the updater does
 not repair records, adopt external history, or automatically create a missing baseline. A baseline

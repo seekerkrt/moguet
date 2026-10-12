@@ -1628,6 +1628,10 @@ void test_automatic_version_update_guard() {
     };
     const std::vector<Case> cases{
         {"1-1", "2-1", "2-1", 1, 0, std::nullopt},
+        {"1=foo-1", "2-1", "2-1", 1, 0, std::nullopt},
+        {"1<foo-1", "2-1", "2-1", 1, 0, std::nullopt},
+        {"1>foo-1", "2-1", "2-1", 1, 0, std::nullopt},
+        {"1-1", "2=foo-1", "3=foo-1", 1, 1, std::nullopt},
         {"1-1", "2-1", "2.r3.gabc-1", 1, 1, std::nullopt},
         {"1:9-4", "2:1-2", "2:1-3", 1, 1, std::nullopt},
         {"2-1", "3-1", "2-1", 0, -1, Kind::ArtifactNotNewerThanInstalled},
@@ -1730,6 +1734,29 @@ void test_automatic_version_update_guard() {
     expect(evaluate_automatic_aur_version_ordering(std::nullopt, ArchVersionOrdering::Equal) == Kind::ComparisonUnavailable &&
                evaluate_automatic_aur_version_ordering(ArchVersionOrdering::Greater, static_cast<ArchVersionOrdering>(99)) == Kind::ComparisonUnavailable,
            "Unavailable canonical ordering became success");
+
+    for(const std::string invalid : {"", "2", "2-", "-1", ":2-1", "x:2-1", "1:2:3-1", "2/3-1", "2 3-1", "2--1", "2-1.2.3", "2-.1", "2-1.", "2-foo", "1β-1"}) {
+        for(int slot = 0; slot < 4; ++slot) {
+            auto checked_target = target("selected", DesiredInstallReason::Explicit);
+            checked_target.automatic_version_update = AutomaticAurVersionUpdateIntent{PACKAGE_BASE, "selected", "2-1", "1=foo-1", InstalledPackageReason::Explicit};
+            ArtifactPackageIdentity checked_actual{"selected", "2-1"};
+            InstalledPackageMetadata checked_installed{"selected", "1=foo-1", InstalledPackageReason::Explicit};
+            if(slot == 0) checked_actual.full_version = invalid;
+            if(slot == 1) checked_target.automatic_version_update->observed_rpc_version = invalid;
+            if(slot == 2) checked_target.automatic_version_update->observed_installed_version = invalid;
+            if(slot == 3) checked_installed.version = invalid;
+            const auto refused = validate_automatic_aur_version_install(checked_target, checked_actual, checked_installed);
+            expect(refused && refused->kind == Kind::InvalidVersionEvidence, "Invalid full package version escaped the guard in evidence slot " + std::to_string(slot));
+        }
+    }
+    auto reason_target = target("selected", DesiredInstallReason::Explicit);
+    reason_target.automatic_version_update = AutomaticAurVersionUpdateIntent{PACKAGE_BASE, "selected", "2-1", "1=foo-1", InstalledPackageReason::Explicit};
+    expect(validate_automatic_aur_version_install(reason_target, ArtifactPackageIdentity{"selected", "2-1"},
+                                                  InstalledPackageMetadata{"selected", "1=foo-1", InstalledPackageReason::Dependency})
+                   ->kind == Kind::InstalledStateDrift,
+           "Legal pkgver relaxed the exact installed reason binding");
+    expect(ObservedVersion::available(ObservedVersionSource::InstalledExactPackage, "1=foo-1").invalid_reason() != nullptr,
+           "Package version fix relaxed the unrelated dependency grammar");
 }
 
 void test_executor_revalidation() {

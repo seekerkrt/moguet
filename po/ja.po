@@ -2,8 +2,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.11.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-12 14:19+0900\n"
-"PO-Revision-Date: 2026-10-12 14:20+0900\n"
+"POT-Creation-Date: 2026-10-12 18:01+0900\n"
+"PO-Revision-Date: 2026-10-12 18:00+0900\n"
 "Last-Translator: Moguet contributors\n"
 "Language-Team: Japanese\n"
 "Language: ja\n"
@@ -57,6 +57,9 @@ msgstr "{} は終了コード {} で失敗しました。"
 msgid "version comparison authority unavailable"
 msgstr "バージョン比較の根拠を利用できません"
 
+msgid "Check the package identity and full version evidence before starting a new invocation."
+msgstr "新しい呼び出しを始める前に、パッケージの識別情報とfull versionの根拠を確認してください。"
+
 #, c++-format
 msgid "selected artifact and {} child identity mismatch"
 msgstr "選択アーティファクトと{}のchild識別情報が一致しません"
@@ -64,28 +67,46 @@ msgstr "選択アーティファクトと{}のchild識別情報が一致しま�
 msgid "invalid or missing full version evidence"
 msgstr "full versionの根拠が不正または欠落しています"
 
+#, c++-format
+msgid "Restore {} version comparison support, then re-check the state in a new invocation."
+msgstr "{}のバージョン比較機能を復旧してから、新しい呼び出しで状態を再確認してください。"
+
 msgid "fresh installed package observation failed"
 msgstr "現在のインストール済みパッケージの観測に失敗しました"
+
+msgid "Re-check the installed package state, then start a new invocation."
+msgstr "インストール済みパッケージの状態を再確認してから、新しい呼び出しを始めてください。"
 
 msgid "selected installed package disappeared"
 msgstr "選択したインストール済みパッケージが消失しました"
 
-msgid "installed package binding changed since query"
-msgstr "照会後にインストール済みパッケージの対応関係が変わりました"
+msgid "installed package version, install reason, or identity changed since query"
+msgstr "照会後にインストール済みパッケージのバージョン、インストール理由、または識別情報が変わりました"
 
 msgid "artifact is the same version as or older than installed"
 msgstr "アーティファクトはインストール済みと同じか古いバージョンです"
 
 #, c++-format
+msgid "Check the recipe, observed {} version, and actual artifact version before starting a new invocation."
+msgstr "新しい呼び出しを始める前に、レシピ、観測済み{}バージョン、実際のアーティファクトのバージョンを確認してください。"
+
+#, c++-format
 msgid "artifact version is below the observed {} version"
 msgstr "アーティファクトのバージョンが観測済みの{}バージョンに達していません"
+
+msgid "Unknown automatic Version guard failure kind."
+msgstr "不明な自動Version guardの失敗種別です。"
 
 msgid "unavailable"
 msgstr "利用不可"
 
 #, c++-format
-msgid "Automatic {} Version update refused before package transaction for {}: {}; actual={}, installed={}, observed {}={}. Rerun required."
-msgstr "自動{} Version更新を{}のパッケージtransaction前に拒否しました: {}。actual={}、installed={}、観測済み{}={}。再実行が必要です。"
+msgid "Automatic {} Version update refused before package transaction for {}: {}; actual={}, fresh installed={}, query installed={}, observed {}={}."
+msgstr "自動{} Version更新を{}のパッケージtransaction前に拒否しました: {}。実成果物={}、現在のインストール済み={}、照会時のインストール済み={}、観測済み{}={}。"
+
+#, c++-format
+msgid "The {} and {} options do not bypass this guard."
+msgstr "{}と{}ではこのguardを解除できません。"
 
 msgid "Not-installed package must not have an existing install reason."
 msgstr "未インストールのパッケージに既存のインストール理由を設定することはできません。"
@@ -933,6 +954,10 @@ msgstr "{} トランザクションのプロセス失敗に予期しない終了
 msgid "package transaction process exception"
 msgstr "パッケージトランザクションのプロセス例外"
 
+#, c++-format
+msgid "Check the actual installed package state and {} log before retrying."
+msgstr "再試行する前に、実際のインストール済みパッケージの状態と{} logを確認してください。"
+
 #. TRANSLATORS: AUR is a runtime project identity.
 #, c++-format
 msgid "{} unknown transaction failure unexpectedly has an exit code."
@@ -991,10 +1016,6 @@ msgstr "アーティファクトの選択に失敗しました"
 
 msgid "mixed install reason unsupported"
 msgstr "異なるインストール理由の混在はサポートされていません"
-
-#, c++-format
-msgid "automatic {} Version artifact guard failure before installation"
-msgstr "自動{} Version更新のアーティファクトguardがinstall前に失敗"
 
 msgid "package metadata failure"
 msgstr "パッケージメタデータの取得に失敗しました"
@@ -1108,8 +1129,9 @@ msgstr "取り消し"
 msgid "transaction succeeded; exact installed proof unavailable"
 msgstr "トランザクションは成功しましたが、インストール対象の厳密な証明は得られていません"
 
-msgid "transaction outcome unknown; installed artifact unverified"
-msgstr "トランザクション結果は不明です。インストールされたアーティファクトは未検証です"
+#, c++-format
+msgid "transaction outcome unknown; installed artifact unverified. Check the actual installed package state and {} log before retrying."
+msgstr "トランザクション結果は不明です。インストールされたアーティファクトは未検証です。再試行する前に、実際のインストール済みパッケージの状態と{} logを確認してください。"
 
 msgid "transaction failed; package effects unverified"
 msgstr "トランザクションは失敗しました。パッケージへの影響は未検証です"
@@ -10547,6 +10569,10 @@ msgstr "{}のデフォルト状態ログを段階{}で安全に使用できま�
 
 msgid "Unknown state log error code."
 msgstr "不明な状態ログエラーコードです。"
+
+#, c++-format
+#~ msgid "automatic {} Version artifact guard failure before installation"
+#~ msgstr "自動{} Version更新のアーティファクトguardがinstall前に失敗"
 
 #~ msgid "Apply it to this update?"
 #~ msgstr "今回の更新に適用しますか？"

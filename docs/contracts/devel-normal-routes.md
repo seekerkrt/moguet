@@ -321,6 +321,37 @@ remote advance、取得failure/cancel、review stop、S3/cleanup failureを対�
 `test-devel-tracking-bootstrap.py --split`がpartial/both installed、same-remote steady state、
 nonzero transaction、partial binding/publication、#545 cancellationをproduction-connected fixtureで確認する。
 
+<a id="ordinary-version-split"></a>
+
+### Ordinary Version split / single selected child（Issue #673 R2）
+
+ここでのS4は既存のevaluated/reviewed source-build proof段階であり、Issue #673の実装Slice 4とは別である。
+
+exact target-less Auto `-Syu` / `-Su`の通常`Version`候補では、required selected childが1件、
+declared childが複数で未選択siblingが存在するPackageBaseにも、既存AuthoritativeDevelを選択できる。
+`ordinary_devel_package_base`とselected childの`AutomaticAurVersionUpdateIntent`を両方要求し、
+request / AUR source / reviewed recipe identity / parsed PackageBase / required target / RPC childを相関する。
+queryのOFF/ONでこのsource-build eligibilityを変えず、ONでも通常Version候補のprecedenceを維持する。
+これらのintentや`.SRCINFO` syntaxは選択根拠であり、reviewed pinやS4 proofを生成しない。
+
+対象sourceは既存S4のone floating HTTPS Git、DefaultHead/exact Branch、architecture-independentな
+source metadataと対応するreviewed regular local inputsに限る。overlay、needed、rmdeps、
+install reason変更 / promotion、複数required selected child、coordinated replacement exact pinは拡張しない。
+BlockOperationのupgrade-family、registered source、explicit build、repository/local sourceへは波及しない。
+GitRevision / typed bootstrapの既存専用policyも変更しない。その他のLegacy dynamic recipe対応は未実施である。
+
+exact reviewed recipe acceptanceに加え、取得したsource closureを別途明示承認する。
+recipe未承認のcompatibility checkoutから対象splitをLegacy buildへ落とさず、closure未承認 / 失敗からも
+Legacyへfallbackしない。空入力は承認にならず再質問し、decline、cancel、EOF、non-TTY、
+`--noconfirm`でも必要な承認を作らない。明示的なYesだけが承認になる。
+`--devel`もrecipe / closure / installの承認ではない。
+
+既存S4はimmutable reviewed recipeとprivate working recipeを分離し、source preparation後のdynamic
+`pkgver()`とcomplete output集合を検証する。build前の古いpackagelistやmutableなpost-build再評価だけを
+execution authorityにしない。B全体を検証しT=selected child 1件だけをS5へ渡す。
+未選択siblingはinstall / S6 publication対象外であり、selected childのS6は正規S5成功・eligible proof後だけ。
+Version guard、partial outcome、first-failure / NotAttempted suffix、cleanup / lifetimeの既存契約を維持する。
+
 
 <a id="automatic-version-install-guard"></a>
 

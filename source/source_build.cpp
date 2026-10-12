@@ -10,6 +10,7 @@
 #include <fstream>
 #include "diagnostic_projection.hpp"
 #include "interactive_confirmation.hpp"
+#include "local_package_metadata.hpp"
 #include "localization.hpp"
 #include "logging.hpp"
 #include "package_identifier.hpp"
@@ -35,6 +36,7 @@
 #include <filesystem>
 #include <functional>
 #include <iostream>
+#include <iterator>
 #include <linux/openat2.h>
 #include <memory>
 #include <optional>
@@ -1093,6 +1095,17 @@ ReviewedProductionSourceExecution finalize_aur_checkout_authority(
            std::get_if<AurCompatibilityCheckout>(&authority)) {
         if(intent && (intent->request.authoritative_devel_update || intent->request.devel_tracking_bootstrap))
             return ReviewedDevelSourceBuildRejected{ReviewedDevelSourceBuildIssue::InvalidPin};
+        if(intent && intent->request.ordinary_devel_package_base) {
+            std::ifstream file(checkout.canonical_path() / ".SRCINFO");
+            const std::string contents((std::istreambuf_iterator<char>(file)), {});
+            const auto metadata = parse_local_package_metadata(contents);
+            // This newly supported Version split requires an exact reviewed
+            // pin and separate closure acceptance. Compatibility review bypass
+            // must not turn the same shape back into a Legacy build.
+            if(file && metadata.is_success() && metadata.metadata()->children.size() > 1 &&
+               requires_authoritative_devel_recipe(contents, *intent))
+                return ReviewedDevelSourceBuildRejected{ReviewedDevelSourceBuildIssue::InvalidPin};
+        }
         if(editor_overlay.has_value()) {
             throw std::logic_error(
                 "Compatibility checkout received reviewed overlay authority.");

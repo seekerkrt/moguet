@@ -117,6 +117,12 @@ OFFからそのGit状態を新たに主張しない。観測済みUnknown/Invali
 
 authoritative branch開始後にlegacyへfallbackしない。`--needed` skipをinstall済みとしてpublishしない。
 unsupported needed/rmdeps/AsDeps/promotion intentをDefaultへ丸めず、既存install reason policyを守る。
+
+ordinary Auto `-Syu` / `-Su`の自動Version候補は、one floating HTTPS Gitのsplit PackageBaseで
+selected childが1件の場合にも、相関するordinary / Version intentから既存reviewed S4経路を選択できる。
+recipeとsource closureの明示承認、complete output検証、selected childだけのS5/S6を要求する。
+tracking OFF/ONはこのbuild authorityの代替ではない。upgrade-family / registered / explicit、複数selection、
+multiple Gitや既存unsupported intentを拡張しない。詳細は[normal routes](devel-normal-routes.md#ordinary-version-split)を参照する。
 route別の詳細は[normal route contract](devel-normal-routes.md)を参照する。
 
 ## Schema / migration decision

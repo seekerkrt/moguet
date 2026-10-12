@@ -651,6 +651,11 @@ install成功とprovenance publication失敗は
 別のpartial outcomeとして保持し、non-zeroにします。registered RequiresCheckはdefault-Noの明示rebuild確認へ進みますが、
 それがsource reviewを代替することはありません。`--noconfirm`からreview authorityを作りません。
 詳細は[normal devel route contract](https://github.com/seekerkrt/moguet/blob/develop/docs/contracts/devel-normal-routes.md)を参照してください。
+exact target-less Auto `-Syu` / `-Su`の自動Version更新では、選択childが1件で対応するfloating HTTPS Git sourceが
+1件のsplit PackageBaseにも、このreviewed build経路を使います。source準備後のdynamic `pkgver()`と生成した全childを
+検証し、選択childだけをinstallします。exact recipe acceptanceと別途source snapshotの明示承認が必要で、
+`--devel` / `--noconfirm`は承認になりません。upgrade-family、registered / explicit build、multiple Git、
+複数selected child、非対応build/install intentの拡張は含みません。その他のLegacy dynamic recipeには既存制約が残ります。
 provenanceは別XDG state namespaceのschema v1を維持します。unknown/future schema、corrupt/unsafe historyは
 fail closedとし、updaterはrecord修復、external history adoption、missing baselineの自動生成を行いません。
 baselineには明示的にreviewした対応build、実install、publication成功が必要です。同version reinstallでも

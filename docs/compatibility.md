@@ -276,6 +276,14 @@ install成功だけをtracking成功へ変換しない。ordinary split PackageB
 1 transactionでinstallしてchild別v1 provenanceを保持する。未選択siblingを自動install/publicationしない。
 詳細は[normal devel routes](contracts/devel-normal-routes.md)を参照する。
 
+exact target-less Auto `-Syu` / `-Su`の通常Version更新では、対応するone floating HTTPS Gitの
+split PackageBaseから選択したchildが1件の場合にも、既存reviewed source-build経路を利用する。
+dynamic `pkgver()`後の全artifact集合を検証し、選択childだけをinstall / eligible provenance publicationへ渡す。
+recipeのexact acceptanceと別途source closureの明示承認を要求し、未承認からLegacyへfallbackしない。
+`--devel` / `--noconfirm`は承認にならない。tracking OFF/ONとも同じsource safetyを保つ。
+upgrade-family / registered / explicit、multiple Git、複数selected child、overlay / needed / rmdeps / promotion、
+coordinated replacementの新しい対応は含まない。その他のLegacy dynamic recipe更新には既存制約が残る。
+
 自動Version-basis AUR更新は、OFF/ONともにselected childのactual artifact full versionがfresh installed
 より新しく、observed RPC Version以上であることをinstall前に要求する。epoch/pkgrelを含むlibalpm比較を使い、
 RPCとの完全一致は要求しない。same/older artifact、RPC未達、installed drift/消失/観測失敗、version evidence不正、比較authority不足、

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.11.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-12 14:19+0900\n"
+"POT-Creation-Date: 2026-10-12 18:01+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -63,6 +63,9 @@ msgstr ""
 msgid "version comparison authority unavailable"
 msgstr ""
 
+msgid "Check the package identity and full version evidence before starting a new invocation."
+msgstr ""
+
 #, c++-format
 msgid "selected artifact and {} child identity mismatch"
 msgstr ""
@@ -70,27 +73,45 @@ msgstr ""
 msgid "invalid or missing full version evidence"
 msgstr ""
 
+#, c++-format
+msgid "Restore {} version comparison support, then re-check the state in a new invocation."
+msgstr ""
+
 msgid "fresh installed package observation failed"
+msgstr ""
+
+msgid "Re-check the installed package state, then start a new invocation."
 msgstr ""
 
 msgid "selected installed package disappeared"
 msgstr ""
 
-msgid "installed package binding changed since query"
+msgid "installed package version, install reason, or identity changed since query"
 msgstr ""
 
 msgid "artifact is the same version as or older than installed"
 msgstr ""
 
 #, c++-format
+msgid "Check the recipe, observed {} version, and actual artifact version before starting a new invocation."
+msgstr ""
+
+#, c++-format
 msgid "artifact version is below the observed {} version"
+msgstr ""
+
+msgid "Unknown automatic Version guard failure kind."
 msgstr ""
 
 msgid "unavailable"
 msgstr ""
 
 #, c++-format
-msgid "Automatic {} Version update refused before package transaction for {}: {}; actual={}, installed={}, observed {}={}. Rerun required."
+msgid "Automatic {} Version update refused before package transaction for {}: {}; actual={}, fresh installed={}, query installed={}, observed {}={}."
+msgstr ""
+
+#, c++-format
+msgid "The {} and {} options do not bypass this guard."
 msgstr ""
 
 msgid "Not-installed package must not have an existing install reason."
@@ -939,6 +960,10 @@ msgstr ""
 msgid "package transaction process exception"
 msgstr ""
 
+#, c++-format
+msgid "Check the actual installed package state and {} log before retrying."
+msgstr ""
+
 #. TRANSLATORS: AUR is a runtime project identity.
 #, c++-format
 msgid "{} unknown transaction failure unexpectedly has an exit code."
@@ -996,10 +1021,6 @@ msgid "artifact selection failure"
 msgstr ""
 
 msgid "mixed install reason unsupported"
-msgstr ""
-
-#, c++-format
-msgid "automatic {} Version artifact guard failure before installation"
 msgstr ""
 
 msgid "package metadata failure"
@@ -1114,7 +1135,8 @@ msgstr ""
 msgid "transaction succeeded; exact installed proof unavailable"
 msgstr ""
 
-msgid "transaction outcome unknown; installed artifact unverified"
+#, c++-format
+msgid "transaction outcome unknown; installed artifact unverified. Check the actual installed package state and {} log before retrying."
 msgstr ""
 
 msgid "transaction failed; package effects unverified"

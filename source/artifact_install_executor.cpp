@@ -3,13 +3,50 @@
 #include "localization.hpp"
 #include "process.hpp"
 #include "shell_words.hpp"
+#include "terminal_safe_text.hpp"
 
+#include <algorithm>
 #include <stdexcept>
+#include <string_view>
 #include <utility>
 #include <variant>
 #include <vector>
 
 namespace {
+
+bool is_valid_full_package_version(std::string_view version) noexcept {
+    const auto is_digits = [](std::string_view part) {
+        return !part.empty() && std::all_of(part.begin(), part.end(), [](char byte) {
+            return byte >= '0' && byte <= '9';
+        });
+    };
+    const auto epoch = version.find(':');
+    if(epoch != std::string_view::npos) {
+        if(!is_digits(version.substr(0, epoch))) return false;
+        version.remove_prefix(epoch + 1);
+    }
+    const auto release = version.find('-');
+    if(release == std::string_view::npos || release == 0) return false;
+    // This is makepkg's full package identity grammar, not dependency syntax.
+    // In particular, '=', '<' and '>' are legal pkgver bytes. Ordering remains
+    // exclusively alpm_pkg_vercmp; validation never normalizes the evidence.
+    if(!std::all_of(version.begin(), version.begin() + release, [](char byte) {
+           const auto value = static_cast<unsigned char>(byte);
+           return value >= 0x21U && value <= 0x7eU && byte != ':' && byte != '/';
+       })) return false;
+    const auto pkgrel = version.substr(release + 1);
+    const auto subrelease = pkgrel.find('.');
+    return subrelease == std::string_view::npos
+               ? is_digits(pkgrel)
+               : is_digits(pkgrel.substr(0, subrelease)) && is_digits(pkgrel.substr(subrelease + 1));
+}
+
+std::string guard_diagnostic_value(std::string_view value) {
+    constexpr std::size_t MAX_VALUE_BYTES = 160;
+    std::string display = terminal_safe_text::escape_utf8(value.substr(0, MAX_VALUE_BYTES));
+    if(value.size() > MAX_VALUE_BYTES) display += "...";
+    return display;
+}
 
 [[noreturn]] void throw_malformed_installed_metadata(
     const std::string& diagnostic) {
@@ -231,13 +268,10 @@ std::optional<AutomaticAurVersionGuardFailure> validate_automatic_aur_version_in
         return failure;
     }
     failure.fresh_installed_version = installed->version;
-    const auto valid_full_version = [](const std::string& version, ObservedVersionSource source) {
-        return version.find('-') != std::string::npos && ObservedVersion::available(source, version).version() != nullptr;
-    };
-    if(!valid_full_version(actual.full_version, ObservedVersionSource::LocalExactPackage) ||
-       !valid_full_version(intent.observed_rpc_version, ObservedVersionSource::AurExactPackage) ||
-       !valid_full_version(intent.observed_installed_version, ObservedVersionSource::InstalledExactPackage) ||
-       !valid_full_version(installed->version, ObservedVersionSource::InstalledExactPackage)) {
+    if(!is_valid_full_package_version(actual.full_version) ||
+       !is_valid_full_package_version(intent.observed_rpc_version) ||
+       !is_valid_full_package_version(intent.observed_installed_version) ||
+       !is_valid_full_package_version(installed->version)) {
         failure.kind = Kind::InvalidVersionEvidence;
         return failure;
     }
@@ -265,18 +299,42 @@ std::optional<AutomaticAurVersionGuardFailure> validate_automatic_aur_version_in
 std::string automatic_aur_version_guard_diagnostic(const AutomaticAurVersionGuardFailure& failure) {
     using Kind = AutomaticAurVersionGuardFailureKind;
     std::string reason = localization::translate_message("version comparison authority unavailable");
+    std::string recovery = localization::translate_message("Check the package identity and full version evidence before starting a new invocation.");
     switch(failure.kind) {
         case Kind::IntentIdentityMismatch: reason = localization::format_translated_message("selected artifact and {} child identity mismatch", "AUR RPC"); break;
         case Kind::InvalidVersionEvidence: reason = localization::translate_message("invalid or missing full version evidence"); break;
-        case Kind::ComparisonUnavailable: break;
-        case Kind::InstalledObservationFailed: reason = localization::translate_message("fresh installed package observation failed"); break;
-        case Kind::InstalledPackageDisappeared: reason = localization::translate_message("selected installed package disappeared"); break;
-        case Kind::InstalledStateDrift: reason = localization::translate_message("installed package binding changed since query"); break;
-        case Kind::ArtifactNotNewerThanInstalled: reason = localization::translate_message("artifact is the same version as or older than installed"); break;
-        case Kind::ArtifactBelowObservedRpcVersion: reason = localization::format_translated_message("artifact version is below the observed {} version", "AUR RPC"); break;
+        case Kind::ComparisonUnavailable:
+            recovery = localization::format_translated_message("Restore {} version comparison support, then re-check the state in a new invocation.", "Arch");
+            break;
+        case Kind::InstalledObservationFailed:
+            reason = localization::translate_message("fresh installed package observation failed");
+            recovery = localization::translate_message("Re-check the installed package state, then start a new invocation.");
+            break;
+        case Kind::InstalledPackageDisappeared:
+            reason = localization::translate_message("selected installed package disappeared");
+            recovery = localization::translate_message("Re-check the installed package state, then start a new invocation.");
+            break;
+        case Kind::InstalledStateDrift:
+            reason = localization::translate_message("installed package version, install reason, or identity changed since query");
+            recovery = localization::translate_message("Re-check the installed package state, then start a new invocation.");
+            break;
+        case Kind::ArtifactNotNewerThanInstalled:
+            reason = localization::translate_message("artifact is the same version as or older than installed");
+            recovery = localization::format_translated_message("Check the recipe, observed {} version, and actual artifact version before starting a new invocation.", "AUR RPC");
+            break;
+        case Kind::ArtifactBelowObservedRpcVersion:
+            reason = localization::format_translated_message("artifact version is below the observed {} version", "AUR RPC");
+            recovery = localization::format_translated_message("Check the recipe, observed {} version, and actual artifact version before starting a new invocation.", "AUR RPC");
+            break;
+        default: throw std::logic_error(localization::translate_message("Unknown automatic Version guard failure kind."));
     }
+    // Stored typed facts are presentation input, including malformed evidence.
+    // Bound and escape each value before formatting; do not re-query, compare,
+    // or grant authority from a displayed version or recovery instruction.
     return localization::format_translated_message(
-        "Automatic {} Version update refused before package transaction for {}: {}; actual={}, installed={}, observed {}={}. Rerun required.",
-        "AUR", failure.package_name, reason, failure.actual_version,
-        failure.fresh_installed_version.value_or(localization::translate_message("unavailable")), "RPC", failure.observed_rpc_version);
+               "Automatic {} Version update refused before package transaction for {}: {}; actual={}, fresh installed={}, query installed={}, observed {}={}.",
+               "AUR", guard_diagnostic_value(failure.package_name), reason, guard_diagnostic_value(failure.actual_version),
+               failure.fresh_installed_version ? guard_diagnostic_value(*failure.fresh_installed_version) : localization::translate_message("unavailable"),
+               guard_diagnostic_value(failure.observed_installed_version), "RPC", guard_diagnostic_value(failure.observed_rpc_version)) +
+           " " + recovery + " " + localization::format_translated_message("The {} and {} options do not bypass this guard.", "--devel", "--no-devel");
 }
