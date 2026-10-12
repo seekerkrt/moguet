@@ -263,8 +263,25 @@ assert_exact_line "non-aur-pkg: skipped: non-AUR foreign" "$stdout_file"
 assert_exact_line "reduce execution=no" "$command_log"
 assert_no_external_mutation
 
+for dry in actual dry-run; do
+    setup_case "devel-default-off-$dry" devel-requires-check
+    if [ "$dry" = actual ]; then
+        run_status 0 upgrade-aur
+        assert_exact_line "AUR update: no updates" "$stdout_file"
+    else
+        run_status 0 --dry-run upgrade-aur
+        assert_contains "Unified plan:" "$stdout_file"
+        assert_contains "Status: NoOp" "$stdout_file"
+    fi
+    assert_exact_line "query policy version-only" "$command_log"
+    assert_not_contains "requires check" "$stdout_file"
+    assert_no_external_mutation
+    assert_cache_absent
+    assert_state_absent
+done
+
 setup_case devel-requires-check devel-requires-check
-run_status 1 upgrade-aur
+run_status 1 upgrade-aur --devel
 assert_exact_line "AUR update: blocked before execution" "$stdout_file"
 assert_exact_line \
     "manual-check-git: devel update requires check: suffix candidate only" \
@@ -281,7 +298,7 @@ assert_cache_absent
 assert_state_absent
 
 setup_case devel-requires-check-noconfirm devel-requires-check
-run_status 1 --noconfirm upgrade-aur
+run_status 1 --noconfirm upgrade-aur --devel
 assert_exact_line "AUR update: blocked before execution" "$stdout_file"
 assert_exact_line \
     "manual-check-git: devel update requires check: suffix candidate only" \
@@ -297,7 +314,7 @@ assert_state_absent
 # production call site. The operation stub rejects any policy other than the
 # explicit current BlockOperation contract.
 setup_case devel-requires-check-dry-run devel-requires-check
-run_status 1 --dry-run upgrade-aur
+run_status 1 --dry-run upgrade-aur --devel
 assert_contains "Unified plan:" "$stdout_file"
 assert_contains "  Status: Blocked" "$stdout_file"
 assert_exact_line "preflight" "$command_log"
@@ -1186,7 +1203,7 @@ assert_not_contains "git " "$command_log"
 assert_not_contains "sudo pacman -U" "$command_log"
 assert_cache_absent
 
-if [ "$case_count" -ne 106 ]; then
+if [ "$case_count" -ne 108 ]; then
     fail_case "internal test case count changed: $case_count"
 fi
 echo "AUR update command integration tests passed ($case_count cases)."

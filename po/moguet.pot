@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.11.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-28 12:04+0900\n"
+"POT-Creation-Date: 2026-10-12 14:19+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -58,6 +58,39 @@ msgstr ""
 #. command "pacman -U"; the second is its exit code.
 #, c++-format
 msgid "{} failed with exit code {}."
+msgstr ""
+
+msgid "version comparison authority unavailable"
+msgstr ""
+
+#, c++-format
+msgid "selected artifact and {} child identity mismatch"
+msgstr ""
+
+msgid "invalid or missing full version evidence"
+msgstr ""
+
+msgid "fresh installed package observation failed"
+msgstr ""
+
+msgid "selected installed package disappeared"
+msgstr ""
+
+msgid "installed package binding changed since query"
+msgstr ""
+
+msgid "artifact is the same version as or older than installed"
+msgstr ""
+
+#, c++-format
+msgid "artifact version is below the observed {} version"
+msgstr ""
+
+msgid "unavailable"
+msgstr ""
+
+#, c++-format
+msgid "Automatic {} Version update refused before package transaction for {}: {}; actual={}, installed={}, observed {}={}. Rerun required."
 msgstr ""
 
 msgid "Not-installed package must not have an existing install reason."
@@ -963,6 +996,10 @@ msgid "artifact selection failure"
 msgstr ""
 
 msgid "mixed install reason unsupported"
+msgstr ""
+
+#, c++-format
+msgid "automatic {} Version artifact guard failure before installation"
 msgstr ""
 
 msgid "package metadata failure"
@@ -2386,6 +2423,10 @@ msgid "Empty arguments are not supported."
 msgstr ""
 
 #, c++-format
+msgid "Option {} does not accept a value."
+msgstr ""
+
+#, c++-format
 msgid "Missing value for option {}."
 msgstr ""
 
@@ -2464,6 +2505,10 @@ msgid "Invalid environment assignment: {}"
 msgstr ""
 
 #, c++-format
+msgid "Option {} is not supported for operation {}."
+msgstr ""
+
+#, c++-format
 msgid "Use {} once with {}; it cannot be combined with {} or {}."
 msgstr ""
 
@@ -2493,10 +2538,6 @@ msgstr ""
 
 #, c++-format
 msgid "Option {} cannot be combined with invocation-local environment assignments."
-msgstr ""
-
-#, c++-format
-msgid "Option {} is not supported for operation {}."
 msgstr ""
 
 #, c++-format
@@ -3985,9 +4026,6 @@ msgstr ""
 
 #, c++-format
 msgid "Installed state is unavailable for {}: {}"
-msgstr ""
-
-msgid "unavailable"
 msgstr ""
 
 msgid "yes"
@@ -6288,6 +6326,41 @@ msgstr ""
 msgid "For {}, assess the current installed {} state; actual execution re-evaluates it after the repository upgrade succeeds"
 msgstr ""
 
+#, c++-format
+msgid "Request {} revision tracking in addition to normal {} package-version updates"
+msgstr ""
+
+#, c++-format
+msgid "Disable {} revision tracking for this invocation, overriding user configuration"
+msgstr ""
+
+#, c++-format
+msgid "Built-in tracking is OFF; {} enables persistent tracking; explicit CLI overrides config"
+msgstr ""
+
+#, c++-format
+msgid "Only exact target-less Auto {}, {}, {}, {}, {} and {}; dry-run is supported only for the five update routes"
+msgstr ""
+
+#, c++-format
+msgid "The same option may repeat; combining {} and {} is a usage error (exit 1)"
+msgstr ""
+
+#, c++-format
+msgid "Reject source selectors ({} / {}), targets, alternate spellings and delegated routes (exit 1); do not forward tracking options to {}"
+msgstr ""
+
+msgid "Help/version reject tracking options before configuration or log initialization (exit 1)"
+msgstr ""
+
+#, c++-format
+msgid "Tracking does not approve source review, bootstrap or installation; {} never approves bootstrap"
+msgstr ""
+
+#, c++-format
+msgid "No {} observation means unobserved, not unchanged; disabling tracking preserves build safety and provenance publication"
+msgstr ""
+
 #. TRANSLATORS: PKGBUILD and .install are literal artifact names.
 #, c++-format
 msgid "Open or edit {} and {} files for this invocation"
@@ -6402,6 +6475,13 @@ msgid "Repository diff / {} reviewed-source review policy; skipping does not adv
 msgstr ""
 
 msgid "Source-build mode"
+msgstr ""
+
+#, c++-format
+msgid "{} revision tracking policy; default false, explicit CLI takes precedence"
+msgstr ""
+
+msgid "Strict boolean; strings and numbers are rejected; configuration files are never rewritten"
 msgstr ""
 
 #. TRANSLATORS: The placeholder is the literal Arch field name
@@ -9006,11 +9086,11 @@ msgid "User config error: '{}': {} parse error: {}"
 msgstr ""
 
 #, c++-format
-msgid "User config error: '{}': top-level section '{}' (line {}, column {}): unknown top-level section; accepted entries: {}, {}, {}"
+msgid "User config error: '{}': top-level section '{}' (line {}, column {}): unknown top-level section; accepted entries: {}, {}, {}, {}"
 msgstr ""
 
 #, c++-format
-msgid "User config error: '{}': top-level key '{}' (line {}, column {}): unknown top-level key; accepted entries: {}, {}, {}"
+msgid "User config error: '{}': top-level key '{}' (line {}, column {}): unknown top-level key; accepted entries: {}, {}, {}, {}"
 msgstr ""
 
 #, c++-format
@@ -9051,6 +9131,10 @@ msgstr ""
 
 #, c++-format
 msgid "User config error: '{}': key '{}' (line {}, column {}): unsupported value '{}'; accepted values: {}, {}, {}"
+msgstr ""
+
+#, c++-format
+msgid "User config error: '{}': key '{}' (line {}, column {}): expected boolean; got {}"
 msgstr ""
 
 msgid "NoOp"

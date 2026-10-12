@@ -1352,8 +1352,16 @@ PackageStateChange AurUpdateOperationResult::package_state_change()
            })) {
         return PackageStateChange::Unknown;
     }
-    return selected_repository_provider_transaction.package_state_change ==
-                   PackageStateChange::Unknown
+    // A failed/unknown authoritative transaction does not prove that no
+    // package changed. Keep the runner's uncertainty after confirmed changes.
+    const bool attempted_authoritative_transaction = std::any_of(
+        this->execution_work_items.begin(), this->execution_work_items.end(),
+        [](const AurUpdateWorkItemExecutionResult& work_item) {
+            return work_item.transaction_failure || (work_item.devel_execution && work_item.devel_execution->operation &&
+                                                     *work_item.devel_execution->operation != DevelSourceArtifactInstallOperation::NotAttempted);
+        });
+    return attempted_authoritative_transaction || selected_repository_provider_transaction.package_state_change ==
+                                                      PackageStateChange::Unknown
                ? PackageStateChange::Unknown
                : PackageStateChange::NoChange;
 }
@@ -1382,6 +1390,10 @@ bool AurUpdateOperationResult::has_cleanup_failure() const noexcept {
     if(std::any_of(
            execution_work_items.begin(), execution_work_items.end(),
            [](const AurUpdateWorkItemExecutionResult& work_item) {
+               if(work_item.devel_execution &&
+                  (work_item.devel_execution->cleanup == DevelSourceArtifactInstallCleanupState::Failed ||
+                   work_item.devel_execution->build_cleanup_failed ||
+                   (work_item.devel_execution->closure_failure && !work_item.devel_execution->closure_failure->cleanup.succeeded()))) return true;
                if(work_item.devel_execution && work_item.devel_execution->closure_review_failure) {
                    const auto* review = &*work_item.devel_execution->closure_review_failure;
                    if(review && (review->reason == PinnedClosureReviewFailureReason::Cancelled || review->reason == PinnedClosureReviewFailureReason::Declined) &&

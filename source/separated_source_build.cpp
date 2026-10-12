@@ -29,11 +29,12 @@ SeparatedSourceBuildPhaseError::SeparatedSourceBuildPhaseError(
     ProductionSourceBuildStagedOutcome production_outcome,
     const std::string& diagnostic,
     std::optional<PackageMetadataFailure> package_metadata_failure,
-    std::exception_ptr failure_exception)
+    std::exception_ptr failure_exception,
+    std::optional<AutomaticAurVersionGuardFailure> version_guard_failure)
     : std::runtime_error(diagnostic), phase_(phase),
       production_outcome_(std::move(production_outcome)),
       package_metadata_failure_(std::move(package_metadata_failure)),
-      failure_exception_(std::move(failure_exception)) {
+      failure_exception_(std::move(failure_exception)), version_guard_failure_(std::move(version_guard_failure)) {
 }
 
 SeparatedSourceBuildCleanupError::SeparatedSourceBuildCleanupError(

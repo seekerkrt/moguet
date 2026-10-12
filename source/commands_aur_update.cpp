@@ -623,7 +623,7 @@ PreparedFilteredAurUpdateOperation prepare_upgrade_aur_operation(
     // POLICY(#267): NoUpdatesでもunsupported optionを成功へ落とさない。
     require_supported_production_source_build_options(config);
 
-    AurUpdateQueryResult query_result = query_installed_aur_updates();
+    AurUpdateQueryResult query_result = query_installed_aur_updates(aur_update_query_policy(config.user_config));
     return prepare_filtered_aur_update_operation(
         std::move(query_result), NoExplicitSourceSatisfaction{},
         DevelRequiresCheckPolicy::BlockOperation,

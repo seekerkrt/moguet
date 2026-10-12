@@ -2,8 +2,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.11.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-28 10:13+0900\n"
-"PO-Revision-Date: 2026-09-19 17:53+0900\n"
+"POT-Creation-Date: 2026-10-12 14:19+0900\n"
+"PO-Revision-Date: 2026-10-12 14:20+0900\n"
 "Last-Translator: Moguet contributors\n"
 "Language-Team: Japanese\n"
 "Language: ja\n"
@@ -53,6 +53,39 @@ msgstr "インストール理由の指定が不明です。"
 #, c++-format
 msgid "{} failed with exit code {}."
 msgstr "{} は終了コード {} で失敗しました。"
+
+msgid "version comparison authority unavailable"
+msgstr "バージョン比較の根拠を利用できません"
+
+#, c++-format
+msgid "selected artifact and {} child identity mismatch"
+msgstr "選択アーティファクトと{}のchild識別情報が一致しません"
+
+msgid "invalid or missing full version evidence"
+msgstr "full versionの根拠が不正または欠落しています"
+
+msgid "fresh installed package observation failed"
+msgstr "現在のインストール済みパッケージの観測に失敗しました"
+
+msgid "selected installed package disappeared"
+msgstr "選択したインストール済みパッケージが消失しました"
+
+msgid "installed package binding changed since query"
+msgstr "照会後にインストール済みパッケージの対応関係が変わりました"
+
+msgid "artifact is the same version as or older than installed"
+msgstr "アーティファクトはインストール済みと同じか古いバージョンです"
+
+#, c++-format
+msgid "artifact version is below the observed {} version"
+msgstr "アーティファクトのバージョンが観測済みの{}バージョンに達していません"
+
+msgid "unavailable"
+msgstr "利用不可"
+
+#, c++-format
+msgid "Automatic {} Version update refused before package transaction for {}: {}; actual={}, installed={}, observed {}={}. Rerun required."
+msgstr "自動{} Version更新を{}のパッケージtransaction前に拒否しました: {}。actual={}、installed={}、観測済み{}={}。再実行が必要です。"
 
 msgid "Not-installed package must not have an existing install reason."
 msgstr "未インストールのパッケージに既存のインストール理由を設定することはできません。"
@@ -958,6 +991,10 @@ msgstr "アーティファクトの選択に失敗しました"
 
 msgid "mixed install reason unsupported"
 msgstr "異なるインストール理由の混在はサポートされていません"
+
+#, c++-format
+msgid "automatic {} Version artifact guard failure before installation"
+msgstr "自動{} Version更新のアーティファクトguardがinstall前に失敗"
 
 msgid "package metadata failure"
 msgstr "パッケージメタデータの取得に失敗しました"
@@ -2379,6 +2416,10 @@ msgid "Empty arguments are not supported."
 msgstr "空の引数はサポートされていません。"
 
 #, c++-format
+msgid "Option {} does not accept a value."
+msgstr "オプション{}は値を受け付けません。"
+
+#, c++-format
 msgid "Missing value for option {}."
 msgstr "オプション {} の値がありません。"
 
@@ -2457,6 +2498,10 @@ msgid "Invalid environment assignment: {}"
 msgstr "不正な環境変数代入です: {}"
 
 #, c++-format
+msgid "Option {} is not supported for operation {}."
+msgstr "option {} はoperation {} ではサポートされていません。"
+
+#, c++-format
 msgid "Use {} once with {}; it cannot be combined with {} or {}."
 msgstr "{}は{}で1回だけ使用してください。{}や{}とは併用できません。"
 
@@ -2487,10 +2532,6 @@ msgstr "オプション {} は {} と併用できません。"
 #, c++-format
 msgid "Option {} cannot be combined with invocation-local environment assignments."
 msgstr "オプション {} は今回指定する環境変数代入と併用できません。"
-
-#, c++-format
-msgid "Option {} is not supported for operation {}."
-msgstr "option {} はoperation {} ではサポートされていません。"
 
 #, c++-format
 msgid "A {} option is not supported for the combined {} route. Use {} for a repository-only system upgrade with full {} pass-through."
@@ -3978,9 +4019,6 @@ msgstr "いいえ"
 #, c++-format
 msgid "Installed state is unavailable for {}: {}"
 msgstr "{} のインストール状態を取得できません: {}"
-
-msgid "unavailable"
-msgstr "利用不可"
 
 msgid "yes"
 msgstr "はい"
@@ -6280,6 +6318,41 @@ msgstr "対応する変更の前に判定済みの競合/置換ブロッカー�
 msgid "For {}, assess the current installed {} state; actual execution re-evaluates it after the repository upgrade succeeds"
 msgstr "{}では現在インストールされている{}状態を評価し、実行時はリポジトリ更新成功後に再評価します"
 
+#, c++-format
+msgid "Request {} revision tracking in addition to normal {} package-version updates"
+msgstr "{} revision trackingを通常の{} package-version更新に追加して要求"
+
+#, c++-format
+msgid "Disable {} revision tracking for this invocation, overriding user configuration"
+msgstr "user configを上書きし、当回の{} revision trackingを無効化"
+
+#, c++-format
+msgid "Built-in tracking is OFF; {} enables persistent tracking; explicit CLI overrides config"
+msgstr "built-in trackingはOFFです。{}で継続的に有効化でき、明示CLIはconfigを上書きします"
+
+#, c++-format
+msgid "Only exact target-less Auto {}, {}, {}, {}, {} and {}; dry-run is supported only for the five update routes"
+msgstr "exact target-less Autoの{}、{}、{}、{}、{}、{}だけが対象です。dry-runは5つの更新routeだけに対応します"
+
+#, c++-format
+msgid "The same option may repeat; combining {} and {} is a usage error (exit 1)"
+msgstr "同じoptionは反復できます。{}と{}の併用はusage error（exit 1）です"
+
+#, c++-format
+msgid "Reject source selectors ({} / {}), targets, alternate spellings and delegated routes (exit 1); do not forward tracking options to {}"
+msgstr "source selector（{} / {}）、target、alternate spelling、delegated routeは拒否（exit 1）し、tracking optionを{}へ転送しません"
+
+msgid "Help/version reject tracking options before configuration or log initialization (exit 1)"
+msgstr "help/versionはconfigやlogの初期化前にtracking optionを拒否します（exit 1）"
+
+#, c++-format
+msgid "Tracking does not approve source review, bootstrap or installation; {} never approves bootstrap"
+msgstr "trackingはsource review、bootstrap、installを承認しません。{}もbootstrap承認になりません"
+
+#, c++-format
+msgid "No {} observation means unobserved, not unchanged; disabling tracking preserves build safety and provenance publication"
+msgstr "{}未観測は変更なしの証拠ではありません。tracking OFFでもbuild safetyとprovenance publicationを維持します"
+
 #. TRANSLATORS: PKGBUILD and .install are literal artifact names.
 #, c++-format
 msgid "Open or edit {} and {} files for this invocation"
@@ -6395,6 +6468,13 @@ msgstr "repository diff / {} reviewed-source reviewの方針。skipしてもrevi
 
 msgid "Source-build mode"
 msgstr "ソースビルドモード"
+
+#, c++-format
+msgid "{} revision tracking policy; default false, explicit CLI takes precedence"
+msgstr "{} revision trackingの設定。既定はfalseで、明示CLIを優先します"
+
+msgid "Strict boolean; strings and numbers are rejected; configuration files are never rewritten"
+msgstr "strict booleanで、文字列・数値は拒否します。config fileは書き換えません"
 
 #. TRANSLATORS: The placeholder is the literal Arch field name
 #. "PackageBase".
@@ -9001,12 +9081,12 @@ msgid "User config error: '{}': {} parse error: {}"
 msgstr "ユーザー設定エラー: '{}': {}の解析エラー: {}"
 
 #, c++-format
-msgid "User config error: '{}': top-level section '{}' (line {}, column {}): unknown top-level section; accepted entries: {}, {}, {}"
-msgstr "ユーザー設定エラー: '{}': 最上位セクション'{}'（行{}、列{}）: 不明な最上位セクションです。使用可能なエントリ: {}、{}、{}"
+msgid "User config error: '{}': top-level section '{}' (line {}, column {}): unknown top-level section; accepted entries: {}, {}, {}, {}"
+msgstr "ユーザー設定エラー: '{}': 最上位セクション'{}'（行{}、列{}）: 不明な最上位セクションです。使用可能なエントリ: {}、{}、{}、{}"
 
 #, c++-format
-msgid "User config error: '{}': top-level key '{}' (line {}, column {}): unknown top-level key; accepted entries: {}, {}, {}"
-msgstr "ユーザー設定エラー: '{}': 最上位キー'{}'（行{}、列{}）: 不明な最上位キーです。使用可能なエントリ: {}、{}、{}"
+msgid "User config error: '{}': top-level key '{}' (line {}, column {}): unknown top-level key; accepted entries: {}, {}, {}, {}"
+msgstr "ユーザー設定エラー: '{}': 最上位キー'{}'（行{}、列{}）: 不明な最上位キーです。使用可能なエントリ: {}、{}、{}、{}"
 
 #, c++-format
 msgid "User config error: '{}': key '{}': missing required key; expected integer {}"
@@ -9047,6 +9127,10 @@ msgstr "ユーザー設定エラー: '{}': キー'{}'（行{}、列{}）: 文字
 #, c++-format
 msgid "User config error: '{}': key '{}' (line {}, column {}): unsupported value '{}'; accepted values: {}, {}, {}"
 msgstr "ユーザー設定エラー: '{}': キー'{}'（行{}、列{}）: 値'{}'は未対応です。使用可能な値: {}、{}、{}"
+
+#, c++-format
+msgid "User config error: '{}': key '{}' (line {}, column {}): expected boolean; got {}"
+msgstr "ユーザー設定エラー: '{}': キー'{}'（行{}、列{}）: booleanが必要ですが、{}でした"
 
 msgid "NoOp"
 msgstr "操作なし"

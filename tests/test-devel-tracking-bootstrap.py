@@ -165,7 +165,15 @@ def main():
     topology_cases = {name: b"y\ny\ny\nn\ny\n" for name in (
         "topology-tree-sitter", "topology-wezterm", "topology-xpadneo")}
     cases |= split_cases | topology_cases
-    if len(sys.argv) > 2 and sys.argv[2] == "--update-presentation":
+    version_only_cases = {"version-only-" + mode: b"y\ny\n" for mode in (
+        "newer", "build-failure", "nonzero", "unknown", "publication-failure",
+        "publication-unknown", "cleanup-failure", "multi-publication-failure", "rpc-unmet", "multi-rpc-unmet")}
+    version_only_cases |= {"version-only-same": b"", "version-only-older": b""}
+    registered_version_cases = {"registered-legacy-version-" + mode: b"" for mode in ("newer", "rpc-unmet", "transaction-failure", "cleanup-failure")}
+    cases |= version_only_cases | registered_version_cases
+    if len(sys.argv) > 2 and sys.argv[2] == "--version-only":
+        cases = version_only_cases | registered_version_cases
+    elif len(sys.argv) > 2 and sys.argv[2] == "--update-presentation":
         selected = ("decline", "default-no", "non-tty", "noconfirm",
                     "advance-before-revalidation", "cancel", "eof",
                     "acquire-cleanup", "review-decline-cleanup",
@@ -178,12 +186,13 @@ def main():
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         for case, answer in cases.items():
+            policy_case = case.removeprefix("version-only-")
             Rpc.relation = case.removeprefix("multi-") if case in ("multi-required-dependency", "multi-required-provider", "multi-shared-base") else ""
             Rpc.provider_case = case if case.startswith("multi-provider-") else ""
-            Rpc.version = "1-1" if Rpc.relation else "2-1" if case in ("newer", "multi-provider-ordinary") else "0-0" if case == "older" else "0-1"
+            Rpc.version = "3-1" if case in registered_version_cases and case.endswith("rpc-unmet") else "1-1" if case in registered_version_cases else "2-1" if policy_case.endswith("rpc-unmet") else "1-1" if case in version_only_cases and policy_case not in ("same", "older") else "1-1" if Rpc.relation else "1-1" if case in ("newer", "multi-provider-ordinary") else "0-0" if policy_case == "older" else "0-1"
             Rpc.decisions_only = case in ("multi-all-decline", "multi-decision-cancel", "multi-decisions")
             suffix = "-git" if Rpc.decisions_only else ""
-            Rpc.names = ["bootstrap-a" + suffix, PACKAGE, "zz-bootstrap-c" + suffix] if case.startswith("multi-") else [PACKAGE]
+            Rpc.names = ["bootstrap-a" + suffix, PACKAGE, "zz-bootstrap-c" + suffix] if policy_case.startswith("multi-") else [PACKAGE]
             Rpc.split = "split-" in case
             Rpc.mixed = "mixed-" in case
             if case.startswith("split-both"):
@@ -207,6 +216,17 @@ def main():
             if completed.returncode or f"S553 production {case} PASS" not in output:
                 print(output)
                 raise SystemExit(f"bootstrap fixture {case} failed: exit {completed.returncode}")
+            if case in version_only_cases:
+                if any(text in output for text in (
+                        "tracking baseline is missing", "Accept this full source review for devel tracking bootstrap?",
+                        "devel update requires check", "same Git revision", "Git revision matches")):
+                    print(output)
+                    raise SystemExit(f"VersionOnly claimed tracking or prompted for migration: {case}")
+                expected_reviews = 0 if policy_case in ("same", "older", "build-failure") else 1
+                if output.count("Use this exact upstream source snapshot as build input?") != expected_reviews:
+                    raise SystemExit(f"VersionOnly source acceptance was skipped/repeated: {case}")
+                if "rollback" in output.lower():
+                    raise SystemExit(f"VersionOnly partial claimed rollback: {case}")
             bootstrap_reasons = {
                 "decline": "devel tracking bootstrap was declined; rerun when ready to review the source",
                 "default-no": "devel tracking bootstrap was declined; rerun when ready to review the source",
@@ -284,7 +304,7 @@ def main():
             if "malicious-old" in output:
                 raise SystemExit(f"old cache bytes reached full review: {case}")
             for line in output.splitlines():
-                if line.startswith(("S607 ", "S604 ", "S593 ", "S553 lifecycle ", "S564 4B2 ", "S564 FG1 ", "S564 topology ", "S564 ordinary ")):
+                if line.startswith(("S673 ", "S607 ", "S604 ", "S593 ", "S553 lifecycle ", "S564 4B2 ", "S564 FG1 ", "S564 topology ", "S564 ordinary ")):
                     print(line)
             print(f"S553 production {case} PASS")
         server.shutdown()

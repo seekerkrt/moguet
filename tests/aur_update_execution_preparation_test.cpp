@@ -2285,6 +2285,12 @@ void test_ignore_saved_source_preferences_without_io_or_environment() {
             multiple_work_item.required_targets[1].desired_reason ==
                 DesiredInstallReason::Explicit,
         "Ignore changed multi-child identity or install reasons");
+    for(const auto& target : multiple_work_item.required_targets) {
+        expect(target.automatic_version_update && target.automatic_version_update->package_name == target.package_name &&
+                   target.automatic_version_update->package_base == target.package_base && target.automatic_version_update->observed_rpc_version == "2.0-1" &&
+                   target.automatic_version_update->observed_installed_version == "1.0-1" && !target.expected_full_version,
+               "Split selected child lost its own RPC/installed evidence or mixed the replacement pin");
+    }
 }
 
 void test_ignore_preserves_preflight_and_generic_safety_authorities() {
@@ -2726,6 +2732,14 @@ void test_result_state_helpers_reject_forbidden_combination() {
         "Prepared capability ignored a valid-but-different child role");
 
     stub::reset();
+    AurUpdateSourceBuildPreparation version_corrupted = prepare_aur_update_source_build_invocation(
+        single_root_preflight("version-corrupted-root"), false, config);
+    expect(version_corrupted.is_prepared() && version_corrupted.projected_build_units.front().required_target_attributions.front().required_target.automatic_version_update,
+           "Selected Version child lost RPC query intent");
+    version_corrupted.projected_build_units.front().required_target_attributions.front().required_target.automatic_version_update->observed_rpc_version = "99-1";
+    expect(!version_corrupted.is_prepared(), "Prepared capability ignored changed child RPC version evidence");
+
+    stub::reset();
     AurUpdateSourceBuildPreparation prepared =
         prepare_aur_update_source_build_invocation(
             single_root_preflight("prepared-root"), false, config);
@@ -2779,23 +2793,37 @@ void run_case(const std::string& name, Callable callable) {
 }
 
 void test_git_revision_intent_is_root_local() {
-    stub::reset();
-    for(const auto& name : {"private-dependency", "shared-dependency", "root-b", "root-a"})
-        stub::enqueue_source_preference_result(name, SourcePreferenceAbsent{});
-    stub::set_database_paths(PacmanDatabasePaths{"/", "/var/lib/pacman"});
-    auto preflight = ordered_multi_root_preflight();
-    auto& update = preflight.targets.front().update;
-    update.classification = AurUpdateClassification::UpToDate;
-    update.aur_package->version_relation = AurVersionRelation::SameAsInstalled;
-    update.devel_assessment_origin = AurDevelAssessmentOrigin::CurrentObservation;
-    update.devel_assessment = DevelUpdateAssessment::update_available();
-    const AppConfig config;
-    auto result = prepare_aur_update_source_build_invocation(preflight, false, config);
-    expect(result.is_prepared(), "Git revision candidate failed normal preparation");
-    const auto& work = result.invocation->production_invocation_for_test().work_items;
-    expect(work.size() == 4, "Git preparation changed dependency units");
-    for(const auto& item : work)
-        expect(item.request.authoritative_devel_update == (item.request.checkout_name == "root-a"), "Git root selection intent leaked to dependency/other root");
+    for(const bool git_revision : {false, true}) {
+        stub::reset();
+        for(const auto& name : {"private-dependency", "shared-dependency", "root-b", "root-a"})
+            stub::enqueue_source_preference_result(name, SourcePreferenceAbsent{});
+        stub::set_database_paths(PacmanDatabasePaths{"/", "/var/lib/pacman"});
+        auto preflight = ordered_multi_root_preflight();
+        auto& update = preflight.targets.front().update;
+        if(git_revision) {
+            update.classification = AurUpdateClassification::UpToDate;
+            update.aur_package->version_relation = AurVersionRelation::SameAsInstalled;
+            update.devel_assessment_origin = AurDevelAssessmentOrigin::CurrentObservation;
+            update.devel_assessment = DevelUpdateAssessment::update_available();
+        } else {
+            update.devel_classification = DevelPackageClassification::classify(
+                DevelPackageSuffixEvidence::classify(update.aur_package->package_base, {update.installed_name}));
+            update.devel_assessment = DevelUpdateAssessment::not_applicable();
+            update.devel_assessment_origin = AurDevelAssessmentOrigin::DisabledByPolicy;
+        }
+        const auto policy = git_revision ? DevelRequiresCheckPolicy::BlockOperation : DevelRequiresCheckPolicy::SkipIndependentTarget;
+        preflight.devel_requires_check_policy = policy;
+        const AppConfig config;
+        auto result = git_revision ? prepare_aur_update_source_build_invocation(preflight, false, config)
+                                   : ::prepare_aur_update_source_build_invocation(preflight, policy, SavedSourcePreferencePolicy::Ignore, false, config);
+        expect(result.is_prepared(), "Git revision candidate failed normal preparation");
+        const auto& work = result.invocation->production_invocation_for_test().work_items;
+        expect(work.size() == 4, "Git preparation changed dependency units");
+        for(const auto& item : work) {
+            expect(item.request.ordinary_devel_package_base == !git_revision, "VersionOnly changed ordinary reviewed-source execution intent");
+            expect(item.request.authoritative_devel_update == (git_revision && item.request.checkout_name == "root-a"), "Git root selection intent leaked to Version/dependency/other root");
+        }
+    }
 }
 
 } // namespace

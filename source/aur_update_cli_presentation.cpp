@@ -245,6 +245,11 @@ std::string failure_detail_summary(
                                     MixedPackageBaseInstallReasonUnsupported>) {
                 return localization::translate_message(
                     "mixed install reason unsupported");
+            } else if constexpr(std::is_same_v<Failure, AutomaticAurVersionGuardFailure>) {
+                // The work-item diagnostic retains the specific typed cause
+                // and versions. Presentation never re-compares or links the
+                // artifact installer to reconstruct execution authority.
+                return localization::format_translated_message("automatic {} Version artifact guard failure before installation", "AUR");
             } else if constexpr(std::is_same_v<Failure, PackageMetadataFailure>) {
                 return localization::translate_message(
                            "package metadata failure") +

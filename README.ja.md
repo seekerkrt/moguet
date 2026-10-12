@@ -562,48 +562,92 @@ AUR-only source-aware updateには`moguet upgrade-aur`を使います。`--nocon
 conflict / replacement、required `RequiresCheck`等のsafety guardを突破せず、未検証の
 devel updateを承認しません。
 
-Moguet v2.5.0では、exact AUR packageとして解決できるinstalled packageについて、
-`-git`、`-svn`、`-hg`、`-bzr`、`-cvs`、`-darcs`というconventionalなsuffix
-根拠をdevel candidateとして扱います。normal AUR versionが新しくなく、suffix根拠しか
-ない場合、`moguet -Qua`はsilentに最新扱いせず、package、PackageBase / child根拠、
-reason付きの`RequiresCheck`を表示します。normal AUR versionが新しい場合は既存の
-update candidate authorityを優先します。
+v2.12.0ではVCS/develのGit revision trackingは**既定でOFF**です。通常のAUR更新は、
+VCS packageも含めてinstalled full package versionとAUR RPC Versionを比較します。
+OFFでもVCS packageを通常のVersion更新対象から除外しません。Git revision assessmentも
+必要な場合は`--devel`を指定し、継続して使う場合はuser configの`[updates]`に
+`devel = true`を設定します。configによるONを当回だけ解除する指定は`--no-devel`です。
+優先順位はexplicit CLI > user config > built-in OFFです。
 
-`RequiresCheck`は`UpToDate`でもautomatic rebuild decisionでもありません。通常のexact
-target-less `-Syu`では、independentなtargetだけをnon-blocking warning付きでskipし、
+```sh
+moguet -Syu
+moguet -Syu --devel
+moguet -Syu --no-devel
+moguet -Su --devel
+moguet -Qua --devel
+moguet upgrade-aur --devel
+moguet upgrade-all --devel
+```
+
+両optionは値を取りません。同じoptionの反復は許可し、`--devel`と`--no-devel`の併用は
+last-one-winsにせずusage error（exit 1）とします。対象はexact target-less Auto
+`-Syu` / `-Su`、exact target-less `-Qua`、`upgrade`、`upgrade-aur`、`upgrade-all`です。
+5つのupdate routeでは`--dry-run`との併用も対応しますが、`-Qua --dry-run`は非対応です。
+対応する`-Qua`はpacman tailや`--` markerを伴わないformで、既存のMoguet `--details`と
+`--noconfirm`は引き続き利用できます。
+明示optionはOFF指定も含め、`--repo` / `--aur`、target-bearing form、`-Qau`等のdelegated
+pacman form、`build`、inspection、source maintenance routeでmutation前に拒否します。
+help/versionでも実際のoption指定はconfig読込み・XDG/logging初期化前に拒否します。
+pacman optionの値や`--`後のoperandとして消費される同名tokenは、Moguetのpolicy指定へ
+変えません。config trueだけでは対象外routeへtrackingを追加しません。
+
+VersionOnly表示はGit remote revisionの**未観測**を意味し、Git変更なしやGit UpToDateの
+証拠にはなりません。suffixはhintであり、Git sourceやrevision一致のproofではありません。
+`--devel`はassessmentを要求するだけで、source review、bootstrap、build、installを承認せず、
+`--noconfirm`も初回tracking bootstrapを承認しません。OFFでも通常Version更新のsource
+review、build proof、install safety、対応するprovenance publicationは維持します。
+
+過去のMoguet v2.5.0では、exact AUR packageとして解決できるinstalled packageについて、
+`-git`、`-svn`、`-hg`、`-bzr`、`-cvs`、`-darcs`というconventionalなsuffix
+根拠をdevel candidateとして扱いました。normal AUR versionが新しくなく、suffix根拠しか
+ない場合、`moguet -Qua`はsilentに最新扱いせず、package、PackageBase / child根拠、
+reason付きの`RequiresCheck`を表示しました。normal AUR versionが新しい場合は既存の
+update candidate authorityを優先しました。
+
+tracking ON時の`RequiresCheck`は`UpToDate`でもautomatic rebuild decisionでもありません。通常のexact
+target-less `-Syu` / `-Su`では、independentなtargetだけをnon-blocking warning付きでskipし、
 unrelatedなnormal AUR updateを継続してaggregate successを許します。update statusは
 未検証のままです。別のupdate candidateがdependency、provider、required-child relationとして
 そのtargetを必要とする場合は、affected rootをblockしてoperationをnon-zeroにします。
 `upgrade-aur`、そのdry-run、`upgrade-all`のfresh AUR phaseは、strictなwhole-operation
 blocker semanticsを維持します。non-TTYや`--noconfirm`でもpromptを追加せずrebuildを承認しません。
 
-初回provenance観測が真のMissingであるindependent targetには、interactiveなexact target-less
-`-Syu`からdefault-Noの明示tracking bootstrapを提示できます。先にexact AUR recipeをread-onlyで
-観測し、cache/stateを変更せず試行適格性を確認します。初期trialはone package、architecture-independentな
-one floating HTTPS Git source、checkout overlayなしに限定します。追加source fileのtracked regular-file
-identityを確認できない場合など、unsupportedまたは判定不能なら従来のwarning/skipを維持します。
+初回provenance観測が真のMissingであるindependent targetには、tracking ONのinteractiveなexact target-less
+`-Syu` / `-Su`からdefault-Noの明示tracking bootstrapを提示できます。先にexact AUR recipeをread-onlyで
+観測し、cache/stateを変更せず試行適格性を確認します。trialはdeclared PackageBase child setとone floating
+HTTPS Git source、boundedなrecipe直下のrenameなしlocal patch/config inputを扱います。
+multiple declared architectureは対応しますが、architecture-qualified sourceは非対応です。
+tracked regular-file identityとexact bytesはfull reviewとisolated build stageで証明します。
+unsupportedまたは判定不能なら従来のwarning/skipを維持します。
 このtrialはbuildやprovenanceのproofではありません。
 
-bootstrap確認は対象由来のcache/provider/dependency mutationより前に行います。Yes後も、既存reviewの
-有無によらずfull source review、対応build、exact install、fresh installed binding、provenance publication成功を
-要求します。`--noedit`は利用できますが、`--nodiff`、`review.diff=skip`、`--noconfirm`、non-TTY入力は
+bootstrap確認は対象由来のcache/provider/dependency mutationより前に行います。Yes後は観測したexact recipeを
+fresh private workspaceへ取得し、old recipe cacheをauthorityとして読まず変更もせず、取得失敗時もfallbackしません。
+既存reviewの有無によらず別途full source reviewと明示承認、対応build、exact install、fresh installed binding、
+provenance publication成功を要求します。exact upstream snapshot（remote、selector、root/tree、file identity、
+submodule pin）をbuild inputにする承認も別途必要です。これはsource-codeの安全性保証や全upstream blobの
+全文reviewではなく、binary/large assetの存在だけでは拒否しません。recipe-local inputはfull content reviewを維持します。
+通常表示はclosure size、root tag数、submodule数を示し、`--details`はcomplete root tag mapping、file identity、
+exact submodule pinを示します。`--noedit`は利用できますが、`--nodiff`、`review.diff=skip`、`--noconfirm`、non-TTY入力は
 bootstrapを承認しません。Noは対象をskipし、cancelまたは後段のfailureは後続処理を停止します。
 rollbackやinvalid/corrupt/future/mismatched/unsafe stateのrepairは行いません。`upgrade-aur`、`upgrade-all`、
 query/dry-run、explicit target routingは変更しません。
 
-v2.5.0ではupstream VCS revisionのquery / 比較やdevel build provenanceのpublicationを
-行いません。現在のMoguetには
+過去のv2.5.0ではupstream VCS revisionのquery / 比較やdevel build provenanceのpublicationを
+行いませんでした。現在のMoguetには
 [Issue #475](https://github.com/seekerkrt/moguet/issues/475)のtrusted HTTPS Git remote revision
 observer foundationが入り、default HEAD / exact branchとcompleteなSHA-1 / SHA-256 resultだけへ
 限定されています。[Issue #476](https://github.com/seekerkrt/moguet/issues/476) Slice 7-Bのinternal coordinatorは、
 provenance tipとfresh installed / reviewed stateを照合した後だけremoteを観測し、local stateを再確認してから
-`UpdateAvailable` / `UpToDate`を返します。Slice 7-Dではnormal AUR update、registered AUR update、
+`UpdateAvailable` / `UpToDate`を返します。tracking ON時にSlice 7-Dはnormal AUR update、registered AUR update、
 `-Qua`、対応するdry-runをこのproducerへ接続します。normal AUR versionが新しい場合はGit queryなしで
 既存のversion authorityを優先し、same/olderの場合だけvalidated Git assessmentで補完します。
 Git revision差分はpackage version変更と区別して表示します。
 
-initial authoritative executionは実際のreviewed pinと既存のsingle-child HTTPS Git subsetを要求し、
-S4/S5/S6を一度だけconsumeします。開始後にlegacyへfallbackしません。install成功とprovenance publication失敗は
+initial authoritative executionは実際のreviewed pinと対応HTTPS Git subsetを要求します。ordinary更新ではsplit
+PackageBaseを一度だけbuildし、選択したchildだけをinstallしてchild別のv1 provenanceを保持します。
+未選択siblingを自動installしません。S4/S5/S6を一度だけconsumeし、開始後にlegacyへfallbackしません。
+install成功とprovenance publication失敗は
 別のpartial outcomeとして保持し、non-zeroにします。registered RequiresCheckはdefault-Noの明示rebuild確認へ進みますが、
 それがsource reviewを代替することはありません。`--noconfirm`からreview authorityを作りません。
 詳細は[normal devel route contract](https://github.com/seekerkrt/moguet/blob/develop/docs/contracts/devel-normal-routes.md)を参照してください。
@@ -612,6 +656,18 @@ fail closedとし、updaterはrecord修復、external history adoption、missing
 baselineには明示的にreviewした対応build、実install、publication成功が必要です。同version reinstallでも
 installed artifact bindingが変わればhistorical provenanceは無効です。詳細は
 [devel tracking / migration contract](https://github.com/seekerkrt/moguet/blob/develop/docs/contracts/devel-tracking.md)を参照してください。
+
+**Version basis**で選ばれた自動AUR更新はinstall前にactual artifactも確認します。selected childごとの
+actual full versionがfresh installed versionより新しく、かつ観測済みAUR RPC Version以上であることを
+要求します。Arch/libalpm準拠の比較にはepochとpkgrelを含め、RPCとの完全一致は要求しないため、
+より新しいdynamic versionも許容します。同version/古いartifact、RPC Version未達、installed childの
+変化/消失、installed観測失敗、version evidence不正、比較authority不足、child/PackageBase/source identity不整合は
+`AutomaticAurVersionGuardFailure`として対象install transaction前に停止しnon-zeroを返します。
+先行完了は保持し、対象installを成功扱いしません。自動rebuild/retry/rollbackは行いません。
+GitRevision更新、初回tracking bootstrap、explicit build、registered独自baseline rebuild、dependency、
+未選択split siblingへ同じguardを無差別適用しません。確認とpacman transactionの完全なatomicityは
+保証しません。tracking OFFでもregistered AUR `OnlyIfUpdated`の`.SRCINFO`とsystem前後baselineの
+既存判定を維持します。
 
 `--aur`は対応する`-S`、`-Ss`、`-Si`をAURへ限定します。`--repo`はこれらのformを
 official binary repositoryへ限定し、exact target-less `-Syu` / `-Su`ではrepository-only selectorに
@@ -862,7 +918,7 @@ standard Arch packageのinstall後は、同じfileを
 上記fallbackを使用してください。enum valueの`prompt`、`skip`、`normal`、`rebuild`、
 `clean`はTOML stringなのでquoteが必要で、canonical sampleではdouble quoteを使用します。
 
-v2.0.0の最小schemaとbuilt-in defaultは次のとおりです。
+schema versionは1を維持し、現在のbuilt-in defaultは次のとおりです。
 
 ```toml
 schema_version = 1
@@ -873,6 +929,12 @@ diff = "prompt"
 
 [build]
 mode = "normal"
+
+# Git revision tracking is opt-in. This is a strict TOML boolean, not a string
+# or number. CLI --devel / --no-devel overrides this value for one invocation.
+# Older Moguet binaries may reject [updates]; check this manually on downgrade.
+[updates]
+devel = false
 ```
 
 値は次の順で合成します。
@@ -882,7 +944,9 @@ built-in default -> user config -> CLI override
 ```
 
 canonical CLI overrideは`--edit` / `--noedit`、`--diff` / `--nodiff`、
-`--build-mode=normal|rebuild|clean`です。`--rebuild`と`--cleanbuild`は対応する
+`--build-mode=normal|rebuild|clean`、`--devel` / `--no-devel`です。
+`updates.devel`はstrictなTOML boolean（`true` / `false`）で、`"true"`等のstringや
+数値は拒否します。`--rebuild`と`--cleanbuild`は対応する
 build modeのcompatibility aliasです。conflicting overrideはlast-one-winsにせず、
 external mutation前に失敗します。
 
@@ -895,6 +959,14 @@ config fileがない状態は正常です。fileが存在する場合は`schema_
 invalid TOML、unknown key、type error、invalid enum、未対応future schema versionは
 invocationを停止します。Moguetはfileを自動作成・rewrite・migrationせず、
 `/etc/moguet`をsystem-wide config layerとして使用しません。
+
+v2.11.0までの通常devel trackingから移行する場合、v2.12.0では既定がVersionOnlyに変わります。
+従来相当のtracking policyが必要なら`[updates]`に`devel = true`を追加してください。
+invocationだけ有効化するなら`--devel`、config trueを当回だけ解除するなら`--no-devel`を使います。
+既存configは自動書換えしません。古いbinaryは新しい`[updates]` sectionをunknown configとして
+拒否する可能性があるため、downgrade前にuser configを手動確認してください。このopt-inへの移行は
+provenance historyの削除・修復・migrationを行いません。behavior changeとversion classificationは
+[versioning policy](https://github.com/seekerkrt/moguet/blob/develop/docs/versioning.md)に記録します。
 
 source-build preferenceは、次のpackage別fileです。
 

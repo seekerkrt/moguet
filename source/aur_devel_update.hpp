@@ -16,7 +16,8 @@ struct AurDevelUpdateContextObservation {
 std::vector<AurDevelUpdateObservation> refine_aur_devel_updates(AurUpdatePlan& plan);
 
 // Registered source refines through the same normal version/assessment owner.
-AurUpdateQueryResult query_registered_aur_devel_update(const PackageBaseIdentity& base, const std::string& child);
+AurUpdateQueryResult query_registered_aur_devel_update(const PackageBaseIdentity& base, const std::string& child,
+                                                       AurUpdateQueryPolicy policy = AurUpdateQueryPolicy::TrackingEnabled);
 
 #ifdef MOGUET_ENABLE_AUR_DEVEL_UPDATE_TEST_HOOKS
 void set_aur_devel_update_database_paths_for_test(std::optional<PacmanDatabasePaths> paths);
@@ -30,7 +31,8 @@ struct RegisteredAurDevelObservation {
     AurUpdateQueryResult query;
     std::vector<AurUpdateExecutionIssue> issues;
 };
-std::vector<RegisteredAurDevelObservation> observe_registered_aur_devel_updates(const SystemSourceUpgradeProjectionAuthority& prepared);
+std::vector<RegisteredAurDevelObservation> observe_registered_aur_devel_updates(
+    const SystemSourceUpgradeProjectionAuthority& prepared, AurUpdateQueryPolicy policy = AurUpdateQueryPolicy::TrackingEnabled);
 
 // Same complete configured/trusted installed context as the normal query.
 AurDevelUpdateContextObservation observe_aur_devel_update_context();

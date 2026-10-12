@@ -339,7 +339,7 @@ SystemAurUpdateDryRunObservation observe_system_aur_update_dry_run(
     std::optional<AurUpdateQueryResult> query_result;
     try {
         query_result = query_aur_updates_for_foreign_inventory(
-            observation.foreign_inventory);
+            observation.foreign_inventory, aur_update_query_policy(config.user_config));
     } catch(const std::exception& error) {
         observation.issues.push_back(SystemAurUpdateDryRunIssue{
             SystemAurUpdateDryRunIssueKind::AurQueryFailure,
@@ -804,7 +804,7 @@ CrossSourceTransitionExecutionResult execute_coordinated_transition(
         start(TransitionPhase::AurReplacement, result.aur_replacement);
         // The old record is historical reason/transition attribution, not a
         // claim that B is still installed. All remote authority above is fresh.
-        auto query = query_aur_updates_for_foreign_inventory({old});
+        auto query = query_aur_updates_for_foreign_inventory({old}, aur_update_query_policy(config.user_config));
         result.replacement_query = query;
         if(!query.recoverable_failures.empty() || query.plan.entries.size() != 1 ||
            query.plan.entries.front().classification != AurUpdateClassification::UpdateAvailable ||
@@ -1078,8 +1078,8 @@ execute_prepared_system_aur_update_operation(
     AurUpdateQueryResult query_result;
     try {
         query_result = query_aur_updates_for_foreign_inventory(
-            result.foreign_inventory.inventory);
-        observe_aur_devel_bootstrap_candidates(query_result, config);
+            result.foreign_inventory.inventory, aur_update_query_policy(config.user_config));
+        if(config.user_config.updates.devel) observe_aur_devel_bootstrap_candidates(query_result, config);
     } catch(const std::exception& error) {
         result.query.status = SystemAurUpdateQueryPhaseStatus::Failed;
         result.query.diagnostic = error.what();

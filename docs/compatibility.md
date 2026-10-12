@@ -25,7 +25,7 @@ MoguetはArch Linux向けの **pacman-first wrapper** として扱う。日常�
 | plain `-S` Auto | official packageはbinary repository、source preferenceがあるofficial packageはofficial source-build、officialにないtargetはAURへ分類する | pacman単独のbinary repository searchにAUR/source-build分類を補う |
 | `-S --aur` | AUR RPC / PackageBase / AUR build planだけを使い、official packageやsource preferenceへfallbackしない | `--aur`はMoguet selectorでありpacmanへ渡さない |
 | `-S --repo` | official binary repositoryへ限定し、AUR / source-buildへfallbackしない | selectorを除いたargvをpacmanへ渡す |
-| exact target-less `-Syu` / `-Su` Auto | official repository system update成功後にfreshなinstalled foreign inventoryを取得し、normal installed AUR updateを行う。independent devel `RequiresCheck`はattention付きskip、required relationはblocker。saved source-build preferenceはzero-readで適用しない | ordinary AUR-helper updateとしてrepository transactionと後続AUR transactionをsequentialにorchestrateする |
+| exact target-less `-Syu` / `-Su` Auto | official repository system update成功後にfreshなinstalled foreign inventoryを取得し、normal installed AUR Version updateを行う。tracking ON時のindependent devel `RequiresCheck`はattention付きskip、required relationはblocker。saved source-build preferenceはzero-readで適用しない | ordinary AUR-helper updateとしてrepository transactionと後続AUR transactionをsequentialにorchestrateする |
 | exact target-less `-Syu --repo` / `-Su --repo` | official repository system updateだけを行い、AUR inventory / RPC、source preference、cache / Git / makepkgへ到達しない | semantic `--repo`を除き、compatibleなpacman argumentをrepository phaseへpass-throughする |
 | `-Ss` | official searchとAUR searchを組み合わせる。非対話でprovider / root selectionを開始しない | pacman searchを表示し、MoguetがAUR searchを補完する |
 | `-Si` | officialを優先し、見つからない場合だけAUR metadataを表示する。`--aur` / `--repo`はsourceを限定する | AUR infoはpacman infoではなくtyped AUR metadataを表示する |
@@ -206,17 +206,39 @@ Declinedはquestion固有のnegative answer、Cancelledはcurrent Moguet operati
 
 ## AUR update operation summary
 
+v2.12.0のpublic defaultはVersionOnly（VCS/devel tracking OFF）である。VCS packageも通常のRPC
+Version更新対象に含め、OFFでもsource review/build proof/install safetyと対応するS6 publicationを維持する。
+`--devel` / `--no-devel`のexplicit CLI > user config `[updates] devel = true|false` > built-in falseで選ぶ。
+config schemaは1、値はstrict boolean。string/numberは拒否し、既存configを自動書換えしない。
+VersionOnlyは`DisabledByPolicy`とsuffix evidenceを保ち、未観測Git revisionをGit UpToDateへ変換しない。
+ONでは下記の既存P/I/R・GitRevision assessmentを追加する。
+
+明示optionはexact target-less Auto `-Syu` / `-Su`、exact target-less `-Qua`、`upgrade` / `upgrade-aur` /
+`upgrade-all`だけに対応する。5 update routeのdry-runにも対応するが、`-Qua --dry-run`は非対応。
+同値反復は可、ON/OFF併用はusage error（exit 1）。`--repo` / `--aur`、target-bearing、alternate `-Qau`や
+delegated tail、build/inspection/source maintenanceではOFF指定も含め副作用前に拒否する。
+help/versionの実際のoption occurrenceはconfig/XDG/logging前に拒否するが、pacman option valueや`--`後の
+opaque operandはpolicy optionではない。config trueだけではscope外へtrackingを追加しない。
+tracking指定はreview/bootstrap/build/install承認を作らず、`--noconfirm`もbootstrapを承認しない。
+
+v2.11.0までの通常trackingからのdefault変更であり、完全な後方互換性は主張しない。従来相当が必要なら
+config true、当回だけなら`--devel`、config ONの当回解除なら`--no-devel`を使う。古いbinaryは新sectionを
+unknown configとして拒否する可能性があるため、downgrade前に手動確認する。provenanceを自動削除・修復・
+migrationせず履歴も自動消失しない。詳細は[devel tracking](contracts/devel-tracking.md)、
+v2.12.0限りのclassification判断は[versioning](versioning.md)を正とする。
+
 `upgrade-aur`はinstalled foreign inventoryを起点にする。AUR RPCでexact packageとして解決でき、installed versionより新しいnormal AUR packageは従来どおりupdate candidateである。normal versionが新しくないexact AUR packageでも、PackageBaseまたはinstalled childに`-git`、`-svn`、`-hg`、`-bzr`、`-cvs`、`-darcs`のsuffix根拠があれば、v2.5.0ではsilentな`UpToDate`へ丸めず`RequiresCheck(SuffixCandidateOnly)`として保持する。suffixはcandidate evidenceだけであり、supported VCS、source metadata、tracking readiness、update有無を証明しない。AUR exact packageが存在しないsuffix付きforeign packageは`NonAurForeign`のままで、metadata / version comparison failureも既存failure semanticsを維持する。
 
-normal AUR `UpdateAvailable`はdevel assessmentより優先し、suffix候補やauthoritative baseline不足を理由に取り消さない。`moguet -Qua`は`RequiresCheck`をpackage、PackageBase / child根拠、reason付きで表示し、installed versionからAUR Versionへのupdate arrowへ偽装しない。check-required自体はquery transport failureではないため、それだけならqueryの終了codeは0である。
+normal AUR `UpdateAvailable`は両policyでdevel assessmentより優先し、suffix候補やauthoritative baseline不足を理由に取り消さない。tracking ONの`moguet -Qua`は`RequiresCheck`をpackage、PackageBase / child根拠、reason付きで表示し、installed versionからAUR Versionへのupdate arrowへ偽装しない。check-required自体はquery transport failureではないため、それだけならqueryの終了codeは0である。
 
 `RequiresCheck`はautomatic update / rebuild candidateへ昇格しない。`upgrade-aur`はcurrent all-target contractに従い、1件でもあればoperation全体をAUR mutation前にblockする。dry-runは同じ状態を`Blocked`とnon-zeroへ投影し、`upgrade-all`はsystem、registered source、fresh foreign inventoryまでの完了済みphaseを保持したままfresh AUR phaseをblockする。non-TTYと`--noconfirm`はmanual rebuild promptやimplicit approvalを追加しない。query、recursive plan、provider selection、conflicts / replaces metadata、preparationを全targetについて確認してからexecutionへ進み、blocking targetが1件でもあればcache作成、git checkout、makepkg、`pacman -U`、sudoを開始しない。
 
 v2.5.0のconservative connectionはupstream VCS revisionをquery / 比較せず、provenanceを保存しない。
-現在のMoguetはIssue #476のinstalled provenanceとP/I/R revalidationを持ち、7-Bだけが#475を呼ぶ。
-normal AUR updateとregistered AUR updateは7-Dからassessmentを使い、GitRevision candidateのexecutionは
-reviewed pinから7-C→S4→S5→S6を通す。initial subsetはnon-split、one child/artifact、no overlay、one floating
-HTTPS Git、default HEAD/exact branch、architecture-independent sourceに限定する。
+現在のMoguetはIssue #476のinstalled provenanceとP/I/R revalidationを持ち、tracking ON時だけ7-Bが#475を呼ぶ。
+ONのnormal AUR updateとregistered AUR updateは7-Dからassessmentを使い、GitRevision candidateのexecutionは
+reviewed pinから7-C→S4→S5→S6を通す。当初のsubsetはnon-split/one childだったが、現在のordinary routeは
+selected child別provenanceを持つsplit集合にも対応する。no overlay、one floating HTTPS Git、
+default HEAD/exact branch、architecture-independent sourceとreviewed tracked regular local inputsの境界を維持する。
 full VCS trackingの主張ではない。public contract・identity invariants・schema v1の
 no-auto-migration policyは[devel tracking contract](contracts/devel-tracking.md)を参照する。
 
@@ -233,7 +255,7 @@ preparation barrierに従ってnon-zeroとなる。saved source preference polic
 zero-I/Oとする。`upgrade-aur`と`upgrade-all`は`BlockOperation` + Strictのままであり、normal
 `-Syu`からsource preference登録packageをsource-build routeへ自動routingしない。
 
-interactiveなexact target-less Auto `-Syu`では、初回P観測が
+tracking ONのinteractiveなexact target-less Auto `-Syu` / `-Su`では、初回P観測が
 `ProvenanceMissing` / `Stage::Provenance` / `before=Missing`の独立targetだけに、
 明示tracking bootstrapを提示できる。exact AUR recipeのread-only trial観測で、complete declared/installed child set・
 one floating HTTPS Git sourceとboundedなrecipe直下のrenameなしlocal patch/config declarationsを確認する。
@@ -253,6 +275,14 @@ invalid/corrupt/future/unsafe/binding mismatchのrepairは行わない。publica
 install成功だけをtracking成功へ変換しない。ordinary split PackageBaseは1回だけreview/buildし、選択したchildだけを
 1 transactionでinstallしてchild別v1 provenanceを保持する。未選択siblingを自動install/publicationしない。
 詳細は[normal devel routes](contracts/devel-normal-routes.md)を参照する。
+
+自動Version-basis AUR更新は、OFF/ONともにselected childのactual artifact full versionがfresh installed
+より新しく、observed RPC Version以上であることをinstall前に要求する。epoch/pkgrelを含むlibalpm比較を使い、
+RPCとの完全一致は要求しない。same/older artifact、RPC未達、installed drift/消失/観測失敗、version evidence不正、比較authority不足、
+selected child/source identity不整合はtyped `AutomaticAurVersionGuardFailure`で対象installをNotAttemptedに保ち
+nonzeroとする。完了済みprefix/未実行suffixとcleanup consequenceを保持し、自動rebuild/retry/rollbackをしない。
+GitRevision/bootstrap/explicit build/registered独自baseline rebuild/非対象dependency/split siblingへ無差別適用しない。
+観測とpacman transactionの完全atomicityは保証しない。詳細は[Version install guard](contracts/devel-normal-routes.md#automatic-version-install-guard)を正とする。
 
 <a id="compat-git-remote-revision-observer"></a>
 
@@ -833,12 +863,13 @@ RepoOnly `-Syu --repo`ではcompatible pacman pass-throughの一部としてrepo
 
 ## Authoritative devel update routes (#476 Slice 7-D)
 
-normal AUR RPC version-newerを優先し、same/olderだけを7-Bのtip-only P/I/R + remote assessmentで補完する。
+normal AUR RPC version-newerを両policyで優先し、tracking ONのsame/olderだけを7-Bのtip-only P/I/R + remote assessmentで補完する。
 GitRevision updateはpackage version増加と別basisであり、-Qua/unified planは架空のversion arrowを作らない。
 ordinary -Syuのindependent RequiresCheck skip、required re-entry block、strict AUR routeのnonzeroを維持する。
 Unknownはremote observation failureとしてbuildせず、RequiresCheckとは別reasonを保持する。
-registered AUR OnlyIfUpdatedは共通coreをversion-only shortcutより先に使い、RequiresCheckはdefault-Noの明示rebuild確認を要求する。
-dry-runは同じcurrent read-only producerを使い、source/build/transaction/publicationを実行しない。
+registered AUR OnlyIfUpdatedはONでは共通coreをversion-only shortcutより先に使い、RequiresCheckはdefault-Noの明示rebuild確認を要求する。
+OFFでは既存`.SRCINFO`とsystem前後source baseline判定へ継続し、Git一致を捏造しない。
+dry-runは同じcurrent query policyを使い、source/build/transaction/publicationを実行しない。
 actual prior-phase後のfuture stateと同一とは主張しない。explicit reviewed buildだけが7-Cからbaselineをbootstrapできる。
 詳細は[normal devel routes](contracts/devel-normal-routes.md)、identity・schema/migration・compatibility matrixは
 [devel tracking](contracts/devel-tracking.md)を正とする。この対応範囲と安全境界を現行契約とする。

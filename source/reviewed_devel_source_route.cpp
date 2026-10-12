@@ -87,6 +87,12 @@ ReviewedDevelExecutionSnapshot execute_normal_reviewed_devel(PreparedReviewedDev
     out.owner = std::shared_ptr<const ReviewedDevelSourceBuildExecutionResult>(storage, &storage->value());
     const auto& result = *out.owner;
     out.build_completed = result.build_completed();
+    if(const auto* failure = result.build_failure()) {
+        out.build_cleanup_failed = failure->cleanup_consequence.has_value() ||
+                                   (failure->pinned_workspace_failure && !failure->pinned_workspace_failure->cleanup.succeeded());
+    }
+    if(const auto* cleanup = result.build_cleanup())
+        out.build_cleanup_failed = !std::holds_alternative<InvocationOwnedSourceBuildContextCleaned>(*cleanup);
     out.complete = reviewed_devel_execution_succeeded(result);
     if(const auto* publication = result.publication()) {
         const auto& installed = publication->installation();
@@ -98,6 +104,10 @@ ReviewedDevelExecutionSnapshot execute_normal_reviewed_devel(PreparedReviewedDev
         out.cleanup = installed.privileged_cleanup().state;
     }
     try {
+        if(const auto* failure = result.version_guard_failure()) {
+            out.version_guard_failure = *failure;
+            out.version_guard_diagnostic = automatic_aur_version_guard_diagnostic(*failure);
+        }
         if(const auto* failure = result.recipe_acquisition_failure()) out.recipe_acquisition_failure = *failure;
         if(const auto* failure = result.closure_failure()) out.closure_failure = *failure;
         if(const auto* failure = result.closure_review_failure()) {

@@ -688,7 +688,9 @@ int run_moguet(int argc, char* argv[]) {
                 is_sync || operation.starts_with("-R") || operation.starts_with("-U") ||
                 operation.starts_with("-D") || (operation.starts_with("-F") && requests_refresh);
 
-            if(is_foreign_updates) return cmd_query_foreign_updates(g_config.presentation_detail);
+            if(is_foreign_updates) return cmd_query_foreign_updates(
+                g_config.presentation_detail,
+                supports_devel_update_query(parsed) ? aur_update_query_policy(g_config.user_config) : AurUpdateQueryPolicy::VersionOnly);
 
             if(is_search) {
                 return cmd_sync_search(
@@ -1035,6 +1037,32 @@ void print_help() {
         "For {}, assess the current installed {} state; actual execution re-evaluates it after the repository upgrade succeeds",
         "-Syu / -Su", "AUR"));
     print_help_entry(
+        cli_option_syntax(OptionId::Devel),
+        localization::format_translated_message(
+            "Request {} revision tracking in addition to normal {} package-version updates", "Git", "AUR"));
+    print_help_entry(
+        cli_option_syntax(OptionId::NoDevel),
+        localization::format_translated_message(
+            "Disable {} revision tracking for this invocation, overriding user configuration", "Git"));
+    print_help_continuation(localization::format_translated_message(
+        "Built-in tracking is OFF; {} enables persistent tracking; explicit CLI overrides config",
+        "[updates] devel = true"));
+    print_help_continuation(localization::format_translated_message(
+        "Only exact target-less Auto {}, {}, {}, {}, {} and {}; dry-run is supported only for the five update routes",
+        "-Syu", "-Su", "-Qua", "upgrade", "upgrade-aur", "upgrade-all"));
+    print_help_continuation(localization::format_translated_message(
+        "The same option may repeat; combining {} and {} is a usage error (exit 1)",
+        "--devel", "--no-devel"));
+    print_help_continuation(localization::format_translated_message(
+        "Reject source selectors ({} / {}), targets, alternate spellings and delegated routes (exit 1); do not forward tracking options to {}", "--repo", "--aur", "pacman"));
+    print_help_continuation(localization::translate_message(
+        "Help/version reject tracking options before configuration or log initialization (exit 1)"));
+    print_help_continuation(localization::format_translated_message(
+        "Tracking does not approve source review, bootstrap or installation; {} never approves bootstrap",
+        "--noconfirm"));
+    print_help_continuation(localization::format_translated_message(
+        "No {} observation means unobserved, not unchanged; disabling tracking preserves build safety and provenance publication", "Git"));
+    print_help_entry(
         cli_option_syntax(OptionId::Edit),
         localization::format_translated_message(
             // TRANSLATORS: PKGBUILD and .install are literal artifact names.
@@ -1161,6 +1189,12 @@ void print_help() {
     print_help_entry(
         "build.mode = \"normal\"|\"rebuild\"|\"clean\"",
         localization::translate_message("Source-build mode"));
+    print_help_entry(
+        "updates.devel = true|false",
+        localization::format_translated_message(
+            "{} revision tracking policy; default false, explicit CLI takes precedence", "Git"));
+    print_help_continuation(localization::translate_message(
+        "Strict boolean; strings and numbers are rejected; configuration files are never rewritten"));
 }
 
 bool argv_requests_pkgbuild_export_diagnostics(int argc, char* argv[]) {
@@ -1177,6 +1211,7 @@ bool argv_requests_pkgbuild_export_diagnostics(int argc, char* argv[]) {
 std::optional<int> handle_info_only_option(int argc, char* argv[]) {
     std::string_view operation;
     bool has_details = false;
+    std::optional<std::string> devel_option;
     bool pending_option_value = false;
     for(int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
@@ -1189,7 +1224,8 @@ std::optional<int> handle_info_only_option(int argc, char* argv[]) {
             }
             if(arg == "--") break;
         }
-        if(is_moguet_global_option(arg)) {
+        if(is_moguet_global_option(arg) || cli_authority::is_devel_update_option_spelling(arg)) {
+            if(cli_authority::is_devel_update_option_spelling(arg)) devel_option = arg;
             if(arg == cli_authority::option_contract(
                           cli_authority::OptionId::Details)
                           .canonical_token) {
@@ -1215,6 +1251,14 @@ std::optional<int> handle_info_only_option(int argc, char* argv[]) {
     if(operation.empty()) return std::nullopt;
     // Keep both success and rejection before config/XDG/Logger initialization.
     // Other global options retain the existing information-route behavior.
+    if(devel_option) {
+        report_direct_error(cli_invocation_issue_message(CliInvocationIssue{
+            CliInvocationIssueKind::UnsupportedDevelUpdateOption,
+            std::string(operation), devel_option,
+            cli_authority::TargetPolicy::None,
+            cli_authority::OperandKind::None}));
+        return 1;
+    }
     if(has_details) {
         report_direct_error(cli_invocation_issue_message(CliInvocationIssue{
             CliInvocationIssueKind::UnsupportedPresentationDetail,

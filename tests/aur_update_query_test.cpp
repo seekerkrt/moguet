@@ -15,6 +15,10 @@
 #include <utility>
 #include <vector>
 
+namespace aur_devel_update_test_stub {
+extern unsigned refinement_calls;
+}
+
 namespace {
 
 using InfoManyHandler = std::function<std::map<std::string, AurPackageInfo>(
@@ -115,6 +119,7 @@ std::map<std::string, AurPackageInfo> metadata_for(
 }
 
 void reset_fixture() {
+    aur_devel_update_test_stub::refinement_calls = 0;
     g_fixture = QueryFixture{};
     g_fixture.configuration = PacmanRepositoryConfiguration{
         PacmanDatabasePaths{"/fixture-root", "/fixture-db"},
@@ -867,10 +872,53 @@ void run_case(const std::string& name, Callable callable) {
     std::cout << "  ok: " << name << '\n';
 }
 
+void test_version_only_policy_preserves_version_and_failure_classification() {
+    for(const auto policy : {AurUpdateQueryPolicy::VersionOnly, AurUpdateQueryPolicy::TrackingEnabled}) {
+        for(const auto& comparison : std::vector<CapturedCommandResult>{{"1", 0}, {"0", 0}, {"-1", 0}, {"invalid", 0}, {"1", 7}}) {
+            reset_fixture();
+            g_fixture.inventory = {{"query-git", "1.0-1", InstalledPackageReason::Explicit}};
+            g_fixture.exec_handler = [comparison](const std::string&) { return comparison; };
+            const auto result = query_installed_aur_updates(policy);
+            const auto& entry = result.plan.entries.front();
+            const bool newer = comparison.output == "1" && comparison.exit_code == 0;
+            const bool unavailable = comparison.output == "invalid" || comparison.exit_code != 0;
+            const auto expected = unavailable                                   ? AurUpdateEffectiveState::VersionComparisonUnavailable
+                                  : newer                                       ? AurUpdateEffectiveState::UpdateAvailable
+                                  : policy == AurUpdateQueryPolicy::VersionOnly ? AurUpdateEffectiveState::UpToDate
+                                                                                : AurUpdateEffectiveState::RequiresCheck;
+            expect(project_aur_update_effective_state(entry) == expected, "Query policy changed Version classification");
+            expect(entry.devel_assessment.requires_check_reason() && *entry.devel_assessment.requires_check_reason() == DevelRequiresCheckReason::SuffixCandidateOnly,
+                   "Query policy lost suffix evidence or fabricated a Git observation");
+            expect(entry.devel_assessment_origin == (policy == AurUpdateQueryPolicy::VersionOnly ? AurDevelAssessmentOrigin::DisabledByPolicy : AurDevelAssessmentOrigin::Conservative),
+                   "Query policy disposition differs");
+            expect(aur_update_basis(entry) == (newer ? std::optional{AurUpdateBasis::Version} : std::nullopt), "Query policy changed update basis");
+            expect(aur_devel_update_test_stub::refinement_calls == (policy == AurUpdateQueryPolicy::VersionOnly ? 0u : 1u),
+                   "VersionOnly reached tracking refinement or TrackingEnabled bypassed it");
+            expect(result.devel_observations.empty() && g_fixture.exec_calls.size() == 1 && g_fixture.info_many_calls.size() == 1,
+                   "Query added unexpected observations or commands");
+        }
+        for(const bool failed : {false, true}) {
+            reset_fixture();
+            g_fixture.info_many_handler = [failed](const std::vector<std::string>&) {
+                if(failed) throw std::runtime_error("RPC unavailable");
+                return std::map<std::string, AurPackageInfo>{};
+            };
+            g_fixture.info_strict_handler = [](const std::string&) { return std::optional<AurPackageInfo>{}; };
+            const auto result = query_aur_updates_for_foreign_inventory({{"query-git", "1.0-1"}}, policy);
+            expect(project_aur_update_effective_state(result.plan.entries.front()) ==
+                       (failed ? AurUpdateEffectiveState::MetadataUnavailable : AurUpdateEffectiveState::NonAurForeign),
+                   "Query policy flattened RPC failure/absence");
+            expect(result.recoverable_failures.size() == (failed ? 1u : 0u) && g_fixture.exec_calls.empty(), "RPC failure diagnostics changed");
+            expect(aur_devel_update_test_stub::refinement_calls == (policy == AurUpdateQueryPolicy::VersionOnly ? 0u : 1u), "Explicit inventory policy was lost");
+        }
+    }
+}
+
 } // namespace
 
 int main() {
     try {
+        run_case("VersionOnly preserves Version and failure classification without tracking", test_version_only_policy_preserves_version_and_failure_classification);
         run_case("empty inventory skips AUR queries", test_empty_inventory_skips_aur_queries);
         run_case(
             "explicit inventory core skips inventory boundary and preserves order",

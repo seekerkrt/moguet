@@ -1494,6 +1494,16 @@ SeparatedPackageBaseSourceBuildPreparationError::failure() const noexcept {
     return failure_;
 }
 
+const AutomaticAurVersionGuardFailure*
+PackageBaseArtifactInstallPreparationFailure::version_guard_failure() const noexcept {
+    return std::get_if<AutomaticAurVersionGuardFailure>(&this->failure_);
+}
+
+const AutomaticAurVersionGuardFailure*
+SeparatedPackageBaseSourceBuildPreparationError::version_guard_failure() const noexcept {
+    return this->failure_.version_guard_failure();
+}
+
 const PackageBaseArtifactIdentitySelectionFailure*
 SeparatedPackageBaseSourceBuildPreparationError::selection_failure()
     const noexcept {

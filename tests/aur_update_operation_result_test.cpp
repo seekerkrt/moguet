@@ -2937,8 +2937,8 @@ void test_exact_failure_payload_coherence_is_typed() {
         coherent_transaction.status ==
                 AurUpdateOperationStatus::
                     StoppedOnWorkItemFailure &&
-            coherent_transaction.reduction_issues.empty(),
-        "Coherent transaction failure payload was rejected");
+            coherent_transaction.reduction_issues.empty() && coherent_transaction.package_state_change() == PackageStateChange::Unknown,
+        "Coherent transaction failure payload was rejected or Unknown effect was lost");
 
     transaction_work_item.transaction_failure->attempted_artifacts.front()
         .identity.full_version = "3.0-2";
@@ -4094,6 +4094,34 @@ void test_all_query_helpers() {
             partial.has_cleanup_failure() &&
             partial.has_blocking_targets(),
         "Failure-state helper semantics differ");
+
+    for(const auto operation : {DevelSourceArtifactInstallOperation::NotAttempted,
+                                DevelSourceArtifactInstallOperation::Failed,
+                                DevelSourceArtifactInstallOperation::OutcomeUnknown,
+                                DevelSourceArtifactInstallOperation::Succeeded}) {
+        AurUpdateOperationResult authoritative;
+        authoritative.status = AurUpdateOperationStatus::StoppedOnWorkItemFailure;
+        AurUpdateWorkItemExecutionResult work;
+        work.status = AurUpdateWorkItemExecutionStatus::Failed;
+        work.devel_execution.emplace();
+        work.devel_execution->operation = operation;
+        authoritative.execution_work_items.push_back(std::move(work));
+        expect(authoritative.package_state_change() ==
+                   (operation == DevelSourceArtifactInstallOperation::NotAttempted
+                        ? PackageStateChange::NoChange
+                        : PackageStateChange::Unknown),
+               "Authoritative transaction without confirmed children invented NoChange");
+        authoritative.execution_work_items.front().devel_execution->cleanup = DevelSourceArtifactInstallCleanupState::Failed;
+        expect(authoritative.has_cleanup_failure(), "Authoritative privileged cleanup failure disappeared");
+        authoritative.execution_work_items.front().devel_execution->cleanup.reset();
+        authoritative.execution_work_items.front().devel_execution->build_cleanup_failed = true;
+        expect(authoritative.has_cleanup_failure(), "Authoritative build cleanup failure disappeared");
+        authoritative.execution_work_items.front().devel_execution->build_cleanup_failed = false;
+        PinnedClosureFailure closure{PinnedClosureStage::RootAcquisition, PinnedClosureFailureReason::GitProcessFailed};
+        closure.cleanup.objects = PinnedClosureCleanupFailure{PinnedClosureFailureReason::IoFailure, std::nullopt};
+        authoritative.execution_work_items.front().devel_execution->closure_failure = closure;
+        expect(authoritative.has_cleanup_failure(), "Authoritative source closure cleanup failure disappeared");
+    }
 }
 
 template <typename Callable>

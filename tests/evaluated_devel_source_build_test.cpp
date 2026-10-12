@@ -723,7 +723,7 @@ public:
         return take_arm<PinnedReviewedSourceBuild>(publication, "overlay publication failed");
     }
 #ifdef MOGUET_TEST_NORMAL_REVIEWED_DEVEL_EXECUTION
-    SourceBuildExecutionResult normal_execution(const ReviewedDevelSourceBuildIntent& intent, bool no_confirm = false, bool package_base = false, PresentationDetail presentation_detail = PresentationDetail::Normal) {
+    SourceBuildExecutionResult normal_execution(const ReviewedDevelSourceBuildIntent& intent, bool no_confirm = false, bool package_base = false, PresentationDetail presentation_detail = PresentationDetail::Normal, bool tracking_enabled = true) {
         // Seed an actually accepted #411 record, then release the pin/lease.
         {
             auto accepted = execution_pin();
@@ -737,6 +737,7 @@ public:
         ScopedEnvironmentVariable git("MOGUET_TEST_GIT_EXECUTABLE", wrapper.string());
         AppConfig config;
         config.no_confirm = no_confirm;
+        config.user_config.updates.devel = intent.request.only_if_updated && tracking_enabled;
         config.presentation_detail = presentation_detail;
         config.user_config.review.pkgbuild = ReviewPolicy::Skip;
         config.rm_deps = false;
@@ -3190,24 +3191,42 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
                                              "new-dependency", "promotion", "needed", "split", "rmdeps", "only-if-updated", "legacy", "overlay", "overlay-legacy",
                                              "environment", "build-failure", "artifact-mismatch", "database-world", "snapshot-failure", "prepare-failure",
                                              "nonzero", "unknown", "no-post", "binding-failure", "publication-failure", "publication-unknown",
-                                             "cleanup-failure", "retirement-failure", "no-allocation", "registered-different", "registered-same", "registered-unknown", "registered-check",
+                                             "cleanup-failure", "retirement-failure", "no-allocation", "registered-different", "registered-same", "registered-unknown", "registered-check", "registered-unsupported",
                                              "outer-singular-publication-failure", "outer-singular-publication-unknown", "outer-singular-cleanup-failure", "outer-singular-no-allocation",
                                              "outer-set-publication-failure", "outer-set-publication-unknown", "outer-set-cleanup-failure", "outer-set-no-allocation"};
     if(normal && !bootstrap) bridge_cases.emplace_back("exact-version-intent");
+    if(!bootstrap)
+        for(const auto* mode : {"version-guard-success", "version-guard-equal-rpc", "version-guard-epoch", "version-guard-same", "version-guard-older", "version-guard-rpc-unmet", "version-guard-drift", "version-guard-disappeared", "version-guard-observer", "version-guard-cleanup"})
+            bridge_cases.emplace_back(mode);
     bridge_cases.emplace_back("details-install");
     if(normal) bridge_cases.emplace_back("details-package-base-install");
     if(bootstrap) bridge_cases = {bootstrap_case};
     for(const std::string& case_name : bridge_cases) {
         const auto presentation_detail = case_name.starts_with("details-") ? PresentationDetail::Detailed : PresentationDetail::Normal;
         const bool outer = case_name.starts_with("outer-");
-        const bool multi = bootstrap && case_name.starts_with("multi-");
+        const bool version_only = case_name.starts_with("version-only-");
+        const std::string policy_case = version_only ? case_name.substr(13) : case_name;
+        const bool multi = bootstrap && policy_case.starts_with("multi-");
         const bool outer_set = case_name.starts_with("outer-set-");
-        const std::string mode = case_name.starts_with("details-") ? "install" : multi ? case_name.substr(6)
+        const std::string mode = case_name.starts_with("details-") ? "install" : multi ? policy_case.substr(6)
                                                                              : outer   ? case_name.substr(outer_set ? 10 : 15)
-                                                                                       : case_name;
+                                                                                       : policy_case;
+        const bool registered_legacy_version = mode.starts_with("registered-legacy-version-");
         if(outer && !normal) continue;
         if(!normal && mode.starts_with("registered-")) continue;
         ArchitectureFixture integration_recipe;
+        if(mode == "version-guard-epoch") {
+            integration_recipe.epoch = "3";
+            integration_recipe.pkgrel = "1.2";
+            integration_recipe.recipe_suffix = "if [[ $pkgver != 0 ]]; then pkgrel=1.2; fi\n";
+        }
+        if(registered_legacy_version) {
+            integration_recipe.extension = ".pkg.tar";
+            // A normal non-dynamic recipe keeps the pre-build packagelist
+            // stable on the Legacy route. Actual identity is still read from
+            // the native makepkg archive and verified against sealed bytes.
+            integration_recipe.recipe_suffix = "\npkgver=2\nunset -f pkgver\n";
+        }
         const bool split_group = mode.starts_with("split-");
         const bool split_both = mode.starts_with("split-both");
         integration_recipe.split_children = split_group;
@@ -3408,6 +3427,7 @@ done
                 set_source_artifact_install_trusted_exec_test_hook({});
                 set_source_artifact_install_trusted_state_test_hook({});
                 set_installed_record_observation_test_hooks({});
+                set_invocation_owned_source_build_context_cleanup_limits_for_test(std::nullopt);
                 reset_xdg_generation_store_test_hooks();
             }
         } reset_bridge_hooks;
@@ -3599,7 +3619,7 @@ done
         fs::path sibling_record;
         const std::string sibling_name = fixture.package_name() + "-tools";
         fs::path installed_record;
-        const bool existing = bootstrap || mode == "upgrade-explicit" || mode == "upgrade-dependency" || mode == "dependency-keeps-explicit" || mode == "promotion" || mode.starts_with("registered-");
+        const bool existing = bootstrap || mode.starts_with("version-guard-") || mode == "upgrade-explicit" || mode == "upgrade-dependency" || mode == "dependency-keeps-explicit" || mode == "promotion" || mode.starts_with("registered-");
         const bool dependency_reason = mode == "upgrade-dependency" || mode == "promotion";
         const auto write_package = [&](const std::string& version) {
             if(!installed_record.empty() && fs::exists(installed_record)) fs::remove_all(installed_record);
@@ -3619,7 +3639,11 @@ done
                 write_file(sibling_record / "mtree", split_mtrees.contains(sibling_name) ? split_mtrees.at(sibling_name) : "old-sibling-mtree");
             }
         };
-        if(existing) write_package(mode.starts_with("required-") || mode == "shared-base" ? "2-1" : "0-1");
+        const std::string fixture_actual_version = (mode == "version-guard-epoch" ? "3:" : "") + std::string("1.r1.g") + upstream.oid().substr(0, 12) + (mode == "version-guard-epoch" ? "-1.2" : "-1");
+        if(existing) write_package(mode == "version-guard-epoch" ? "2:99-4" : mode == "version-guard-same"                         ? fixture_actual_version
+                                                                          : mode == "version-guard-older"                          ? "2-1"
+                                                                          : mode.starts_with("required-") || mode == "shared-base" ? "2-1"
+                                                                                                                                   : "0-1");
         InstalledRecordObservationTestHooks record_hooks;
         record_hooks.database_path = db.string();
         record_hooks.expected_owner = geteuid();
@@ -3731,6 +3755,15 @@ done
                                                                            }
 #endif
                                                                            if(stage == Stage::Build) ++build_entries;
+                                                                           if(stage == Stage::InstallPolicy && mode.starts_with("version-guard-")) {
+                                                                               require(built && built->valid() && built->artifact().evidence().identity.full_version == fixture_actual_version, "Version guard fixture did not use the native dynamic artifact");
+                                                                               if(mode == "version-guard-drift") write_package("0-2");
+                                                                               if(mode == "version-guard-disappeared") fs::remove_all(installed_record);
+                                                                               // Force an actual libalpm database validation failure. A
+                                                                               // malformed record can be omitted from its cache as absent.
+                                                                               if(mode == "version-guard-observer") write_file(db / "local/ALPM_DB_VERSION", "999999\n");
+                                                                               if(mode == "version-guard-cleanup") set_invocation_owned_source_build_context_cleanup_limits_for_test(std::pair<std::size_t, std::size_t>{1, 1});
+                                                                           }
                                                                            if(stage != Stage::Transport) return;
                                                                            require(built && built->valid(), "bridge did not retain S4 proof");
                                                                            if(mode == "supplemental" || mode == "supplemental-collision") require_supplemental_artifact(*built, fixture);
@@ -3797,6 +3830,97 @@ done
         set_reviewed_devel_source_build_execution_test_hooks(bridge_hooks);
 
 #ifdef MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
+        if(registered_legacy_version) {
+            const auto bin = runtime.path() / "registered-bin";
+            fs::create_directory(bin);
+            const auto script = [&](const fs::path& path, const std::string& text) {
+                write_file(path, text);
+                fs::permissions(path, fs::perms::owner_all);
+            };
+            // Package transactions use the existing compile-time CLI adapter;
+            // any incidental PATH sudo is refused, never forwarded to the host.
+            script(bin / "sudo", "#!/bin/sh\nexit 99\n");
+            script(bin / "pacman-conf", "#!/bin/sh\nif [ \"$1\" = --repo-list ]; then printf 'core\\n'; else printf 'RootDir = /\\nDBPath = %s\\n' \"$MOGUET_TEST_PACKAGE_METADATA_DB_PATH\"; fi\n");
+            const auto log = runtime.path() / "registered-commands.log";
+            fs::create_directory(runtime.path() / "archives");
+            const auto cache = fs::path(std::getenv("XDG_CACHE_HOME"));
+            const auto success_log = cache / "registered-install-success";
+            write_file(success_log, "");
+            const auto sudo_stub = fs::canonical(fs::path(__FILE__).parent_path() / "stubs/source-maintenance/sudo");
+            ScopedEnvironmentVariable path("PATH", bin.string() + ":/usr/bin:/bin");
+            ScopedEnvironmentVariable database("MOGUET_TEST_PACKAGE_METADATA_DB_PATH", db.string());
+            ScopedEnvironmentVariable command_log("MOGUET_TEST_COMMAND_LOG", log.string());
+            ScopedEnvironmentVariable configured_stub("MOGUET_TEST_LEGACY_SUDO_STUB", sudo_stub.string());
+            ScopedEnvironmentVariable exit_status("MOGUET_TEST_SUDO_EXIT_CODE", mode.ends_with("transaction-failure") ? "42" : "0");
+            ScopedEnvironmentVariable installed_log("MOGUET_TEST_PACMAN_U_SUCCESS_LOG", success_log.string());
+            ScopedEnvironmentVariable cleanup_refusal("MOGUET_TEST_REPLACE_WORKSPACE_AFTER_PACMAN_U", mode.ends_with("cleanup-failure") ? "1" : "0");
+            set_aur_devel_update_database_paths_for_test(PacmanDatabasePaths{"/", db});
+            auto intent = fixture.execution_intent({"/", db});
+            intent.request.only_if_updated = true;
+            intent.request.needed = true; // Existing route choice keeps this on Legacy.
+            intent.request.installed_snapshot = SourceInstalledSnapshot{std::string("0-1")};
+            for(auto& assignment : intent.request.custom_environment.ordered_assignments)
+                if(assignment.key == "PATH") assignment.value = bin.string() + ":/usr/bin:/bin";
+            intent.request.custom_environment.ordered_assignments.push_back({"PKGEXT", ".pkg.tar"});
+            bool complete = false, refused = false, transaction_failed = false, cleanup_failed = false;
+            try {
+                const auto result = fixture.normal_execution(intent, true, false, PresentationDetail::Normal, false);
+                require(result.devel_update_query && !result.devel_execution && result.status == SourceBuildExecutionStatus::Installed &&
+                            result.production_outcome && result.production_outcome->install_outcome == ProductionSourceInstallOutcome::Succeeded &&
+                            aur_update_basis(result.devel_update_query->plan.entries.front()) == AurUpdateBasis::Version &&
+                            result.devel_update_query->plan.entries.front().aur_package->version == "1-1",
+                        "Registered Legacy Version update lost query authority or normal install result");
+                complete = true;
+            } catch(const SeparatedSourceBuildPhaseError& error) {
+                if(mode.ends_with("rpc-unmet")) {
+                    require(error.phase() == SeparatedSourceBuildFailurePhase::InstallPreparation && error.version_guard_failure() &&
+                                error.version_guard_failure()->kind == AutomaticAurVersionGuardFailureKind::ArtifactBelowObservedRpcVersion &&
+                                error.version_guard_failure()->actual_version == "2-1" && error.version_guard_failure()->observed_rpc_version == "3-1" &&
+                                error.production_outcome().build_outcome == ProductionSourceBuildCommandOutcome::Succeeded &&
+                                error.production_outcome().install_outcome == ProductionSourceInstallOutcome::NotAttempted,
+                            "Registered Legacy refusal lost actual native artifact/RPC binding or became attempted install");
+                    try {
+                        error.rethrow_failure();
+                    } catch(const SeparatedPackageBaseSourceBuildPreparationError& original) {
+                        refused = original.version_guard_failure() && original.version_guard_failure()->kind == AutomaticAurVersionGuardFailureKind::ArtifactBelowObservedRpcVersion;
+                    }
+                } else if(mode.ends_with("transaction-failure")) {
+                    require(error.phase() == SeparatedSourceBuildFailurePhase::InstallTransaction && !error.version_guard_failure() &&
+                                error.production_outcome().build_outcome == ProductionSourceBuildCommandOutcome::Succeeded &&
+                                error.production_outcome().install_outcome == ProductionSourceInstallOutcome::Failed,
+                            "Registered Legacy transaction failure lost staged outcomes");
+                    try {
+                        error.rethrow_failure();
+                    } catch(const PackageBaseArtifactInstallTransactionError& original) {
+                        transaction_failed = original.failure_kind() == PackageBaseArtifactInstallTransactionFailureKind::NonzeroExit &&
+                                             original.exit_code() == std::optional<int>{42} && original.attempts().size() == 1 && original.attempts().front().identity.full_version == "2-1";
+                    }
+                } else
+                    throw;
+            } catch(const SeparatedSourceBuildCleanupError& error) {
+                require(mode.ends_with("cleanup-failure") && error.install_outcome() == ArtifactInstallExecutionOutcome::Installed &&
+                            error.production_outcome().install_outcome == ProductionSourceInstallOutcome::Succeeded,
+                        "Registered Legacy cleanup failure lost confirmed install effect");
+                cleanup_failed = true;
+            }
+            require((mode.ends_with("newer") && complete) || (mode.ends_with("rpc-unmet") && refused) ||
+                        (mode.ends_with("transaction-failure") && transaction_failed) || (mode.ends_with("cleanup-failure") && cleanup_failed),
+                    "Registered Legacy Version branch did not preserve its terminal outcome");
+            std::ifstream log_file(log);
+            const std::string commands((std::istreambuf_iterator<char>(log_file)), {});
+            require((mode.ends_with("rpc-unmet") ? commands.empty() : commands.starts_with("sudo pacman -U --noconfirm --needed -- ") && commands.find('\n') == commands.size() - 1) && build_entries == 0 && prepare_calls == 0 && execute_calls == 0 && g_bridge_publication_entries == 0,
+                    "Registered Legacy refusal installed, retried, entered S5/S6 or used a host transaction");
+            if(!mode.ends_with("rpc-unmet")) {
+                std::vector<fs::path> archives;
+                for(const auto& entry : fs::directory_iterator(runtime.path() / "archives"))
+                    archives.push_back(entry.path());
+                require(archives.size() == 1 && archive_member(archives.front(), ".PKGINFO").find("pkgver = 2-1\n") != std::string::npos,
+                        "Registered Legacy success did not validate the real makepkg artifact and sealed install input");
+            }
+            fixture.require_no_provenance_publication();
+            std::cout << "S673 registered Legacy " << case_name << " native-artifact / guarded / publication0 PASS\nS553 production " << case_name << " PASS\n";
+            continue;
+        }
         if(bootstrap) {
             const auto bin = runtime.path() / "bin";
             fs::create_directory(bin);
@@ -3857,7 +3981,7 @@ done
             const auto recipe_x = fixture.recipe_oid();
             const auto authoritative_metadata = fixture.recipe_metadata() + (mode == "acquire-metadata" ? "\n" : "");
             const auto old_git_calls = runtime.path() / "old-git.log";
-            const bool migration_cache_case = mode != "newer" && mode != "provider-ordinary";
+            const bool migration_cache_case = !version_only && mode != "newer" && mode != "provider-ordinary";
             if(migration_cache_case) {
                 script(bin / "recipe-git", "#!/bin/sh\nfor argument do case \"$argument\" in *'" + old_cache.string() + "'*) printf 'old argument\\n' >> '" + old_git_calls.string() + "'; exit 98;; esac; done\nif [ \"$(pwd -P)\" = '" + old_cache.string() + "' ]; then printf 'old cwd\\n' >> '" + old_git_calls.string() + "'; exit 98; fi\nexec /usr/bin/git \"$@\"\n");
             }
@@ -3915,7 +4039,7 @@ done
                 write_sidecar(last_name, "0-1");
                 if(!decisions_only) set_aur_update_non_bootstrap_execution_test_hook([&](const auto& work) -> std::optional<PackageBaseSourceBuildExecutionResult> {
                     const auto& name = work.request.package_name;
-                    if(mode == "provider-ordinary" && name == fixture.package_name()) return std::nullopt;
+                    if((mode == "provider-ordinary" || version_only) && name == fixture.package_name()) return std::nullopt;
                     require(name == first_name || name == last_name, "bootstrap entered legacy fixture seam");
                     if(provider_case) {
                         require(work.cache_root.has_value(), "source lost activated cache authority");
@@ -3966,6 +4090,7 @@ done
                         return metadata; }});
             }
             AppConfig config;
+            config.user_config.updates.devel = true;
             config.user_config.review.diff = mode == "diff-skip" ? ReviewPolicy::Skip : ReviewPolicy::Prompt;
             if(mode == "patch-selection") {
                 // Obtain a real trial from the existing offline observer fixture;
@@ -3981,6 +4106,17 @@ done
                 require(std::holds_alternative<LoadedPatchAssociation>(saved), "patch bootstrap association registration failed");
                 fs::remove(material / "one.patch");
                 auto intent = fixture.execution_intent({"/", db});
+                if(mode.starts_with("version-guard-")) {
+                    intent.required_targets.front().automatic_version_update = AutomaticAurVersionUpdateIntent{
+                        fixture.package_base(), fixture.package_name(),
+                        mode == "version-guard-epoch" ? fixture_actual_version.substr(0, fixture_actual_version.rfind('-')) + "-1.1" : mode == "version-guard-equal-rpc" ? fixture_actual_version
+                                                                                                                                   : mode == "version-guard-success"     ? "1-1"
+                                                                                                                                                                         : "3-1",
+                        mode == "version-guard-epoch" ? "2:99-4" : mode == "version-guard-same" ? fixture_actual_version
+                                                               : mode == "version-guard-older"  ? "2-1"
+                                                                                                : "0-1",
+                        InstalledPackageReason::Explicit};
+                }
                 intent.request.devel_tracking_bootstrap = trial;
                 AurUpgradePatchSet declined;
                 require(!declined.consider(source, intent.request, intent.required_targets, config) && declined.metadata().empty(),
@@ -4005,6 +4141,7 @@ done
                 return;
             }
             std::vector<std::string> argument_values{"moguet", "-Syu", "--noedit"};
+            argument_values.push_back(version_only ? "--no-devel" : "--devel");
             if(mode == "nodiff") argument_values.push_back("--nodiff");
             if(mode == "noconfirm") argument_values.push_back("--noconfirm");
             std::vector<char*> arguments;
@@ -4083,6 +4220,92 @@ done
                         targets[bootstrap_index].update.installed_name == fixture.package_name(),
                     "bootstrap lost original query target correlation");
             const auto& target = targets[bootstrap_index];
+            if(version_only) {
+                require(!config.user_config.updates.devel && trial_calls == 0 && acquisition_creations == 0 &&
+                            target.update.devel_assessment_origin == AurDevelAssessmentOrigin::DisabledByPolicy &&
+                            target.update.devel_classification && target.update.devel_classification->suffix_evidence().has_candidate() &&
+                            !target.update.bootstrap && target.update.devel_assessment.state() == DevelUpdateAssessmentState::RequiresCheck,
+                        "VersionOnly observed tracking, lost suffix evidence or created bootstrap state");
+                require(filtered.query_result.devel_observations.empty(), "VersionOnly retained tracking observations");
+                if(mode == "same" || mode == "older") {
+                    require(result.is_success() && target.status == AurUpdateOperationTargetStatus::Skipped &&
+                                build_entries == 0 && execute_calls == 0 && closure_reviews == 0 &&
+                                !filtered.execution && !fs::exists(p_directory / "1.toml"),
+                            "VersionOnly noncandidate acquired source, built or published tracking state");
+                } else {
+                    require(filtered.execution && aur_update_basis(target.update) == AurUpdateBasis::Version,
+                            "VersionOnly lost normal Version execution");
+                    const auto& item = filtered.execution->work_item_results[bootstrap_index];
+                    if(!item.devel_execution || !item.devel_execution->owner || closure_reviews != (mode == "build-failure" ? 0U : 1U) || build_entries != 1) {
+                        present_filtered_aur_update_execution_result(filtered);
+                    }
+                    require(!item.bootstrap_decision && item.devel_execution && item.devel_execution->owner &&
+                                closure_reviews == (mode == "build-failure" ? 0U : 1U) && build_entries == 1,
+                            "VersionOnly skipped exact source acceptance or retried Legacy execution");
+                    const auto& snapshot = *item.devel_execution;
+                    if(mode == "build-failure") {
+                        const auto* failure = snapshot.owner->build_failure();
+                        require(failure && failure->stage == EvaluatedDevelSourceBuildStage::EvaluatedSource &&
+                                    failure->reason == EvaluatedDevelSourceBuildFailureReason::RawEvaluatedSourceMismatch && !snapshot.owner->build_completed(),
+                                "VersionOnly lost the typed evaluated-source mismatch");
+                    }
+                    if(mode == "rpc-unmet") {
+                        require(!result.is_success() && filtered.reduced_operation_result.reduction_issues.empty() && !snapshot.complete && snapshot.version_guard_failure && snapshot.owner->version_guard_failure() &&
+                                    snapshot.version_guard_failure->kind == AutomaticAurVersionGuardFailureKind::ArtifactBelowObservedRpcVersion &&
+                                    !snapshot.operation && !snapshot.publication && execute_calls == 0 && prepare_calls == 0 && g_bridge_publication_entries == 0 &&
+                                    item.production_outcome && item.production_outcome->install_outcome == ProductionSourceInstallOutcome::NotAttempted &&
+                                    std::holds_alternative<AutomaticAurVersionGuardFailure>(item.failure_detail),
+                                "RPC-unmet native artifact entered install/publication or lost typed refusal");
+                        require(filtered.execution->package_state_change() == (multi ? PackageStateChange::Changed : PackageStateChange::NoChange) &&
+                                    filtered.reduced_operation_result.package_state_change() == (multi ? PackageStateChange::Changed : PackageStateChange::NoChange),
+                                "Guard refusal lost completed prefix package effects");
+                        if(multi) require(targets.front().status == AurUpdateOperationTargetStatus::Updated && targets.back().status == AurUpdateOperationTargetStatus::NotAttempted &&
+                                              sidecar_calls == std::vector<std::string>{first_name},
+                                          "Guard refusal did not retain prefix/NotAttempted suffix");
+                        fixture.require_no_provenance_publication();
+                        present_system_aur_update_operation_result(std::move(result));
+                        std::cout << "S673 VersionOnly " << case_name << " tracking0 / guard-refused install0 publication0 PASS\nS553 production " << case_name << " PASS\n";
+                        continue;
+                    }
+                    const bool complete = mode == "newer";
+                    require(result.is_success() == complete && snapshot.complete == complete &&
+                                filtered.reduced_operation_result.reduction_issues.empty(),
+                            "VersionOnly partial outcome became success or inconsistent");
+                    const auto expected_operation = mode == "build-failure" ? std::optional<Operation>{}
+                                                    : mode == "nonzero"     ? Operation::Failed
+                                                    : mode == "unknown"     ? Operation::OutcomeUnknown
+                                                                            : Operation::Succeeded;
+                    require(snapshot.operation == expected_operation && execute_calls == (mode == "build-failure" ? 0U : 1U),
+                            "VersionOnly lost build/install failure or repeated execution");
+                    const auto expected_effect = mode == "build-failure"                              ? PackageStateChange::NoChange
+                                                 : !multi && (mode == "nonzero" || mode == "unknown") ? PackageStateChange::Unknown
+                                                                                                      : PackageStateChange::Changed;
+                    require(filtered.execution->package_state_change() == expected_effect &&
+                                filtered.reduced_operation_result.package_state_change() == expected_effect,
+                            "VersionOnly aggregate invented package effect absence");
+                    const bool cleanup_failed = mode == "cleanup-failure";
+                    require(filtered.execution->has_cleanup_failure() == cleanup_failed &&
+                                filtered.reduced_operation_result.has_cleanup_failure() == cleanup_failed,
+                            "VersionOnly aggregate lost cleanup consequence");
+                    if(mode == "publication-failure" || mode == "publication-unknown" || complete || cleanup_failed) {
+                        const auto expected_publication = mode == "publication-failure"   ? Pub::Failed
+                                                          : mode == "publication-unknown" ? Pub::OutcomeUnknown
+                                                                                          : Pub::Complete;
+                        require(snapshot.operation == Operation::Succeeded && snapshot.receipt == DevelSourceArtifactInstallReceipt::Complete &&
+                                    snapshot.proof == DevelSourceArtifactInstallProof::Complete && snapshot.publication == expected_publication,
+                                "VersionOnly disabled S4/S5/S6 or flattened publication failure into install success");
+                    }
+                    if(multi) {
+                        require(targets.front().status == AurUpdateOperationTargetStatus::Updated && targets.back().status == AurUpdateOperationTargetStatus::NotAttempted &&
+                                    filtered.execution->work_item_results.back().status == AurUpdateWorkItemExecutionStatus::NotAttempted &&
+                                    sidecar_calls == std::vector<std::string>{first_name} && filtered.reduced_operation_result.has_partial_completion(),
+                                "VersionOnly lost completed prefix, retried partial or executed NotAttempted suffix");
+                    }
+                }
+                present_system_aur_update_operation_result(std::move(result));
+                std::cout << "S673 VersionOnly " << case_name << " tracking0 / lossless PASS\nS553 production " << case_name << " PASS\n";
+                continue;
+            }
             if(migration_cache_case) {
                 require(cache_before == bootstrap_cache_snapshot(old_cache), "migration changed old checkout bytes/inventory/HEAD/refs/config");
                 require(!fs::exists(old_git_calls), "migration invoked Git on old checkout");
@@ -4734,6 +4957,10 @@ done
                     }
                     if(mode == "pinned-extra") require(failure.pinned_workspace_failure && failure.pinned_workspace_failure->cleanup.workspace && failure.cleanup_consequence,
                                                        "Unexpected module was adopted by cleanup");
+                    if(failure.cleanup_consequence || (failure.pinned_workspace_failure && !failure.pinned_workspace_failure->cleanup.succeeded()))
+                        require(execution->build_cleanup_failed && filtered.execution->has_cleanup_failure() &&
+                                    filtered.reduced_operation_result.has_cleanup_failure() && result.has_cleanup_failure(),
+                                "Build cleanup refusal disappeared from aggregate outcome");
                 }
                 if(!success && fs::exists(integration_root)) {
                     require(integration_identity.has_value(), "Missing failure root identity");
@@ -4940,6 +5167,17 @@ done
         }
 #endif
         auto intent = fixture.execution_intent({"/", db});
+        if(mode.starts_with("version-guard-")) {
+            intent.required_targets.front().automatic_version_update = AutomaticAurVersionUpdateIntent{
+                fixture.package_base(), fixture.package_name(),
+                mode == "version-guard-epoch" ? fixture_actual_version.substr(0, fixture_actual_version.rfind('-')) + "-1.1" : mode == "version-guard-equal-rpc" ? fixture_actual_version
+                                                                                                                           : mode == "version-guard-success"     ? "1-1"
+                                                                                                                                                                 : "3-1",
+                mode == "version-guard-epoch" ? "2:99-4" : mode == "version-guard-same" ? fixture_actual_version
+                                                       : mode == "version-guard-older"  ? "2-1"
+                                                                                        : "0-1",
+                InstalledPackageReason::Explicit};
+        }
 #ifdef MOGUET_TEST_NORMAL_REVIEWED_DEVEL_EXECUTION
         std::optional<ScopedEnvironmentVariable> registered_state;
         if(normal && mode.starts_with("registered-")) {
@@ -4978,11 +5216,13 @@ done
             std::cout << "S581 exact replacement / authoritative devel rejected / build0 / install0 PASS\n";
             continue;
         }
-        if(normal && (mode == "registered-same" || mode == "registered-unknown" || mode == "registered-check")) {
+        if(normal && (mode == "registered-same" || mode == "registered-unknown" || mode == "registered-check" || mode == "registered-unsupported")) {
             const auto result = fixture.normal_execution(intent, true);
             const auto expected_status = mode == "registered-same" ? SourceBuildExecutionStatus::UpToDate : mode == "registered-check" ? SourceBuildExecutionStatus::DevelRequiresCheckSkipped
                                                                                                                                        : SourceBuildExecutionStatus::AuthoritativeIncomplete;
             require(result.status == expected_status && result.devel_update_query && !result.devel_execution, "registered decision was flattened into execution");
+            if(mode == "registered-unsupported") require(project_aur_update_effective_state(result.devel_update_query->plan.entries.front()) == AurUpdateEffectiveState::Unsupported,
+                                                         "registered unsupported source became positive tracking evidence");
             if(mode == "registered-check") require(result.devel_rebuild_confirmation == ConfirmationDecisionOrigin::NoConfirm, "noconfirm approved a rebuild");
             require(aur_devel_update_test_stub::registered_call_count() == 1 && build_entries == 0 && prepare_calls == 0 && execute_calls == 0, "registered negative repeated query or built");
             fixture.require_no_provenance_publication();
@@ -5014,6 +5254,7 @@ done
         }
 #endif
         fs::path root;
+        std::optional<struct stat> retained_guard_cleanup_identity;
         {
             bool blocked = false;
             std::optional<ReviewedDevelSourceBuildExecutionResult> executed;
@@ -5022,9 +5263,9 @@ done
 #ifdef MOGUET_TEST_NORMAL_REVIEWED_DEVEL_EXECUTION
             std::optional<SourceBuildExecutionResult> normal_result;
             std::optional<ProductionSourceBuildInvocationResult> outer_result;
+            const ReviewedDevelExecutionSnapshot* normal_snapshot = nullptr;
             if(normal) {
                 publication_allocation::failures = 0;
-                const ReviewedDevelExecutionSnapshot* normal_snapshot = nullptr;
                 if(outer) {
                     PreparedProductionSourceBuildInvocation invocation;
                     invocation.database_paths = intent.database_paths;
@@ -5066,7 +5307,7 @@ done
                     normal_snapshot = &*item.devel_execution;
                     if(mode == "no-allocation") require(blocked && normal_snapshot->projection_failed, "outer allocation fault was missed");
                 } else {
-                    normal_result.emplace(fixture.normal_execution(intent, false, case_name == "details-package-base-install", presentation_detail));
+                    normal_result.emplace(fixture.normal_execution(intent, false, (case_name == "details-package-base-install" || mode.starts_with("version-guard-")), presentation_detail));
                     normal_snapshot = &*normal_result->devel_execution;
                     blocked = publication_allocation::blocked;
                 }
@@ -5075,7 +5316,7 @@ done
                 observed = normal_snapshot->owner.get();
                 root = observed->owned_root();
                 if(mode == "environment") require(normal_result->production_outcome && normal_result->production_outcome->build_outcome == ProductionSourceBuildCommandOutcome::NotAttempted, "pre-build environment failure invented a build attempt");
-                const bool expected_complete = mode == "install" || mode == "branch" || mode == "upgrade-explicit" || mode == "upgrade-dependency" || mode == "dependency-keeps-explicit" || mode == "registered-different";
+                const bool expected_complete = mode == "install" || mode == "branch" || mode == "upgrade-explicit" || mode == "upgrade-dependency" || mode == "dependency-keeps-explicit" || mode == "registered-different" || mode == "version-guard-success" || mode == "version-guard-equal-rpc" || mode == "version-guard-epoch";
                 if(mode == "registered-different") require(aur_devel_update_test_stub::registered_call_count() == 1 && normal_result->devel_update_query && aur_update_basis(normal_result->devel_update_query->plan.entries.front()) == AurUpdateBasis::GitRevision, "registered same-version Git selection queried twice or lost basis");
                 require((normal_snapshot->complete) == expected_complete, "normal partial outcome became complete success");
             } else
@@ -5117,14 +5358,51 @@ done
             const auto& moved = *observed;
             const auto* publication = moved.publication();
             const bool early = mode == "split" || mode == "environment" || mode == "build-failure" || mode == "artifact-mismatch" || mode == "database-world" || mode == "new-dependency" || mode == "promotion";
-            if(early) {
+            const bool version_refused = mode.starts_with("version-guard-") && mode != "version-guard-success" && mode != "version-guard-equal-rpc" && mode != "version-guard-epoch";
+            if(version_refused) {
+                using Kind = AutomaticAurVersionGuardFailureKind;
+                const auto expected_kind = mode == "version-guard-same" || mode == "version-guard-older" ? Kind::ArtifactNotNewerThanInstalled
+                                           : mode == "version-guard-drift"                               ? Kind::InstalledStateDrift
+                                           : mode == "version-guard-disappeared"                         ? Kind::InstalledPackageDisappeared
+                                           : mode == "version-guard-observer"                            ? Kind::InstalledObservationFailed
+                                                                                                         : Kind::ArtifactBelowObservedRpcVersion;
+                if(!moved.version_guard_failure() || moved.version_guard_failure()->kind != expected_kind) {
+                    std::cerr << "Version guard fixture " << case_name << " stage=" << static_cast<int>(moved.stage()) << " issue=" << (moved.issue() ? static_cast<int>(*moved.issue()) : -1);
+                    if(const auto* guard = moved.version_guard_failure()) {
+                        std::cerr << " kind=" << static_cast<int>(guard->kind);
+                        if(guard->metadata_failure) std::cerr << " metadata=" << guard->metadata_failure->diagnostic;
+                    }
+                    std::cerr << '\n';
+                }
+                require(moved.issue() == Issue::VersionGuardFailure && moved.version_guard_failure() && moved.version_guard_failure()->kind == expected_kind &&
+                            !publication && prepare_calls == 0 && execute_calls == 0 && g_bridge_publication_entries == 0 && moved.build_completed(),
+                        "Automatic Version guard lost typed cause or entered S5/S6");
+#ifdef MOGUET_TEST_NORMAL_REVIEWED_DEVEL_EXECUTION
+                require(project_reviewed_devel_execution_outcome(moved).install_outcome == ProductionSourceInstallOutcome::NotAttempted,
+                        "Unattempted Version install became Unknown or success");
+#endif
+                require(moved.build_cleanup() && (mode == "version-guard-cleanup" ? std::holds_alternative<InvocationOwnedSourceBuildContextFailure>(*moved.build_cleanup()) : std::holds_alternative<InvocationOwnedSourceBuildContextCleaned>(*moved.build_cleanup())),
+                        "Version guard lost explicit source cleanup consequence");
+#ifdef MOGUET_TEST_NORMAL_REVIEWED_DEVEL_EXECUTION
+                if(normal) require(normal_snapshot->version_guard_failure && normal_snapshot->build_cleanup_failed == (mode == "version-guard-cleanup") && normal_snapshot->owner,
+                                   "Version guard projection lost primary/cleanup/live owner");
+#endif
+                fixture.require_no_provenance_publication();
+                if(mode == "version-guard-cleanup") {
+                    struct stat identity{};
+                    require(root == moved.owned_root() && ::lstat(root.c_str(), &identity) == 0 && S_ISDIR(identity.st_mode) && identity.st_uid == geteuid(),
+                            "Retained Version guard cleanup root lost its live owner identity");
+                    retained_guard_cleanup_identity = identity;
+                }
+                set_invocation_owned_source_build_context_cleanup_limits_for_test(std::nullopt);
+            } else if(early) {
                 require(!publication && prepare_calls == 0 && execute_calls == 0, "early failure reached S5/S6");
                 if(mode == "build-failure") require(moved.build_failure() && !moved.build_completed(), "S4 failure lost");
                 if(mode == "environment") require(moved.context_failure(), "S3 environment failure lost");
                 if(mode == "new-dependency" || mode == "promotion") require(moved.issue() == Issue::InstallReasonUnsupported && moved.install_reason_directive() != InstallReasonDirective::Default, "reason was silently changed");
                 fixture.require_no_provenance_publication();
             } else {
-                require(publication && publication->valid() && moved.build_completed(), "S6 product missing");
+                require(publication && publication->valid() && moved.build_completed(), "S6 product missing for " + case_name);
                 const auto& installation = publication->installation();
                 const bool not_attempted = mode == "prepare-failure" || mode == "snapshot-failure";
                 const bool no_proof = not_attempted || mode == "nonzero" || mode == "unknown" || mode == "no-post" || mode == "binding-failure";
@@ -5159,6 +5437,10 @@ done
                 if(mode == "no-allocation") require(blocked && (normal ? publication_allocation::failures > 0 : publication_allocation::failures == 0), "allocation projection probe missed boundary");
             }
             require(build_entries == (mode == "environment" ? 0U : 1U), "multiple build paths executed");
+        }
+        if(mode == "version-guard-cleanup" && fs::exists(root)) {
+            require(retained_guard_cleanup_identity.has_value(), "Missing retained Version guard fixture identity");
+            cleanup_retained_fixture(root, *retained_guard_cleanup_identity);
         }
         require(root.empty() || !fs::exists(root), "last bridge owner left source context behind");
         set_reviewed_devel_source_build_execution_test_hooks({});

@@ -65,6 +65,12 @@ def run_case(binary, root, rpc_url, route):
         "MOGUET_TEST_PACMAN_EXIT_CODE": "1",
         "MOGUET_TEST_SUDO_EXIT_CODE": "0",
         "MOGUET_TEST_MAKEPKG_EXIT_CODE": "0",
+        "MOGUET_TEST_ALPM_VERCMP_EXPECTED_LHS": "1.0-1",
+        "MOGUET_TEST_ALPM_VERCMP_EXPECTED_RHS": "0.9-1",
+        "MOGUET_TEST_ALPM_VERCMP_RESULT": "1",
+        "MOGUET_TEST_ALPM_VERCMP_EXPECTED_LHS_2": "1.0-1",
+        "MOGUET_TEST_ALPM_VERCMP_EXPECTED_RHS_2": "1.0-1",
+        "MOGUET_TEST_ALPM_VERCMP_RESULT_2": "0",
         "MOGUET_TEST_LEGACY_SUDO_STUB": str(ROOT / "tests/stubs/sudo"),
     })
     cache = case / "cache/moguet"

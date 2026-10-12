@@ -100,6 +100,9 @@ setup_case() {
     unset MOGUET_TEST_ALPM_VERCMP_EXPECTED_LHS
     unset MOGUET_TEST_ALPM_VERCMP_EXPECTED_RHS
     unset MOGUET_TEST_ALPM_VERCMP_RESULT
+    unset MOGUET_TEST_ALPM_VERCMP_EXPECTED_LHS_2
+    unset MOGUET_TEST_ALPM_VERCMP_EXPECTED_RHS_2
+    unset MOGUET_TEST_ALPM_VERCMP_RESULT_2
 
     export MOGUET_TEST_PACKAGE_METADATA_STATE_FILE=$package_metadata_state
     export MOGUET_TEST_REPOSITORY_METADATA_STATE_FILE=$repository_metadata_state
@@ -117,6 +120,16 @@ write_source_preference() {
 write_repository_package() {
     package=$1
     printf 'core %s 1 1\n' "$package" >> "$repository_metadata_state"
+}
+
+declare_system_update_version_guard_oracle() {
+    # The selected update is 0.9-1 installed, 1.0-1 RPC and actual artifact.
+    export MOGUET_TEST_ALPM_VERCMP_EXPECTED_LHS=1.0-1
+    export MOGUET_TEST_ALPM_VERCMP_EXPECTED_RHS=0.9-1
+    export MOGUET_TEST_ALPM_VERCMP_RESULT=1
+    export MOGUET_TEST_ALPM_VERCMP_EXPECTED_LHS_2=1.0-1
+    export MOGUET_TEST_ALPM_VERCMP_EXPECTED_RHS_2=1.0-1
+    export MOGUET_TEST_ALPM_VERCMP_RESULT_2=0
 }
 
 run_status() {
@@ -1366,6 +1379,8 @@ for sync_operation in -Syu -Su; do
     setup_case "system-aur-update-success-is-fresh-and-ignores-preference-$sync_operation"
     foreign_inventory=$case_dir/foreign-inventory.state
     printf 'system-update-a 0.9-1 explicit\n' > "$foreign_inventory"
+    printf 'system-update-a 0.9-1\n' > "$package_metadata_state"
+    declare_system_update_version_guard_oracle
     write_source_preference system-update-a 'INVALID PREFERENCE'
     export MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE=$foreign_inventory
     export MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG=$command_log
@@ -1392,6 +1407,42 @@ for sync_operation in -Syu -Su; do
     assert_not_contains "Internal inconsistency:" "$output_file"
 done
 
+# Public OFF/ON policy reaches actual and dry-run through the same query owner.
+for sync_operation in -Syu -Su; do
+    for enabled in false true; do
+        for dry in actual dry-run; do
+            setup_case "devel-policy-$sync_operation-$enabled-$dry"
+            printf 'schema_version = 1\n[updates]\ndevel = %s\n' "$enabled" > "$config_file"
+            foreign_inventory=$case_dir/foreign-inventory.state
+            printf 'system-current 1.0-1 explicit\n' > "$foreign_inventory"
+            export MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE=$foreign_inventory
+            export MOGUET_TEST_INSPECTION_SCENARIO=foreign-authoritative-requires-check
+            export MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG=$command_log
+            export MOGUET_TEST_SUDO_MAIN_STATUS=0
+            if [ "$dry" = actual ]; then
+                run_status 0 --noedit --nodiff --noconfirm "$sync_operation"
+            else
+                run_status 0 --noedit --nodiff --noconfirm "$sync_operation" --dry-run
+            fi
+            if [ "$enabled" = true ]; then
+                assert_contains 'tracking observation' "$command_log"
+                assert_contains 'requires check' "$output_file"
+            else
+                assert_event_prefix_absent '^tracking observation$'
+                assert_not_contains 'requires check' "$output_file"
+            fi
+            assert_event_prefix_absent '^git '
+        done
+    done
+    setup_case "devel-config-repo-$sync_operation"
+    printf 'schema_version = 1\n[updates]\ndevel = true\n' > "$config_file"
+    export MOGUET_TEST_SUDO_MAIN_STATUS=0
+    run_status 0 --noconfirm "$sync_operation" --repo
+    assert_event_prefix_absent '^tracking observation$'
+    assert_event_prefix_absent '^aur '
+    assert_event_prefix_absent '^git '
+done
+
 setup_case system-aur-update-independent-requires-check-is-attention
 foreign_inventory=$case_dir/foreign-inventory.state
 printf '%s\n' \
@@ -1402,7 +1453,7 @@ write_source_preference tree-sitter-cli-git 'INVALID PREFERENCE'
 export MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE=$foreign_inventory
 export MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG=$command_log
 export MOGUET_TEST_SUDO_MAIN_STATUS=0
-run_status 0 --noedit --nodiff --noconfirm -Syu
+run_status 0 --devel --noedit --nodiff --noconfirm -Syu
 assert_event_count_before 1 "pacman-conf --verbose RootDir DBPath" "sudo pacman -Syu --noconfirm"
 assert_event_before \
     "sudo pacman -Syu --noconfirm" \
@@ -1429,11 +1480,13 @@ for scenario in attention-only mixed-update; do
     printf '%s\n' 'system-current 1.0-1 explicit' > "$foreign_inventory"
     if [ "$scenario" = mixed-update ]; then
         printf '%s\n' 'system-update-a 0.9-1 explicit' >> "$foreign_inventory"
+        printf 'system-update-a 0.9-1\n' > "$package_metadata_state"
+        declare_system_update_version_guard_oracle
     fi
     export MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE=$foreign_inventory
     export MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG=$command_log
     export MOGUET_TEST_INSPECTION_SCENARIO=foreign-authoritative-requires-check
-    run_status 0 --noedit --nodiff --noconfirm -Syu
+    run_status 0 --devel --noedit --nodiff --noconfirm -Syu
     assert_event_count_before 1 "pacman-conf --verbose RootDir DBPath" "sudo pacman -Syu --noconfirm"
     assert_event_count 1 "sudo pacman -Syu --noconfirm"
     assert_output_count 1 \
@@ -1461,6 +1514,8 @@ for scenario in attention-only mixed-update; do
 done
 
 setup_case system-aur-update-mixed-independent-requires-check
+printf 'system-update-a 0.9-1\n' > "$package_metadata_state"
+declare_system_update_version_guard_oracle
 foreign_inventory=$case_dir/foreign-inventory.state
 printf '%s\n' \
     'system-update-a 0.9-1 explicit' \
@@ -1470,7 +1525,7 @@ write_source_preference system-devel-git 'INVALID PREFERENCE'
 export MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE=$foreign_inventory
 export MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG=$command_log
 export MOGUET_TEST_SUDO_MAIN_STATUS=0
-run_status 0 --noedit --nodiff --noconfirm -Syu
+run_status 0 --devel --noedit --nodiff --noconfirm -Syu
 assert_event_before \
     "aur info-many system-update-a system-devel-git system-current" \
     "git clone https://aur.archlinux.org/system-update-a.git system-update-a"
@@ -1493,7 +1548,7 @@ printf '%s\n' \
 export MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE=$foreign_inventory
 export MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG=$command_log
 export MOGUET_TEST_SUDO_MAIN_STATUS=0
-run_status 1 --noedit --nodiff --noconfirm -Syu
+run_status 1 --devel --noedit --nodiff --noconfirm -Syu
 assert_event_count_before 1 "pacman-conf --verbose RootDir DBPath" "sudo pacman -Syu --noconfirm"
 assert_event_prefix_absent '^(git|makepkg) '
 assert_event_pattern_count 0 '^sudo pacman -U '
@@ -1526,7 +1581,8 @@ installed_state=$XDG_CACHE_HOME/installed-state
 installed_after_success=$XDG_CACHE_HOME/installed-after-success
 install_success_log=$XDG_CACHE_HOME/pacman-u-success.log
 printf 'system-update-a 0.9-1 explicit\n' > "$foreign_inventory"
-: > "$installed_state"
+printf 'system-update-a 0.9-1\n' > "$installed_state"
+declare_system_update_version_guard_oracle
 printf 'system-update-a 1.0-1\n' > "$installed_after_success"
 : > "$install_success_log"
 export MOGUET_TEST_FOREIGN_PACKAGE_INVENTORY_STATE_FILE=$foreign_inventory

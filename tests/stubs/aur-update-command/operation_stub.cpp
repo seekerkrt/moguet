@@ -153,21 +153,18 @@ AurUpdatePlanEntry make_plan_entry(
                     AurUpdateClassification::VersionComparisonUnavailable
                 ? AurVersionRelation::Unavailable
                 : AurVersionRelation::NewerThanInstalled;
-        entry.aur_package = std::move(remote);
+        // Keep the legacy command fixture on the production pure classifier:
+        // DisabledByPolicy requires its conservative identity/suffix evidence.
+        entry = classify_aur_update(AurUpdatePlanInput{
+            entry.installed_name, entry.installed_version, entry.install_reason,
+            std::move(remote)});
     }
     return entry;
 }
 
 AurUpdatePlanEntry make_requires_check_plan_entry(
     const std::string& package_name) {
-    AurUpdatePlanEntry entry = make_plan_entry(
-        package_name, AurUpdateClassification::UpToDate);
-    entry.devel_classification = DevelPackageClassification::classify(
-        DevelPackageSuffixEvidence::classify(
-            package_name, {package_name}));
-    entry.devel_assessment = DevelUpdateAssessment::requires_check(
-        DevelRequiresCheckReason::SuffixCandidateOnly);
-    return entry;
+    return make_plan_entry(package_name, AurUpdateClassification::UpToDate);
 }
 
 AurUpdateExecutionIssue make_preflight_issue(
@@ -493,7 +490,7 @@ bool reduced_result_is_defensively_successful(
 
 } // namespace
 
-AurUpdateQueryResult query_installed_aur_updates() {
+static AurUpdateQueryResult fixture_aur_update_query() {
     append_event("query");
 
     AurUpdateQueryResult query;
@@ -675,15 +672,27 @@ AurUpdateQueryResult query_installed_aur_updates() {
                            test_scenario);
 }
 
+AurUpdateQueryResult query_installed_aur_updates(AurUpdateQueryPolicy policy) {
+    append_event(policy == AurUpdateQueryPolicy::VersionOnly ? "query policy version-only" : "query policy tracking-enabled");
+    auto query = fixture_aur_update_query();
+    if(policy == AurUpdateQueryPolicy::VersionOnly) {
+        for(auto& entry : query.plan.entries) {
+            if(entry.classification == AurUpdateClassification::UpToDate)
+                entry.devel_assessment_origin = AurDevelAssessmentOrigin::DisabledByPolicy;
+        }
+    }
+    return query;
+}
+
 AurUpdateQueryResult query_aur_updates_for_foreign_inventory(
-    ForeignPackageInventory inventory) {
+    ForeignPackageInventory inventory, AurUpdateQueryPolicy policy) {
     const bool no_updates = scenario() == "all-up-to-date";
     if((!is_preparation_presentation_scenario() && !no_updates) || inventory.size() != 1 ||
        inventory.front().name != (no_updates ? "up-to-date-pkg" : "preparation-pkg")) {
         throw std::logic_error("Unexpected system AUR preparation fixture inventory.");
     }
     append_event("query post-repository inventory");
-    return query_installed_aur_updates();
+    return query_installed_aur_updates(policy);
 }
 
 AurUpdateExecutionPreflight resolve_aur_update_execution_preflight(
@@ -1095,9 +1104,17 @@ AurUpdateOperationResult reduce_aur_update_operation_result(
         result.status = AurUpdateOperationStatus::NoUpdates;
         return result;
     }
+    if(test_scenario == "devel-requires-check") {
+        // This fixture is shared by OFF/ON. The typed preflight carries the
+        // resolved decision; its scenario name is not a tracking authority.
+        const bool all_skipped = std::all_of(preflight.targets.begin(), preflight.targets.end(), [](const auto& target) {
+            return target.status == AurUpdateExecutionTargetStatus::Skipped;
+        });
+        result.status = all_skipped ? AurUpdateOperationStatus::NoUpdates : AurUpdateOperationStatus::BlockedBeforeExecution;
+        return result;
+    }
     if(test_scenario == "metadata-unavailable" ||
        test_scenario == "version-comparison-unavailable" ||
-       test_scenario == "devel-requires-check" ||
        test_scenario == "unsupported-blocker" ||
        test_scenario == "incomplete-blocker") {
         result.status = AurUpdateOperationStatus::BlockedBeforeExecution;

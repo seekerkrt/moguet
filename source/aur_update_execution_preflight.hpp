@@ -327,6 +327,8 @@ inline bool is_valid_aur_update_normal_skip_snapshot(
 
     switch(*skip_kind) {
         case AurUpdateExecutionSkipKind::UpToDate:
+            if(update.devel_assessment_origin == AurDevelAssessmentOrigin::DisabledByPolicy)
+                return has_consistent_version_only_devel_snapshot(update);
             return update.classification ==
                        AurUpdateClassification::UpToDate &&
                    update.aur_package.has_value() &&

@@ -52,6 +52,8 @@ _moguet_option_id() {
         --local) REPLY=15 ;;
         --use-preference) REPLY=21 ;;
         --save-preference) REPLY=23 ;;
+        --devel) REPLY=24 ;;
+        --no-devel) REPLY=25 ;;
         --use-patches) REPLY=22 ;;
         --output-dir|--output-dir=*) REPLY=16 ;;
         --recursive) REPLY=17 ;;
@@ -84,6 +86,8 @@ _moguet_option_ownership() {
         --local) REPLY=moguet-owned ;;
         --use-preference) REPLY=moguet-owned ;;
         --save-preference) REPLY=moguet-owned ;;
+        --devel) REPLY=moguet-owned ;;
+        --no-devel) REPLY=moguet-owned ;;
         --use-patches) REPLY=moguet-owned ;;
         --output-dir=) REPLY=moguet-owned ;;
         --recursive) REPLY=moguet-owned ;;
@@ -327,6 +331,8 @@ _moguet_conflicts_with_present_option() {
         15) _moguet_has_option_id 23 ;;
         21) _moguet_has_option_id 23 || _moguet_has_option_id 22 ;;
         23) _moguet_has_option_id 21 || _moguet_has_option_id 5 || _moguet_has_option_id 15 ;;
+        24) _moguet_has_option_id 25 ;;
+        25) _moguet_has_option_id 24 ;;
         22) _moguet_has_option_id 0 || _moguet_has_option_id 5 || _moguet_has_option_id 21 ;;
         *) return 1 ;;
     esac
@@ -356,21 +362,21 @@ _moguet_collect_candidates() {
             ;;
         upgrade)
             if _moguet_form_prefix_valid upgrade 0; then
-                reply=(--edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild)
+                reply=(--edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --devel --no-devel)
             else
                 reply=()
             fi
             ;;
         upgrade-aur)
             if _moguet_form_prefix_valid upgrade-aur 0; then
-                reply=(--edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --details)
+                reply=(--edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --details --devel --no-devel)
             else
                 reply=()
             fi
             ;;
         upgrade-all)
             if _moguet_form_prefix_valid upgrade-all 0; then
-                reply=(--edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --details)
+                reply=(--edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --details --devel --no-devel)
             else
                 reply=()
             fi
@@ -501,7 +507,7 @@ _moguet_collect_candidates() {
             elif _moguet_has_operand -Syu; then
                 reply=(--needed --noconfirm)
             else
-                reply=(--edit --noedit --diff --nodiff --noconfirm --dry-run --details --build-mode= --rebuild --cleanbuild --needed --repo)
+                reply=(--edit --noedit --diff --nodiff --noconfirm --dry-run --details --build-mode= --rebuild --cleanbuild --devel --no-devel --needed --repo)
             fi
             ;;
         -Su)
@@ -514,7 +520,7 @@ _moguet_collect_candidates() {
             elif _moguet_has_operand -Su; then
                 reply=(--needed --noconfirm)
             else
-                reply=(--edit --noedit --diff --nodiff --noconfirm --dry-run --details --build-mode= --rebuild --cleanbuild --needed --repo)
+                reply=(--edit --noedit --diff --nodiff --noconfirm --dry-run --details --build-mode= --rebuild --cleanbuild --devel --no-devel --needed --repo)
             fi
             ;;
         -Ss) reply=(--needed --noconfirm) ;;
@@ -533,6 +539,10 @@ _moguet_collect_candidates() {
     esac
     if [[ $operation == -Qua ]] && [[ " ${reply[*]} " != *' --details '* ]]; then reply+=(--details); fi
     if [[ $operation == -S ]] && _moguet_has_option_id 5 && [[ " ${reply[*]} " != *' --details '* ]]; then reply+=(--details); fi
+    if _moguet_tracking_context "$operation"; then
+        [[ " ${reply[*]} " == *' --devel '* ]] || reply+=(--devel)
+        [[ " ${reply[*]} " == *' --no-devel '* ]] || reply+=(--no-devel)
+    fi
 }
 
 _moguet_description() {
@@ -584,6 +594,8 @@ _moguet_description() {
         --local) REPLY='Use one local PKGBUILD directory as the build root' ;;
         --use-preference) REPLY='Use the saved source-build preference for one remote build; conflicts with V=K assignments' ;;
         --save-preference) REPLY='Save explicit V=K after remote build/install success as a new preference; conflicts with --use-preference and --dry-run' ;;
+        --devel) REPLY='Request Git revision tracking in addition to AUR package-version updates; explicit CLI overrides config, default OFF' ;;
+        --no-devel) REPLY='Disable Git revision tracking for this invocation, overriding config' ;;
         --use-patches) REPLY='Explicitly select saved recipe patches for build --local; requires metadata evaluation consent' ;;
         --output-dir=) REPLY='Select an existing export parent for -G' ;;
         --recursive) REPLY='Resolve dependencies recursively' ;;
@@ -675,6 +687,30 @@ _moguet_query_context() {
     [[ $seen == true && $pending == false ]]
 }
 
+_moguet_tracking_context() {
+    local operation="$1" word actual index seen_operation=false
+    local -a allowed
+    case "$operation" in
+        -Qua) allowed=(0 1 2 3 4 6 7 8 9 20 24 25) ;;
+        upgrade) allowed=(0 1 2 3 4 5 6 7 8 24 25) ;;
+        upgrade-aur) allowed=(0 1 2 3 4 5 6 7 8 20 24 25) ;;
+        upgrade-all) allowed=(0 1 2 3 4 5 6 7 8 20 24 25) ;;
+        -Syu) allowed=(0 1 2 3 4 5 20 6 7 8 24 25 18) ;;
+        -Su) allowed=(0 1 2 3 4 5 20 6 7 8 24 25 18) ;;
+        '') allowed=(0 1 2 3 4 6 7 8 9 20 24 25 5 18) ;;
+        *) return 1 ;;
+    esac
+    for ((index=2; index<CURRENT; ++index)); do
+        word=${(Q)words[index]}
+        if [[ -n $operation && $word == "$operation" && $seen_operation == false ]]; then
+            seen_operation=true
+            continue
+        fi
+        _moguet_option_id "$word" || return 1; actual=$REPLY
+        [[ " ${allowed[*]} " == *" $actual "* ]] || return 1
+    done
+    return 0
+}
 
 _moguet() {
     local operation candidate option_id cur=${PREFIX-${(Q)words[CURRENT]}}
@@ -697,7 +733,7 @@ _moguet() {
     operation=$REPLY
 
     if [[ -z $operation ]]; then
-        candidates=(build upgrade upgrade-aur upgrade-all clean deps plan fetch add-src edit-src list-src del-src revert add-patch update-patch del-patch list-patch -G -Gp -S -Syu -Su -Ss -Si -Qua -h --help -V --version --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --rmdeps --select --aur --repo --details)
+        candidates=(build upgrade upgrade-aur upgrade-all clean deps plan fetch add-src edit-src list-src del-src revert add-patch update-patch del-patch list-patch -G -Gp -S -Syu -Su -Ss -Si -Qua -h --help -V --version --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --rmdeps --select --aur --repo --details --devel --no-devel)
     else
         _moguet_collect_candidates "$operation"
         candidates=("${reply[@]}")
@@ -708,6 +744,11 @@ _moguet() {
     for candidate in "${candidates[@]}"; do
         if _moguet_option_id "$candidate"; then
             option_id=$REPLY
+            case "$option_id" in
+            24|25)
+                _moguet_tracking_context "$operation" || continue
+                ;;
+            esac
             case "$option_id" in
             13|14|15|21|23|22|16)
                 _moguet_has_option_id "$option_id" && continue

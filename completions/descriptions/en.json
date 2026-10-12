@@ -57,6 +57,8 @@
     "--repo": "Use only official binary repositories; with -Syu / -Su, run the repository system upgrade only",
     "--needed": "Preserve pacman --needed semantics at the installation phase owned by the selected route",
     "--recursive": "Resolve dependencies recursively",
+    "--devel": "Request Git revision tracking in addition to AUR package-version updates; explicit CLI overrides config, default OFF",
+    "--no-devel": "Disable Git revision tracking for this invocation, overriding config",
     "--use-patches": "Explicitly select saved recipe patches for build --local; requires metadata evaluation consent"
   }
 }

@@ -2572,6 +2572,36 @@ assert_output_before \
     "  produced artifact: registered-child-debug 4.2-3 (not selected; not installed)" \
     "$output_file"
 
+# OFF keeps registered AUR .SRCINFO/source-baseline behavior even when a
+# tracking-only RequiresCheck would have been observed under ON.
+for policy in built-in explicit-off; do
+    for source_version in same newer; do
+        installed_version=2.0-1
+        [ "$source_version" != newer ] || installed_version=1.0-1
+        setup_upgrade_transition_case "devel-off-registered-$policy-$source_version" \
+            "$installed_version" "$installed_version" enabled https://aur.archlinux.org/clean-root.git
+        write_upgrade_srcinfo "$remote_srcinfo" 2.0 1
+        export MOGUET_TEST_REGISTERED_DEVEL_STATE=check
+        if [ "$policy" = explicit-off ]; then
+            run_upgrade_ok --no-devel --noedit --nodiff --noconfirm upgrade
+        else
+            run_upgrade_ok --noedit --nodiff --noconfirm upgrade
+        fi
+        assert_command "git fetch origin"
+        assert_command "git reset --hard origin/main"
+        assert_not_contains 'Git revision matches' "$output_file"
+        assert_not_contains 'explicit rebuild' "$output_file"
+        assert_command_content_absent 'tracking observation'
+        if [ "$source_version" = same ]; then
+            assert_contains 'clean-root is up to date (2.0-1). Skipping.' "$output_file"
+            assert_command_content_absent 'makepkg'
+        else
+            assert_command_count "makepkg -sc --noconfirm" 1
+            assert_command "vercmp 2.0-1 1.0-1"
+        fi
+    done
+done
+
 # RequiresCheck remains a successful legacy skip with final identity/reason.
 for check_answer in explicit-no noninteractive noconfirm; do
     setup_upgrade_transition_case "upgrade-requires-check-$check_answer" \
@@ -2581,15 +2611,15 @@ for check_answer in explicit-no noninteractive noconfirm; do
         refresh_repository_metadata_fixture
         printf 'n\n' > "$case_dir/answer"
         if ! PATH=$upgrade_metadata_path python3 "$repo_root/tests/run-with-pty.py" -- \
-            "$upgrade_metadata_test_binary" --noedit --nodiff upgrade \
+            "$upgrade_metadata_test_binary" --devel --noedit --nodiff upgrade \
             < "$case_dir/answer" > "$output_file" 2>&1; then
             cat "$output_file" >&2
             exit 1
         fi
     elif [ "$check_answer" = noconfirm ]; then
-        run_upgrade_ok --noedit --nodiff --noconfirm upgrade
+        run_upgrade_ok --devel --noedit --nodiff --noconfirm upgrade
     else
-        run_upgrade_ok --noedit --nodiff upgrade
+        run_upgrade_ok --devel --noedit --nodiff upgrade
     fi
     assert_contains "  registered source: Requires check [source=aur, package=clean-root, PackageBase=clean-root]" "$output_file"
     assert_contains "Skipped: explicit rebuild was not accepted; inspect devel source metadata before rebuilding." "$output_file"
@@ -2610,7 +2640,7 @@ printf 'q\n' > "$case_dir/answer"
 if ! validation_expect_status upgrade-requires-check-cancel 1 \
     "$output_file" "$output_file" env PATH="$upgrade_metadata_path" \
     python3 "$repo_root/tests/run-with-pty.py" -- \
-    "$upgrade_metadata_test_binary" --noedit --nodiff upgrade < "$case_dir/answer"; then
+    "$upgrade_metadata_test_binary" --devel --noedit --nodiff upgrade < "$case_dir/answer"; then
     cat "$output_file" >&2
     exit 1
 fi
