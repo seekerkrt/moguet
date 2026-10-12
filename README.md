@@ -655,16 +655,56 @@ work. `moguet -Syu --aur` and `moguet -Su --aur` are unsupported; use the source
 provider, conflict/replacement, required `RequiresCheck`, or other safety
 guards, and it never approves an unverified devel update.
 
-Moguet v2.5.0 treats installed exact-AUR packages with conventional `-git`,
-`-svn`, `-hg`, `-bzr`, `-cvs`, or `-darcs` suffix evidence as devel
-candidates. When the normal AUR version is not newer and only that suffix
-evidence is available, `moguet -Qua` reports `RequiresCheck` with the package,
-PackageBase/child evidence, and reason instead of silently treating the
-package as up to date. A normal newer AUR version remains an update candidate
-and keeps the existing precedence.
+In v2.12.0, VCS/devel Git revision tracking is **OFF by default**. Ordinary AUR
+updates compare the installed full package version with AUR RPC Version,
+including VCS packages; OFF does not exclude them from normal version updates.
+Use `--devel` when Git revision assessment is also needed, or set
+`[updates] devel = true` in user configuration for persistent opt-in.
+`--no-devel` temporarily disables that configured opt-in. Explicit CLI policy
+overrides user configuration, which overrides the built-in OFF default.
 
-`RequiresCheck` is neither `UpToDate` nor an automatic rebuild decision. In
-ordinary exact target-less `-Syu`, an independent target in this state is
+```sh
+moguet -Syu
+moguet -Syu --devel
+moguet -Syu --no-devel
+moguet -Su --devel
+moguet -Qua --devel
+moguet upgrade-aur --devel
+moguet upgrade-all --devel
+```
+
+Both options take no value. Repeating the same option is allowed; combining
+`--devel` and `--no-devel` is a usage error (exit 1), with no last-one-wins rule.
+They are supported only on exact target-less Auto `-Syu` / `-Su`, exact
+target-less `-Qua`, and `upgrade`, `upgrade-aur`, `upgrade-all`. The five update
+routes also support them with `--dry-run`; `-Qua --dry-run` is unsupported.
+The supported `-Qua` form has no pacman tail or `--` marker; existing Moguet
+`--details` and `--noconfirm` remain accepted.
+Explicit options, including OFF, reject `--repo` / `--aur`, target-bearing
+forms, `-Qau` and other delegated pacman forms, `build`, inspection and source
+maintenance routes before mutation. Help/version reject an actual option
+occurrence before reading config or initializing XDG/logging. A token consumed
+as a pacman option value or after `--` remains a value/operand, rather than
+acquiring Moguet policy semantics. Config opt-in adds no tracking to routes
+outside this scope.
+
+Version-only output means that Git remote revision was **not observed**, not
+that Git is up to date. Suffix evidence remains a hint, not proof of Git source
+or revision equality. `--devel` requests assessment; it grants no source review,
+bootstrap, build or install approval, and `--noconfirm` does not approve initial
+tracking bootstrap. OFF retains source review, build proof, install safety and
+eligible provenance publication for normal version updates.
+
+Historically, Moguet v2.5.0 treated installed exact-AUR packages with conventional `-git`,
+`-svn`, `-hg`, `-bzr`, `-cvs`, or `-darcs` suffix evidence as devel
+candidates. When the normal AUR version was not newer and only that suffix
+evidence was available, `moguet -Qua` reported `RequiresCheck` with the package,
+PackageBase/child evidence, and reason instead of silently treating the
+package as up to date. A normal newer AUR version remained an update candidate
+and kept the existing precedence.
+
+With tracking enabled, `RequiresCheck` is neither `UpToDate` nor an automatic
+rebuild decision. In ordinary exact target-less `-Syu` / `-Su`, an independent target in this state is
 skipped with a non-blocking warning; unrelated normal AUR updates can continue,
 and the aggregate can succeed. Its update status remains unverified. If another
 update candidate requires that target through a dependency, provider, or
@@ -674,7 +714,7 @@ is non-zero. `upgrade-aur`, its dry-run, and the fresh AUR phase of
 and `--noconfirm` do not add a prompt or approve a rebuild.
 
 For an independent target whose initial provenance observation is genuinely
-missing, interactive exact target-less `-Syu` can offer an explicit tracking
+missing, tracking-enabled interactive exact target-less `-Syu` / `-Su` can offer an explicit tracking
 bootstrap with a default-No confirmation. Before offering it, Moguet observes
 an exact AUR recipe without changing cache or state and checks the trial source
 shape. The trial supports a declared PackageBase child set and one floating HTTPS Git source, plus
@@ -705,7 +745,7 @@ stops subsequent work without rollback. Invalid, corrupt, future, mismatched,
 and unsafe state are never repaired this way. This bootstrap does not change
 `upgrade-aur`, `upgrade-all`, query/dry-run behavior, or explicit target routing.
 
-v2.5.0 does not query or compare the upstream VCS revision and does not publish
+Historically, v2.5.0 did not query or compare the upstream VCS revision or publish
 devel build provenance. Moguet now includes the trusted
 HTTPS Git remote revision observer foundation from
 [issue #475](https://github.com/seekerkrt/moguet/issues/475), limited to
@@ -714,7 +754,7 @@ The internal [issue #476](https://github.com/seekerkrt/moguet/issues/476)
 Slice 7-B coordinator compares the provenance tip with fresh installed and
 reviewed state before querying the remote, then rechecks local state before
 returning `UpdateAvailable` / `UpToDate`. Slice 7-D connects this producer to
-normal AUR updates, registered AUR updates, `-Qua`, and affected dry-run routes.
+tracking-enabled normal AUR updates, registered AUR updates, `-Qua`, and affected dry-run routes.
 A newer normal AUR version keeps precedence without a Git query; same/older
 versions may be refined by the validated Git assessment. Git revision differences
 are displayed separately from package-version changes.
@@ -729,12 +769,39 @@ remain separate partial outcomes and produce a non-zero result. Registered
 `RequiresCheck` uses an explicit default-No rebuild confirmation; this does not
 replace source review. `--noconfirm` cannot supply review authority. See the
 [normal devel route contract](https://github.com/seekerkrt/moguet/blob/develop/docs/contracts/devel-normal-routes.md).
+For automatic Version updates through exact target-less Auto `-Syu` / `-Su`,
+a supported split PackageBase with one selected child and one floating HTTPS
+Git source also uses this reviewed build path. It validates dynamic `pkgver()`
+outputs after source preparation, checks all produced children, and installs
+only the selected child. Exact recipe acceptance and separate explicit source
+snapshot approval are required; `--devel` and `--noconfirm` do not supply them.
+This subset does not extend upgrade-family, registered or explicit builds,
+multiple Git sources, multiple selected children, or unsupported build/install
+intents. Other Legacy dynamic recipes retain their existing limitations.
 The provenance format remains schema v1 in a separate XDG state namespace.
 Unknown/future schemas and corrupt or unsafe history fail closed; the updater does
 not repair records, adopt external history, or automatically create a missing baseline. A baseline
 requires an explicitly reviewed supported build, an actual install, and successful
 publication. Same-version reinstalls invalidate historical provenance when the
 installed artifact binding changes. See the [devel tracking and migration contract](https://github.com/seekerkrt/moguet/blob/develop/docs/contracts/devel-tracking.md).
+
+Automatic AUR updates selected on a **Version** basis also check the actual
+built artifact before installation. For each selected child, its full version
+must be newer than the fresh installed version **and** at least the observed
+AUR RPC Version. Arch/libalpm comparison includes epoch and pkgrel; exact RPC
+equality is not required, so a newer dynamic version can pass. Same-version or
+older artifacts, versions below RPC, changed/disappeared installed children,
+failed installed observations, invalid version evidence, unavailable comparison
+authority and mismatched child,
+PackageBase or source identity stop with an `AutomaticAurVersionGuardFailure`
+diagnostic and a non-zero result before that install transaction. Completed
+earlier work remains reported; the affected install is not reported as success.
+Moguet does not automatically rebuild, retry or roll back. This guard does not
+apply indiscriminately to GitRevision updates, initial tracking bootstrap,
+explicit builds, registered custom-baseline rebuilds, dependencies or unselected
+split siblings. The check and subsequent pacman transaction are not fully
+atomic. Registered AUR `OnlyIfUpdated` retains its `.SRCINFO` and pre/post-system
+baseline rules when tracking is OFF.
 
 `--aur` limits supported `-S`, `-Ss`, and `-Si` forms to AUR. `--repo`
 limits those forms to official binary repositories and is also the
@@ -1035,7 +1102,7 @@ standard Arch package installation places the same file at
 `normal`, `rebuild`, and `clean` are TOML strings and must remain quoted; the
 canonical sample uses double quotes.
 
-The minimal v2.0.0 schema and built-in defaults are:
+The schema remains version 1; current built-in defaults are:
 
 ```toml
 schema_version = 1
@@ -1046,6 +1113,12 @@ diff = "prompt"
 
 [build]
 mode = "normal"
+
+# Git revision tracking is opt-in. This is a strict TOML boolean, not a string
+# or number. CLI --devel / --no-devel overrides this value for one invocation.
+# Older Moguet binaries may reject [updates]; check this manually on downgrade.
+[updates]
+devel = false
 ```
 
 Values are composed in this order:
@@ -1055,7 +1128,9 @@ built-in defaults -> user config -> CLI override
 ```
 
 The canonical CLI overrides are `--edit` / `--noedit`, `--diff` /
-`--nodiff`, and `--build-mode=normal|rebuild|clean`. `--rebuild` and
+`--nodiff`, `--build-mode=normal|rebuild|clean`, and `--devel` / `--no-devel`.
+`updates.devel` is a strict TOML boolean (`true` / `false`); quoted strings such
+as `"true"` and numeric values are rejected. `--rebuild` and
 `--cleanbuild` are compatibility aliases for the corresponding build modes.
 Conflicting overrides fail before external mutation rather than using
 last-one-wins behavior.
@@ -1070,6 +1145,16 @@ A missing config file is normal. An existing file must contain
 values, and unsupported future schema versions stop the invocation. Moguet
 does not create, rewrite, or migrate this file automatically, and it does not
 use `/etc/moguet` as a system-wide configuration layer.
+
+For migration from v2.11.0 and earlier normal devel tracking, v2.12.0 changes
+the default to version-only updates. Add `[updates]` with `devel = true` to
+retain the corresponding tracking policy, use `--devel` for one invocation,
+or use `--no-devel` to turn configured tracking off for one invocation. Existing
+configuration is never rewritten. Older binaries may reject the new `[updates]`
+section as unknown configuration; manually check your user config before a
+downgrade. This opt-in migration does not delete, repair or migrate provenance
+history. The version classification and behavior change are recorded in
+[versioning policy](https://github.com/seekerkrt/moguet/blob/develop/docs/versioning.md).
 
 Source-build preferences are separate per-package files under:
 

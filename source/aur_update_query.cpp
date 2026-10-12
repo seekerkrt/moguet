@@ -85,7 +85,7 @@ std::vector<AurUpdatePlanInput> make_plan_inputs(
 
 } // namespace
 
-AurUpdateQueryResult query_installed_aur_updates() {
+AurUpdateQueryResult query_installed_aur_updates(AurUpdateQueryPolicy policy) {
     PacmanRepositoryConfiguration configuration =
         resolve_pacman_repository_configuration();
     ForeignPackageInventoryResult inventory_result =
@@ -100,11 +100,13 @@ AurUpdateQueryResult query_installed_aur_updates() {
     ForeignPackageInventory installed_packages =
         std::get<ForeignPackageInventory>(std::move(inventory_result));
     return query_aur_updates_for_foreign_inventory(
-        std::move(installed_packages));
+        std::move(installed_packages), policy);
 }
 
 AurUpdateQueryResult query_aur_updates_for_foreign_inventory(
-    ForeignPackageInventory installed_packages) {
+    ForeignPackageInventory installed_packages, AurUpdateQueryPolicy policy) {
+    if(policy != AurUpdateQueryPolicy::VersionOnly && policy != AurUpdateQueryPolicy::TrackingEnabled)
+        throw std::logic_error("Unknown AUR update query policy.");
     if(installed_packages.empty()) return {};
 
     std::vector<std::string> package_names;
@@ -168,7 +170,14 @@ AurUpdateQueryResult query_aur_updates_for_foreign_inventory(
     std::vector<AurUpdatePlanInput> inputs = make_plan_inputs(
         installed_packages, aur_packages, metadata_unavailable_packages);
     AurUpdateQueryResult result{make_aur_update_plan(inputs), std::move(recoverable_failures), {}};
-    result.devel_observations = refine_aur_devel_updates(result.plan);
+    if(policy == AurUpdateQueryPolicy::VersionOnly) {
+        // Preserve suffix evidence without turning unobserved Git revisions
+        // into NotApplicable/UpToDate or converting an observed failure.
+        for(auto& entry : result.plan.entries)
+            entry.devel_assessment_origin = AurDevelAssessmentOrigin::DisabledByPolicy;
+    } else {
+        result.devel_observations = refine_aur_devel_updates(result.plan);
+    }
     for(const auto& entry : result.plan.entries) {
         if(aur_update_basis(entry) == AurUpdateBasis::GitRevision)
             Logger::info(localization::format_translated_message(

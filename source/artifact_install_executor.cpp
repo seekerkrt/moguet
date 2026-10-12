@@ -3,13 +3,50 @@
 #include "localization.hpp"
 #include "process.hpp"
 #include "shell_words.hpp"
+#include "terminal_safe_text.hpp"
 
+#include <algorithm>
 #include <stdexcept>
+#include <string_view>
 #include <utility>
 #include <variant>
 #include <vector>
 
 namespace {
+
+bool is_valid_full_package_version(std::string_view version) noexcept {
+    const auto is_digits = [](std::string_view part) {
+        return !part.empty() && std::all_of(part.begin(), part.end(), [](char byte) {
+            return byte >= '0' && byte <= '9';
+        });
+    };
+    const auto epoch = version.find(':');
+    if(epoch != std::string_view::npos) {
+        if(!is_digits(version.substr(0, epoch))) return false;
+        version.remove_prefix(epoch + 1);
+    }
+    const auto release = version.find('-');
+    if(release == std::string_view::npos || release == 0) return false;
+    // This is makepkg's full package identity grammar, not dependency syntax.
+    // In particular, '=', '<' and '>' are legal pkgver bytes. Ordering remains
+    // exclusively alpm_pkg_vercmp; validation never normalizes the evidence.
+    if(!std::all_of(version.begin(), version.begin() + release, [](char byte) {
+           const auto value = static_cast<unsigned char>(byte);
+           return value >= 0x21U && value <= 0x7eU && byte != ':' && byte != '/';
+       })) return false;
+    const auto pkgrel = version.substr(release + 1);
+    const auto subrelease = pkgrel.find('.');
+    return subrelease == std::string_view::npos
+               ? is_digits(pkgrel)
+               : is_digits(pkgrel.substr(0, subrelease)) && is_digits(pkgrel.substr(subrelease + 1));
+}
+
+std::string guard_diagnostic_value(std::string_view value) {
+    constexpr std::size_t MAX_VALUE_BYTES = 160;
+    std::string display = terminal_safe_text::escape_utf8(value.substr(0, MAX_VALUE_BYTES));
+    if(value.size() > MAX_VALUE_BYTES) display += "...";
+    return display;
+}
 
 [[noreturn]] void throw_malformed_installed_metadata(
     const std::string& diagnostic) {
@@ -189,4 +226,115 @@ ArtifactInstallExecutionOutcome execute_prepared_artifact_install(
         return ArtifactInstallExecutionOutcome::SkippedAsNeeded;
     }
     return ArtifactInstallExecutionOutcome::Installed;
+}
+
+std::optional<AutomaticAurVersionGuardFailureKind> evaluate_automatic_aur_version_ordering(
+    std::optional<ArchVersionOrdering> actual_vs_installed,
+    std::optional<ArchVersionOrdering> actual_vs_rpc) noexcept {
+    using Kind = AutomaticAurVersionGuardFailureKind;
+    const auto known_ordering = [](std::optional<ArchVersionOrdering> value) {
+        return value && (*value == ArchVersionOrdering::Less || *value == ArchVersionOrdering::Equal || *value == ArchVersionOrdering::Greater);
+    };
+    if(!known_ordering(actual_vs_installed) || !known_ordering(actual_vs_rpc)) return Kind::ComparisonUnavailable;
+    if(*actual_vs_installed != ArchVersionOrdering::Greater) return Kind::ArtifactNotNewerThanInstalled;
+    if(*actual_vs_rpc == ArchVersionOrdering::Less) return Kind::ArtifactBelowObservedRpcVersion;
+    return std::nullopt;
+}
+
+std::optional<AutomaticAurVersionGuardFailure> validate_automatic_aur_version_install(
+    const RequiredPackageArtifactTarget& target,
+    const ArtifactPackageIdentity& actual,
+    const InstalledPackageQueryResult& fresh_installed) {
+    if(!target.automatic_version_update) return std::nullopt;
+    const auto& intent = *target.automatic_version_update;
+    using Kind = AutomaticAurVersionGuardFailureKind;
+    AutomaticAurVersionGuardFailure failure{
+        Kind::IntentIdentityMismatch, target.package_base, target.package_name,
+        intent.observed_rpc_version, intent.observed_installed_version,
+        actual.full_version, std::nullopt, std::nullopt};
+    if(target.expected_full_version || intent.package_base != target.package_base ||
+       intent.package_name != target.package_name || actual.package_name != target.package_name ||
+       actual.package_base.state() == ArtifactMetadataValueState::Malformed ||
+       (actual.package_base.value() && *actual.package_base.value() != intent.package_base))
+        return failure;
+    if(const auto* metadata_failure = std::get_if<PackageMetadataFailure>(&fresh_installed)) {
+        failure.kind = Kind::InstalledObservationFailed;
+        failure.metadata_failure = *metadata_failure;
+        return failure;
+    }
+    const auto* installed = std::get_if<InstalledPackageMetadata>(&fresh_installed);
+    if(!installed) {
+        failure.kind = Kind::InstalledPackageDisappeared;
+        return failure;
+    }
+    failure.fresh_installed_version = installed->version;
+    if(!is_valid_full_package_version(actual.full_version) ||
+       !is_valid_full_package_version(intent.observed_rpc_version) ||
+       !is_valid_full_package_version(intent.observed_installed_version) ||
+       !is_valid_full_package_version(installed->version)) {
+        failure.kind = Kind::InvalidVersionEvidence;
+        return failure;
+    }
+    // An installed selected update cannot become a new dependency after the
+    // query. Exact binding drift requires a new invocation, never a retry.
+    // Query evidence contains name/version/reason, not the old installed Base.
+    // A known installed Base may legitimately differ from the newly reviewed
+    // RPC/artifact Base; do not manufacture source drift from that difference.
+    if(installed->name != intent.package_name || installed->version != intent.observed_installed_version ||
+       (intent.observed_installed_reason != InstalledPackageReason::Unknown && installed->reason != intent.observed_installed_reason) ||
+       installed->package_base.state() == InstalledPackageMetadataValueState::Malformed) {
+        failure.kind = Kind::InstalledStateDrift;
+        return failure;
+    }
+    const auto actual_vs_installed = compare_arch_package_versions(actual.full_version, installed->version);
+    const auto actual_vs_rpc = compare_arch_package_versions(actual.full_version, intent.observed_rpc_version);
+    const auto refused = evaluate_automatic_aur_version_ordering(actual_vs_installed, actual_vs_rpc);
+    if(refused) {
+        failure.kind = *refused;
+        return failure;
+    }
+    return std::nullopt;
+}
+
+std::string automatic_aur_version_guard_diagnostic(const AutomaticAurVersionGuardFailure& failure) {
+    using Kind = AutomaticAurVersionGuardFailureKind;
+    std::string reason = localization::translate_message("version comparison authority unavailable");
+    std::string recovery = localization::translate_message("Check the package identity and full version evidence before starting a new invocation.");
+    switch(failure.kind) {
+        case Kind::IntentIdentityMismatch: reason = localization::format_translated_message("selected artifact and {} child identity mismatch", "AUR RPC"); break;
+        case Kind::InvalidVersionEvidence: reason = localization::translate_message("invalid or missing full version evidence"); break;
+        case Kind::ComparisonUnavailable:
+            recovery = localization::format_translated_message("Restore {} version comparison support, then re-check the state in a new invocation.", "Arch");
+            break;
+        case Kind::InstalledObservationFailed:
+            reason = localization::translate_message("fresh installed package observation failed");
+            recovery = localization::translate_message("Re-check the installed package state, then start a new invocation.");
+            break;
+        case Kind::InstalledPackageDisappeared:
+            reason = localization::translate_message("selected installed package disappeared");
+            recovery = localization::translate_message("Re-check the installed package state, then start a new invocation.");
+            break;
+        case Kind::InstalledStateDrift:
+            reason = localization::translate_message("installed package version, install reason, or identity changed since query");
+            recovery = localization::translate_message("Re-check the installed package state, then start a new invocation.");
+            break;
+        case Kind::ArtifactNotNewerThanInstalled:
+            reason = localization::translate_message("artifact is the same version as or older than installed");
+            recovery = localization::format_translated_message("Check the recipe, observed {} version, and actual artifact version before starting a new invocation.", "AUR RPC");
+            break;
+        case Kind::ArtifactBelowObservedRpcVersion:
+            reason = localization::format_translated_message("artifact version is below the observed {} version", "AUR RPC");
+            recovery = localization::format_translated_message("Check the recipe, observed {} version, and actual artifact version before starting a new invocation.", "AUR RPC");
+            break;
+        default: throw std::logic_error(localization::translate_message("Unknown automatic Version guard failure kind."));
+    }
+    // Stored typed facts are presentation input, including malformed evidence.
+    // Bound and escape each value before formatting; do not re-query, compare,
+    // or grant authority from a displayed version or recovery instruction.
+    return localization::format_translated_message(
+               "Automatic {} Version update refused before package transaction for {}: {}; actual={}, fresh installed={}, query installed={}, observed {}={}.",
+               "AUR", guard_diagnostic_value(failure.package_name), reason, guard_diagnostic_value(failure.actual_version),
+               failure.fresh_installed_version ? guard_diagnostic_value(*failure.fresh_installed_version) : localization::translate_message("unavailable"),
+               guard_diagnostic_value(failure.observed_installed_version), "RPC", guard_diagnostic_value(failure.observed_rpc_version)) +
+           " " + recovery + " " + localization::format_translated_message("The {} and {} options do not bypass this guard.", "--devel", "--no-devel");
 }

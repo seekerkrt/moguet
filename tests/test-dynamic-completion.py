@@ -234,6 +234,34 @@ def option_context_scenarios(schema):
     return cases
 
 
+def tracking_scenarios():
+    both = {"--devel", "--no-devel"}
+    cases = [("tracking " + operation, [operation, "--"], both)
+             for operation in ("-Syu", "-Su", "-Qua", "upgrade", "upgrade-aur", "upgrade-all")]
+    cases += [("tracking dry-run " + operation, ["--dry-run", operation, "--"], both)
+              for operation in ("-Syu", "-Su", "upgrade", "upgrade-aur", "upgrade-all")]
+    cases += [("query details", ["-Qua", "--details", "--"], both),
+              ("query no-confirm", ["-Qua", "--noconfirm", "--"], both),
+              ("query existing no-op rmdeps", ["-Qua", "--rmdeps", "--"], both),
+              ("query repeat ON", ["-Qua", "--devel", "--"], {"--devel"}),
+              ("query repeat OFF", ["-Qua", "--no-devel", "--"], {"--no-devel"}),
+              ("ordinary needed", ["-Syu", "--needed", "--"], both)]
+    for operation in ("-Syu", "-Su", "-Qua", "upgrade", "upgrade-aur", "upgrade-all"):
+        for selector in ("--aur", "--repo"):
+            cases += [("tracking selector " + operation + selector, [operation, selector, "--"], set()),
+                      ("tracking leading selector " + operation + selector, [selector, operation, "--"], set())]
+        cases += [("tracking target " + operation, [operation, "fixture", "--"], set()),
+                  ("tracking unknown tail " + operation, [operation, "--not-known", "--"], set()),
+                  ("tracking marker " + operation, [operation, "--", "--"], set())]
+    for args in (["-Qua", "--needed", "--"], ["--dry-run", "-Qua", "--"],
+                 ["-Qua", "--root", "/fixture", "--"], ["-Qua", "--root", "--devel"],
+                 ["-Qau", "--"], ["-S", "--"], ["build", "--"],
+                 ["plan", "--"], ["deps", "--"], ["fetch", "--"],
+                 ["--help", "--"], ["--version", "--"]):
+        cases.append(("tracking unsupported " + " ".join(args), args, set()))
+    return cases
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--adapters", type=Path, help="existing bound adapters for staged proof")
@@ -337,6 +365,14 @@ for name in names:
                 else:
                     assert set(actual) == set(expected), (shell, label, actual, expected)
                 record("query", label, args, expected, 0, actual)
+            for label, args, expected in tracking_scenarios():
+                calls.write_text("")
+                actual = run(shell, adapter, args, "ok", env)
+                assert not calls.read_text(), (shell, label, "tracking completion invoked provider")
+                observed = set(actual).intersection({"--devel", "--no-devel"})
+                assert observed == expected, (shell, label, actual, expected)
+                record("tracking", label, args, expected, 0, actual)
+            print(f"{shell}: {len(tracking_scenarios())} tracking semantic prefixes PASS")
             for label, args, expected in lexical_cases:
                 calls.write_text("")
                 actual = run(shell, adapter, args, "ok", env)

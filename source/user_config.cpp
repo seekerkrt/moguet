@@ -153,7 +153,7 @@ void validate_top_level_keys(
     const toml::table& root, const fs::path& config_path) {
     for(const auto& [key, node] : root) {
         const std::string_view name = key.str();
-        if(name == "schema_version" || name == "review" || name == "build") {
+        if(name == "schema_version" || name == "review" || name == "build" || name == "updates") {
             continue;
         }
 
@@ -161,20 +161,20 @@ void validate_top_level_keys(
             // TRANSLATORS: The placeholders are a config path, a TOML section
             // name, source line/column, and literal accepted TOML keys.
             throw UserConfigError(localization::format_translated_message(
-                "User config error: '{}': top-level section '{}' (line {}, column {}): unknown top-level section; accepted entries: {}, {}, {}",
+                "User config error: '{}': top-level section '{}' (line {}, column {}): unknown top-level section; accepted entries: {}, {}, {}, {}",
                 config_path.string(), name,
                 source_index_text(key.source().begin.line),
                 source_index_text(key.source().begin.column),
-                "schema_version", "review", "build"));
+                "schema_version", "review", "build", "updates"));
         }
         // TRANSLATORS: The placeholders are a config path, a TOML key, source
         // line/column, and literal accepted TOML keys.
         throw UserConfigError(localization::format_translated_message(
-            "User config error: '{}': top-level key '{}' (line {}, column {}): unknown top-level key; accepted entries: {}, {}, {}",
+            "User config error: '{}': top-level key '{}' (line {}, column {}): unknown top-level key; accepted entries: {}, {}, {}, {}",
             config_path.string(), name,
             source_index_text(key.source().begin.line),
             source_index_text(key.source().begin.column),
-            "schema_version", "review", "build"));
+            "schema_version", "review", "build", "updates"));
     }
 }
 
@@ -353,6 +353,31 @@ void apply_build_config(
     }
 }
 
+void apply_updates_config(
+    UserConfig& config, const toml::table& root,
+    const fs::path& config_path) {
+    const toml::table* updates = optional_section(root, config_path, "updates");
+    if(updates == nullptr) return;
+    for(const auto& [key, node] : *updates) {
+        if(key.str() != "devel") {
+            throw UserConfigError(localization::format_translated_message(
+                "User config error: '{}': section '{}', key '{}' (line {}, column {}): unknown key; accepted key: {}",
+                config_path.string(), "updates", key.str(),
+                source_index_text(key.source().begin.line),
+                source_index_text(key.source().begin.column), "devel"));
+        }
+        const auto value = node.value_exact<bool>();
+        if(!value.has_value()) {
+            throw UserConfigError(localization::format_translated_message(
+                "User config error: '{}': key '{}' (line {}, column {}): expected boolean; got {}",
+                config_path.string(), "updates.devel",
+                source_index_text(node.source().begin.line),
+                source_index_text(node.source().begin.column), node_type_name(node)));
+        }
+        config.updates.devel = *value;
+    }
+}
+
 } // namespace
 
 UserConfig load_user_config(const std::filesystem::path& config_path) {
@@ -365,5 +390,6 @@ UserConfig load_user_config(const std::filesystem::path& config_path) {
     config.schema_version = parse_schema_version(root, config_path);
     apply_review_config(config, root, config_path);
     apply_build_config(config, root, config_path);
+    apply_updates_config(config, root, config_path);
     return config;
 }

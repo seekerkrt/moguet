@@ -1676,8 +1676,8 @@ std::string devel_requires_check_query_message(
         "Devel check-required update entry has no suffix evidence."));
 }
 
-int cmd_query_foreign_updates(PresentationDetail detail) {
-    AurUpdateQueryResult query_result = query_installed_aur_updates();
+int cmd_query_foreign_updates(PresentationDetail detail, AurUpdateQueryPolicy policy) {
+    AurUpdateQueryResult query_result = query_installed_aur_updates(policy);
     if(query_result.plan.entries.empty()) {
         Logger::info(localization::translate_message(
             "No foreign packages found."));

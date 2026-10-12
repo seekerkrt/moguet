@@ -636,6 +636,7 @@ void expect_statuses(
 
 bool same_config(const AppConfig& lhs, const AppConfig& rhs) {
     return lhs.user_config.schema_version == rhs.user_config.schema_version &&
+           lhs.user_config.updates.devel == rhs.user_config.updates.devel &&
            lhs.user_config.review.pkgbuild ==
                rhs.user_config.review.pkgbuild &&
            lhs.user_config.review.diff == rhs.user_config.review.diff &&
@@ -825,7 +826,9 @@ execution_stub::ExpectedExecution expected_system_aur_execution(
     InstalledPackageReason installed_reason,
     const AppConfig& config,
     PacmanDatabasePaths database_paths =
-        PacmanDatabasePaths{"/stub/root", "/stub/database"}) {
+        PacmanDatabasePaths{"/stub/root", "/stub/database"},
+    std::string observed_installed_version = "1.0-1",
+    std::string observed_rpc_version = "2.0-1") {
     const DesiredInstallReason desired_reason =
         installed_reason == InstalledPackageReason::Explicit
             ? DesiredInstallReason::Explicit
@@ -834,7 +837,8 @@ execution_stub::ExpectedExecution expected_system_aur_execution(
         work_item_index,
         package_base,
         {RequiredPackageArtifactTarget{
-            package_base, package_name, desired_reason}},
+            package_base, package_name, desired_reason, std::nullopt,
+            AutomaticAurVersionUpdateIntent{package_base, package_name, std::move(observed_rpc_version), std::move(observed_installed_version), installed_reason}}},
         false,
         std::move(database_paths),
         config};
@@ -1237,6 +1241,7 @@ void test_system_aur_dry_run_independent_requires_check_is_attention() {
     query_stub::enqueue_vercmp_result("0");
 
     AppConfig config;
+    config.user_config.updates.devel = true;
     config.no_confirm = true;
     config.provider_selection =
         make_provider_selection_session(config.no_confirm);
@@ -1327,6 +1332,7 @@ void test_system_aur_dry_run_ambiguous_provider_is_not_auto_selected() {
     return_build_plan(std::move(plan), {root.package_name});
 
     AppConfig config;
+    config.user_config.updates.devel = true;
     config.no_confirm = true;
     config.provider_selection =
         make_provider_selection_session(config.no_confirm);
@@ -1611,7 +1617,8 @@ void test_system_aur_dry_run_world_is_not_reused_by_actual_world() {
                     InstalledPackageReason::Dependency,
                     actual_config,
                     PacmanDatabasePaths{
-                        "/actual/root", "/actual/database"}),
+                        "/actual/root", "/actual/database"},
+                    "1.0-b"),
                 actual_root.package_base,
                 selected_system_aur_child(
                     actual_root.package_name,
@@ -2459,6 +2466,7 @@ void test_system_aur_independent_requires_check_completes_with_attention() {
     query_stub::enqueue_vercmp_result("0");
 
     AppConfig config;
+    config.user_config.updates.devel = true;
     config.no_confirm = true;
     config.provider_selection =
         make_provider_selection_session(config.no_confirm);
@@ -2541,6 +2549,7 @@ void test_system_aur_update_and_independent_requires_check_succeed() {
         root_plan({update_root}), {update_root.package_name});
 
     AppConfig config;
+    config.user_config.updates.devel = true;
     config.no_confirm = true;
     config.provider_selection =
         make_provider_selection_session(config.no_confirm);
@@ -2629,6 +2638,7 @@ void test_system_aur_required_requires_check_blocks_actual_and_dry_run() {
     };
 
     AppConfig config;
+    config.user_config.updates.devel = true;
     config.no_confirm = true;
     config.provider_selection =
         make_provider_selection_session(config.no_confirm);
@@ -2729,6 +2739,7 @@ void test_system_aur_ambiguous_provider_is_not_auto_selected() {
     return_build_plan(std::move(plan), {root.package_name});
 
     AppConfig config;
+    config.user_config.updates.devel = true;
     config.no_confirm = true;
     config.provider_selection =
         make_provider_selection_session(config.no_confirm);
@@ -2933,7 +2944,7 @@ void test_system_aur_success_uses_only_post_repository_inventory_and_ignore() {
                 post_repository_root.package_name,
                 post_repository_root.package_base,
                 InstalledPackageReason::Dependency,
-                config),
+                config, PacmanDatabasePaths{"/stub/root", "/stub/database"}, "1.0-7"),
             post_repository_root.package_base,
             selected_system_aur_child(
                 post_repository_root.package_name,

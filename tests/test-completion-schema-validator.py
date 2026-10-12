@@ -300,6 +300,16 @@ def expect_current_authority_projection() -> None:
                     "invalid exact operand context")
     expect_rejected("visible boundary", current.replace(next(line for line in current.splitlines() if line.startswith("BOUNDARY\t")), "BOUNDARY\t--help\t0"),
                     "parser boundary must identify a hidden marker option")
+    policy_record = next(line for line in current.splitlines() if line.startswith("QUERY_POLICY_SCOPE\t"))
+    expect_rejected("duplicate query policy scope", duplicate_first_record(current, "QUERY_POLICY_SCOPE"),
+                    "duplicate query policy scope")
+    expect_rejected("unknown query policy operation", current.replace(policy_record, policy_record.replace("-Qua", "-Qau")),
+                    "query policy scope requires an exact target-less open operation")
+    expect_rejected("unknown query policy option", current.replace(policy_record, "QUERY_POLICY_SCOPE\t-Qua\t999:optional:repeat-idempotent:hidden:moguet-control:none:none"),
+                    "invalid query policy scope option relations")
+    expect_rejected("missing query tracking option", current.replace(policy_record, "QUERY_POLICY_SCOPE\t-Qua\t"),
+                    "query policy scope has no tracking policy option")
+    print("  ok: 4 query policy scope regressions passed")
     delegated_ids = set(schema.delegated_option_ids)
     delegated_tokens = {
         option.token

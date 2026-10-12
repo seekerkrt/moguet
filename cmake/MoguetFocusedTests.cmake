@@ -60,7 +60,6 @@ foreach(_moguet_direct_focus IN ITEMS
     current-installed-artifact-binding
     devel-package-assessment
     aur-devel-route
-    devel-tracking-bootstrap
     normal-reviewed-devel-execution
     reviewed-devel-source-build-execution
     devel-git-revision-comparison
@@ -135,6 +134,13 @@ foreach(_moguet_direct_focus IN ITEMS
         TESTS "cpp.${_moguet_direct_ctest}"
     )
 endforeach()
+
+moguet_add_focused_ctest_alias(
+    test-devel-tracking-bootstrap
+    TESTS
+        cpp.devel_tracking_bootstrap
+        cpp.ordinary_version_split_devel_execution
+)
 
 # The public frontend requires every semantic shard independently of the
 # actual registrations. Discovering these names from MOGUET_CTEST_NAMES would

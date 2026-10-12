@@ -95,6 +95,7 @@ void test_production_provider_callback_preserves_multiple_selection() {
 int run_test_driver(int argc, char* argv[]) {
     if(argc == 2 && std::string(argv[1]) == "defaults") {
         AppConfig config;
+        expect(!config.user_config.updates.devel, "AppConfig built-in devel policy is not OFF");
         expect(config.presentation_detail == PresentationDetail::Normal,
                "default AppConfig detail is not Normal");
         expect(
@@ -111,6 +112,7 @@ int run_test_driver(int argc, char* argv[]) {
         final_user_config.review.pkgbuild = ReviewPolicy::Skip;
         final_user_config.review.diff = ReviewPolicy::Skip;
         final_user_config.build.mode = BuildMode::Clean;
+        final_user_config.updates.devel = true;
         AppConfig config = make_app_config(
             std::move(final_user_config), true, true);
         expect(
@@ -137,6 +139,7 @@ int run_test_driver(int argc, char* argv[]) {
         expect(AppConfig(details_config).presentation_detail == PresentationDetail::Detailed,
                "AppConfig copy lost invocation presentation detail");
         AppConfig copied_config = config;
+        expect(config.user_config.updates.devel && copied_config.user_config.updates.devel, "AppConfig lost effective devel policy");
         expect(
             copied_config.provider_selection == config.provider_selection,
             "AppConfig copy did not share the invocation provider session");

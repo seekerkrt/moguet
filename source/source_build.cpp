@@ -10,6 +10,7 @@
 #include <fstream>
 #include "diagnostic_projection.hpp"
 #include "interactive_confirmation.hpp"
+#include "local_package_metadata.hpp"
 #include "localization.hpp"
 #include "logging.hpp"
 #include "package_identifier.hpp"
@@ -35,6 +36,7 @@
 #include <filesystem>
 #include <functional>
 #include <iostream>
+#include <iterator>
 #include <linux/openat2.h>
 #include <memory>
 #include <optional>
@@ -1093,6 +1095,17 @@ ReviewedProductionSourceExecution finalize_aur_checkout_authority(
            std::get_if<AurCompatibilityCheckout>(&authority)) {
         if(intent && (intent->request.authoritative_devel_update || intent->request.devel_tracking_bootstrap))
             return ReviewedDevelSourceBuildRejected{ReviewedDevelSourceBuildIssue::InvalidPin};
+        if(intent && intent->request.ordinary_devel_package_base) {
+            std::ifstream file(checkout.canonical_path() / ".SRCINFO");
+            const std::string contents((std::istreambuf_iterator<char>(file)), {});
+            const auto metadata = parse_local_package_metadata(contents);
+            // This newly supported Version split requires an exact reviewed
+            // pin and separate closure acceptance. Compatibility review bypass
+            // must not turn the same shape back into a Legacy build.
+            if(file && metadata.is_success() && metadata.metadata()->children.size() > 1 &&
+               requires_authoritative_devel_recipe(contents, *intent))
+                return ReviewedDevelSourceBuildRejected{ReviewedDevelSourceBuildIssue::InvalidPin};
+        }
         if(editor_overlay.has_value()) {
             throw std::logic_error(
                 "Compatibility checkout received reviewed overlay authority.");
@@ -1987,6 +2000,10 @@ void require_package_base_source_build_request(
                     "{} set source-build required target attribution is inconsistent.",
                     "PackageBase"));
         }
+        if(target.automatic_version_update && (!request.aur_review_identity || target.expected_full_version ||
+                                               target.automatic_version_update->package_base != target.package_base ||
+                                               target.automatic_version_update->package_name != target.package_name))
+            throw std::logic_error("Automatic AUR Version update intent has inconsistent source or child attribution.");
         if(std::any_of(
                required_targets.begin(),
                required_targets.begin() + index,
@@ -2246,13 +2263,18 @@ SourceBuildExecutionResult execute_source_build_typed(
     SourceBuildRequest request = input_request;
     std::shared_ptr<const AurUpdateQueryResult> devel_query;
     std::optional<ConfirmationDecisionOrigin> devel_confirmation;
+    std::optional<AutomaticAurVersionUpdateIntent> automatic_version_update;
     if(request.only_if_updated && request.aur_review_identity && request.installed_snapshot && request.installed_snapshot->installed_version) {
-        devel_query = std::make_shared<AurUpdateQueryResult>(query_registered_aur_devel_update(*request.aur_review_identity, request.package_name));
+        devel_query = std::make_shared<AurUpdateQueryResult>(query_registered_aur_devel_update(
+            *request.aur_review_identity, request.package_name, aur_update_query_policy(config.user_config)));
         const auto& entry = devel_query->plan.entries.front();
         const auto effective = project_aur_update_effective_state(entry);
         if(effective == AurUpdateEffectiveState::UpdateAvailable) {
             request.only_if_updated = false;
             request.authoritative_devel_update = aur_update_basis(entry) == AurUpdateBasis::GitRevision;
+            if(aur_update_basis(entry) == AurUpdateBasis::Version && entry.aur_package && !entry.coordinated_replacement_version && !entry.bootstrap)
+                automatic_version_update = AutomaticAurVersionUpdateIntent{entry.aur_package->package_base, entry.aur_package->aur_name,
+                                                                           entry.aur_package->version, entry.installed_version, entry.install_reason};
         } else if(effective == AurUpdateEffectiveState::RequiresCheck) {
             auto answer = request_confirmation(localization::translate_message("Devel update requires check. Continue with an explicit reviewed rebuild?"), ConfirmationDefault::No, config.no_confirm);
             if(const auto* accepted = std::get_if<ConfirmationAccepted>(&answer)) {
@@ -2272,8 +2294,11 @@ SourceBuildExecutionResult execute_source_build_typed(
                 identity.package_base = request.checkout_name;
                 stop_after_confirmation(std::move(answer), DiagnosticPhase::Preflight, std::move(identity));
             }
-        } else if(effective == AurUpdateEffectiveState::UpToDate && entry.devel_assessment.state() == DevelUpdateAssessmentState::NotApplicable) {
-            // Ordinary registered preference/baseline semantics stay on the legacy path.
+        } else if(effective == AurUpdateEffectiveState::UpToDate &&
+                  (entry.devel_assessment_origin == AurDevelAssessmentOrigin::DisabledByPolicy ||
+                   entry.devel_assessment.state() == DevelUpdateAssessmentState::NotApplicable)) {
+            // Git was not observed in OFF mode. Keep .SRCINFO comparison and
+            // the system-before/after source baseline on the existing path.
         } else {
             SourceBuildExecutionResult out;
             out.devel_update_query = devel_query;
@@ -2286,7 +2311,7 @@ SourceBuildExecutionResult execute_source_build_typed(
     }
     // generic/direct/system compatibility pathはsingular identityを引き続き要求する。
     require_valid_package_name(request.package_name);
-    const ReviewedDevelSourceBuildIntent intent{request, {{request.checkout_name, request.package_name, desired_reason}}, database_paths, config.rm_deps, {config.no_confirm}};
+    const ReviewedDevelSourceBuildIntent intent{request, {{request.checkout_name, request.package_name, desired_reason, std::nullopt, automatic_version_update}}, database_paths, config.rm_deps, {config.no_confirm}};
     SourceBuildPreparationOutcome preparation = [&]() {
         try {
             return prepare_source_build_for_execution(
@@ -2353,6 +2378,42 @@ SourceBuildExecutionResult execute_source_build_typed(
         .rm_deps = config.rm_deps,
         .rebuild = prepared.rebuild,
         .clean_build = prepared.clean_build};
+    if(automatic_version_update) {
+        // The singular pathname capability does not bind immutable bytes.
+        // Reuse the existing set install owner and preserve singular cardinality
+        // before build; no new artifact or privileged transaction authority.
+        auto separated = [&]() {
+            try {
+                return execute_separated_package_base_source_build(
+                    SeparatedPackageBaseSourceBuildRequest{std::move(prepared.source_tree), std::move(prepared.artifact_root),
+                                                           request.checkout_name, intent.required_targets, request.custom_environment, request.empty_value_policy, database_paths, true},
+                    options);
+            } catch(const SeparatedPackageBaseSourceBuildPreparationError& error) {
+                const auto* guard = error.version_guard_failure();
+                throw SeparatedSourceBuildPhaseError(SeparatedSourceBuildFailurePhase::InstallPreparation,
+                                                     error.production_outcome().value_or(ProductionSourceBuildStagedOutcome{}), error.what(),
+                                                     guard ? guard->metadata_failure : std::nullopt, std::current_exception(),
+                                                     guard ? std::optional<AutomaticAurVersionGuardFailure>{*guard} : std::nullopt);
+            } catch(const SeparatedPackageBaseSourceBuildPhaseError& error) {
+                const auto phase = error.phase() == SeparatedPackageBaseSourceBuildFailurePhase::Build                ? SeparatedSourceBuildFailurePhase::Build
+                                   : error.phase() == SeparatedPackageBaseSourceBuildFailurePhase::InstallTransaction ? SeparatedSourceBuildFailurePhase::InstallTransaction
+                                   : error.phase() == SeparatedPackageBaseSourceBuildFailurePhase::InstallPreparation ? SeparatedSourceBuildFailurePhase::InstallPreparation
+                                                                                                                      : SeparatedSourceBuildFailurePhase::ArtifactValidation;
+                throw SeparatedSourceBuildPhaseError(phase, error.production_outcome().value_or(ProductionSourceBuildStagedOutcome{}),
+                                                     error.what(), error.package_metadata_failure(), std::current_exception());
+            } catch(const PackageBaseArtifactInstallTransactionError& error) {
+                throw SeparatedSourceBuildPhaseError(SeparatedSourceBuildFailurePhase::InstallTransaction,
+                                                     error.production_outcome().value_or(ProductionSourceBuildStagedOutcome{}), error.what(), std::nullopt, std::current_exception());
+            } catch(const SeparatedPackageBaseSourceBuildCleanupError& error) {
+                throw SeparatedSourceBuildCleanupError(error.result().selected_children().front().outcome, error.result().production_outcome(), error.what());
+            }
+        }();
+        SourceBuildExecutionResult result = source_build_result_from_artifact_outcome(separated.selected_children().front().outcome);
+        result.production_outcome = separated.production_outcome();
+        result.devel_update_query = devel_query;
+        result.devel_rebuild_confirmation = devel_confirmation;
+        return result;
+    }
     SeparatedSourceBuildExecutionResult separated =
         execute_separated_source_build_unit(
             SeparatedSourceBuildUnitRequest{

@@ -466,6 +466,13 @@ PackageBaseArtifactInstallPreparationFailure::mixed_reason_failure()
     return std::get_if<MixedPackageBaseInstallReasonUnsupported>(&failure_);
 }
 
+PackageBaseArtifactInstallPreparationFailure::PackageBaseArtifactInstallPreparationFailure(AutomaticAurVersionGuardFailure failure)
+    : failure_(std::in_place_type<AutomaticAurVersionGuardFailure>, std::move(failure)) {
+}
+const AutomaticAurVersionGuardFailure* PackageBaseArtifactInstallPreparationFailure::version_guard_failure() const noexcept {
+    return std::get_if<AutomaticAurVersionGuardFailure>(&this->failure_);
+}
+
 PackageBaseArtifactInstallPreparationResult::
     PackageBaseArtifactInstallPreparationResult(
         PreparedPackageBaseArtifactInstall&& prepared) noexcept
@@ -553,13 +560,24 @@ prepare_package_base_artifact_install(
     {
         // POLICY(#268): preparation全体でfresh local DB sessionは一つだけ。
         // owned stateへ写した後、全reason reductionより前にscopeを閉じる。
-        PackageMetadataSession session =
-            PackageMetadataSession::open(database_paths);
-        for(const CorrelatedSelectedPackageArtifact& artifact :
-            selected.selected_artifacts) {
+        std::optional<PackageMetadataSession> session;
+        try {
+            session.emplace(PackageMetadataSession::open(database_paths));
+        } catch(const PackageMetadataError& error) {
+            for(std::size_t index = 0; index < required_targets.size(); ++index) {
+                if(auto refused = validate_automatic_aur_version_install(required_targets[index], selected.selected_artifacts[index].identity, error.failure()))
+                    return PackageBaseArtifactInstallPreparationResult(PackageBaseArtifactInstallPreparationFailure(std::move(*refused)));
+            }
+            throw;
+        }
+        for(std::size_t index = 0; index < selected.selected_artifacts.size(); ++index) {
+            const auto& artifact = selected.selected_artifacts[index];
             InstalledPackageQueryResult query_result =
-                session.query_installed_package(
+                session->query_installed_package(
                     artifact.identity.package_name);
+            if(auto refused = validate_automatic_aur_version_install(required_targets[index], artifact.identity, query_result)) {
+                return PackageBaseArtifactInstallPreparationResult(PackageBaseArtifactInstallPreparationFailure(std::move(*refused)));
+            }
             installed_states.push_back(
                 map_installed_artifact_policy_state(
                     artifact.identity, query_result));

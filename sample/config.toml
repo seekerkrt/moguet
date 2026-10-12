@@ -6,3 +6,9 @@ diff = "prompt"
 
 [build]
 mode = "normal"
+
+# Git revision tracking is opt-in. This is a strict TOML boolean, not a string
+# or number. CLI --devel / --no-devel overrides this value for one invocation.
+# Older Moguet binaries may reject [updates]; check this manually on downgrade.
+[updates]
+devel = false

@@ -655,9 +655,9 @@ void map_source_execution_result(
         case SourceBuildExecutionStatus::AuthoritativeIncomplete:
             result.status = RegisteredSourceUpgradeStatus::Incomplete;
             result.failure_kind = RegisteredSourceUpgradeFailureKind::AuthoritativeExecutionIncomplete;
-            result.package_state_change = !result.devel_execution ? PackageStateChange::NoChange : result.devel_execution->operation == DevelSourceArtifactInstallOperation::Succeeded  ? PackageStateChange::Changed
-                                                                                               : result.devel_execution->operation == DevelSourceArtifactInstallOperation::NotAttempted ? PackageStateChange::NoChange
-                                                                                                                                                                                        : PackageStateChange::Unknown;
+            result.package_state_change = !result.devel_execution || result.devel_execution->version_guard_failure ? PackageStateChange::NoChange : result.devel_execution->operation == DevelSourceArtifactInstallOperation::Succeeded  ? PackageStateChange::Changed
+                                                                                                                                                : result.devel_execution->operation == DevelSourceArtifactInstallOperation::NotAttempted ? PackageStateChange::NoChange
+                                                                                                                                                                                                                                         : PackageStateChange::Unknown;
             return;
         case SourceBuildExecutionStatus::Installed:
             result.status = RegisteredSourceUpgradeStatus::Updated;
@@ -2535,7 +2535,10 @@ SystemSourceUpgradeResult execute_prepared_system_source_upgrade(
                     source_result, error.what(),
                     error.production_outcome(),
                     map_registered_source_build_phase(error.phase()));
-                if(error.package_metadata_failure().has_value()) {
+                if(error.version_guard_failure()) {
+                    source_result.package_state_change = PackageStateChange::NoChange;
+                    source_result.failure_detail = *error.version_guard_failure();
+                } else if(error.package_metadata_failure().has_value()) {
                     source_result.failure_detail.emplace<
                         PackageMetadataFailure>(
                         *error.package_metadata_failure());

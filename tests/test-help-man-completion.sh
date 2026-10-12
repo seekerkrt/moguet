@@ -102,6 +102,17 @@ LANGUAGE=ja \
 cmp -s "$japanese_help" "$japanese_help_short" ||
     fail 'Japanese -h and --help output differ.'
 
+assert_contains '--devel' "$english_help"
+assert_contains '--no-devel' "$english_help"
+assert_contains 'Built-in tracking is OFF; [updates] devel = true enables persistent tracking; explicit CLI overrides config' "$english_help"
+assert_contains 'The same option may repeat; combining --devel and --no-devel is a usage error (exit 1)' "$english_help"
+assert_contains 'Help/version reject tracking options before configuration or log initialization (exit 1)' "$english_help"
+assert_contains 'trackingはsource review、bootstrap、installを承認しません。--noconfirmもbootstrap承認になりません' "$japanese_help"
+assert_contains '--devel' "$japanese_help"
+assert_contains '--no-devel' "$japanese_help"
+assert_contains 'updates.devel = true|false' "$english_help"
+assert_contains 'updates.devel = true|false' "$japanese_help"
+
 assert_contains '--details' "$english_help"
 assert_contains 'Show detailed diagnostic and provenance information' "$english_help"
 assert_contains 'For remote build, plan, deps, -S --select, -Qua, -Syu / -Su, upgrade-aur, upgrade-all, --dry-run -S, and list-patch; changes presentation only, not execution' "$english_help"

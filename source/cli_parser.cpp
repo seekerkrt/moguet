@@ -165,6 +165,12 @@ bool apply_moguet_global_option(const std::string& arg, ParsedCliArguments& pars
         case cli_authority::GlobalOptionId::Details:
             parsed.cli_overrides.presentation_detail = PresentationDetail::Detailed;
             break;
+        case cli_authority::GlobalOptionId::Devel:
+        case cli_authority::GlobalOptionId::NoDevel:
+            return apply_final_value_override(
+                parsed.cli_overrides.devel,
+                option.value() == cli_authority::GlobalOptionId::Devel,
+                "updates.devel", [](bool value) { return value ? "true" : "false"; });
         case cli_authority::GlobalOptionId::Select:
             parsed.root_package_selection_requested = true;
             break;
@@ -212,6 +218,9 @@ UserConfig compose_user_config(
     if(cli_overrides.build_mode.has_value()) {
         user_config.build.mode = cli_overrides.build_mode.value();
     }
+    if(cli_overrides.devel.has_value()) {
+        user_config.updates.devel = *cli_overrides.devel;
+    }
     return user_config;
 }
 
@@ -228,6 +237,13 @@ std::optional<ParsedCliArguments> parse_cli_arguments(int argc, char* argv[]) {
         if(arg.empty()) {
             report_parse_error(localization::translate_message(
                 "Empty arguments are not supported."));
+            return std::nullopt;
+        }
+
+        if(!parsed.pending_option && !parsed.end_of_options &&
+           cli_authority::is_devel_update_option_spelling(arg) && arg.find('=') != std::string::npos) {
+            report_parse_error(localization::format_translated_message(
+                "Option {} does not accept a value.", arg.substr(0, arg.find('='))));
             return std::nullopt;
         }
 

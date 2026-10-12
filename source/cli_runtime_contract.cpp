@@ -335,6 +335,17 @@ bool CliInvocationValidation::is_valid() const noexcept {
     return !diagnostic.has_value();
 }
 
+bool supports_devel_update_query(const ParsedCliArguments& parsed) {
+    if(parsed.source_selection != PackageSourceSelection::Auto || !parsed.targets.empty()) return false;
+    if(const auto* operation = cli_authority::find_moguet_operation(parsed.operation)) {
+        const auto& form = selected_operation_form(parsed, cli_authority::operation_metadata(operation->id));
+        return form.option_relations.contains(cli_authority::OptionId::Devel);
+    }
+    if(std::holds_alternative<AutoSystemUpdateRouteCandidate>(classify_sync_invocation_route(parsed))) return true;
+    return parsed.operation == cli_authority::DEVEL_FOREIGN_UPDATES_OPERATION &&
+           parsed.flags == std::vector<std::string>{parsed.operation} && !parsed.end_of_options && !parsed.cli_overrides.dry_run;
+}
+
 ResolvedCliRuntimeContract resolve_cli_runtime_contract(
     const ParsedCliArguments& parsed) {
     if(const cli_authority::OperationSpec* legacy =
@@ -415,6 +426,18 @@ CliInvocationValidation validate_cli_invocation_contract(
     const ParsedCliArguments& parsed) {
     ResolvedCliRuntimeContract contract =
         resolve_cli_runtime_contract(parsed);
+
+    // An explicit OFF is still a request for this update contract. Reject it
+    // before delegated or information routes can return early.
+    if(parsed.cli_overrides.devel.has_value() && !supports_devel_update_query(parsed)) {
+        return invalid_invocation(
+            contract,
+            CliInvocationIssue{CliInvocationIssueKind::UnsupportedDevelUpdateOption,
+                               parsed.operation,
+                               *parsed.cli_overrides.devel ? "--devel" : "--no-devel",
+                               TargetPolicy::None, OperandKind::None},
+            DiagnosticClass::Unsupported, DiagnosticOperation::CliParsing);
+    }
 
     std::size_t patch_options = 0;
     bool attached_patch_option = false;
@@ -662,6 +685,10 @@ CliInvocationValidation validate_cli_invocation_contract(
 std::string cli_invocation_issue_message(
     const CliInvocationIssue& issue) {
     switch(issue.kind) {
+        case CliInvocationIssueKind::UnsupportedDevelUpdateOption:
+            return localization::format_translated_message(
+                "Option {} is not supported for operation {}.",
+                issue.operand.value_or("--devel"), issue.operation);
         case CliInvocationIssueKind::InvalidPatchSelection:
             // TRANSLATORS: The placeholders are literal CLI option/command tokens.
             return localization::format_translated_message(

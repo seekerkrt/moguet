@@ -66,11 +66,17 @@ SeparatedSourceBuildPhaseError::SeparatedSourceBuildPhaseError(
     ProductionSourceBuildStagedOutcome production_outcome,
     const std::string& diagnostic,
     std::optional<PackageMetadataFailure> package_metadata_failure,
-    std::exception_ptr failure_exception)
+    std::exception_ptr failure_exception,
+    std::optional<AutomaticAurVersionGuardFailure> version_guard_failure)
     : std::runtime_error(diagnostic), phase_(phase),
       production_outcome_(std::move(production_outcome)),
       package_metadata_failure_(std::move(package_metadata_failure)),
-      failure_exception_(std::move(failure_exception)) {
+      failure_exception_(std::move(failure_exception)), version_guard_failure_(std::move(version_guard_failure)) {
+}
+
+SeparatedSourceBuildCleanupError::SeparatedSourceBuildCleanupError(ArtifactInstallExecutionOutcome install_outcome,
+                                                                   ProductionSourceBuildStagedOutcome production_outcome, const std::string& diagnostic)
+    : std::runtime_error(diagnostic), install_outcome_(install_outcome), production_outcome_(std::move(production_outcome)) {
 }
 
 PackageBaseSourceBuildExecutionResult
@@ -132,8 +138,7 @@ SeparatedPackageBaseSourceBuildPhaseError::production_outcome()
     return production_outcome_;
 }
 
-#ifdef MOGUET_ENABLE_SOURCE_INVOCATION_EXECUTION_TEST_HOOKS
-// Pure legacy accessors needed by the real aggregate loop's error/display arms.
+// Pure legacy accessors used by the aggregate and registered-Version adapter.
 // No legacy result constructor or authoritative producer is provided here.
 const std::string& PackageBaseSourceBuildExecutionResult::package_base() const noexcept {
     return package_base_;
@@ -147,10 +152,23 @@ const std::vector<PackageBaseSourceBuildSelectedResult>& PackageBaseSourceBuildE
 const std::vector<ArtifactPackageIdentity>& PackageBaseSourceBuildExecutionResult::unselected_artifacts() const noexcept {
     return unselected_artifacts_;
 }
+const AutomaticAurVersionGuardFailure* SeparatedPackageBaseSourceBuildPreparationError::version_guard_failure() const noexcept {
+    return this->failure_.version_guard_failure();
+}
 const std::optional<ProductionSourceBuildStagedOutcome>& SeparatedPackageBaseSourceBuildPreparationError::production_outcome() const noexcept {
     return production_outcome_;
 }
 const PackageBaseSourceBuildExecutionResult& SeparatedPackageBaseSourceBuildCleanupError::result() const noexcept {
     return result_;
+}
+
+#ifndef MOGUET_TEST_NORMAL_REVIEWED_DEVEL_EXECUTION
+// This preparation-only profile does not link the artifact transaction owner.
+// These getters expose diagnostic state only; execution above always stops.
+const AutomaticAurVersionGuardFailure* PackageBaseArtifactInstallPreparationFailure::version_guard_failure() const noexcept {
+    return std::get_if<AutomaticAurVersionGuardFailure>(&this->failure_);
+}
+const std::optional<ProductionSourceBuildStagedOutcome>& PackageBaseArtifactInstallTransactionError::production_outcome() const noexcept {
+    return this->production_outcome_;
 }
 #endif

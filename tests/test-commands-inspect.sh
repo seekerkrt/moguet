@@ -1639,7 +1639,7 @@ set_foreign_inventory 'split-cli 2.0-1 explicit
 split-child-git 2.0-1 dependency
 non-aur-git 2.0-1 explicit'
 export MOGUET_TEST_VERCMP_OUTPUT=0
-run_ok -Qua
+run_ok -Qua --devel
 assert_contains \
     "split-cli: devel package update status requires check (suffix candidate only: PackageBase split-suite-git; authoritative build provenance is unavailable)." \
     "$stdout_file"
@@ -1659,7 +1659,7 @@ for decision in different same requires-check unsupported unknown; do
     export MOGUET_TEST_INSPECTION_SCENARIO="foreign-authoritative-$decision"
     set_foreign_inventory 'observed-git 2.0-1 explicit'
     export MOGUET_TEST_VERCMP_OUTPUT=0
-    if [ "$decision" = unknown ]; then run_fail -Qua; else run_ok -Qua; fi
+    if [ "$decision" = unknown ]; then run_fail -Qua --devel; else run_ok -Qua --devel; fi
     assert_not_contains 'observed-git 2.0-1 ->' "$stdout_file"
     case $decision in
         different) assert_contains 'observed-git 2.0-1 [Git revision update available]' "$stdout_file" ;;
@@ -1668,6 +1668,56 @@ for decision in different same requires-check unsupported unknown; do
         requires-check) assert_contains 'local authority is unavailable or has changed' "$stdout_file" ;;
         unsupported) assert_contains 'Devel automatic update is unsupported' "$stdout_file" ;;
     esac
+    assert_no_foreign_update_mutation
+done
+
+# The resolved public policy controls the common query, not each result kind.
+for configured in missing false true; do
+    for cli in unset --devel --no-devel; do
+        setup_case "devel-policy-$configured-${cli#--}"
+        export MOGUET_TEST_INSPECTION_SCENARIO=foreign-authoritative-different
+        set_foreign_inventory 'observed-git 2.0-1 explicit'
+        export MOGUET_TEST_VERCMP_OUTPUT=0
+        if [ "$configured" != missing ]; then
+            mkdir -p "$XDG_CONFIG_HOME/moguet"
+            printf 'schema_version = 1\n[updates]\ndevel = %s\n' "$configured" > "$XDG_CONFIG_HOME/moguet/config.toml"
+        fi
+        expected=$configured
+        [ "$expected" != missing ] || expected=false
+        [ "$cli" != --devel ] || expected=true
+        [ "$cli" != --no-devel ] || expected=false
+        if [ "$cli" = unset ]; then run_ok -Qua; else run_ok -Qua "$cli"; fi
+        if [ "$expected" = true ]; then
+            assert_contains 'observed-git 2.0-1 [Git revision update available]' "$stdout_file"
+            assert_contains 'tracking observation' "$command_log"
+        else
+            assert_not_contains '[Git revision update available]' "$stdout_file"
+            assert_not_contains 'requires check' "$stdout_file"
+            assert_not_contains 'tracking observation' "$command_log"
+        fi
+        assert_no_foreign_update_mutation
+    done
+done
+setup_case devel-off-version-update
+export MOGUET_TEST_INSPECTION_SCENARIO=foreign-authoritative-unknown
+set_foreign_inventory 'observed-git 1.0-1 explicit'
+export MOGUET_TEST_VERCMP_OUTPUT=1
+run_ok -Qua --no-devel
+assert_contains 'observed-git 1.0-1 -> 2.0-1' "$stdout_file"
+assert_not_contains 'tracking observation' "$command_log"
+assert_no_foreign_update_mutation
+
+for operation in -Qau '-Qua observed-git' '-Qua --needed'; do
+    setup_case "devel-config-delegated-$operation"
+    export MOGUET_TEST_INSPECTION_SCENARIO=foreign-authoritative-different
+    set_foreign_inventory 'observed-git 2.0-1 explicit'
+    export MOGUET_TEST_VERCMP_OUTPUT=0
+    mkdir -p "$XDG_CONFIG_HOME/moguet"
+    printf 'schema_version = 1\n[updates]\ndevel = true\n' > "$XDG_CONFIG_HOME/moguet/config.toml"
+    # Intentional word splitting expresses the existing broad query grammar.
+    run_ok $operation
+    assert_not_contains 'tracking observation' "$command_log"
+    assert_not_contains '[Git revision update available]' "$stdout_file"
     assert_no_foreign_update_mutation
 done
 
@@ -1711,7 +1761,7 @@ LOCPATH=$locale_root \
 LANG=en_US.UTF-8 \
 LC_ALL=en_US.UTF-8 \
 LANGUAGE=ja \
-    run_ok -Qua
+    run_ok -Qua --devel
 assert_contains \
     "split-cli: devel packageの更新状態は確認が必要です（suffix候補のみ: PackageBase split-suite-git、authoritativeなbuild provenanceは利用できません）。" \
     "$stdout_file"

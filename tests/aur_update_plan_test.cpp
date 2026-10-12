@@ -532,10 +532,47 @@ void test_authoritative_devel_effective_matrix() {
     }
 }
 
+void test_disabled_devel_effective_projection() {
+    for(const auto relation : {AurVersionRelation::NewerThanInstalled, AurVersionRelation::SameAsInstalled, AurVersionRelation::OlderThanInstalled, AurVersionRelation::Unavailable}) {
+        for(const auto& [name, base] : std::vector<std::pair<std::string, std::string>>{{"child-git", "base"}, {"child", "base-git"}, {"child", "base"}}) {
+            auto entry = classify_aur_update(AurUpdatePlanInput{name, "1", InstalledPackageReason::Explicit, AurUpdateRemotePackage{name, base, "1", relation}});
+            const auto evidence = entry.devel_assessment;
+            const auto classification = entry.classification;
+            entry.devel_assessment_origin = AurDevelAssessmentOrigin::DisabledByPolicy;
+            const auto expected = relation == AurVersionRelation::NewerThanInstalled ? AurUpdateEffectiveState::UpdateAvailable
+                                  : relation == AurVersionRelation::Unavailable      ? AurUpdateEffectiveState::VersionComparisonUnavailable
+                                                                                     : AurUpdateEffectiveState::UpToDate;
+            expect(project_aur_update_effective_state(entry) == expected, "Disabled suffix evidence blocked Version policy");
+            expect(entry.devel_assessment == evidence && entry.classification == classification, "Disabled projection changed evidence");
+            expect(aur_update_basis(entry) == (relation == AurVersionRelation::NewerThanInstalled ? std::optional{AurUpdateBasis::Version} : std::nullopt), "Disabled projection invented Git basis");
+        }
+    }
+    auto entry = classify_aur_update(AurUpdatePlanInput{"matrix-git", "1", InstalledPackageReason::Explicit, AurUpdateRemotePackage{"matrix-git", "matrix", "1", AurVersionRelation::SameAsInstalled}});
+    entry.devel_assessment_origin = AurDevelAssessmentOrigin::DisabledByPolicy;
+    for(const auto assessment : {DevelUpdateAssessment::not_applicable(), DevelUpdateAssessment::up_to_date(), DevelUpdateAssessment::update_available(),
+                                 DevelUpdateAssessment::requires_check(DevelRequiresCheckReason::ProvenanceInvalid),
+                                 DevelUpdateAssessment::unknown(DevelUnknownReason::RemoteObservationFailed),
+                                 DevelUpdateAssessment::unsupported(DevelUnsupportedReason::UnsupportedVcs)}) {
+        auto invalid = entry;
+        invalid.devel_assessment = assessment;
+        expect(project_aur_update_effective_state(invalid) == AurUpdateEffectiveState::Inconsistent, "Disabled masked an observation as VersionOnly");
+    }
+    auto invalid = entry;
+    invalid.aur_package->aur_name = "another-git";
+    expect(project_aur_update_effective_state(invalid) == AurUpdateEffectiveState::Inconsistent, "Disabled hid AUR identity mismatch");
+    invalid = entry;
+    invalid.aur_package->version_relation = AurVersionRelation::Unavailable;
+    expect(project_aur_update_effective_state(invalid) == AurUpdateEffectiveState::Inconsistent, "Disabled hid Version mismatch");
+    invalid = entry;
+    invalid.devel_classification.reset();
+    expect(project_aur_update_effective_state(invalid) == AurUpdateEffectiveState::Inconsistent, "Disabled accepted missing suffix evidence");
+}
+
 } // namespace
 
 int main() {
     try {
+        test_disabled_devel_effective_projection();
         test_authoritative_devel_effective_matrix();
         run_case(
             "newer remote version is update available",
