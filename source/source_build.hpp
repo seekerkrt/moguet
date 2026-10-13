@@ -52,10 +52,6 @@ struct ReviewedDevelExecutionSnapshot {
     bool complete = false;
     bool projection_failed = false;
     bool build_completed = false;
-    // Diagnostic only; S4 keeps the original cleanup consequence in its owner.
-    bool build_cleanup_failed = false;
-    std::optional<AutomaticAurVersionGuardFailure> version_guard_failure = std::nullopt;
-    std::optional<std::string> version_guard_diagnostic = std::nullopt;
     std::optional<DevelSourceArtifactInstallOperation> operation;
     std::optional<int> pacman_exit_status;
     std::optional<DevelSourceArtifactInstallReceipt> receipt;

@@ -451,8 +451,7 @@ bool same_required_target(
     return lhs.package_base == rhs.package_base &&
            lhs.package_name == rhs.package_name &&
            lhs.desired_reason == rhs.desired_reason &&
-           lhs.expected_full_version == rhs.expected_full_version &&
-           lhs.automatic_version_update == rhs.automatic_version_update;
+           lhs.expected_full_version == rhs.expected_full_version;
 }
 
 struct PreparedInvocationProjection {

@@ -50,8 +50,6 @@ _moguet_option_id() {
         --local) printf '%s' 15 ;;
         --use-preference) printf '%s' 21 ;;
         --save-preference) printf '%s' 23 ;;
-        --devel) printf '%s' 24 ;;
-        --no-devel) printf '%s' 25 ;;
         --use-patches) printf '%s' 22 ;;
         --output-dir|--output-dir=*) printf '%s' 16 ;;
         --recursive) printf '%s' 17 ;;
@@ -241,8 +239,6 @@ _moguet_conflicts_with_present_option() {
         15) _moguet_has_option_id 23 ;;
         21) _moguet_has_option_id 23 || _moguet_has_option_id 22 ;;
         23) _moguet_has_option_id 21 || _moguet_has_option_id 5 || _moguet_has_option_id 15 ;;
-        24) _moguet_has_option_id 25 ;;
-        25) _moguet_has_option_id 24 ;;
         22) _moguet_has_option_id 0 || _moguet_has_option_id 5 || _moguet_has_option_id 21 ;;
         *) return 1 ;;
     esac
@@ -384,29 +380,6 @@ _moguet_query_context() {
     [[ $seen == true && $pending == false ]]
 }
 
-_moguet_tracking_context() {
-    local operation="$1" word actual index seen_operation=false
-    local -a allowed
-    case "$operation" in
-        -Qua) allowed=(0 1 2 3 4 6 7 8 9 20 24 25) ;;
-        upgrade) allowed=(0 1 2 3 4 5 6 7 8 24 25) ;;
-        upgrade-aur) allowed=(0 1 2 3 4 5 6 7 8 20 24 25) ;;
-        upgrade-all) allowed=(0 1 2 3 4 5 6 7 8 20 24 25) ;;
-        -Syu) allowed=(0 1 2 3 4 5 20 6 7 8 24 25 18) ;;
-        -Su) allowed=(0 1 2 3 4 5 20 6 7 8 24 25 18) ;;
-        '') allowed=(0 1 2 3 4 6 7 8 9 20 24 25 5 18) ;;
-        *) return 1 ;;
-    esac
-    for word in "${COMP_WORDS[@]:1:COMP_CWORD-1}"; do
-        if [[ -n $operation && $word == "$operation" && $seen_operation == false ]]; then
-            seen_operation=true
-            continue
-        fi
-        actual="$(_moguet_option_id "$word")" || return 1
-        [[ " ${allowed[*]} " == *" $actual "* ]] || return 1
-    done
-    return 0
-}
 
 _moguet() {
     local cur operation candidate option_id REPLY strip_prefix typed_insert_prefix
@@ -435,7 +408,7 @@ _moguet() {
     operation="$(_moguet_find_operation || true)"
 
     if [[ -z $operation ]]; then
-        candidates=(build upgrade upgrade-aur upgrade-all clean deps plan fetch add-src edit-src list-src del-src revert add-patch update-patch del-patch list-patch -G -Gp -S -Syu -Su -Ss -Si -Qua -h --help -V --version --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --rmdeps --select --aur --repo --details --devel --no-devel)
+        candidates=(build upgrade upgrade-aur upgrade-all clean deps plan fetch add-src edit-src list-src del-src revert add-patch update-patch del-patch list-patch -G -Gp -S -Syu -Su -Ss -Si -Qua -h --help -V --version --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --rmdeps --select --aur --repo --details)
     else
         case "$operation" in
         build)
@@ -457,21 +430,21 @@ _moguet() {
             ;;
         upgrade)
             if _moguet_form_prefix_valid upgrade 0; then
-                candidates=(--edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --devel --no-devel)
+                candidates=(--edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild)
             else
                 candidates=()
             fi
             ;;
         upgrade-aur)
             if _moguet_form_prefix_valid upgrade-aur 0; then
-                candidates=(--edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --details --devel --no-devel)
+                candidates=(--edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --details)
             else
                 candidates=()
             fi
             ;;
         upgrade-all)
             if _moguet_form_prefix_valid upgrade-all 0; then
-                candidates=(--edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --details --devel --no-devel)
+                candidates=(--edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode= --rebuild --cleanbuild --details)
             else
                 candidates=()
             fi
@@ -602,7 +575,7 @@ _moguet() {
             elif _moguet_has_operand -Syu; then
                 candidates=(--needed --noconfirm)
             else
-                candidates=(--edit --noedit --diff --nodiff --noconfirm --dry-run --details --build-mode= --rebuild --cleanbuild --devel --no-devel --needed --repo)
+                candidates=(--edit --noedit --diff --nodiff --noconfirm --dry-run --details --build-mode= --rebuild --cleanbuild --needed --repo)
             fi
             ;;
         -Su)
@@ -615,7 +588,7 @@ _moguet() {
             elif _moguet_has_operand -Su; then
                 candidates=(--needed --noconfirm)
             else
-                candidates=(--edit --noedit --diff --nodiff --noconfirm --dry-run --details --build-mode= --rebuild --cleanbuild --devel --no-devel --needed --repo)
+                candidates=(--edit --noedit --diff --nodiff --noconfirm --dry-run --details --build-mode= --rebuild --cleanbuild --needed --repo)
             fi
             ;;
         -Ss) candidates=(--needed --noconfirm) ;;
@@ -645,10 +618,6 @@ _moguet() {
 
     if [[ $operation == -Qua ]] && [[ " ${candidates[*]} " != *' --details '* ]]; then candidates+=(--details); fi
     if [[ $operation == -S ]] && _moguet_has_option_id 5 && [[ " ${candidates[*]} " != *' --details '* ]]; then candidates+=(--details); fi
-    if _moguet_tracking_context "$operation"; then
-        [[ " ${candidates[*]} " == *' --devel '* ]] || candidates+=(--devel)
-        [[ " ${candidates[*]} " == *' --no-devel '* ]] || candidates+=(--no-devel)
-    fi
 
     _moguet_typed_values && return 0
 
@@ -656,11 +625,6 @@ _moguet() {
     for candidate in "${candidates[@]}"; do
         option_id="$(_moguet_option_id "$candidate" || true)"
         if [[ -n $option_id ]]; then
-            case "$option_id" in
-            24|25)
-                _moguet_tracking_context "$operation" || continue
-                ;;
-            esac
             case "$option_id" in
             13|14|15|21|23|22|16)
                 _moguet_has_option_id "$option_id" && continue

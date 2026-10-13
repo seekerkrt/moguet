@@ -81,13 +81,9 @@ ProductionSourceBuildStagedOutcome reviewed_staged_outcome(
 RequiredPackageArtifactTarget required_target(
     const std::string& package_base,
     const std::string& package_name,
-    DesiredInstallReason desired_reason,
-    bool automatic_version_update = true) {
-    RequiredPackageArtifactTarget target{package_base, package_name, desired_reason};
-    if(automatic_version_update) target.automatic_version_update = AutomaticAurVersionUpdateIntent{
-                                     package_base, package_name, "2.0-1", "1.0-1",
-                                     desired_reason == DesiredInstallReason::Explicit ? InstalledPackageReason::Explicit : InstalledPackageReason::Dependency};
-    return target;
+    DesiredInstallReason desired_reason) {
+    return RequiredPackageArtifactTarget{
+        package_base, package_name, desired_reason};
 }
 
 PackageBaseSourceBuildSelectedResult selected_child(
@@ -594,7 +590,7 @@ void test_confirmation_stops_preserve_partial_and_control_flow() {
                                                            : std::vector<std::string>{"first-dependency", "second-dependency", "runner-root"};
                 for(std::size_t i = 0; i <= stop_index; ++i) {
                     const auto install_reason = i + 1 == count ? DesiredInstallReason::Explicit : DesiredInstallReason::Dependency;
-                    auto expected = expected_execution(i, names[i], {required_target(names[i], names[i], install_reason, count == 1 || i + 1 == count)}, false, paths, config);
+                    auto expected = expected_execution(i, names[i], {required_target(names[i], names[i], install_reason)}, false, paths, config);
                     if(i == stop_index)
                         execution_stub::enqueue_confirmation_stop(std::move(expected), ConfirmationCancelled{reason});
                     else
@@ -673,8 +669,7 @@ void test_multiple_work_items_preserve_fifo_call_order_and_one_db_snapshot() {
                 {required_target(
                     package_name,
                     package_name,
-                    desired_reason,
-                    index + 1 == expected.size())},
+                    desired_reason)},
                 false,
                 database_paths,
                 config),
@@ -1663,8 +1658,6 @@ void test_transaction_failure_has_attempts_without_child_success_and_suffix() {
                    ProductionSourceInstallOutcome::Failed,
            "Transaction failure aggregate differs");
     expect_no_fabricated_child_success(failed, "transaction failure");
-    expect(result.package_state_change() == PackageStateChange::Unknown && result.work_item_results.back().status == AurUpdateWorkItemExecutionStatus::NotAttempted,
-           "Failed legacy transaction lost Unknown effect or executed the suffix");
     expect(failed.transaction_failure.has_value() &&
                failed.transaction_failure->attempted_artifacts.size() == 2,
            "Transaction failure lost safe attempt snapshots");
@@ -2090,29 +2083,10 @@ void run_case(const std::string& name, Callable callable) {
     std::cout << "  ok: " << name << '\n';
 }
 
-void test_authoritative_cleanup_observation_is_retained() {
-    AurUpdateSourceBuildExecutionResult execution;
-    AurUpdateWorkItemExecutionResult work;
-    work.status = AurUpdateWorkItemExecutionStatus::Failed;
-    work.devel_execution.emplace();
-    work.devel_execution->cleanup = DevelSourceArtifactInstallCleanupState::Failed;
-    execution.work_item_results.push_back(std::move(work));
-    expect(execution.has_cleanup_failure(), "Authoritative privileged cleanup failure disappeared");
-    execution.work_item_results.front().devel_execution->cleanup.reset();
-    execution.work_item_results.front().devel_execution->build_cleanup_failed = true;
-    expect(execution.has_cleanup_failure(), "Authoritative build cleanup failure disappeared");
-    execution.work_item_results.front().devel_execution->build_cleanup_failed = false;
-    PinnedClosureFailure closure{PinnedClosureStage::RootAcquisition, PinnedClosureFailureReason::GitProcessFailed};
-    closure.cleanup.objects = PinnedClosureCleanupFailure{PinnedClosureFailureReason::IoFailure, std::nullopt};
-    execution.work_item_results.front().devel_execution->closure_failure = closure;
-    expect(execution.has_cleanup_failure(), "Authoritative source closure cleanup failure disappeared");
-}
-
 } // namespace
 
 int main() {
     try {
-        run_case("authoritative cleanup observation is retained", test_authoritative_cleanup_observation_is_retained);
         test_confirmation_stops_preserve_partial_and_control_flow();
         run_case(
             "ordinary size-one set owner",

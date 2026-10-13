@@ -6,30 +6,6 @@ Issue #476で完成したauthority chainと、そのpublic compatibility / migra
 Moguet v2.7.0で導入するauthoritative devel trackingの対応範囲と安全境界を定める。
 各producerの詳細は下記の既存contractを正とし、新しいproof、store、transaction semanticsを定義しない。
 
-## Public opt-in policy（Issue #673 / v2.12.0）
-
-通常AUR更新の既定は`VersionOnly`（VCS/devel tracking OFF）とする。
-VCS packageを更新対象から除外せず、installed full versionとAUR RPC Versionの比較を維持する。
-`--devel` / `--no-devel`とuser configの`[updates] devel = true|false`で選び、
-優先順位はexplicit CLI > user config > built-in false。config schemaは1を維持し、strict boolean
-以外のstring/numberを拒否する。configを自動作成・書換えしない。
-
-明示optionは値なし・同値反復可、ON/OFF conflictはusage error（exit 1）。対象はexact target-less
-Auto `-Syu` / `-Su`、exact target-less `-Qua`、`upgrade` / `upgrade-aur` / `upgrade-all`。
-5つのupdate routeでは既存dry-runにも対応するが、`-Qua --dry-run`には対応しない。
-対応する`-Qua`はpacman tail/`--` markerなしで、既存Moguet `--details`/`--noconfirm`は利用できる。
-`--repo` / `--aur`併用、target-bearing form、alternate `-Qau`とその他delegated route、build、
-inspection/source maintenance routeはOFF明示も含め副作用前に拒否する。help/versionは実際の
-option occurrenceをconfig/XDG/logging初期化前に拒否する。pacman optionの値や`--`後の
-opaque operandはpolicy optionではない。config trueだけでは対象外routeへtrackingを追加しない。
-canonical option/route authorityは`source/cli_authority.hpp`とruntime scope validationにある。
-
-`VersionOnly`はsuffix evidenceとVersion分類を保持し、tracking originは`DisabledByPolicy`。
-package versionのsame/olderをGit `UpToDate`やrevision一致へ投影しない。ONでは従来の
-P/I/R → remote → local recheckを追加する。RPC Version newerのprecedenceは両policyで維持する。
-OFFはsource review、authoritative build proof、install binding、S6 publicationを無効化しない。
-tracking policy自体はreview/bootstrap/build/installの承認ではなく、`--noconfirm`もbootstrapを承認しない。
-
 ## Authority chain
 
 ```text
@@ -98,7 +74,6 @@ deterministic positive fixtureはreviewed recipeに`options=('!debug')`を明示
 | Route / state | Current behavior |
 | --- | --- |
 | normal RPC Version newer | Version precedence。Git queryなしで既存candidateを維持 |
-| tracking OFF / VersionOnly | version比較のみ。tracking専用P/I/R・remote観測なし。Git revision未観測を維持 |
 | valid Git same | UpToDate、automatic buildなし |
 | valid Git different | GitRevision candidate。normal preflightとreviewed executionを通す |
 | RequiresCheck | automatic buildなし。ordinary -Syu / -Suのindependent targetはwarning/skip。初回Missingの試行適格性を確認できる場合だけ明示bootstrapを提示。required relationとstrict routeはblock |
@@ -106,32 +81,17 @@ deterministic positive fixtureはreviewed recipeに`options=('!debug')`を明示
 | Unsupported / unsupported devel source | automatic authoritative buildなし。suffixだけでVCSを確定しない。local proof不足はRequiresCheck |
 | ordinary non-devel AUR | normal version policy。missing provenanceからGit baselineを生成しない |
 | overlay / legacy source build | eligibleなauthoritative routeへ偽装しない。explicit supported legacy intentは既存route、publicationなし |
-| registered AUR OnlyIfUpdated | ONはversion-only shortcutより先に共通current assessment。RequiresCheckはdefault-Noの明示rebuild確認、source reviewは別途必要。OFFは既存`.SRCINFO` / system前後baseline判定へ継続 |
+| registered AUR OnlyIfUpdated | version-only shortcutより先に共通current assessment。RequiresCheckはdefault-Noの明示rebuild確認、source reviewは別途必要 |
 | registered repository / local source | 既存source/version policy、#476 provenanceへ昇格しない |
 | repo-only -Syu / standalone plan・deps | #476 Git query、build、publicationを追加しない |
-| dry-run | normalと同じexplicit query policyのread-only observation。checkout、PKGBUILD評価、execution、publicationは0 |
-| -Qua | VersionOnlyとGit観測済みのVersion/GitRevisionを区別。同version Git差分にfake version arrowを出さない |
-
-表のGit same/different、RequiresCheck、Unknown等のassessmentはtracking ON時のもの。
-OFFからそのGit状態を新たに主張しない。観測済みUnknown/Invalid/UnsupportedからOFFへsilent fallbackしない。
+| dry-run | normalと同じread-only assessment。checkout、PKGBUILD評価、execution、publicationは0 |
+| -Qua | Version/GitRevisionの根拠を区別。同version Git差分にfake version arrowを出さない |
 
 authoritative branch開始後にlegacyへfallbackしない。`--needed` skipをinstall済みとしてpublishしない。
 unsupported needed/rmdeps/AsDeps/promotion intentをDefaultへ丸めず、既存install reason policyを守る。
-
-ordinary Auto `-Syu` / `-Su`の自動Version候補は、one floating HTTPS Gitのsplit PackageBaseで
-selected childが1件の場合にも、相関するordinary / Version intentから既存reviewed S4経路を選択できる。
-recipeとsource closureの明示承認、complete output検証、selected childだけのS5/S6を要求する。
-tracking OFF/ONはこのbuild authorityの代替ではない。upgrade-family / registered / explicit、複数selection、
-multiple Gitや既存unsupported intentを拡張しない。詳細は[normal routes](devel-normal-routes.md#ordinary-version-split)を参照する。
 route別の詳細は[normal route contract](devel-normal-routes.md)を参照する。
 
 ## Schema / migration decision
-
-v2.11.0までの通常trackingと異なり、v2.12.0は既定でtrackingしないbehavior changeを含む。
-従来相当のtrackingが必要なら`[updates] devel = true`、当回だけなら`--devel`、config ONの
-当回解除には`--no-devel`を使う。古いbinaryは新sectionを未知設定として拒否する可能性があり、
-downgrade時は利用者がconfigを手動確認する。このpolicy移行は既存provenanceの削除・修復・
-migrationや履歴の消失を伴わない。v2.12.0限りのclassification判断は[versioning](../versioning.md)を正とする。
 
 current [provenance store](devel-build-provenance-store.md)はschema v1 / 27 keysを維持する。
 Slice 8でschema変更もmigration commandも追加しない。
@@ -157,14 +117,6 @@ transaction token、FD、Post anchor、ALPM session、build-context lifetimeは�
 publication順がtransaction順と一致する保証はなく、後のcurrent readでinstalled bindingが合わなければ拒否する。
 
 ## Partial outcome / construction boundary
-
-自動Version-basis AUR更新のinstall前guardはOFF/ONにかかわらずselected childごとのactual artifact
-full versionをfresh installedより新しく、observed AUR RPC以上と要求する。epoch/pkgrelを含むlibalpm比較を
-使い、RPCとの完全一致は要求しない。失敗はtyped `AutomaticAurVersionGuardFailure`として対象installを
-NotAttemptedに保ち、S6を開始しない。GitRevision/bootstrap/explicit build/registered独自baseline rebuild/
-非対象dependencyやsplit siblingへこのguardを転用しない。S4のactual artifact authorityと既存S5 binding、
-S6 publicationは別の責務を維持し、観測からpacman transactionまでの完全atomicityは保証しない。
-詳細なfailure/intent contractは[normal routes](devel-normal-routes.md#automatic-version-install-guard)を正とする。
 
 install成功＋publication Failed、install成功＋publication OutcomeUnknown、cleanup Failed＋publication Complete、
 publication後の表示projection allocation failureはlive S4/S5/S6 productとtyped factsを保持し、partial nonzeroを返す。
@@ -193,7 +145,7 @@ public provider/AUR/local live acceptanceやrelease approvalをdeterministic sea
 
 ## Ordinary initial bootstrap (#553)
 
-tracking ONのexact target-less ordinary `-Syu` / `-Su` Autoだけが、initial ProvenanceMissingの独立targetへdefault-Noの
+exact target-less ordinary `-Syu` / `-Su` Autoだけが、initial ProvenanceMissingの独立targetへdefault-Noの
 bootstrap確認を提示できる。試行適格性はexact recipeとcurrent local observationsに結び付くread-only値であり、
 review/build/install/publication proofではない。one Git rootとboundedなrecipe直下のrenameなしlocal inputsを候補にできる。
 追加source fileのtracked/regular/exact bytesはfull review/S3/S4で証明する。old recipe cacheのclean/dirty/HEAD/originに依存せず、

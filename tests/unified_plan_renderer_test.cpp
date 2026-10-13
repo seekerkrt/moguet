@@ -3202,13 +3202,6 @@ void test_compact_inventory_and_attention() {
     }
     entries.front().devel_assessment_origin = AurDevelAssessmentOrigin::CurrentObservation;
     entries.front().devel_assessment = DevelUpdateAssessment::up_to_date();
-    for(const auto relation : {AurVersionRelation::SameAsInstalled, AurVersionRelation::OlderThanInstalled}) {
-        const std::string name = relation == AurVersionRelation::SameAsInstalled ? "disabled-same-git" : "disabled-older-git";
-        auto disabled = classify_aur_update({name, "2-1", InstalledPackageReason::Explicit,
-                                             AurUpdateRemotePackage{name, name, relation == AurVersionRelation::SameAsInstalled ? "2-1" : "1-1", relation}});
-        disabled.devel_assessment_origin = AurDevelAssessmentOrigin::DisabledByPolicy;
-        entries.push_back(std::move(disabled));
-    }
     entries.emplace_back("non-aur", "1-1", InstalledPackageReason::Explicit, std::nullopt, AurUpdateClassification::NonAurForeign);
     entries.emplace_back("metadata-missing", "1-1", InstalledPackageReason::Explicit, std::nullopt, AurUpdateClassification::MetadataUnavailable);
     entries.emplace_back("candidate", "1-1", InstalledPackageReason::Explicit,
@@ -3227,15 +3220,7 @@ void test_compact_inventory_and_attention() {
     const auto& observation = expect_valid(result, "compact inventory");
     const auto normal = render_unified_plan_observation(observation, PresentationDetail::Normal);
     const auto detailed = render_unified_plan_observation(observation, PresentationDetail::Detailed);
-    expect_contains(normal.text, "Checked: 36; update candidates: 1; devel unchanged: 1", "compact counts exclude Disabled Git observations");
-    expect_not_contains(normal.text, "disabled-", "VersionOnly same/older should not require attention");
-    for(const auto name : {"disabled-same-git", "disabled-older-git"}) {
-        expect_not_contains(detailed.text, std::string("Observed devel assessment: ") + name, "Disabled must not claim Git unchanged");
-        expect_not_contains(detailed.text, std::string("Observed update basis: ") + name, "Disabled must not invent a Git candidate");
-    }
-    expect_not_contains(detailed.text, "requires check", "Disabled suffix evidence is not a tracking blocker");
-    expect_not_contains(detailed.text, "2-1 -> 1-1", "Disabled same/older must not invent a version arrow");
-    expect_not_contains(detailed.text, "2-1 -> 2-1", "Disabled same version must not invent a version arrow");
+    expect_contains(normal.text, "Checked: 34; update candidates: 1; devel unchanged: 1", "compact counts");
     expect_not_contains(normal.text, "ordinary-", "routine targets must be aggregated");
     expect_contains(normal.text, "non-aur: non-AUR foreign", "foreign attention");
     expect_contains(normal.text, "metadata-missing: metadata unavailable", "metadata attention");

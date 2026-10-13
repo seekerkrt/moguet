@@ -84,8 +84,6 @@ enum class GlobalOptionId {
     Aur,
     Repo,
     Details,
-    Devel,
-    NoDevel,
     Count,
 };
 
@@ -111,8 +109,6 @@ inline constexpr std::array<GlobalOptionSpec, static_cast<std::size_t>(GlobalOpt
         {GlobalOptionId::Aur, "--aur", false},
         {GlobalOptionId::Repo, "--repo", false},
         {GlobalOptionId::Details, "--details", false},
-        {GlobalOptionId::Devel, "--devel", false},
-        {GlobalOptionId::NoDevel, "--no-devel", false},
     }};
 
 constexpr const GlobalOptionSpec& global_option_spec(
@@ -132,12 +128,6 @@ constexpr const GlobalOptionSpec* find_moguet_global_option(
         }
     }
     return nullptr;
-}
-
-constexpr bool is_devel_update_option_spelling(std::string_view argument) noexcept {
-    const auto token = argument.substr(0, argument.find('='));
-    return token == global_option_spec(GlobalOptionId::Devel).token ||
-           token == global_option_spec(GlobalOptionId::NoDevel).token;
 }
 
 inline constexpr std::string_view BUILD_MODE_NORMAL = "normal";
@@ -363,8 +353,6 @@ enum class OptionId {
     UseSourcePreference,
     UsePatches,
     SaveSourcePreference,
-    Devel,
-    NoDevel,
     Count,
 };
 
@@ -402,8 +390,6 @@ static_assert(
 constexpr OptionId option_id(GlobalOptionId id) noexcept {
     // New globals need not renumber the existing completion projection.
     if(id == GlobalOptionId::Details) return OptionId::Details;
-    if(id == GlobalOptionId::Devel) return OptionId::Devel;
-    if(id == GlobalOptionId::NoDevel) return OptionId::NoDevel;
     return static_cast<OptionId>(id);
 }
 
@@ -546,7 +532,6 @@ enum class OptionSemanticScope : std::uint32_t {
     DependencyCleanup = 1U << 12,
     PackageExport = 1U << 13,
     PresentationDetail = 1U << 14,
-    DevelUpdateQuery = 1U << 15,
 };
 
 using OptionSemanticScopeMask = std::uint32_t;
@@ -897,24 +882,6 @@ inline constexpr std::array<OptionContract,
          GrammarOwnership::MoguetOwned, OptionPublicDefinitionRole::SyntaxOnly,
          OptionCompletionVisibility::SuggestedAndDescribed,
          "cli.build.remote"},
-        {OptionId::Devel,
-         global_option_spec(GlobalOptionId::Devel).token,
-         no_token_aliases(), no_option_value(), OptionOccurrence::RepeatIdempotent,
-         final_value_conflicts("updates.devel", OptionId::NoDevel),
-         OptionLexicalPlacement::ParserGlobalNormalPosition,
-         option_scope(OptionSemanticScope::DevelUpdateQuery),
-         GrammarOwnership::MoguetOwned, OptionPublicDefinitionRole::Definition,
-         OptionCompletionVisibility::SuggestedAndDescribed,
-         "cli.updates.devel"},
-        {OptionId::NoDevel,
-         global_option_spec(GlobalOptionId::NoDevel).token,
-         no_token_aliases(), no_option_value(), OptionOccurrence::RepeatIdempotent,
-         final_value_conflicts("updates.devel", OptionId::Devel),
-         OptionLexicalPlacement::ParserGlobalNormalPosition,
-         option_scope(OptionSemanticScope::DevelUpdateQuery),
-         GrammarOwnership::MoguetOwned, OptionPublicDefinitionRole::Definition,
-         OptionCompletionVisibility::SuggestedAndDescribed,
-         "cli.updates.devel"},
     }};
 
 constexpr const OptionContract& option_contract(OptionId id) noexcept {
@@ -1202,17 +1169,6 @@ struct DelegatedPresentationDetailScope {
 inline constexpr std::array<DelegatedPresentationDetailScope, 2>
     DELEGATED_PRESENTATION_DETAIL_SCOPES = {{{"-Qua", false}, {"-S", true}}};
 
-// Exact intercepted query spelling only; open delegated query forms do not
-// acquire devel tracking semantics from their letter contents.
-inline constexpr std::string_view DEVEL_FOREIGN_UPDATES_OPERATION = PACMAN_FOREIGN_UPDATES_SYNTAX;
-
-// Exact target-less query is intercepted without closing the surrounding
-// pacman grammar. Completion may offer tracking only in this narrow prefix.
-inline constexpr auto DEVEL_FOREIGN_UPDATES_OPTION_RELATIONS = operation_option_relations(
-    OptionId::Edit, OptionId::NoEdit, OptionId::Diff, OptionId::NoDiff,
-    OptionId::NoConfirm, OptionId::BuildMode, OptionId::Rebuild,
-    OptionId::CleanBuild, OptionId::RmDeps, OptionId::Details, OptionId::Devel, OptionId::NoDevel);
-
 struct OperationFormSpec {
     OperationId operation;
     std::string_view related_contract_identity;
@@ -1262,7 +1218,7 @@ inline constexpr std::array<OperationFormSpec, 18> MOGUET_OPERATION_FORMS = {{
          OptionId::Diff, OptionId::NoDiff,
          source_no_confirm_option_relation(), OptionId::DryRun,
          OptionId::BuildMode, OptionId::Rebuild,
-         OptionId::CleanBuild, OptionId::Devel, OptionId::NoDevel)},
+         OptionId::CleanBuild)},
     {OperationId::UpgradeAur,
      "cli.upgrade.aur",
      no_operands(),
@@ -1272,7 +1228,7 @@ inline constexpr std::array<OperationFormSpec, 18> MOGUET_OPERATION_FORMS = {{
          OptionId::Diff, OptionId::NoDiff,
          source_no_confirm_option_relation(), OptionId::DryRun,
          OptionId::BuildMode, OptionId::Rebuild,
-         OptionId::CleanBuild, OptionId::Details, OptionId::Devel, OptionId::NoDevel)},
+         OptionId::CleanBuild, OptionId::Details)},
     {OperationId::UpgradeAll,
      "cli.upgrade.all",
      no_operands(),
@@ -1282,7 +1238,7 @@ inline constexpr std::array<OperationFormSpec, 18> MOGUET_OPERATION_FORMS = {{
          OptionId::Diff, OptionId::NoDiff,
          source_no_confirm_option_relation(), OptionId::DryRun,
          OptionId::BuildMode, OptionId::Rebuild,
-         OptionId::CleanBuild, OptionId::Details, OptionId::Devel, OptionId::NoDevel)},
+         OptionId::CleanBuild, OptionId::Details)},
     {OperationId::Clean,
      "cli.maintenance.clean",
      no_operands(),
@@ -1610,7 +1566,7 @@ inline constexpr std::array<SpecialOperationSpec,
              OptionId::Diff, OptionId::NoDiff,
              source_no_confirm_option_relation(), OptionId::DryRun, OptionId::Details,
              OptionId::BuildMode, OptionId::Rebuild,
-             OptionId::CleanBuild, OptionId::Devel, OptionId::NoDevel,
+             OptionId::CleanBuild,
              public_syntax_option_relation(
                  system_aur_needed_option_relation(),
                  OptionPublicSyntax::Optional)),
@@ -1645,7 +1601,7 @@ inline constexpr std::array<SpecialOperationSpec,
              OptionId::Diff, OptionId::NoDiff,
              source_no_confirm_option_relation(), OptionId::DryRun, OptionId::Details,
              OptionId::BuildMode, OptionId::Rebuild,
-             OptionId::CleanBuild, OptionId::Devel, OptionId::NoDevel,
+             OptionId::CleanBuild,
              public_syntax_option_relation(
                  system_aur_needed_option_relation(),
                  OptionPublicSyntax::Optional)),

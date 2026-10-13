@@ -110,8 +110,6 @@ AurUpdateEffectiveState project_aur_update_effective_state(
             return AurUpdateEffectiveState::VersionComparisonUnavailable;
         case AurUpdateClassification::UpToDate: {
             if(!entry.aur_package || entry.installed_name != entry.aur_package->aur_name) return AurUpdateEffectiveState::Inconsistent;
-            if(entry.devel_assessment_origin == AurDevelAssessmentOrigin::DisabledByPolicy)
-                return has_consistent_version_only_devel_snapshot(entry) ? AurUpdateEffectiveState::UpToDate : AurUpdateEffectiveState::Inconsistent;
             if(entry.devel_assessment_origin == AurDevelAssessmentOrigin::CurrentObservation) {
                 if(!entry.aur_package || entry.installed_name != entry.aur_package->aur_name ||
                    (entry.aur_package->version_relation != AurVersionRelation::SameAsInstalled &&

@@ -72,8 +72,7 @@ bool same_required_target(
     return lhs.package_base == rhs.package_base &&
            lhs.package_name == rhs.package_name &&
            lhs.desired_reason == rhs.desired_reason &&
-           lhs.expected_full_version == rhs.expected_full_version &&
-           lhs.automatic_version_update == rhs.automatic_version_update;
+           lhs.expected_full_version == rhs.expected_full_version;
 }
 
 std::vector<std::string> required_package_names(
@@ -551,12 +550,7 @@ validate_preparation_failure(
     const SeparatedPackageBaseSourceBuildPreparationError& error,
     const AurUpdateWorkItemExecutionResult& planned) {
     const std::string* failure_package_base = nullptr;
-    if(const auto* guard = error.version_guard_failure()) {
-        failure_package_base = &guard->package_base;
-        if(std::none_of(planned.child_results.begin(), planned.child_results.end(), [&](const auto& child) { return child.required_package_name == guard->package_name; }))
-            return correlation_failure(AurUpdateExecutionCorrelationFailureReason::SelectedArtifactIdentityMismatch,
-                                       "Automatic Version guard failure does not match a prepared selected child.", std::nullopt, guard->package_name);
-    } else if(const auto* selection = error.selection_failure()) {
+    if(const auto* selection = error.selection_failure()) {
         failure_package_base = &selection->package_base;
     } else if(const auto* mixed = error.mixed_reason_failure()) {
         failure_package_base = &mixed->package_base;
@@ -585,9 +579,7 @@ void record_preparation_failure(
         AurUpdateWorkItemFailureKind::BuildOrInstallFailed;
     work_item_result.diagnostic = error.what();
     work_item_result.production_outcome = error.production_outcome();
-    if(const auto* guard = error.version_guard_failure()) {
-        work_item_result.failure_detail.emplace<AutomaticAurVersionGuardFailure>(*guard);
-    } else if(const auto* selection = error.selection_failure()) {
+    if(const auto* selection = error.selection_failure()) {
         work_item_result.failure_detail.emplace<
             PackageBaseArtifactIdentitySelectionFailure>(*selection);
     } else if(const auto* mixed = error.mixed_reason_failure()) {
@@ -669,7 +661,6 @@ AurUpdateSourceBuildExecutionResult::package_state_change()
     }
     bool uncertain = selected_repository_provider_transaction.package_state_change == PackageStateChange::Unknown;
     for(const auto& work_item_result : work_item_results) {
-        if(work_item_result.transaction_failure) uncertain = true;
         if(work_item_result.devel_execution && work_item_result.devel_execution->operation &&
            *work_item_result.devel_execution->operation != DevelSourceArtifactInstallOperation::NotAttempted) uncertain = true;
         for(const auto& child : work_item_result.child_results) {
@@ -704,10 +695,6 @@ bool AurUpdateSourceBuildExecutionResult::has_not_attempted_items()
 bool AurUpdateSourceBuildExecutionResult::has_cleanup_failure()
     const noexcept {
     for(const auto& work_item_result : work_item_results) {
-        if(work_item_result.devel_execution &&
-           (work_item_result.devel_execution->cleanup == DevelSourceArtifactInstallCleanupState::Failed ||
-            work_item_result.devel_execution->build_cleanup_failed ||
-            (work_item_result.devel_execution->closure_failure && !work_item_result.devel_execution->closure_failure->cleanup.succeeded()))) return true;
         if(work_item_result.devel_execution && work_item_result.devel_execution->closure_review_failure) {
             const auto* review = &*work_item_result.devel_execution->closure_review_failure;
             if(review && (review->reason == PinnedClosureReviewFailureReason::Cancelled || review->reason == PinnedClosureReviewFailureReason::Declined) &&
@@ -934,12 +921,7 @@ execute_prepared_aur_update_source_build_invocation(
                 }
                 work_item_result.unselected_artifacts = observed.unselected_artifacts;
                 if(!observed.complete) {
-                    if(observed.version_guard_failure) {
-                        work_item_result.failure_kind = AurUpdateWorkItemFailureKind::BuildOrInstallFailed;
-                        work_item_result.failure_detail = *observed.version_guard_failure;
-                        work_item_result.diagnostic = observed.version_guard_diagnostic.value_or("Automatic AUR Version update refused before package transaction.");
-                    } else
-                        work_item_result.diagnostic = "Authoritative devel execution incomplete; installation/publication details retained.";
+                    work_item_result.diagnostic = "Authoritative devel execution incomplete; installation/publication details retained.";
                     result.status = AurUpdateInvocationExecutionStatus::StoppedOnWorkItemFailure;
                     return result;
                 }

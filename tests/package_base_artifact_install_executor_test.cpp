@@ -498,7 +498,6 @@ void reset_stubs() {
     if(initialized) {
         process_stub::require_process_expectations_consumed();
         metadata_stub::require_local_package_query_expectations_consumed();
-        metadata_stub::require_version_comparisons_consumed();
     }
     process_stub::reset_process_stub();
     metadata_stub::reset_alpm_stub();
@@ -1615,162 +1614,14 @@ void restore_regular_file(
     fs::rename(original_path, target_path);
 }
 
-void test_automatic_version_update_guard() {
-    using Kind = AutomaticAurVersionGuardFailureKind;
-    struct Case {
-        const char* installed;
-        const char* rpc;
-        const char* actual;
-        int vs_installed;
-        int vs_rpc;
-        std::optional<Kind> failure;
-        const char* installed_base = PACKAGE_BASE;
-    };
-    const std::vector<Case> cases{
-        {"1-1", "2-1", "2-1", 1, 0, std::nullopt},
-        {"1=foo-1", "2-1", "2-1", 1, 0, std::nullopt},
-        {"1<foo-1", "2-1", "2-1", 1, 0, std::nullopt},
-        {"1>foo-1", "2-1", "2-1", 1, 0, std::nullopt},
-        {"1-1", "2=foo-1", "3=foo-1", 1, 1, std::nullopt},
-        {"1-1", "2-1", "2.r3.gabc-1", 1, 1, std::nullopt},
-        {"1:9-4", "2:1-2", "2:1-3", 1, 1, std::nullopt},
-        {"2-1", "3-1", "2-1", 0, -1, Kind::ArtifactNotNewerThanInstalled},
-        {"2-1", "3-1", "1-1", -1, -1, Kind::ArtifactNotNewerThanInstalled},
-        {"1-1", "3-1", "2-1", 1, -1, Kind::ArtifactBelowObservedRpcVersion},
-        // The installed Base is not query baseline evidence. A child may move
-        // to the newly reviewed RPC/source Base without inventing DB drift.
-        {"1-1", "2-1", "2-1", 1, 0, std::nullopt, "prior-package-base"}};
-    for(const auto& test : cases) {
-        ArtifactSetFixture fixture({"selected.pkg.tar.zst", "sibling.pkg.tar.zst"});
-        reset_stubs();
-        expect_identity_queries(fixture, {{"selected", test.actual}, {"sibling", "0-1"}});
-        metadata_stub::enqueue_local_package_query_present("selected", "selected", test.installed, ALPM_PKG_REASON_EXPLICIT, test.installed_base);
-        auto selected = target("selected", DesiredInstallReason::Explicit);
-        selected.automatic_version_update = AutomaticAurVersionUpdateIntent{PACKAGE_BASE, "selected", test.rpc, test.installed, InstalledPackageReason::Explicit};
-        metadata_stub::enqueue_version_comparison(test.actual, test.installed, test.vs_installed);
-        metadata_stub::enqueue_version_comparison(test.actual, test.rpc, test.vs_rpc);
-        auto result = prepare_fixture(fixture, {selected});
-        metadata_stub::require_version_comparisons_consumed();
-        expect(process_stub::run_command_call_count() == 0, "Version preparation started a transaction");
-        if(test.failure) {
-            expect(!result.is_prepared() && result.failure()->version_guard_failure() && result.failure()->version_guard_failure()->kind == *test.failure,
-                   "Automatic Version refusal lost typed cause");
-            expect_caller_ownership(fixture, "Version failure retained artifact lifetime");
-            fixture.artifacts().cleanup_workspace();
-        } else {
-            auto& prepared = expect_prepared(result, "Automatic Version success");
-            expect(prepared.selected_artifacts().size() == 1 && prepared.unselected_artifacts().size() == 1 &&
-                       prepared.unselected_artifacts().front().identity.package_name == "sibling",
-                   "Version guard selected split sibling");
-            process_stub::expect_run_command(expected_install_command({fixture.path_at(0)}, false, false), 0);
-            auto installed = execute_prepared_package_base_artifact_install(prepared, {});
-            expect(installed.selected_artifacts().size() == 1 && process_stub::run_command_call_count() == 1,
-                   "Version guard did not install exactly selected child");
-            prepared.cleanup_workspace();
-        }
-    }
-    for(int mutation = 0; mutation < 8; ++mutation) {
-        ArtifactSetFixture fixture({"selected.pkg.tar.zst"});
-        reset_stubs();
-        expect_identity_queries(fixture, {{"selected", "2-1"}});
-        auto selected = target("selected", DesiredInstallReason::Explicit);
-        selected.automatic_version_update = AutomaticAurVersionUpdateIntent{PACKAGE_BASE, "selected", "2-1", "1-1", InstalledPackageReason::Explicit};
-        Kind expected = Kind::IntentIdentityMismatch;
-        if(mutation == 0) selected.automatic_version_update->package_name = "other-child";
-        if(mutation == 1) selected.automatic_version_update->package_base = "other-base";
-        if(mutation == 2) {
-            selected.automatic_version_update->observed_rpc_version = "";
-            expected = Kind::InvalidVersionEvidence;
-        }
-        if(mutation == 3) {
-            selected.automatic_version_update->observed_rpc_version = "x:2-1";
-            expected = Kind::InvalidVersionEvidence;
-        }
-        if(mutation == 4) {
-            expected = Kind::InstalledStateDrift;
-        }
-        if(mutation == 5) {
-            metadata_stub::enqueue_local_package_query_absent("selected");
-            expected = Kind::InstalledPackageDisappeared;
-        } else if(mutation == 6) {
-            metadata_stub::enqueue_local_package_query_failure("selected");
-            expected = Kind::InstalledObservationFailed;
-        } else if(mutation == 7) {
-            metadata_stub::set_initialize_failure(ALPM_ERR_DB_OPEN);
-            expected = Kind::InstalledObservationFailed;
-        } else
-            metadata_stub::enqueue_local_package_query_present("selected", "selected", mutation == 4 ? "1-2" : "1-1", ALPM_PKG_REASON_EXPLICIT, PACKAGE_BASE);
-        auto result = prepare_fixture(fixture, {selected});
-        expect(!result.is_prepared() && result.failure()->version_guard_failure() && result.failure()->version_guard_failure()->kind == expected,
-               "Version identity/fresh observation failure changed classification");
-        expect(process_stub::run_command_call_count() == 0, "Version refusal reached install");
-        expect_caller_ownership(fixture, "Version refusal retained owner");
-        fixture.artifacts().cleanup_workspace();
-    }
-    auto required = target("selected", DesiredInstallReason::Explicit);
-    required.automatic_version_update = AutomaticAurVersionUpdateIntent{PACKAGE_BASE, "selected", "2-1", "1-1"};
-    InstalledPackageMetadata installed{"selected", "1-1", InstalledPackageReason::Explicit};
-    for(const std::string version : {"", "bad epoch:2-1", "2", "2-", "2-1.2.3"}) {
-        const auto refused = validate_automatic_aur_version_install(required, ArtifactPackageIdentity{"selected", version}, installed);
-        expect(refused && refused->kind == Kind::InvalidVersionEvidence, "Invalid actual full version became update authority");
-    }
-    auto actual = ArtifactPackageIdentity{"selected", "2-1"};
-    actual.package_base = ArtifactPackageBaseIdentity::malformed();
-    expect(validate_automatic_aur_version_install(required, actual, installed)->kind == Kind::IntentIdentityMismatch,
-           "Malformed archive PackageBase became absent evidence");
-    actual.package_base = ArtifactPackageBaseIdentity::known(PACKAGE_BASE);
-    installed.package_base = InstalledPackageBaseIdentity::known("prior-package-base");
-    metadata_stub::enqueue_version_comparison("2-1", "1-1", 1);
-    metadata_stub::enqueue_version_comparison("2-1", "2-1", 0);
-    expect(!validate_automatic_aur_version_install(required, actual, installed),
-           "Known installed old Base became an extra source restriction despite matching query binding and newer validated RPC/actual Base");
-    metadata_stub::require_version_comparisons_consumed();
-    installed.package_base = InstalledPackageBaseIdentity::malformed();
-    expect(validate_automatic_aur_version_install(required, actual, installed)->kind == Kind::InstalledStateDrift,
-           "Malformed fresh installed PackageBase became absent evidence");
-    required.expected_full_version = "2-1";
-    expect(validate_automatic_aur_version_install(required, actual, installed)->kind == Kind::IntentIdentityMismatch,
-           "Version update intent was mixed with coordinated replacement authority");
-    expect(evaluate_automatic_aur_version_ordering(std::nullopt, ArchVersionOrdering::Equal) == Kind::ComparisonUnavailable &&
-               evaluate_automatic_aur_version_ordering(ArchVersionOrdering::Greater, static_cast<ArchVersionOrdering>(99)) == Kind::ComparisonUnavailable,
-           "Unavailable canonical ordering became success");
-
-    for(const std::string invalid : {"", "2", "2-", "-1", ":2-1", "x:2-1", "1:2:3-1", "2/3-1", "2 3-1", "2--1", "2-1.2.3", "2-.1", "2-1.", "2-foo", "1β-1"}) {
-        for(int slot = 0; slot < 4; ++slot) {
-            auto checked_target = target("selected", DesiredInstallReason::Explicit);
-            checked_target.automatic_version_update = AutomaticAurVersionUpdateIntent{PACKAGE_BASE, "selected", "2-1", "1=foo-1", InstalledPackageReason::Explicit};
-            ArtifactPackageIdentity checked_actual{"selected", "2-1"};
-            InstalledPackageMetadata checked_installed{"selected", "1=foo-1", InstalledPackageReason::Explicit};
-            if(slot == 0) checked_actual.full_version = invalid;
-            if(slot == 1) checked_target.automatic_version_update->observed_rpc_version = invalid;
-            if(slot == 2) checked_target.automatic_version_update->observed_installed_version = invalid;
-            if(slot == 3) checked_installed.version = invalid;
-            const auto refused = validate_automatic_aur_version_install(checked_target, checked_actual, checked_installed);
-            expect(refused && refused->kind == Kind::InvalidVersionEvidence, "Invalid full package version escaped the guard in evidence slot " + std::to_string(slot));
-        }
-    }
-    auto reason_target = target("selected", DesiredInstallReason::Explicit);
-    reason_target.automatic_version_update = AutomaticAurVersionUpdateIntent{PACKAGE_BASE, "selected", "2-1", "1=foo-1", InstalledPackageReason::Explicit};
-    expect(validate_automatic_aur_version_install(reason_target, ArtifactPackageIdentity{"selected", "2-1"},
-                                                  InstalledPackageMetadata{"selected", "1=foo-1", InstalledPackageReason::Dependency})
-                   ->kind == Kind::InstalledStateDrift,
-           "Legal pkgver relaxed the exact installed reason binding");
-    expect(ObservedVersion::available(ObservedVersionSource::InstalledExactPackage, "1=foo-1").invalid_reason() != nullptr,
-           "Package version fix relaxed the unrelated dependency grammar");
-}
-
 void test_executor_revalidation() {
     for(int mutated_part : {0, 1, 2}) {
         ArtifactSetFixture fixture({"selected.pkg.tar.zst", "unselected.pkg.tar.zst"}, {0});
         reset_stubs();
         expect_identity_queries(fixture, {{"selected", "1-1"}, {"unselected", "1-1"}});
-        metadata_stub::enqueue_local_package_query_present("selected", "selected", "0-1", ALPM_PKG_REASON_EXPLICIT, PACKAGE_BASE);
-        auto required = target("selected", DesiredInstallReason::Explicit);
-        required.automatic_version_update = AutomaticAurVersionUpdateIntent{PACKAGE_BASE, "selected", "1-1", "0-1", InstalledPackageReason::Explicit};
-        metadata_stub::enqueue_version_comparison("1-1", "0-1", 1);
-        metadata_stub::enqueue_version_comparison("1-1", "1-1", 0);
-        auto result = prepare_fixture(fixture, {required});
-        auto& prepared = expect_prepared(result, "guarded same-inode preparation");
+        metadata_stub::enqueue_local_package_query_absent("selected");
+        auto result = prepare_fixture(fixture, {target("selected", DesiredInstallReason::Explicit)});
+        auto& prepared = expect_prepared(result, "same-inode preparation");
         const auto path = mutated_part == 2 ? signature_path(fixture.path_at(0)) : fixture.path_at(mutated_part);
         struct stat before{}, after{};
         expect(stat(path.c_str(), &before) == 0, "Cannot stat original fixture");
@@ -2134,7 +1985,6 @@ int main() {
         run_case(
             "confirmed replacement full version guard",
             test_confirmed_replacement_full_version_guard);
-        test_automatic_version_update_guard();
         run_case(
             "selected metadata mapping and order",
             test_selected_metadata_mapping_and_order);

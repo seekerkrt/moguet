@@ -52,7 +52,6 @@ class SeparatedSourceBuildPhaseError final : public std::runtime_error {
     ProductionSourceBuildStagedOutcome production_outcome_;
     std::optional<PackageMetadataFailure> package_metadata_failure_;
     std::exception_ptr failure_exception_;
-    std::optional<AutomaticAurVersionGuardFailure> version_guard_failure_;
 
 public:
     SeparatedSourceBuildPhaseError(
@@ -61,8 +60,7 @@ public:
         const std::string& diagnostic,
         std::optional<PackageMetadataFailure>
             package_metadata_failure = std::nullopt,
-        std::exception_ptr failure_exception = nullptr,
-        std::optional<AutomaticAurVersionGuardFailure> version_guard_failure = std::nullopt);
+        std::exception_ptr failure_exception = nullptr);
 
     SeparatedSourceBuildFailurePhase phase() const noexcept {
         return phase_;
@@ -76,10 +74,6 @@ public:
     const std::optional<PackageMetadataFailure>&
     package_metadata_failure() const noexcept {
         return package_metadata_failure_;
-    }
-
-    const std::optional<AutomaticAurVersionGuardFailure>& version_guard_failure() const noexcept {
-        return this->version_guard_failure_;
     }
 
     void rethrow_failure() const {

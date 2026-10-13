@@ -331,7 +331,7 @@ class PreparedUpgradeAllAurPreflight final {
     PreparedUpgradeAllAurPreflight() = default;
 
     void prepare_foreign_inventory_stage();
-    void prepare_aur_query_stage(const AppConfig& config);
+    void prepare_aur_query_stage();
     void prepare_filtered_operation_stage(
         const UpgradeAllOperationPreparedSnapshot& prepared,
         const AppConfig& config,

@@ -86,7 +86,6 @@ KNOWN_OPTION_SEMANTIC_SCOPES = frozenset(
         "dependency-cleanup",
         "package-export",
         "presentation-detail",
-        "devel-update-query",
     }
 )
 KNOWN_GRAMMAR_OWNERSHIPS = frozenset(
@@ -211,7 +210,6 @@ class CliSchema:
     terminal_tokens: tuple[str, ...]
     canonical_grammar: tuple[str, ...]
     presentation_scopes: tuple[tuple[str, int, int | None], ...] = ()
-    query_policy_scopes: tuple[tuple[str, tuple[OptionRelation, ...]], ...] = ()
     operand_contexts: tuple[tuple[str, str], ...] = ()
     lexical_value_options: tuple[tuple[str, bool], ...] = ()
     parser_boundaries: tuple[tuple[str, int], ...] = ()
@@ -370,7 +368,6 @@ def parse_exported_schema(exported_schema: str) -> CliSchema:
     terminal_tokens: list[str] = []
     canonical_grammar: list[str] = []
     presentation_scopes: list[tuple[str, int, int | None]] = []
-    query_policy_scopes: list[tuple[str, tuple[OptionRelation, ...]]] = []
 
     operand_contexts: dict[str, str] = {}
     lexical_value_options: dict[str, bool] = {}
@@ -478,8 +475,6 @@ def parse_exported_schema(exported_schema: str) -> CliSchema:
         elif record == "PRESENTATION" and len(fields) == 4:
             presentation_scopes.append((fields[1], parse_identity(fields[2], "presentation option"),
                                         parse_identity(fields[3], "required option") if fields[3] else None))
-        elif record == "QUERY_POLICY_SCOPE" and len(fields) == 3:
-            query_policy_scopes.append((fields[1], parse_option_relations(fields[2])))
         elif record == "OPERAND_CONTEXT" and len(fields) == 3:
             token, kind = fields[1:]
             if token in operand_contexts or kind not in KNOWN_OPERAND_KINDS:
@@ -526,7 +521,6 @@ def parse_exported_schema(exported_schema: str) -> CliSchema:
         terminal_tokens=tuple(terminal_tokens),
         canonical_grammar=tuple(canonical_grammar),
         presentation_scopes=tuple(presentation_scopes),
-        query_policy_scopes=tuple(query_policy_scopes),
         operand_contexts=tuple(operand_contexts.items()),
         lexical_value_options=tuple(lexical_value_options.items()),
         parser_boundaries=tuple(parser_boundaries.items()),
@@ -534,16 +528,6 @@ def parse_exported_schema(exported_schema: str) -> CliSchema:
     for token in operand_contexts:
         if (token, "open") not in operation_modes:
             fail("exact operand context has no open operation")
-    if len({token for token, _ in query_policy_scopes}) != len(query_policy_scopes):
-        fail("duplicate query policy scope")
-    for token, relations in query_policy_scopes:
-        if token not in operand_contexts or operand_contexts[token] != "none":
-            fail("query policy scope requires an exact target-less open operation")
-        identities = tuple(relation.identity for relation in relations)
-        if len(set(identities)) != len(identities) or not set(identities).issubset(option.identity for option in options):
-            fail("invalid query policy scope option relations")
-        if not any("devel-update-query" in option.semantic_scopes and option.identity in identities for option in options):
-            fail("query policy scope has no tracking policy option")
     for token, identity in parser_boundaries.items():
         if not any(option.token == token and option.identity == identity and
                    option.value_kind == "marker" and not option.is_completion_visible
@@ -1378,92 +1362,6 @@ def presentation_additions(schema: CliSchema, shell: str) -> str:
     return "\n".join(lines)
 
 
-
-def tracking_options(schema: CliSchema) -> tuple[Option, ...]:
-    return tuple(option for option in schema.options
-                 if "devel-update-query" in option.semantic_scopes)
-
-
-def tracking_prefix_scopes(schema: CliSchema) -> dict[str, tuple[int, ...]]:
-    # Narrow semantic prefixes supplement the open pacman grammar. They never
-    # change its existing option catalogue or invoke a dynamic provider.
-    tracking_ids = {option.identity for option in tracking_options(schema)}
-    scopes = {token: tuple(relation.identity for relation in relations)
-              for token, relations in schema.query_policy_scopes}
-    for operation in schema.operations:
-        forms = [form for form in operation.forms
-                 if tracking_ids.intersection(form.option_ids)]
-        if forms:
-            scopes[operation.token] = tuple(dict.fromkeys(
-                identity for form in forms for identity in form.option_ids))
-    scopes[""] = tuple(dict.fromkeys(identity for ids in scopes.values() for identity in ids))
-    return scopes
-
-
-def tracking_context_function(schema: CliSchema, shell: str) -> str:
-    scopes = tracking_prefix_scopes(schema)
-    if shell == "fish":
-        cases = "\n".join(f"        case {fish_quote(token)}\n            set allowed {' '.join(map(str, ids))}"
-                          for token, ids in scopes.items())
-        return f'''function __moguet_tracking_context --argument-names operation
-    set -l allowed
-    switch "$operation"
-{cases}
-        case '*'
-            return 1
-    end
-    set -l seen_operation false
-    for word in (commandline -opc)[2..-1]
-        if test -n "$operation"; and test "$word" = "$operation"; and test $seen_operation = false
-            set seen_operation true
-            continue
-        end
-        set -l actual (__moguet_option_id "$word")
-        test (count $actual) -eq 1; or return 1
-        contains -- $actual $allowed; or return 1
-    end
-    return 0
-end'''
-    cases = "\n".join(f"        {shell_quote(token)}) allowed=({' '.join(map(str, ids))}) ;;"
-                      for token, ids in scopes.items())
-    loop = ('for word in "${COMP_WORDS[@]:1:COMP_CWORD-1}"; do' if shell == "bash" else
-            'for ((index=2; index<CURRENT; ++index)); do\n        word=${(Q)words[index]}')
-    resolve = ('actual="$(_moguet_option_id "$word")" || return 1' if shell == "bash" else
-               '_moguet_option_id "$word" || return 1; actual=$REPLY')
-    return f'''_moguet_tracking_context() {{
-    local operation="$1" word actual index seen_operation=false
-    local -a allowed
-    case "$operation" in
-{cases}
-        *) return 1 ;;
-    esac
-    {loop}
-        if [[ -n $operation && $word == "$operation" && $seen_operation == false ]]; then
-            seen_operation=true
-            continue
-        fi
-        {resolve}
-        [[ " ${{allowed[*]}} " == *" $actual "* ]] || return 1
-    done
-    return 0
-}}'''
-
-
-def tracking_additions(schema: CliSchema, shell: str) -> str:
-    tokens = tuple(option.completion_token for option in tracking_options(schema))
-    array = "candidates" if shell == "bash" else "reply"
-    if shell == "fish":
-        ids = " ".join(str(option.identity) for option in tracking_options(schema))
-        return f'''    if contains -- $option_id {ids}
-        __moguet_tracking_context "$operation"; and return 0; or return 1
-    end'''
-    additions = "\n".join(f'        [[ " ${{{array}[*]}} " == *{shell_quote(" " + token + " ")}* ]] || {array}+=({shell_quote(token)})'
-                           for token in tokens)
-    return f'''    if _moguet_tracking_context "$operation"; then
-{additions}
-    fi'''
-
-
 def local_prefix_operations(schema: CliSchema) -> tuple[str, ...]:
     # Slice 1b deliberately projects only the first operand of plain sync.
     # No modifiers, prior operands, globals or cursor suffix are accepted.
@@ -2026,7 +1924,6 @@ _moguet_conflicts_with_present_option() {{
 {bash_typed_functions(schema)}
 {option_context_function(schema, 'bash')}
 {query_context_function(schema, 'bash')}
-{tracking_context_function(schema, 'bash')}
 
 _moguet() {{
     local cur operation candidate option_id REPLY strip_prefix typed_insert_prefix
@@ -2065,7 +1962,6 @@ _moguet() {{
     fi
 
 {presentation_additions(schema, "bash")}
-{tracking_additions(schema, "bash")}
 
     _moguet_typed_values && return 0
 
@@ -2073,11 +1969,6 @@ _moguet() {{
     for candidate in "${{candidates[@]}}"; do
         option_id="$(_moguet_option_id "$candidate" || true)"
         if [[ -n $option_id ]]; then
-            case "$option_id" in
-            {'|'.join(str(option.identity) for option in tracking_options(schema))})
-                _moguet_tracking_context "$operation" || continue
-                ;;
-            esac
             case "$option_id" in
             {'|'.join(str(identity) for identity in once_ids)})
                 _moguet_has_option_id "$option_id" && continue
@@ -2489,7 +2380,6 @@ _moguet_collect_candidates() {{
         __delegated__) reply=({zsh_case_values(delegated_tokens)}) ;;
     esac
 {presentation_additions(schema, "zsh")}
-{tracking_additions(schema, "zsh")}
 }}
 
 _moguet_description() {{
@@ -2502,7 +2392,6 @@ _moguet_description() {{
 {zsh_typed_functions(schema)}
 {option_context_function(schema, 'zsh')}
 {query_context_function(schema, 'zsh')}
-{tracking_context_function(schema, 'zsh')}
 
 _moguet() {{
     local operation candidate option_id cur=${{PREFIX-${{(Q)words[CURRENT]}}}}
@@ -2536,11 +2425,6 @@ _moguet() {{
     for candidate in "${{candidates[@]}}"; do
         if _moguet_option_id "$candidate"; then
             option_id=$REPLY
-            case "$option_id" in
-            {'|'.join(str(option.identity) for option in tracking_options(schema))})
-                _moguet_tracking_context "$operation" || continue
-                ;;
-            esac
             case "$option_id" in
             {'|'.join(str(identity) for identity in once_ids)})
                 _moguet_has_option_id "$option_id" && continue
@@ -2813,11 +2697,9 @@ def render_fish(schema: CliSchema, descriptions: Descriptions, locale: str,
         "end",
         "",
         option_context_function(schema, "fish"), "",
-        tracking_context_function(schema, "fish"), "",
         "function __moguet_operation_allows --argument-names option_id",
         "    __moguet_option_context; or return 1",
         "    set -l operation (__moguet_operation)",
-        tracking_additions(schema, "fish"),
         presentation_additions(schema, "fish"),
         "    if test -z \"$operation\"",
         f"        {fish_contains(root_ids)}",

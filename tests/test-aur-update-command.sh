@@ -263,25 +263,8 @@ assert_exact_line "non-aur-pkg: skipped: non-AUR foreign" "$stdout_file"
 assert_exact_line "reduce execution=no" "$command_log"
 assert_no_external_mutation
 
-for dry in actual dry-run; do
-    setup_case "devel-default-off-$dry" devel-requires-check
-    if [ "$dry" = actual ]; then
-        run_status 0 upgrade-aur
-        assert_exact_line "AUR update: no updates" "$stdout_file"
-    else
-        run_status 0 --dry-run upgrade-aur
-        assert_contains "Unified plan:" "$stdout_file"
-        assert_contains "Status: NoOp" "$stdout_file"
-    fi
-    assert_exact_line "query policy version-only" "$command_log"
-    assert_not_contains "requires check" "$stdout_file"
-    assert_no_external_mutation
-    assert_cache_absent
-    assert_state_absent
-done
-
 setup_case devel-requires-check devel-requires-check
-run_status 1 upgrade-aur --devel
+run_status 1 upgrade-aur
 assert_exact_line "AUR update: blocked before execution" "$stdout_file"
 assert_exact_line \
     "manual-check-git: devel update requires check: suffix candidate only" \
@@ -298,7 +281,7 @@ assert_cache_absent
 assert_state_absent
 
 setup_case devel-requires-check-noconfirm devel-requires-check
-run_status 1 --noconfirm upgrade-aur --devel
+run_status 1 --noconfirm upgrade-aur
 assert_exact_line "AUR update: blocked before execution" "$stdout_file"
 assert_exact_line \
     "manual-check-git: devel update requires check: suffix candidate only" \
@@ -314,7 +297,7 @@ assert_state_absent
 # production call site. The operation stub rejects any policy other than the
 # explicit current BlockOperation contract.
 setup_case devel-requires-check-dry-run devel-requires-check
-run_status 1 --dry-run upgrade-aur --devel
+run_status 1 --dry-run upgrade-aur
 assert_contains "Unified plan:" "$stdout_file"
 assert_contains "  Status: Blocked" "$stdout_file"
 assert_exact_line "preflight" "$command_log"
@@ -463,134 +446,6 @@ assert_no_external_mutation
 # rather than depending on host-installed translations or locale archives.
 mkdir -p "$tmp_dir/locales"
 localedef --no-archive -i en_US -f UTF-8 "$tmp_dir/locales/en_US.UTF-8"
-
-# Failure payloads come from the production guard (or its unavailable-ordering
-# policy), not translated message fixtures. Both views must retain the cause,
-# bounded version evidence and recovery advice without executing a transaction.
-for language in en ja; do
-    for detail in normal detailed; do
-        for mode in same older rpc-unmet drift reason-drift disappeared observer invalid identity comparison bounded; do
-            setup_case "guard-$language-$detail-$mode" "version-guard-$mode"
-            if [ "$language" = ja ]; then
-                export LOCPATH=$tmp_dir/locales
-                export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 LANGUAGE=ja
-            fi
-            if [ "$detail" = detailed ]; then
-                run_status 1 --details upgrade-aur
-            else
-                run_status 1 upgrade-aur
-            fi
-            if [ "$language" = en ]; then
-                case "$mode" in
-                    same|older) reason='artifact is the same version as or older than installed' ;;
-                    rpc-unmet) reason='artifact version is below the observed AUR RPC version' ;;
-                    drift|reason-drift) reason='installed package version, install reason, or identity changed since query' ;;
-                    disappeared) reason='selected installed package disappeared' ;;
-                    observer) reason='fresh installed package observation failed' ;;
-                    invalid|bounded) reason='invalid or missing full version evidence' ;;
-                    identity) reason='selected artifact and AUR RPC child identity mismatch' ;;
-                    comparison) reason='version comparison authority unavailable' ;;
-                esac
-                actual_label='actual='
-                fresh_label='fresh installed='
-                query_label='query installed='
-                rpc_label='observed RPC='
-                unavailable='unavailable'
-                assert_contains 'The --devel and --no-devel options do not bypass this guard.' "$stderr_file"
-                assert_contains 'new invocation' "$stderr_file"
-                case "$mode" in
-                    same|older|rpc-unmet) assert_contains 'Check the recipe, observed AUR RPC version, and actual artifact version' "$stderr_file" ;;
-                    drift|reason-drift|disappeared|observer) assert_contains 'Re-check the installed package state' "$stderr_file" ;;
-                    invalid|bounded|identity) assert_contains 'Check the package identity and full version evidence' "$stderr_file" ;;
-                    comparison) assert_contains 'Restore Arch version comparison support' "$stderr_file" ;;
-                esac
-            else
-                case "$mode" in
-                    same|older) reason='アーティファクトはインストール済みと同じか古いバージョンです' ;;
-                    rpc-unmet) reason='アーティファクトのバージョンが観測済みのAUR RPCバージョンに達していません' ;;
-                    drift|reason-drift) reason='照会後にインストール済みパッケージのバージョン、インストール理由、または識別情報が変わりました' ;;
-                    disappeared) reason='選択したインストール済みパッケージが消失しました' ;;
-                    observer) reason='現在のインストール済みパッケージの観測に失敗しました' ;;
-                    invalid|bounded) reason='full versionの根拠が不正または欠落しています' ;;
-                    identity) reason='選択アーティファクトとAUR RPCのchild識別情報が一致しません' ;;
-                    comparison) reason='バージョン比較の根拠を利用できません' ;;
-                esac
-                actual_label='実成果物='
-                fresh_label='現在のインストール済み='
-                query_label='照会時のインストール済み='
-                rpc_label='観測済みRPC='
-                unavailable='利用不可'
-                assert_contains '--develと--no-develではこのguardを解除できません。' "$stderr_file"
-                assert_contains '新しい呼び出し' "$stderr_file"
-                case "$mode" in
-                    same|older|rpc-unmet) assert_contains 'レシピ、観測済みAUR RPCバージョン、実際のアーティファクトのバージョンを確認' "$stderr_file" ;;
-                    drift|reason-drift|disappeared|observer) assert_contains 'インストール済みパッケージの状態を再確認' "$stderr_file" ;;
-                    invalid|bounded|identity) assert_contains 'パッケージの識別情報とfull versionの根拠を確認' "$stderr_file" ;;
-                    comparison) assert_contains 'Archのバージョン比較機能を復旧' "$stderr_file" ;;
-                esac
-            fi
-            actual=2.0-1
-            fresh=1.0-1
-            case "$mode" in
-                same) actual=1.0-1 ;;
-                older) actual=0.9-1 ;;
-                rpc-unmet) actual=1.5-1 ;;
-                drift) fresh=1.1-1 ;;
-                disappeared|observer|identity) fresh=$unavailable ;;
-                invalid) actual='bad\x1B[31m\x0Aversion' ;;
-                bounded) actual=$(python3 -c 'print("x" * 160 + "...")') ;;
-            esac
-            assert_contains "$reason" "$stdout_file"
-            assert_contains "$reason" "$stderr_file"
-            assert_contains "$actual_label$actual" "$stderr_file"
-            assert_contains "$fresh_label$fresh" "$stderr_file"
-            assert_contains "${query_label}1.0-1" "$stderr_file"
-            assert_contains "${rpc_label}2.0-1" "$stderr_file"
-            assert_not_contains 'unrelated raw guard diagnostic' "$stdout_file"
-            assert_not_contains 'unrelated raw guard diagnostic' "$stderr_file"
-            assert_not_contains 'untrusted observer diagnostic' "$stderr_file"
-            assert_exact_line 'production Version guard refused; transaction=0 publication=0' "$command_log"
-            assert_no_external_mutation
-            if [ "$mode" = bounded ]; then
-                output_bytes=$(wc -c < "$stderr_file")
-                [ "$output_bytes" -lt 3000 ] || fail_case 'Version evidence was not bounded.'
-            fi
-            if [ "$detail" = normal ] && [ "$mode" != bounded ]; then
-                printf 'Version guard CLI evidence (%s/%s):\n' "$language" "$mode"
-                cat "$stderr_file"
-            fi
-        done
-    done
-done
-
-for language in en ja; do
-    for detail in normal detailed; do
-        setup_case "unknown-outcome-$language-$detail" transaction-outcome-unknown
-        if [ "$language" = ja ]; then
-            export LOCPATH=$tmp_dir/locales
-            export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 LANGUAGE=ja
-        fi
-        if [ "$detail" = detailed ]; then
-            run_status 1 --details upgrade-aur
-        else
-            run_status 1 upgrade-aur
-        fi
-        if [ "$language" = en ]; then
-            assert_contains 'transaction outcome unknown; installed artifact unverified' "$stdout_file"
-            assert_contains 'Check the actual installed package state and pacman log before retrying.' "$stdout_file"
-            assert_not_contains 'installed / updated' "$stdout_file"
-            assert_not_contains 'no change' "$stdout_file"
-        else
-            assert_contains 'トランザクション結果は不明です。インストールされたアーティファクトは未検証です。' "$stdout_file"
-            assert_contains '実際のインストール済みパッケージの状態とpacman logを確認' "$stdout_file"
-            assert_not_contains 'インストール済み／更新済み' "$stdout_file"
-            assert_not_contains '変更なし' "$stdout_file"
-        fi
-        assert_exact_line 'authoritative transaction OutcomeUnknown projection' "$command_log"
-        assert_no_external_mutation
-    done
-done
-
 for operation in -Syu upgrade-aur; do
     setup_case "reviewed-unsafe-ja-$operation" reviewed-preparation-unsafe
     if [ "$operation" = -Syu ]; then
@@ -764,7 +619,7 @@ assert_not_contains "/private/artifacts/" "$stderr_file"
 setup_case transaction-process-exception transaction-process-exception
 run_status 1 upgrade-aur
 assert_exact_line \
-    "tx-main: failed: package transaction process exception Check the actual installed package state and pacman log before retrying." "$stdout_file"
+    "tx-main: failed: package transaction process exception" "$stdout_file"
 assert_contains \
     "execution failure for PackageBase tx-suite: package transaction process exception" \
     "$stderr_file"
@@ -1331,8 +1186,7 @@ assert_not_contains "git " "$command_log"
 assert_not_contains "sudo pacman -U" "$command_log"
 assert_cache_absent
 
-# 108 existing cases plus 11 guard modes and Unknown outcome in EN/JA/views.
-if [ "$case_count" -ne 156 ]; then
+if [ "$case_count" -ne 106 ]; then
     fail_case "internal test case count changed: $case_count"
 fi
 echo "AUR update command integration tests passed ($case_count cases)."

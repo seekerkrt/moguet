@@ -4,7 +4,6 @@
 #include "artifact_install_plan.hpp"
 #include "artifact_workspace.hpp"
 #include "dependency_plan.hpp"
-#include "dependency_constraint.hpp"
 #include "package_metadata.hpp"
 
 #include <filesystem>
@@ -37,42 +36,6 @@ struct InstalledArtifactPolicyState {
 InstalledArtifactPolicyState map_installed_artifact_policy_state(
     const ArtifactPackageIdentity& identity,
     const InstalledPackageQueryResult& query_result);
-
-enum class AutomaticAurVersionGuardFailureKind {
-    IntentIdentityMismatch,
-    InvalidVersionEvidence,
-    ComparisonUnavailable,
-    InstalledObservationFailed,
-    InstalledPackageDisappeared,
-    InstalledStateDrift,
-    ArtifactNotNewerThanInstalled,
-    ArtifactBelowObservedRpcVersion,
-};
-
-struct AutomaticAurVersionGuardFailure {
-    AutomaticAurVersionGuardFailureKind kind;
-    std::string package_base;
-    std::string package_name;
-    std::string observed_rpc_version;
-    std::string observed_installed_version;
-    std::string actual_version;
-    std::optional<std::string> fresh_installed_version;
-    std::optional<PackageMetadataFailure> metadata_failure;
-};
-
-// Pure policy accepts only canonical adapter results; absent comparison
-// authority never becomes equal, success, or a needed skip.
-std::optional<AutomaticAurVersionGuardFailureKind> evaluate_automatic_aur_version_ordering(
-    std::optional<ArchVersionOrdering> actual_vs_installed,
-    std::optional<ArchVersionOrdering> actual_vs_rpc) noexcept;
-
-// Actual identity comes from the validated install bytes; installed metadata
-// must be a fresh observation from the install preparation's local DB session.
-std::optional<AutomaticAurVersionGuardFailure> validate_automatic_aur_version_install(
-    const RequiredPackageArtifactTarget& target,
-    const ArtifactPackageIdentity& actual,
-    const InstalledPackageQueryResult& fresh_installed);
-std::string automatic_aur_version_guard_diagnostic(const AutomaticAurVersionGuardFailure& failure);
 
 class PreparedArtifactInstall final {
     std::string requested_name_;

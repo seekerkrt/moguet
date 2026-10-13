@@ -9,7 +9,7 @@
 適用する原則と根拠、[個別contract](contracts/README.md)はbehaviorごとの保証を所有する。
 route別の対応範囲は[compatibility](compatibility.md)、証拠の扱いは
 [validation policy](validation.md)を正とする。current release scopeは
-[v2.12.0 milestone](https://github.com/seekerkrt/moguet/milestone/33)、current capabilityはdevelopの実装、
+[v2.11.0 milestone](https://github.com/seekerkrt/moguet/milestone/32)、current capabilityはdevelopの実装、
 public help/man、現行contractで確認する。closedの[roadmap #344](https://github.com/seekerkrt/moguet/issues/344)は
 historical customization / release planningの記録であり、current status authorityではない。
 
@@ -172,7 +172,7 @@ AI等で実装可能でも、rare edge caseのためにgeneric frameworkを先�
 
 ## Current capabilityとcustomizationの姿勢
 
-current released stableはv2.11.0、準備中のreleaseはv2.12.0である。以下はdevelopの現在地であり、
+current released stableはv2.10.1、next planned releaseはv2.11.0である。以下はdevelopの現在地であり、
 公開stableの収録内容とは区別する。
 
 - **Implemented current:** ordinary AUR-helperの主要workflow、provider選択、source-aware routing、

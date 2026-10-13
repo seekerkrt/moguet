@@ -39,8 +39,8 @@ assert_contains() {
 
 assert_config_field_count() {
     file=$1
-    if [ "$(wc -l < "$file")" -ne 5 ]; then
-        echo "UserConfig output did not contain exactly five fields" >&2
+    if [ "$(wc -l < "$file")" -ne 4 ]; then
+        echo "UserConfig output did not contain exactly four fields" >&2
         cat "$file" >&2
         exit 1
     fi
@@ -55,7 +55,6 @@ assert_config() {
     assert_line "REVIEW_PKGBUILD=$pkgbuild" "$file"
     assert_line "REVIEW_DIFF=$diff" "$file"
     assert_line "BUILD_MODE=$mode" "$file"
-    assert_line "UPDATES_DEVEL=${5:-false}" "$file"
     assert_config_field_count "$file"
 }
 
@@ -114,12 +113,6 @@ canonical_sample_expected=$tmp_dir/canonical-sample.expected
     printf '%s\n' ''
     printf '%s\n' '[build]'
     printf '%s\n' 'mode = "normal"'
-    printf '%s\n' ''
-    printf '%s\n' '# Git revision tracking is opt-in. This is a strict TOML boolean, not a string'
-    printf '%s\n' '# or number. CLI --devel / --no-devel overrides this value for one invocation.'
-    printf '%s\n' '# Older Moguet binaries may reject [updates]; check this manually on downgrade.'
-    printf '%s\n' '[updates]'
-    printf '%s\n' 'devel = false'
 } > "$canonical_sample_expected"
 
 canonical_sample_matches_expected() {
@@ -488,21 +481,5 @@ if [ -e /dev/null ]; then
     assert_failure "$output" /dev/null \
         "readable regular file" "got character device"
 fi
-
-for enabled in true false; do
-    printf 'schema_version = 1\n[updates]\ndevel = %s\n' "$enabled" > "$tmp_dir/updates.toml"
-    cp "$tmp_dir/updates.toml" "$tmp_dir/updates.before"
-    run_ok "$output" load "$tmp_dir/updates.toml"
-    assert_config "$output" prompt prompt normal "$enabled"
-    cmp -s "$tmp_dir/updates.before" "$tmp_dir/updates.toml" || fail "updates config was rewritten"
-done
-for invalid in '"true"' 1 '[true]' '{ enabled = true }'; do
-    printf 'schema_version = 1\n[updates]\ndevel = %s\n' "$invalid" > "$tmp_dir/updates-invalid.toml"
-    assert_failure "$output" "$tmp_dir/updates-invalid.toml" "updates.devel" "expected boolean"
-done
-printf 'schema_version = 1\n[updates]\nunexpected = true\n' > "$tmp_dir/updates-unknown.toml"
-assert_failure "$output" "$tmp_dir/updates-unknown.toml" "section 'updates', key 'unexpected'" "accepted key: devel"
-printf 'schema_version = 1\nupdates = false\n' > "$tmp_dir/updates-type.toml"
-assert_failure "$output" "$tmp_dir/updates-type.toml" "section 'updates'" "expected table"
 
 echo "user_config tests passed"

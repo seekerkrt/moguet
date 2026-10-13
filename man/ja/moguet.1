@@ -1,4 +1,4 @@
-.TH MOGUET 1 "September 2026" "Moguet 2.12.0" "ユーザーコマンド"
+.TH MOGUET 1 "September 2026" "Moguet 2.11.0" "ユーザーコマンド"
 .\" parity:name
 .SH 名前
 .na
@@ -170,12 +170,10 @@ registered source preferenceを走査しない場合は
 .TP
 .B "upgrade-aur"
 installed packageのうち、現在もexact AUR packageへ解決できるものを更新します。
-既定はVCS packageを含むpackage version比較で、Git revision trackingはOFFです。
---develまたはupdates.devel=trueで既存assessmentを追加します。
-tracking ON時にconventionalなdevel suffix根拠だけを持ち、normal AUR versionが新しくないexact AUR
+conventionalなdevel suffix根拠だけを持ち、normal AUR versionが新しくないexact AUR
 packageは確認が必要な状態として表示し、AUR mutationより前にoperation全体をblockします。
 automatic rebuildは行いません。
-対応するreviewed HTTPS Git subsetでは、same/older versionをcurrent installed/reviewed
+対応するreviewed single-child HTTPS Git subsetでは、same/older versionをcurrent installed/reviewed
 provenanceとremote Git観測で補完します。normal version-newer precedenceは維持します。
 Git revision updateはversion増加とは区別します。reviewed executionはactual build/install provenanceを
 publishし、install後のpublication failure/uncertaintyはpartial non-zeroとして保持します。
@@ -483,7 +481,7 @@ fallback preferenceも参照せず、preference-derived build environmentはempt
 invalid、unreadable、failureとなるpreference dataのいずれもこのrouteへ影響しません。
 .
 .PP
-tracking ON時にstatusが
+statusが
 .B RequiresCheck
 のindependent devel targetはnon-blocking warning付きでskipし、unrelatedなnormal AUR
 updateを停止しません。このstateは未検証のままで、UpToDateでもautomatic update decisionでも
@@ -495,36 +493,21 @@ updateを停止しません。このstateは未検証のままで、UpToDateで�
 はstrictなwhole-operation RequiresCheck blocker behaviorを維持します。
 .
 .PP
-tracking ONで初回devel provenance観測が真のMissingである独立targetには、interactiveなexact target-less Auto
+初回devel provenance観測が真のMissingである独立targetには、interactiveなexact target-less Auto
 更新でdefault-Noの明示tracking bootstrap確認を提示できます。先にexact AUR recipeをread-onlyで
-観測して試行適格性を確認し、unsupported、判定不能は従来どおりskipします。
-trialはdeclared PackageBase child set、one floating HTTPS Git source、boundedなrecipe直下のrenameなしlocal
-inputを扱います。multiple declared architectureは対応し、architecture-qualified sourceは非対応です。
-local inputのtracked regular-file identityとbytesはfull review/S3/S4が証明し、trial自体はbuild/provenance proofではありません。
+観測して試行適格性を確認し、unsupported、判定不能、checkout overlayは従来どおりskipします。
+初期trialはdeclared PackageBase child setとarchitecture-independentなone floating HTTPS Git sourceを扱います。
+追加source fileのtracked regular-file identityをtrialで確認できない場合は提示しません。
 .PP
-bootstrap確認は対象由来のcache/provider/dependency mutationより前に行います。Yes後はexact observed recipeを
-fresh private workspaceへ取得し、old recipe cacheをauthorityとして読まず変更せずfallbackしません。
-既存review recordの有無によらず別途full source review、別途explicit upstream snapshot acceptance、対応build、
-exact install、fresh installed binding、provenance publication成功を要求します。snapshot承認はbuild inputの選択であり、
-source-code安全性保証や全upstream blobの全文reviewではありません。Noは対象をskipし、cancelまたは後段のfailureは後続を停止します。
+bootstrap確認は対象由来のcache/provider/dependency mutationより前に行います。Yes後にも、既存review
+recordの有無によらずfull source review、対応build、exact install、fresh installed binding、provenance
+publication成功を要求します。Noは対象をskipし、cancelまたは後段のfailureは後続を停止します。
 rollbackやinvalid/corrupt/future/unsafe stateのrepairは行いません。--noeditは利用できますが、
 --nodiff、review.diff=skip、--noconfirm、non-TTY入力はbootstrap承認になりません。
 .PP
 ordinary更新は対応するsplit PackageBaseを一度だけbuildし、選択したchildだけを一つのtransactionでinstallします。
 未選択のdeclared siblingを自動installせず、installed bindingも作りません。選択したchild別にschema-v1の
 provenance recordを保持します。一部binding/publicationが失敗してもinstall結果を消さず、rollbackなしでnon-zeroを返します。
-.
-.PP
-自動Version-basis AUR更新はtracking OFF/ONともにselected childをinstall前にguardします。
-actual artifact full versionがfresh installed versionより新しく、かつ観測済みAUR RPC Version以上であることを
-要求します。Arch/libalpm準拠のfull version比較はepoch/pkgrelを含み、RPCとの完全一致は要求しません。
-より新しいdynamic versionも許容します。同version/古いartifact、RPC未達、installed state drift、
-installed child消失、installed観測失敗、version evidence不正、比較authority不足、selected child/source identity不整合は
-typed AutomaticAurVersionGuardFailureとnon-zeroで停止します。対象installはNotAttemptedのまま、成功扱いせず、
-先行完了とcleanup outcomeを保持します。自動rebuild/retry/rollbackは行いません。
-GitRevision更新、初回bootstrap、explicit build、registered独自baseline rebuild、dependency、未選択split siblingへ
-無差別適用しません。tracking OFFのregistered AUR OnlyIfUpdatedは既存SRCINFOとsystem前後baselineの判定を維持します。
-観測と後続pacman transactionの完全atomicityは保証しません。
 .
 .PP
 phaseはsequentialでatomicではありません。repository failure時はAUR phaseをnot attemptedの
@@ -585,8 +568,7 @@ assessmentをplan / build preflightへ延期したことを明示します。
 .B "-Qua"
 pacmanへforeign-package updateを問い合わせ、AUR update候補になり得るinstalled
 packageも表示します。
-既定はpackage version比較で、未観測のGit revisionをGit UpToDateと表示しません。
---develはGit revision assessmentを追加します。tracking ON時にnormal versionが新しくないconventionalなexact AUR devel suffix candidateは、version
+normal versionが新しくないconventionalなexact AUR devel suffix candidateは、version
 update arrowではなく確認が必要なreason付きで表示します。
 このcheck-required resultだけならqueryの終了codeは0です。
 pacman-compatible queryであり、
@@ -849,28 +831,6 @@ exact target-less
 pacman argumentを保持します。このformはAUR inventory / query、source preference、cache、Git、
 makepkg、source runnerへ到達しません。
 既存source preferenceを削除しません。
-.
-.TP
-.B "--devel"
-当回のVCS/devel Git revision trackingを有効化します。built-in defaultはOFFで、user configの
-[updates] devel=trueでpersistent opt-inできます。優先順位はCLI > user config > built-in defaultです。
-.
-.TP
-.B "--no-devel"
-configによるONも含め、当回のGit revision trackingを無効化します。両optionは値を取りません。
-同値反復は許可し、ON/OFF併用はlast-one-winsにせずusage error（exit 1）とします。
-.PP
-対象はexact target-less Auto -Syu / -Su、exact target-less -Qua、upgrade、upgrade-aur、upgrade-allです。
-5 update routeでは--dry-runとも併用できますが、-Qua --dry-runは非対応です。--repo / --aur、target-bearing
-form、alternate -Qau等のdelegated pacman form、build、inspection、source maintenance routeはOFF指定も
-mutation前に拒否します。help/versionの実際のoption occurrenceはconfig/XDG/logging初期化前に拒否します。
-対応する-Quaはpacman tailや-- markerを伴わず、既存Moguet --details / --noconfirmは利用できます。
-pacman option valueや--後のopaque operandは値/operandのままです。config trueだけではscope外へtrackingを追加しません。
-.PP
-OFFでもVCS packageを通常Version更新対象から除外せず、suffix evidenceを維持します。Git revisionは未観測であり、
-Git UpToDateを意味しません。ONは既存P/I/RとGit remote assessmentを追加し、新しいRPC Versionのprecedenceを維持します。
-両optionはsource review/bootstrap/build/installを承認せず、--noconfirmもbootstrap承認ではありません。
-OFFでもsource review、build proof、install safety、対応するprovenance publicationを維持します。
 .\" PUBLIC OPTIONS END
 .
 .PP
@@ -893,7 +853,7 @@ fallback: ~/.config/moguet/config.toml
 .fi
 .
 .PP
-schema versionは1を維持し、現在のbuilt-in defaultは次のとおりです。
+v2.0.0 schemaとbuilt-in defaultは次のとおりです。
 .
 .nf
 schema_version = 1
@@ -904,9 +864,6 @@ diff = "prompt"
 
 [build]
 mode = "normal"
-
-[updates]
-devel = false
 .fi
 .
 .PP
@@ -927,8 +884,6 @@ built-in default -> user config -> CLI override
 はinvocation-localなPKGBUILD /
 .I *.install
 editor behaviorを選び、upstream review acceptanceにはなりません。
-updates.develはstrictなTOML boolean true/falseで、"true"等のstringや数値を拒否します。
---devel / --no-develは対応routeで当回だけこの値をoverrideします。
 .
 .PP
 fileがない状態は正常です。
@@ -940,12 +895,6 @@ external mutation前に停止します。
 fileはread-only inputであり、自動作成・rewrite・migrationしません。
 .I /etc/moguet
 をsystem-wide config layerとして作成・参照しません。
-.PP
-v2.12.0では、v2.11.0までの通常devel trackingから既定がVersionOnlyへ変わります。
-従来相当のtrackingには[updates] devel=true、当回だけなら--devel、config ONの当回解除なら
---no-develを使います。既存configは自動書換えしません。古いbinaryは新しい[updates] sectionを
-拒否する可能性があるため、downgrade前にuser configを手動確認してください。
-provenance historyを自動削除・修復・migrationしません。
 .
 .\" parity:files
 .SH ファイル

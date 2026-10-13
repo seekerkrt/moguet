@@ -1,6 +1,4 @@
 #include "app_config.hpp"
-#include "artifact_install_executor.hpp"
-#include "alpm_stub.hpp"
 #include "aur_update_execution_preflight.hpp"
 #include "aur_update_execution_preparation.hpp"
 #include "aur_update_execution_runner.hpp"
@@ -23,8 +21,6 @@
 // POLICY(#267): queryからreducerまでのproduction実装は個別testで検証済みのため、
 // このbinaryでは公開typed APIを保ったまま外部状態とmutationを完全に遮断する。
 namespace {
-
-namespace metadata_stub = package_metadata_test_stub;
 
 const std::string& scenario() {
     static const std::string s_scenario = [] {
@@ -157,18 +153,21 @@ AurUpdatePlanEntry make_plan_entry(
                     AurUpdateClassification::VersionComparisonUnavailable
                 ? AurVersionRelation::Unavailable
                 : AurVersionRelation::NewerThanInstalled;
-        // Keep the legacy command fixture on the production pure classifier:
-        // DisabledByPolicy requires its conservative identity/suffix evidence.
-        entry = classify_aur_update(AurUpdatePlanInput{
-            entry.installed_name, entry.installed_version, entry.install_reason,
-            std::move(remote)});
+        entry.aur_package = std::move(remote);
     }
     return entry;
 }
 
 AurUpdatePlanEntry make_requires_check_plan_entry(
     const std::string& package_name) {
-    return make_plan_entry(package_name, AurUpdateClassification::UpToDate);
+    AurUpdatePlanEntry entry = make_plan_entry(
+        package_name, AurUpdateClassification::UpToDate);
+    entry.devel_classification = DevelPackageClassification::classify(
+        DevelPackageSuffixEvidence::classify(
+            package_name, {package_name}));
+    entry.devel_assessment = DevelUpdateAssessment::requires_check(
+        DevelRequiresCheckReason::SuffixCandidateOnly);
+    return entry;
 }
 
 AurUpdateExecutionIssue make_preflight_issue(
@@ -373,52 +372,6 @@ AurUpdateOperationExecutionContribution make_child_contribution(
     return contribution;
 }
 
-AutomaticAurVersionGuardFailure production_version_guard_failure() {
-    const std::string mode = scenario().substr(std::string("version-guard-").size());
-    RequiredPackageArtifactTarget selected{"guard-pkg", "guard-pkg", DesiredInstallReason::Explicit};
-    selected.automatic_version_update = AutomaticAurVersionUpdateIntent{"guard-pkg", "guard-pkg", "2.0-1", "1.0-1", InstalledPackageReason::Explicit};
-    ArtifactPackageIdentity actual{"guard-pkg", "2.0-1", ArtifactPackageBaseIdentity::known("guard-pkg")};
-    InstalledPackageQueryResult installed = InstalledPackageMetadata{"guard-pkg", "1.0-1", InstalledPackageReason::Explicit};
-    if(mode == "same" || mode == "older") {
-        actual.full_version = mode == "same" ? "1.0-1" : "0.9-1";
-        metadata_stub::enqueue_version_comparison(actual.full_version, "1.0-1", mode == "same" ? 0 : -1);
-        metadata_stub::enqueue_version_comparison(actual.full_version, "2.0-1", -1);
-    } else if(mode == "rpc-unmet") {
-        actual.full_version = "1.5-1";
-        metadata_stub::enqueue_version_comparison("1.5-1", "1.0-1", 1);
-        metadata_stub::enqueue_version_comparison("1.5-1", "2.0-1", -1);
-    } else if(mode == "drift" || mode == "reason-drift") {
-        auto& fresh = std::get<InstalledPackageMetadata>(installed);
-        if(mode == "drift")
-            fresh.version = "1.1-1";
-        else
-            fresh.reason = InstalledPackageReason::Dependency;
-    } else if(mode == "disappeared") {
-        installed = PackageNotFound{};
-    } else if(mode == "observer") {
-        installed = PackageMetadataFailure{PackageMetadataErrorCode::QueryFailed, "untrusted observer diagnostic\n"};
-    } else if(mode == "invalid") {
-        actual.full_version = "bad\x1b[31m\nversion";
-    } else if(mode == "bounded") {
-        actual.full_version = std::string(10000, 'x');
-    } else if(mode == "identity" || mode == "comparison") {
-        selected.automatic_version_update->package_base = "different-base";
-    } else {
-        throw std::logic_error("Unknown Version guard CLI fixture mode.");
-    }
-    auto failure = validate_automatic_aur_version_install(selected, actual, installed);
-    if(!failure) throw std::logic_error("Production Version guard unexpectedly allowed CLI fixture.");
-    metadata_stub::require_version_comparisons_consumed();
-    if(mode == "comparison") {
-        // The real libalpm adapter returns a total ordering. Exercise the
-        // typed unavailable ordering policy without replacing that adapter.
-        failure->kind = *evaluate_automatic_aur_version_ordering(std::nullopt, ArchVersionOrdering::Equal);
-        failure->fresh_installed_version = "1.0-1";
-    }
-    append_event("production Version guard refused; transaction=0 publication=0");
-    return *failure;
-}
-
 void set_execution_failure(
     AurUpdateOperationTargetResult& target,
     std::size_t work_item_index,
@@ -540,15 +493,11 @@ bool reduced_result_is_defensively_successful(
 
 } // namespace
 
-static AurUpdateQueryResult fixture_aur_update_query() {
+AurUpdateQueryResult query_installed_aur_updates() {
     append_event("query");
 
     AurUpdateQueryResult query;
     const std::string& test_scenario = scenario();
-    if(test_scenario.starts_with("version-guard-") || test_scenario == "transaction-outcome-unknown") {
-        query.plan.entries.push_back(make_plan_entry("guard-pkg", AurUpdateClassification::UpdateAvailable));
-        return query;
-    }
     if(is_preparation_presentation_scenario()) {
         query.plan.entries.push_back(make_plan_entry(
             "preparation-pkg", AurUpdateClassification::UpdateAvailable));
@@ -726,27 +675,15 @@ static AurUpdateQueryResult fixture_aur_update_query() {
                            test_scenario);
 }
 
-AurUpdateQueryResult query_installed_aur_updates(AurUpdateQueryPolicy policy) {
-    append_event(policy == AurUpdateQueryPolicy::VersionOnly ? "query policy version-only" : "query policy tracking-enabled");
-    auto query = fixture_aur_update_query();
-    if(policy == AurUpdateQueryPolicy::VersionOnly) {
-        for(auto& entry : query.plan.entries) {
-            if(entry.classification == AurUpdateClassification::UpToDate)
-                entry.devel_assessment_origin = AurDevelAssessmentOrigin::DisabledByPolicy;
-        }
-    }
-    return query;
-}
-
 AurUpdateQueryResult query_aur_updates_for_foreign_inventory(
-    ForeignPackageInventory inventory, AurUpdateQueryPolicy policy) {
+    ForeignPackageInventory inventory) {
     const bool no_updates = scenario() == "all-up-to-date";
     if((!is_preparation_presentation_scenario() && !no_updates) || inventory.size() != 1 ||
        inventory.front().name != (no_updates ? "up-to-date-pkg" : "preparation-pkg")) {
         throw std::logic_error("Unexpected system AUR preparation fixture inventory.");
     }
     append_event("query post-repository inventory");
-    return query_installed_aur_updates(policy);
+    return query_installed_aur_updates();
 }
 
 AurUpdateExecutionPreflight resolve_aur_update_execution_preflight(
@@ -1056,27 +993,6 @@ execute_prepared_aur_update_source_build_invocation(
             "AUR update command passed an invalid prepared invocation.");
     }
     append_event("execute " + config_snapshot(config));
-    if(scenario().starts_with("version-guard-") || scenario() == "transaction-outcome-unknown") {
-        AurUpdateSourceBuildExecutionResult execution;
-        execution.status = AurUpdateInvocationExecutionStatus::StoppedOnWorkItemFailure;
-        auto item = make_work_item_result(0, 0, "guard-pkg", AurUpdateWorkItemExecutionStatus::Failed, AurUpdateWorkItemFailureKind::BuildOrInstallFailed);
-        if(scenario() == "transaction-outcome-unknown") {
-            // Projection-only snapshot. The native bridge independently
-            // proves the real S5 OutcomeUnknown/partial authority boundary.
-            item.failure_kind = AurUpdateWorkItemFailureKind::AuthoritativeExecutionIncomplete;
-            item.devel_execution.emplace();
-            item.devel_execution->operation = DevelSourceArtifactInstallOperation::OutcomeUnknown;
-            append_event("authoritative transaction OutcomeUnknown projection");
-        } else {
-            item.failure_detail = production_version_guard_failure();
-            item.diagnostic = "unrelated raw guard diagnostic";
-        }
-        item.production_outcome = production_outcome(compatibility_source_provenance(ReviewedSourceCompatibilityBuildReason::NoDiff),
-                                                     ProductionSourceBuildCommandOutcome::Succeeded,
-                                                     scenario() == "transaction-outcome-unknown" ? ProductionSourceInstallOutcome::Started : ProductionSourceInstallOutcome::NotAttempted);
-        execution.work_item_results.push_back(std::move(item));
-        return execution;
-    }
     if(scenario() == "provider-transaction-failure") {
         append_event("external sudo pacman -S provider fixture");
         AurUpdateSourceBuildExecutionResult execution;
@@ -1174,36 +1090,14 @@ AurUpdateOperationResult reduce_aur_update_operation_result(
         result.targets.push_back(make_target_result(target, status));
     }
 
-    if(test_scenario.starts_with("version-guard-") || test_scenario == "transaction-outcome-unknown") {
-        if(!execution || execution->work_item_results.size() != 1)
-            throw std::logic_error("Version guard CLI fixture lost production failure payload.");
-        result.status = AurUpdateOperationStatus::StoppedOnWorkItemFailure;
-        const auto& item = execution->work_item_results.front();
-        result.execution_work_items.push_back(item);
-        auto& target = result.targets.front();
-        target.status = AurUpdateOperationTargetStatus::Failed;
-        set_execution_failure(target, 0, item.status, item.failure_kind, item.diagnostic);
-        target.execution_failure_detail = item.failure_detail;
-        target.execution_contributions.back().failure_detail = item.failure_detail;
-        return result;
-    }
-
     if(test_scenario == "all-up-to-date" ||
        test_scenario == "non-aur-foreign") {
         result.status = AurUpdateOperationStatus::NoUpdates;
         return result;
     }
-    if(test_scenario == "devel-requires-check") {
-        // This fixture is shared by OFF/ON. The typed preflight carries the
-        // resolved decision; its scenario name is not a tracking authority.
-        const bool all_skipped = std::all_of(preflight.targets.begin(), preflight.targets.end(), [](const auto& target) {
-            return target.status == AurUpdateExecutionTargetStatus::Skipped;
-        });
-        result.status = all_skipped ? AurUpdateOperationStatus::NoUpdates : AurUpdateOperationStatus::BlockedBeforeExecution;
-        return result;
-    }
     if(test_scenario == "metadata-unavailable" ||
        test_scenario == "version-comparison-unavailable" ||
+       test_scenario == "devel-requires-check" ||
        test_scenario == "unsupported-blocker" ||
        test_scenario == "incomplete-blocker") {
         result.status = AurUpdateOperationStatus::BlockedBeforeExecution;

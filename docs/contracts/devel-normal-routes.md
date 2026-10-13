@@ -9,8 +9,8 @@ Issue #476 Slice 7-Dは既存7-B assessmentと7-C executionをnormal routeへ接
 `aur_update_query` → `aur_devel_update` → `assess_current_devel_package`を共通read-only ownerとする。
 normal AUR RPC VersionとGit revisionは独立したauthorityである。
 
-- RPC Version newerは両query policyで通常のUpdateAvailableを優先し、7-B/#475を呼ばない。
-- tracking ONのSame/Olderだけを7-Bでrefineする。PackageBase/sourceはAUR resolutionから作り、provenance自身からコピーしない。
+- RPC Version newerは通常のUpdateAvailableを優先し、7-B/#475を呼ばない。
+- Same/Olderだけを7-Bでrefineする。PackageBase/sourceはAUR resolutionから作り、provenance自身からコピーしない。
 - configured pacman inventoryが7-Bのfixed trusted system DB worldと一致することを確認する。
 - full installed inventoryを読み、同baseの全childをtargetへ渡す。selected/foreign subsetからsingletonを捏造しない。
 - 不完全なgrouping、別DB contextはpositiveを作らない。各childのP/I/Rを照合する。元のworld/inventory evidenceをquery resultへ保持する。
@@ -22,34 +22,7 @@ CurrentObservation自体がauthority成立を意味しない。decision、元の
 copyはsnapshot copyであり、fresh query/leaseではない。
 `aur_update_basis`はVersion/GitRevisionを保持する。DifferentRevisionはnewer/descendant/package version増加を意味しない。
 
-### Public query policy（Issue #673 / v2.12.0）
-
-共通queryはtyped `AurUpdateQueryPolicy`を受け取る。`TrackingEnabled`は上記の既存refinementを行い、
-`VersionOnly`はrefinementとtracking専用P/I/R・remote observationを行わない。
-内部query APIの互換defaultは`TrackingEnabled`に保つ。S2のpublic invocationでは
-`UserConfig::updates.devel`（built-in false）へCLI最終値を一度だけ重ね、各queryへpolicyを明示する。
-明示`--devel` / `--no-devel`はexact target-less Auto `-Syu` / `-Su`、exact target-less `-Qua`、
-`upgrade` / `upgrade-aur` / `upgrade-all`と既存対応dry-runに限定し、対象外ではOFF指定も副作用前に拒否する。
-dry-runとの併用はこの5 update routeだけで、`-Qua --dry-run`は非対応。
-`-Qua`はpacman tail/`--` markerなしのexact formに限り、既存Moguet `--details`/`--noconfirm`は利用できる。
-`--repo` / `--aur`、target-bearing、alternate `-Qau`/generic delegated form、build/inspection/source maintenance
-への明示指定はexit 1。help/versionの実際のoption occurrenceもconfig/XDG/logging前のearly pathで拒否する。
-pacman option valueや`--`後のopaque operandはMoguet policyへ転用しない。
-同値optionの反復はidempotent、ON/OFFの併用はlast-one-winsではなくusage error（exit 1）。
-config trueだけの場合は対象外routeへtrackingを追加しない。registered AUR OnlyIfUpdatedのOFFは
-Git一致とせず、既存`.SRCINFO` version比較とsource/system baseline判定へ継続する。
-
-`VersionOnly`はRPC Version分類とconservative suffix evidenceを保持し、originを`DisabledByPolicy`とする。
-整合するsame/olderのeffective `UpToDate`はpackage versionの判定だけを意味し、Git revision一致や
-trackingの`NotApplicable`を新たに主張しない。Version候補、metadata failure/absence、comparison failureは
-既存分類を維持する。観測済みUnknown/Invalid/UnsupportedをDisabledへ変換するfallbackはない。
-preflight snapshotもこのdispositionを保持する。query policyはbuild/install authorityではなく、
-Version更新のreview、`ordinary_devel_package_base`、既存S4/S5/S6の実行選択を変更しない。
-
 ## Route policies
-
-下表はtracking ONのassessment policy。既定OFFでは`DisabledByPolicy`を保持し、normal Version query、
-registered `.SRCINFO` / source/system前後baselineへ継続する。OFFでもreview/build/install safetyとS4/S5/S6は維持する。
 
 | State | ordinary target-less -Syu AUR | upgrade-aur / upgrade-all AUR | registered AUR update |
 | --- | --- | --- | --- |
@@ -104,14 +77,12 @@ last owner destructionまでS6→S5→S4 contextを保持し、destructorでtran
 
 ## Dry-run / query / presentation
 
-normal AUR queryとdry-runは同じexplicit query policyを使い、ONの場合だけ7-B producerを使う。
-registered upgrade/upgrade-all dry-runも同じcurrent query policyを読む。
+normal AUR queryとdry-runは同じ7-B producerを使う。registered upgrade/upgrade-all dry-runも同じcurrent queryを読む。
 read-only registered observationsはnormal source attributionへ照合し、RequiresCheck/Unknown/Unsupportedをtyped blockersへ投影する。
 dry-runはexplicit rebuild確認、source checkout、PKGBUILD評価、build/install/publicationをしない。
 registered sourceのfuture OnlyIfUpdated intentとcurrent assessmentは別観測であり、actual post-system stateと一致する保証はない。
 
--Quaとunified planはVersionOnlyのGit未観測と、ON時のGit revision differenceを区別する。
-same-version Git updateに架空のversion arrowを出さず、OFFのsame/olderをGit UpToDateへ変換しない。
+-Quaとunified planはGit revision differenceを明示する。same-version Git updateに架空のversion arrowを出さない。
 UnknownをRequiresCheckのreasonへflattenしない。strict routeのfailureは先行phaseの確定結果を消さない。
 
 ## Closure / validation
@@ -145,7 +116,7 @@ real reviewed finalizer/S4/S5/S6、one-shot、nonzero、last-owner cleanup、per
 
 ## Explicit initial tracking bootstrap (#553)
 
-有効化するのはtracking ONのexact target-less ordinary `-Syu` / `-Su`のactual Auto coordinatorだけ。
+有効化するのはexact target-less ordinary `-Syu`のactual Auto coordinatorだけ。
 query / -Qua / dry-run、standalone upgrade-aur、upgrade-allはbootstrap intentを生成しない。
 source-buildやtarget grammarの一般policyを変更しない。
 
@@ -320,63 +291,3 @@ remote advance、取得failure/cancel、review stop、S3/cleanup failureを対�
 
 `test-devel-tracking-bootstrap.py --split`がpartial/both installed、same-remote steady state、
 nonzero transaction、partial binding/publication、#545 cancellationをproduction-connected fixtureで確認する。
-
-<a id="ordinary-version-split"></a>
-
-### Ordinary Version split / single selected child（Issue #673 R2）
-
-ここでのS4は既存のevaluated/reviewed source-build proof段階であり、Issue #673の実装Slice 4とは別である。
-
-exact target-less Auto `-Syu` / `-Su`の通常`Version`候補では、required selected childが1件、
-declared childが複数で未選択siblingが存在するPackageBaseにも、既存AuthoritativeDevelを選択できる。
-`ordinary_devel_package_base`とselected childの`AutomaticAurVersionUpdateIntent`を両方要求し、
-request / AUR source / reviewed recipe identity / parsed PackageBase / required target / RPC childを相関する。
-queryのOFF/ONでこのsource-build eligibilityを変えず、ONでも通常Version候補のprecedenceを維持する。
-これらのintentや`.SRCINFO` syntaxは選択根拠であり、reviewed pinやS4 proofを生成しない。
-
-対象sourceは既存S4のone floating HTTPS Git、DefaultHead/exact Branch、architecture-independentな
-source metadataと対応するreviewed regular local inputsに限る。overlay、needed、rmdeps、
-install reason変更 / promotion、複数required selected child、coordinated replacement exact pinは拡張しない。
-BlockOperationのupgrade-family、registered source、explicit build、repository/local sourceへは波及しない。
-GitRevision / typed bootstrapの既存専用policyも変更しない。その他のLegacy dynamic recipe対応は未実施である。
-
-exact reviewed recipe acceptanceに加え、取得したsource closureを別途明示承認する。
-recipe未承認のcompatibility checkoutから対象splitをLegacy buildへ落とさず、closure未承認 / 失敗からも
-Legacyへfallbackしない。空入力は承認にならず再質問し、decline、cancel、EOF、non-TTY、
-`--noconfirm`でも必要な承認を作らない。明示的なYesだけが承認になる。
-`--devel`もrecipe / closure / installの承認ではない。
-
-既存S4はimmutable reviewed recipeとprivate working recipeを分離し、source preparation後のdynamic
-`pkgver()`とcomplete output集合を検証する。build前の古いpackagelistやmutableなpost-build再評価だけを
-execution authorityにしない。B全体を検証しT=selected child 1件だけをS5へ渡す。
-未選択siblingはinstall / S6 publication対象外であり、selected childのS6は正規S5成功・eligible proof後だけ。
-Version guard、partial outcome、first-failure / NotAttempted suffix、cleanup / lifetimeの既存契約を維持する。
-
-
-<a id="automatic-version-install-guard"></a>
-
-## Automatic Version-basis install guard（Issue #673 Slice 4）
-
-tracking OFF/ONともに自動 `Version` 更新では、選択された child ごとの RPC query evidence
-（AUR name、PackageBase、full Version）と query 時 installed binding を install intent に保持する。
-validated install artifact の actual full version が fresh installed version より新しく、かつ観測済み RPC Version
-以上であることを、既存の libalpm version comparison authority で install 前に確認する。
-比較はArch/libalpm準拠のfull version（epoch/pkgver/pkgrel）を使い、
-`actual > fresh installed AND actual >= observed RPC`を両方満たすことを要求する。
-RPCとの完全一致は要求せず、より新しいdynamic versionを許容する。同一version、downgrade、RPC未達、
-query後のinstalled version/reason drift、installed child消失、installed観測失敗、無効なversion evidence、比較authority不足、
-selected child/PackageBase/source identity不整合は`AutomaticAurVersionGuardFailure`のtyped reasonを保持して停止する。
-新規 dependency / 非選択 split sibling、
-GitRevision、bootstrap、明示 build/rebuild、独自 baseline rebuild と coordinated replacement の exact version pin へ
-この intent を転用しない。登録 source でも正規 RPC query が選択した Version update child には同じ guard を適用する。
-
-legacy artifact preparation は既存の fresh local DB session、authoritative reviewed devel execution は既存の
-InstallPolicy world/session を再利用し、guard failure で対象 install transaction と S6 publication を開始しない。
-install は NotAttempted として保持し、完了済み prefix と未実行 suffix、live owner と cleanup consequence を失わない。
-guard失敗をinstall成功へ変換せずcommandはnonzero。自動rebuild/retry/rollbackは追加しない。
-この observation と privileged transaction の間を atomic とは保証せず、authoritative 経路の既存 S5 installed binding
-revalidation と pacman transaction authority を維持する。coordinated replacement の expected_full_version は独立契約である。
-
-query 時 installed binding は name / full version / known reason の証拠を保持する。
-旧 installed PackageBase はこの query model に含まれず、fresh installed Base が新しい RPC / actual Base と異なることだけを
-query 後 drift とみなさない。actual の known Base は選択された RPC / source Base と相関し、Malformed Base は拒否する。

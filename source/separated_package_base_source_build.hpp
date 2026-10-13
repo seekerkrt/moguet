@@ -29,9 +29,6 @@ struct SeparatedPackageBaseSourceBuildRequest {
     SourceEnvironmentEmptyValuePolicy empty_value_policy =
         SourceEnvironmentEmptyValuePolicy::Omit;
     PacmanDatabasePaths database_paths;
-    // Registered singular Version updates reuse this immutable install owner
-    // while retaining their existing exactly-one declared output contract.
-    bool require_single_output = false;
 };
 
 struct PackageBaseSourceBuildSelectedResult {
@@ -277,7 +274,6 @@ public:
 
     const PackageBaseArtifactInstallPreparationFailure& failure()
         const noexcept;
-    const AutomaticAurVersionGuardFailure* version_guard_failure() const noexcept;
     const PackageBaseArtifactIdentitySelectionFailure* selection_failure()
         const noexcept;
     const MixedPackageBaseInstallReasonUnsupported* mixed_reason_failure()

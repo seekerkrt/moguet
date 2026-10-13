@@ -56,7 +56,6 @@ enum class ReviewedDevelSourceBuildIssue {
     DatabaseWorldUnavailable,
     DatabaseWorldMismatch,
     InstallPolicyFailure,
-    VersionGuardFailure,
     InstallReasonUnsupported,
     InvalidFinalization,
     ResourceFailure,
@@ -113,8 +112,6 @@ public:
     [[nodiscard]] const InstalledDatabaseWorldResult* database_world() const;
     [[nodiscard]] const InstalledPackageQueryResult* install_policy_observation() const;
     [[nodiscard]] std::optional<InstallReasonDirective> install_reason_directive() const;
-    [[nodiscard]] const AutomaticAurVersionGuardFailure* version_guard_failure() const;
-    [[nodiscard]] const InvocationOwnedSourceBuildContextCleanupResult* build_cleanup() const;
     [[nodiscard]] const DevelBuildProvenancePublicationResult* publication() const;
 
 private:

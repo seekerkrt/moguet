@@ -103,8 +103,7 @@ bool same_required_target(
     return actual.package_base == expected.package_base &&
            actual.package_name == expected.package_name &&
            actual.desired_reason == expected.desired_reason &&
-           actual.expected_full_version == expected.expected_full_version &&
-           actual.automatic_version_update == expected.automatic_version_update;
+           actual.expected_full_version == expected.expected_full_version;
 }
 
 bool same_required_targets(
@@ -518,13 +517,6 @@ const MixedPackageBaseInstallReasonUnsupported*
 PackageBaseArtifactInstallPreparationFailure::mixed_reason_failure()
     const noexcept {
     return std::get_if<MixedPackageBaseInstallReasonUnsupported>(&failure_);
-}
-
-const AutomaticAurVersionGuardFailure* PackageBaseArtifactInstallPreparationFailure::version_guard_failure() const noexcept {
-    return std::get_if<AutomaticAurVersionGuardFailure>(&failure_);
-}
-const AutomaticAurVersionGuardFailure* SeparatedPackageBaseSourceBuildPreparationError::version_guard_failure() const noexcept {
-    return failure_.version_guard_failure();
 }
 
 const PackageBaseArtifactInstallPreparationFailure&

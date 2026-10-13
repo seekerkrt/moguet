@@ -24,15 +24,10 @@ struct BuildConfig {
     BuildMode mode = BuildMode::Normal;
 };
 
-struct UpdatesConfig {
-    bool devel = false;
-};
-
 struct UserConfig {
     std::int64_t schema_version = 1;
     ReviewConfig review;
     BuildConfig build;
-    UpdatesConfig updates;
 };
 
 class UserConfigError final : public std::runtime_error {

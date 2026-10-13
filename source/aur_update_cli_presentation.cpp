@@ -161,9 +161,7 @@ std::string transaction_failure_summary(
                     "AUR"));
             }
             return localization::translate_message(
-                       "package transaction process exception") +
-                   " " +
-                   localization::format_translated_message("Check the actual installed package state and {} log before retrying.", "pacman");
+                "package transaction process exception");
         case AurUpdatePackageTransactionFailureCategory::Other:
             if(failure.exit_code.has_value()) {
                 throw std::logic_error(localization::format_translated_message(
@@ -172,9 +170,7 @@ std::string transaction_failure_summary(
                     "AUR"));
             }
             return localization::translate_message(
-                       "package transaction unknown exception") +
-                   " " +
-                   localization::format_translated_message("Check the actual installed package state and {} log before retrying.", "pacman");
+                "package transaction unknown exception");
     }
     throw std::logic_error(localization::format_translated_message(
         // TRANSLATORS: AUR is a runtime project identity.
@@ -249,10 +245,6 @@ std::string failure_detail_summary(
                                     MixedPackageBaseInstallReasonUnsupported>) {
                 return localization::translate_message(
                     "mixed install reason unsupported");
-            } else if constexpr(std::is_same_v<Failure, AutomaticAurVersionGuardFailure>) {
-                // The shared formatter uses only retained typed facts. It
-                // never re-compares versions or reconstructs install authority.
-                return automatic_aur_version_guard_diagnostic(failure);
             } else if constexpr(std::is_same_v<Failure, PackageMetadataFailure>) {
                 return localization::translate_message(
                            "package metadata failure") +
@@ -618,7 +610,7 @@ std::string child_outcome_label(
     if(status == AurUpdateChildExecutionStatus::NotAttempted && work_item.devel_execution) {
         const auto operation = work_item.devel_execution->operation;
         if(operation == DevelSourceArtifactInstallOperation::Succeeded) return localization::translate_message("transaction succeeded; exact installed proof unavailable");
-        if(operation == DevelSourceArtifactInstallOperation::OutcomeUnknown) return localization::format_translated_message("transaction outcome unknown; installed artifact unverified. Check the actual installed package state and {} log before retrying.", "pacman");
+        if(operation == DevelSourceArtifactInstallOperation::OutcomeUnknown) return localization::translate_message("transaction outcome unknown; installed artifact unverified");
         if(operation == DevelSourceArtifactInstallOperation::Failed) return localization::translate_message("transaction failed; package effects unverified");
     }
     switch(status) {

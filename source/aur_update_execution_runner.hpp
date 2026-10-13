@@ -113,7 +113,6 @@ using AurUpdateWorkItemFailureDetail = std::variant<
     std::monostate,
     PackageBaseArtifactIdentitySelectionFailure,
     MixedPackageBaseInstallReasonUnsupported,
-    AutomaticAurVersionGuardFailure,
     PackageMetadataFailure,
     TrustedCacheFailure,
     AurUpdateSourceBuildFailureSnapshot,

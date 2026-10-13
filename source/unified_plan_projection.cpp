@@ -570,12 +570,10 @@ bool source_observation_matches_ready_preflight(
                observed.package_name != attributed.package_name ||
                observed.desired_reason != attributed.desired_reason ||
                observed.expected_full_version != attributed.expected_full_version ||
-               observed.automatic_version_update != attributed.automatic_version_update ||
                observed.package_base != projected.package_base ||
                observed.package_name != projected.package_name ||
                observed.desired_reason != projected.desired_reason ||
-               observed.expected_full_version != projected.expected_full_version ||
-               observed.automatic_version_update != projected.automatic_version_update) {
+               observed.expected_full_version != projected.expected_full_version) {
                 return false;
             }
         }
@@ -790,8 +788,7 @@ bool same_required_artifact_target(
     return lhs.package_base == rhs.package_base &&
            lhs.package_name == rhs.package_name &&
            lhs.desired_reason == rhs.desired_reason &&
-           lhs.expected_full_version == rhs.expected_full_version &&
-           lhs.automatic_version_update == rhs.automatic_version_update;
+           lhs.expected_full_version == rhs.expected_full_version;
 }
 
 void validate_configured_repository_identity(
@@ -1208,12 +1205,6 @@ project_aur_update_artifact_targets(
         matched_child->desired_reason =
             update_target.desired_install_reason.value();
         matched_child->expected_full_version = update_target.update.coordinated_replacement_version;
-        const auto& update = update_target.update;
-        if(!update.coordinated_replacement_version && !has_aur_update_bootstrap_intent(update) &&
-           aur_update_basis(update) == AurUpdateBasis::Version && update.aur_package)
-            matched_child->automatic_version_update = AutomaticAurVersionUpdateIntent{
-                update.aur_package->package_base, update.aur_package->aur_name,
-                update.aur_package->version, update.installed_version, update.install_reason};
     }
     return units;
 }

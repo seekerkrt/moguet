@@ -127,7 +127,6 @@ public:
     selection_failure() const noexcept;
     [[nodiscard]] const MixedPackageBaseInstallReasonUnsupported*
     mixed_reason_failure() const noexcept;
-    [[nodiscard]] const AutomaticAurVersionGuardFailure* version_guard_failure() const noexcept;
 
 #ifdef MOGUET_ENABLE_AUR_UPDATE_EXECUTION_RUNNER_TEST_HOOKS
     // Runner fake-symbol testだけがclosed typed failureを組み立てるseam。
@@ -152,10 +151,9 @@ private:
         PackageBaseArtifactIdentitySelectionFailure failure);
     explicit PackageBaseArtifactInstallPreparationFailure(
         MixedPackageBaseInstallReasonUnsupported failure);
-    explicit PackageBaseArtifactInstallPreparationFailure(AutomaticAurVersionGuardFailure failure);
 
     std::variant<PackageBaseArtifactIdentitySelectionFailure,
-                 MixedPackageBaseInstallReasonUnsupported, AutomaticAurVersionGuardFailure>
+                 MixedPackageBaseInstallReasonUnsupported>
         failure_;
 
 #ifdef MOGUET_ENABLE_AUR_UPDATE_EXECUTION_RUNNER_TEST_HOOKS

@@ -776,47 +776,13 @@ void test_preparation_and_aur_preflight_do_not_activate_cache() {
     stub::require_script_consumed();
 }
 
-void test_devel_query_policy_reaches_aur_preflight_and_execution() {
-    for(const bool enabled : {false, true}) {
-        for(const bool dry_run : {false, true}) {
-            stub::reset();
-            stub::set_preference_directory(preference_directory({}));
-            stub::set_foreign_inventory(foreign_inventory({"policy-git"}));
-            enqueue_aur_query({{"policy-git", "policy-git"}}, "0");
-            AppConfig config;
-            config.user_config.updates.devel = enabled;
-            auto prepared = take_prepared(prepare_upgrade_all_operation(config), "devel policy fixture");
-            if(dry_run) {
-                auto preflight = prepare_upgrade_all_aur_preflight(*prepared.snapshot(), config);
-                expect(preflight.aur_query_result() &&
-                           preflight.aur_query_result()->plan.entries.front().devel_assessment_origin ==
-                               (enabled ? AurDevelAssessmentOrigin::Conservative : AurDevelAssessmentOrigin::DisabledByPolicy),
-                       "upgrade-all dry-run lost query policy");
-                expect(preflight.filtered_operation() && preflight.filtered_operation()->is_blocked() == enabled,
-                       "upgrade-all dry-run policy changed blocker boundary");
-                expect(stub::system_commands().empty() && stub::aur_execution_calls().empty(), "policy dry-run performed mutation");
-            } else {
-                const auto result = execute_prepared_upgrade_all_operation(std::move(prepared), config);
-                expect(result.aur.operation_result &&
-                           result.aur.operation_result->query_result.plan.entries.front().devel_assessment_origin ==
-                               (enabled ? AurDevelAssessmentOrigin::Conservative : AurDevelAssessmentOrigin::DisabledByPolicy),
-                       "upgrade-all actual route lost query policy");
-                expect(result.is_success() != enabled && stub::aur_execution_calls().empty(),
-                       "upgrade-all OFF became a tracking blocker or ON became successful");
-            }
-            stub::require_script_consumed();
-        }
-    }
-}
-
 void test_read_only_aur_preflight_requires_check_stays_blocked() {
     stub::reset();
     stub::set_preference_directory(preference_directory({}));
     stub::set_foreign_inventory(foreign_inventory({"dry-check-git"}));
     enqueue_aur_query(
         {{"dry-check-git", "dry-check-git"}}, "0");
-    AppConfig config;
-    config.user_config.updates.devel = true;
+    const AppConfig config;
     PreparedUpgradeAllOperation prepared = take_prepared(
         prepare_upgrade_all_operation(config),
         "read-only upgrade-all RequiresCheck preflight");
@@ -2283,8 +2249,7 @@ void test_devel_requires_check_preserves_prior_phases_and_blocks_aur() {
     stub::set_foreign_inventory(foreign_inventory({"manual-check-git"}));
     enqueue_aur_query(
         {{"manual-check-git", "manual-check-git"}}, "0");
-    AppConfig config;
-    config.user_config.updates.devel = true;
+    const AppConfig config;
     PreparedUpgradeAllOperation prepared = take_prepared(
         prepare_upgrade_all_operation(config),
         "devel RequiresCheck fixture");
@@ -3840,9 +3805,6 @@ int main() {
         run_case(
             "read-only AUR RequiresCheck preflight stays blocked",
             test_read_only_aur_preflight_requires_check_stays_blocked);
-        // Actual execution activates the shared cache; preserve the preceding
-        // read-only fixtures' initial absent-cache observation.
-        run_case("devel policy actual/dry-run parity", test_devel_query_policy_reaches_aur_preflight_and_execution);
         run_case(
             "cache replacement after system",
             test_cache_replacement_after_system_blocks_inventory_and_aur);

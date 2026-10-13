@@ -2,7 +2,6 @@
 
 #include "aur_update_plan.hpp"
 #include "package_metadata.hpp"
-#include "user_config.hpp"
 
 #include <string>
 #include <memory>
@@ -38,20 +37,6 @@ struct AurUpdateQueryResult {
     bool operator==(const AurUpdateQueryResult&) const = default;
 };
 
-enum class AurUpdateQueryPolicy {
-    VersionOnly,
-    TrackingEnabled,
-};
-
-// Public invocation defaults belong to UserConfig. Internal callers keep their
-// compatibility default and public routes always pass the resolved policy.
-inline AurUpdateQueryPolicy aur_update_query_policy(const UserConfig& config) noexcept {
-    return config.updates.devel ? AurUpdateQueryPolicy::TrackingEnabled : AurUpdateQueryPolicy::VersionOnly;
-}
-
-// VersionOnly skips tracking I/O; it does not change build/install authority.
-AurUpdateQueryResult query_installed_aur_updates(
-    AurUpdateQueryPolicy policy = AurUpdateQueryPolicy::TrackingEnabled);
+AurUpdateQueryResult query_installed_aur_updates();
 AurUpdateQueryResult query_aur_updates_for_foreign_inventory(
-    ForeignPackageInventory installed_packages,
-    AurUpdateQueryPolicy policy = AurUpdateQueryPolicy::TrackingEnabled);
+    ForeignPackageInventory installed_packages);

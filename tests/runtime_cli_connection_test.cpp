@@ -889,27 +889,6 @@ void test_shared_operand_and_lexical_authority() {
 
 int main() {
     try {
-        for(const std::string option : {"--devel", "--no-devel"}) {
-            for(const auto& arguments : std::vector<std::vector<std::string>>{
-                    {"-Syu", option}, {"-Su", option}, {"-Qua", option}, {"upgrade", option}, {"upgrade-aur", option}, {"upgrade-all", option}, {"-Syu", "--dry-run", option}, {"-Su", "--dry-run", option}, {"upgrade", "--dry-run", option}, {"upgrade-aur", "--dry-run", option}, {"upgrade-all", "--dry-run", option}}) {
-                const auto parsed = require_parsed_invocation(arguments, "supported devel scope");
-                expect_valid(parsed, "supported devel scope");
-                expect(parsed.cli_overrides.devel == (option == "--devel"), "devel final CLI value lost");
-            }
-            for(const auto& arguments : std::vector<std::vector<std::string>>{
-                    {"-Syu", "--repo", option}, {"-Su", "--repo", option}, {"-Syu", "pkg", option}, {"-S", "pkg", option}, {"-S", option}, {"-Q", option}, {"-Qau", option}, {"-Qua", "pkg", option}, {"-Qua", "--needed", option}, {"-Qua", "--dry-run", option}, {"build", "pkg", option}, {"plan", "pkg", option}, {"deps", "pkg", option}, {"fetch", "pkg", option}, {"--help", option}, {"--version", option}}) {
-                expect_issue(require_parsed_invocation(arguments, "unsupported devel scope"),
-                             CliInvocationIssueKind::UnsupportedDevelUpdateOption, DiagnosticClass::Unsupported, "unsupported devel scope");
-            }
-            expect(!require_parsed_invocation({"-Q", "--root", option}, "pending devel value").cli_overrides.devel,
-                   "pending pacman value became a devel option");
-            expect(!require_parsed_invocation({"-U", "--", option}, "opaque devel operand").cli_overrides.devel,
-                   "opaque operand became a devel option");
-            expect(parse_invocation({"-Qua", option, option}).has_value(), "same-value devel repetition failed");
-        }
-        expect(!parse_invocation({"-Qua", "--devel", "--no-devel"}) &&
-                   !parse_invocation({"-Qua", "--no-devel", "--devel"}),
-               "conflicting devel values accepted");
         test_shared_operand_and_lexical_authority();
         test_presentation_detail_plumbing();
         std::cout << "  ok: invocation-local presentation detail plumbing\n";

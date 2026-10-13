@@ -263,8 +263,7 @@ public:
         const std::vector<RequiredPackageArtifactTarget>& required_targets,
         const SourceBuildEnvironment& source_environment = {},
         SourceEnvironmentEmptyValuePolicy empty_value_policy =
-            SourceEnvironmentEmptyValuePolicy::Omit,
-        bool require_single_output = false) const {
+            SourceEnvironmentEmptyValuePolicy::Omit) const {
         ValidatedCacheRoot root = prepare_test_trusted_cache_root();
         ValidatedCachePath checkout = require_trusted_cache_path(
             root, checkout_path_,
@@ -276,7 +275,7 @@ public:
             required_targets,
             source_environment,
             empty_value_policy,
-            PacmanDatabasePaths{"/", "/var/lib/pacman"}, require_single_output};
+            PacmanDatabasePaths{"/", "/var/lib/pacman"}};
     }
 
     fs::path checkout_path() const {
@@ -365,8 +364,6 @@ struct LifecycleScenario {
     BuildHookBehavior build_hook_behavior = BuildHookBehavior::Return;
     std::optional<std::size_t> identity_query_count;
     bool expect_install = true;
-    bool expect_build = true;
-    bool require_single_output = false;
     int install_exit_code = 0;
     const char* expected_reason_option = nullptr;
     bool throw_during_install = false;
@@ -533,7 +530,7 @@ void observe_workspace(const fs::path& workspace_path) {
     process_stub::expect_capture_command(
         expected_packagelist_command(scenario, workspace_path),
         CapturedCommandResult{std::move(packagelist_output), 0});
-    if(scenario.expect_build) process_stub::expect_run_command(
+    process_stub::expect_run_command(
         expected_build_command(scenario, workspace_path),
         scenario.build_exit_code);
 
@@ -716,7 +713,7 @@ void finish_scenario(
         scenario.packagelist_calls == expected_workspace_count,
         "Set lifecycle packagelist count differs");
     expect(
-        scenario.build_calls == (scenario.expect_build ? expected_workspace_count : 0),
+        scenario.build_calls == expected_workspace_count,
         "Set lifecycle build count differs");
     set_separated_package_base_source_build_workspace_observer_for_test(
         nullptr);
@@ -740,7 +737,7 @@ PackageBaseSourceBuildExecutionResult execute_scenario(
                     scenario.package_base,
                     scenario.required_targets,
                     scenario.source_environment,
-                    scenario.empty_value_policy, scenario.require_single_output),
+                    scenario.empty_value_policy),
                 scenario.options);
         expect(
             fs::current_path() == scenario.caller_working_directory,
@@ -875,31 +872,6 @@ void test_ordinary_size_one(
            "Ordinary aggregate outcome differs");
     expect(!fs::exists(scenario.workspace_path),
            "Ordinary success did not clean its workspace");
-    finish_scenario(scenario);
-}
-
-void test_guarded_single_output_contract(const TemporaryTestEnvironment& environment) {
-    LifecycleScenario scenario;
-    auto selected = target("single-child");
-    selected.automatic_version_update = AutomaticAurVersionUpdateIntent{PACKAGE_BASE, "single-child", "2-1", "1-1", InstalledPackageReason::Explicit};
-    scenario.required_targets = {selected};
-    scenario.produced_artifacts = {artifact("single-child"), artifact("split-sibling")};
-    scenario.expect_install = false;
-    scenario.expect_build = false;
-    scenario.require_single_output = true;
-    scenario.identity_query_count = 0;
-    activate_scenario(scenario, environment);
-    bool refused = false;
-    try {
-        static_cast<void>(execute_scenario(environment, scenario));
-    } catch(const SeparatedPackageBaseSourceBuildPhaseError& error) {
-        refused = error.phase() == SeparatedPackageBaseSourceBuildFailurePhase::ArtifactValidation && error.production_outcome() &&
-                  error.production_outcome()->build_outcome == ProductionSourceBuildCommandOutcome::NotAttempted &&
-                  error.production_outcome()->install_outcome == ProductionSourceInstallOutcome::NotAttempted;
-    }
-    expect(refused && scenario.packagelist_calls == 1 && scenario.build_calls == 0 && scenario.install_calls == 0 && scenario.identity_calls == 0 &&
-               metadata_stub::initialize_call_count() == 0,
-           "Guarded singular set reuse widened split support or crossed build/install boundary");
     finish_scenario(scenario);
 }
 
@@ -1602,7 +1574,6 @@ int main() {
         run_case("ordinary size-one set", [&]() {
             test_ordinary_size_one(environment);
         });
-        run_case("guarded singular output contract", [&]() { test_guarded_single_output_contract(environment); });
         run_case("requested split child and unselected outputs", [&]() {
             test_split_child_and_unselected_outputs(environment);
         });

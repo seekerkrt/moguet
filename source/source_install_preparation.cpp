@@ -224,13 +224,6 @@ void require_static_production_source_build_work_item(
                 "Production source-build work item contains duplicate required package target: " +
                 target.package_name + ".");
         }
-        if(target.automatic_version_update &&
-           (!work_item.request.aur_review_identity || target.expected_full_version ||
-            work_item.artifact_lifecycle_intent != ArtifactLifecycleIntent::PackageBaseSet ||
-            target.automatic_version_update->package_base != target.package_base ||
-            target.automatic_version_update->package_name != target.package_name)) {
-            throw std::logic_error("Automatic AUR Version update intent has inconsistent source or child attribution.");
-        }
         if(target.expected_full_version && work_item.artifact_lifecycle_intent != ArtifactLifecycleIntent::PackageBaseSet) {
             throw std::logic_error("Exact replacement version requires the PackageBase artifact lifecycle.");
         }

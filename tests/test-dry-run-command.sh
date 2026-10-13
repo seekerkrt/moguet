@@ -167,7 +167,6 @@ setup_case() {
     unset MOGUET_TEST_MAKEPKG_PRINTSRCINFO_EXIT_CODE
     unset MOGUET_TEST_MAKEPKG_SRCINFO_OUTPUT_FILE
     unset MOGUET_TEST_VERCMP_OUTPUT
-    unset MOGUET_TEST_INSPECTION_SCENARIO
     unset PKGDEST
 }
 
@@ -299,8 +298,6 @@ assert_read_only_commands() {
     while IFS= read -r command; do
         case $command in
             '') ;;
-            # Pure query_stub counter event; no external process was invoked.
-            'tracking observation') ;;
             'pacman-conf --verbose RootDir DBPath'|\
             'pacman-conf --repo-list'|\
             'pacman -Si clean-root'|\
@@ -566,7 +563,7 @@ export MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG
 : > "$command_log"
 start_mutation_sentinel
 if (cd "$case_work_dir" &&
-        "$repository_test_binary" --devel --details --dry-run --noconfirm -Syu) \
+        "$repository_test_binary" --details --dry-run --noconfirm -Syu) \
     </dev/null > "$output_file" 2>&1
 then
     status=0
@@ -606,7 +603,7 @@ export MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG
 : > "$command_log"
 start_mutation_sentinel
 if (cd "$case_work_dir" &&
-        "$repository_test_binary" --devel --details --dry-run --noconfirm -Syu) \
+        "$repository_test_binary" --details --dry-run --noconfirm -Syu) \
     </dev/null > "$output_file" 2>&1
 then
     status=0
@@ -635,7 +632,7 @@ export MOGUET_TEST_PACKAGE_METADATA_EVENT_LOG
 : > "$command_log"
 start_mutation_sentinel
 if (cd "$case_work_dir" &&
-        "$repository_test_binary" --devel --details --dry-run --noconfirm -Syu) \
+        "$repository_test_binary" --details --dry-run --noconfirm -Syu) \
     </dev/null > "$output_file" 2>&1
 then
     status=0
@@ -993,7 +990,7 @@ export MOGUET_TEST_VERCMP_OUTPUT
 : > "$command_log"
 start_mutation_sentinel
 if (cd "$case_work_dir" &&
-        "$repository_test_binary" --devel --noconfirm upgrade-aur) \
+        "$repository_test_binary" --noconfirm upgrade-aur) \
     </dev/null > "$output_file" 2>&1
 then
     status=0
@@ -1037,7 +1034,7 @@ export MOGUET_TEST_VERCMP_OUTPUT
 : > "$command_log"
 start_mutation_sentinel
 if (cd "$case_work_dir" &&
-        "$repository_test_binary" --devel --details --noconfirm upgrade-aur --dry-run) \
+        "$repository_test_binary" --details --noconfirm upgrade-aur --dry-run) \
     </dev/null > "$output_file" 2>&1
 then
     status=0
@@ -1070,7 +1067,7 @@ export MOGUET_TEST_VERCMP_OUTPUT
 : > "$command_log"
 start_mutation_sentinel
 if (cd "$case_work_dir" &&
-        "$repository_test_binary" --devel --details --noconfirm upgrade-all --dry-run) \
+        "$repository_test_binary" --details --noconfirm upgrade-all --dry-run) \
     </dev/null > "$output_file" 2>&1
 then
     status=0
@@ -1096,54 +1093,6 @@ fi
 assert_protected_storage_unchanged
 assert_read_only_commands
 
-for route in -Syu upgrade-aur upgrade-all; do
-    for decision in different unknown unsupported; do
-        for policy in --devel --no-devel; do
-            setup_case "tracking-projection-$route-$decision-$policy"
-            set_foreign_inventory 'foo-git 1.0-1 explicit'
-            MOGUET_TEST_VERCMP_OUTPUT=0
-            MOGUET_TEST_INSPECTION_SCENARIO=foreign-authoritative-$decision
-            export MOGUET_TEST_VERCMP_OUTPUT MOGUET_TEST_INSPECTION_SCENARIO
-            : > "$command_log"
-            start_mutation_sentinel
-            if (cd "$case_work_dir" && "$repository_test_binary" "$policy" --details --dry-run "$route") \
-                </dev/null > "$output_file" 2>&1
-            then
-                status=0
-            else
-                status=$?
-            fi
-            expected_status=0
-            if [ "$policy" = --devel ]; then
-                grep -Fx 'tracking observation' "$command_log" >/dev/null
-                case "$decision" in
-                    different) grep -F 'Git revision difference' "$output_file" >/dev/null ;;
-                    unknown)
-                        expected_status=1
-                        grep -F 'AurUpdateExecutionReason::DevelObservationUnknown' "$output_file" >/dev/null
-                        ;;
-                    unsupported)
-                        expected_status=1
-                        grep -F 'AurUpdateExecutionReason::DevelUnsupported' "$output_file" >/dev/null
-                        ;;
-                esac
-            elif grep -E 'tracking observation|Git revision difference|same Git revision|DevelObservationUnknown|DevelUnsupported' \
-                "$command_log" "$output_file" >/dev/null; then
-                echo "VersionOnly dry-run invented a tracking observation: $route/$decision" >&2
-                exit 1
-            fi
-            validation_assert_status "tracking projection $route/$decision/$policy" "$expected_status" "$status" \
-                "$output_file" "$output_file" "$repository_test_binary" "$policy" --details --dry-run "$route"
-            if grep -E '1\.0-1 -> 1\.0-1|DevelRequiresCheck' "$output_file" >/dev/null; then
-                echo "dry-run fabricated a version arrow or flattened a typed tracking result" >&2
-                exit 1
-            fi
-            assert_protected_storage_unchanged
-            assert_read_only_commands
-        done
-    done
-done
-
 run_supported \
     upgrade-aur NoOp 0 "External owner: AUR RPC" \
     upgrade-aur --dry-run
@@ -1154,8 +1103,6 @@ run_supported \
 # Normal and Detailed observe identical state and process calls. Existing
 # Detailed cases above retain the complete route/authority diagnostics.
 for route in '-Syu' '-Su' 'upgrade-aur' 'upgrade-all' '-S --aur clean-root'; do
-    devel_option=--devel
-    [ "$route" != "-S --aur clean-root" ] || devel_option=
     setup_case "compact-$route"
     set_foreign_inventory 'clean-root 1.0-1 explicit
 non-aur-package 1.0-1 explicit'
@@ -1163,7 +1110,7 @@ non-aur-package 1.0-1 explicit'
     export MOGUET_TEST_VERCMP_OUTPUT
     : > "$command_log"
     start_mutation_sentinel
-    (cd "$case_work_dir" && "$repository_test_binary" $devel_option --dry-run $route) \
+    (cd "$case_work_dir" && "$repository_test_binary" --dry-run $route) \
         </dev/null > "$output_file" 2>&1
     grep -F 'Blockers:' "$output_file" >/dev/null
     if grep -E 'Identity:|External owner:|Configured repository order:' "$output_file" >/dev/null; then
@@ -1179,7 +1126,7 @@ non-aur-package 1.0-1 explicit'
     esac
     cp "$command_log" "$case_dir/normal-events"
     : > "$command_log"
-    (cd "$case_work_dir" && "$repository_test_binary" $devel_option --details --dry-run $route) \
+    (cd "$case_work_dir" && "$repository_test_binary" --details --dry-run $route) \
         </dev/null > "$output_file" 2>&1
     grep -F 'Identity:' "$output_file" >/dev/null
     grep -F 'External owner:' "$output_file" >/dev/null

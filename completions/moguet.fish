@@ -88,12 +88,6 @@ function __moguet_option_id --argument-names word
         case '--save-preference'
             echo 23
             return 0
-        case '--devel'
-            echo 24
-            return 0
-        case '--no-devel'
-            echo 25
-            return 0
         case '--use-patches'
             echo 22
             return 0
@@ -256,49 +250,13 @@ function __moguet_option_context
     test $pending = false
 end
 
-function __moguet_tracking_context --argument-names operation
-    set -l allowed
-    switch "$operation"
-        case '-Qua'
-            set allowed 0 1 2 3 4 6 7 8 9 20 24 25
-        case 'upgrade'
-            set allowed 0 1 2 3 4 5 6 7 8 24 25
-        case 'upgrade-aur'
-            set allowed 0 1 2 3 4 5 6 7 8 20 24 25
-        case 'upgrade-all'
-            set allowed 0 1 2 3 4 5 6 7 8 20 24 25
-        case '-Syu'
-            set allowed 0 1 2 3 4 5 20 6 7 8 24 25 18
-        case '-Su'
-            set allowed 0 1 2 3 4 5 20 6 7 8 24 25 18
-        case ''
-            set allowed 0 1 2 3 4 6 7 8 9 20 24 25 5 18
-        case '*'
-            return 1
-    end
-    set -l seen_operation false
-    for word in (commandline -opc)[2..-1]
-        if test -n "$operation"; and test "$word" = "$operation"; and test $seen_operation = false
-            set seen_operation true
-            continue
-        end
-        set -l actual (__moguet_option_id "$word")
-        test (count $actual) -eq 1; or return 1
-        contains -- $actual $allowed; or return 1
-    end
-    return 0
-end
-
 function __moguet_operation_allows --argument-names option_id
     __moguet_option_context; or return 1
     set -l operation (__moguet_operation)
-    if contains -- $option_id 24 25
-        __moguet_tracking_context "$operation"; and return 0; or return 1
-    end
     if test "$operation" = '-Qua'; and test "$option_id" = 20; return 0; end
     if test "$operation" = '-S'; and test "$option_id" = 20; and __moguet_has_option_id 5; return 0; end
     if test -z "$operation"
-        contains -- $option_id 13 14 0 1 2 3 4 5 6 7 8 9 10 11 12 20 24 25; and return 0; or return 1
+        contains -- $option_id 13 14 0 1 2 3 4 5 6 7 8 9 10 11 12 20; and return 0; or return 1
     end
     switch $operation
         case '-Q'
@@ -318,13 +276,13 @@ function __moguet_operation_allows --argument-names option_id
             end
         case 'upgrade'
             __moguet_form_prefix_valid 'upgrade' 0; or return 1
-            contains -- $option_id 0 1 2 3 4 5 6 7 8 24 25; and return 0; or return 1
+            contains -- $option_id 0 1 2 3 4 5 6 7 8; and return 0; or return 1
         case 'upgrade-aur'
             __moguet_form_prefix_valid 'upgrade-aur' 0; or return 1
-            contains -- $option_id 0 1 2 3 4 5 6 7 8 20 24 25; and return 0; or return 1
+            contains -- $option_id 0 1 2 3 4 5 6 7 8 20; and return 0; or return 1
         case 'upgrade-all'
             __moguet_form_prefix_valid 'upgrade-all' 0; or return 1
-            contains -- $option_id 0 1 2 3 4 5 6 7 8 20 24 25; and return 0; or return 1
+            contains -- $option_id 0 1 2 3 4 5 6 7 8 20; and return 0; or return 1
         case 'clean'
             __moguet_form_prefix_valid 'clean' 0; or return 1
             contains -- $option_id 4; and return 0; or return 1
@@ -388,7 +346,7 @@ function __moguet_operation_allows --argument-names option_id
             else if __moguet_has_operand '-Syu'
                 contains -- $option_id 18 4; and return 0; or return 1
             else
-                contains -- $option_id 0 1 2 3 4 5 20 6 7 8 24 25 18 12 19; and return 0; or return 1
+                contains -- $option_id 0 1 2 3 4 5 20 6 7 8 18 12 19; and return 0; or return 1
             end
         case '-Su'
             set -l selected false
@@ -399,7 +357,7 @@ function __moguet_operation_allows --argument-names option_id
             else if __moguet_has_operand '-Su'
                 contains -- $option_id 18 4; and return 0; or return 1
             else
-                contains -- $option_id 0 1 2 3 4 5 20 6 7 8 24 25 18 12 19; and return 0; or return 1
+                contains -- $option_id 0 1 2 3 4 5 20 6 7 8 18 12 19; and return 0; or return 1
             end
         case '-Ss'
             contains -- $option_id 18 4; and return 0; or return 1
@@ -461,10 +419,6 @@ function __moguet_candidate_available --argument-names option_id
             __moguet_has_option_id 21; and return 1
             __moguet_has_option_id 5; and return 1
             __moguet_has_option_id 15; and return 1
-        case 24
-            __moguet_has_option_id 25; and return 1
-        case 25
-            __moguet_has_option_id 24; and return 1
         case 22
             __moguet_has_option_id 0; and return 1
             __moguet_has_option_id 5; and return 1
@@ -524,8 +478,6 @@ complete -c moguet -f -n '__moguet_candidate_available 20' -a '--details' -d 'Mo
 complete -c moguet -f -n '__moguet_candidate_available 15' -a '--local' -d 'Moguet options: Use one local PKGBUILD directory as the build root'
 complete -c moguet -f -n '__moguet_candidate_available 21' -a '--use-preference' -d 'Moguet options: Use the saved source-build preference for one remote build; conflicts with V=K assignments'
 complete -c moguet -f -n '__moguet_candidate_available 23' -a '--save-preference' -d 'Moguet options: Save explicit V=K after remote build/install success as a new preference; conflicts with --use-preference and --dry-run'
-complete -c moguet -f -n '__moguet_candidate_available 24' -a '--devel' -d 'Moguet options: Request Git revision tracking in addition to AUR package-version updates; explicit CLI overrides config, default OFF'
-complete -c moguet -f -n '__moguet_candidate_available 25' -a '--no-devel' -d 'Moguet options: Disable Git revision tracking for this invocation, overriding config'
 complete -c moguet -f -n '__moguet_candidate_available 22' -a '--use-patches' -d 'Moguet options: Explicitly select saved recipe patches for build --local; requires metadata evaluation consent'
 complete -c moguet -f -n '__moguet_candidate_available 16' -a '--output-dir=' -d 'Moguet options: Select an existing export parent for -G'
 complete -c moguet -f -n '__moguet_candidate_available 17' -a '--recursive' -d 'Moguet options: Resolve dependencies recursively'

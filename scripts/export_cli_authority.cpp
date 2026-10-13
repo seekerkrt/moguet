@@ -284,7 +284,6 @@ void print_semantic_scopes(
                   std::string_view{"dependency-cleanup"}},
         std::pair{cli_authority::OptionSemanticScope::PackageExport,
                   std::string_view{"package-export"}},
-        std::pair{cli_authority::OptionSemanticScope::DevelUpdateQuery, std::string_view{"devel-update-query"}},
         std::pair{cli_authority::OptionSemanticScope::PresentationDetail,
                   std::string_view{"presentation-detail"}},
     };
@@ -472,8 +471,6 @@ int main() {
         OptionId::LocalSource,
         OptionId::UseSourcePreference,
         OptionId::SaveSourcePreference,
-        OptionId::Devel,
-        OptionId::NoDevel,
         OptionId::UsePatches,
         OptionId::PkgbuildOutputDirectory,
         OptionId::Recursive,
@@ -532,9 +529,6 @@ int main() {
                   << (option.changes_database_context ? "alternate-db" : "default-db")
                   << '\n';
     }
-    std::cout << "QUERY_POLICY_SCOPE\t" << cli_authority::DEVEL_FOREIGN_UPDATES_OPERATION << '\t';
-    print_relations(cli_authority::DEVEL_FOREIGN_UPDATES_OPTION_RELATIONS);
-    std::cout << '\n';
     std::cout << "BOUNDARY\t" << cli_authority::END_OF_OPTIONS_TOKEN
               << '\t' << enum_index(OptionId::EndOfOptions) << '\n';
 

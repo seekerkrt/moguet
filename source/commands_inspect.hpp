@@ -1,7 +1,6 @@
 #pragma once
 
 #include "dependency_plan.hpp"
-#include "aur_update_query.hpp"
 #include "presentation_detail.hpp"
 
 #include <string>
@@ -39,4 +38,4 @@ FetchPreparation prepare_fetch_operation(
 
 int cmd_export_pkgbuild_tree(const PkgbuildExportInvocation& invocation);
 int cmd_print_pkgbuild(const PkgbuildExportInvocation& invocation);
-int cmd_query_foreign_updates(PresentationDetail detail, AurUpdateQueryPolicy policy);
+int cmd_query_foreign_updates(PresentationDetail detail = PresentationDetail::Normal);

@@ -38,15 +38,14 @@ void print_config(const UserConfig& config) {
               << review_policy_name(config.review.pkgbuild) << '\n'
               << "REVIEW_DIFF=" << review_policy_name(config.review.diff)
               << '\n'
-              << "BUILD_MODE=" << build_mode_name(config.build.mode) << '\n'
-              << "UPDATES_DEVEL=" << (config.updates.devel ? "true" : "false") << '\n';
+              << "BUILD_MODE=" << build_mode_name(config.build.mode) << '\n';
 }
 
 bool same_config(const UserConfig& lhs, const UserConfig& rhs) {
     return lhs.schema_version == rhs.schema_version &&
            lhs.review.pkgbuild == rhs.review.pkgbuild &&
            lhs.review.diff == rhs.review.diff &&
-           lhs.build.mode == rhs.build.mode && lhs.updates.devel == rhs.updates.devel;
+           lhs.build.mode == rhs.build.mode;
 }
 
 void require_config(
@@ -60,18 +59,6 @@ void require_config(
 }
 
 void verify_composition_contract() {
-    for(const bool configured : {false, true}) {
-        for(const auto override_value : {std::optional<bool>{}, std::optional<bool>{false}, std::optional<bool>{true}}) {
-            UserConfig input;
-            input.updates.devel = configured;
-            CliOverrides overrides;
-            overrides.devel = override_value;
-            const auto output = compose_user_config(input, overrides);
-            if(output.updates.devel != override_value.value_or(configured) || input.updates.devel != configured)
-                throw std::runtime_error("Devel CLI/config precedence or pure composition failed.");
-        }
-    }
-    if(UserConfig{}.updates.devel) throw std::runtime_error("Built-in devel tracking must be OFF.");
     const UserConfig defaults;
     require_config(
         compose_user_config(defaults, CliOverrides{}),

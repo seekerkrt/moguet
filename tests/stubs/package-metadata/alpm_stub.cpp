@@ -42,12 +42,6 @@ struct _alpm_pkg_t {
 
 namespace {
 
-struct VersionComparisonExpectation {
-    std::string lhs;
-    std::string rhs;
-    int result;
-};
-std::deque<VersionComparisonExpectation> g_version_comparisons;
 enum class PackageLookupMode {
     Present,
     Absent,
@@ -877,15 +871,6 @@ namespace package_metadata_test_stub {
 
 void reset_alpm_stub() {
     g_state = AlpmStubState{};
-    g_version_comparisons.clear();
-}
-
-void enqueue_version_comparison(std::string lhs, std::string rhs, int result) {
-    if(result < -1 || result > 1) throw std::logic_error("Invalid version comparison fixture result.");
-    g_version_comparisons.push_back({std::move(lhs), std::move(rhs), result});
-}
-void require_version_comparisons_consumed() {
-    if(!g_version_comparisons.empty()) throw std::logic_error("Version comparisons were not consumed.");
 }
 
 void set_initialize_failure(alpm_errno_t error) {
@@ -946,9 +931,7 @@ void enqueue_local_package_query_present(
     std::string expected_package_name,
     std::string returned_name,
     std::string version,
-    alpm_pkgreason_t reason,
-    std::optional<std::string> package_base) {
-    std::string actual_base = package_base.value_or(returned_name);
+    alpm_pkgreason_t reason) {
     g_state.local_package_query_expectations.push_back(
         LocalPackageQueryExpectation{
             std::move(expected_package_name),
@@ -965,7 +948,7 @@ void enqueue_local_package_query_present(
                 {},
                 {},
                 {},
-                std::move(actual_base),
+                std::move(returned_name),
                 "x86_64",
                 false,
                 false},
@@ -2215,15 +2198,6 @@ alpm_pkgreason_t alpm_pkg_get_reason(alpm_pkg_t* package) {
 }
 
 int alpm_pkg_vercmp(const char* lhs, const char* rhs) {
-    if(!g_version_comparisons.empty()) {
-        const auto expected = std::move(g_version_comparisons.front());
-        g_version_comparisons.pop_front();
-        if(!lhs || !rhs || expected.lhs != lhs || expected.rhs != rhs) {
-            std::fputs("Unexpected queued canonical version comparison operands\n", stderr);
-            std::abort();
-        }
-        return expected.result;
-    }
     if(std::getenv("MOGUET_TEST_CROSS_SOURCE_TRANSITION_CASE") != nullptr) {
         // Explicit #581 fixture oracle, not an Arch version comparator.
         const char* versions[] = {"7.2.16", "7.2.16-1", "7.2.18", "7.2.18-1"};
@@ -2234,27 +2208,22 @@ int alpm_pkg_vercmp(const char* lhs, const char* rhs) {
                    std::strcmp(rhs, versions[j]) == 0) return results[i][j];
     }
 
-    // This test binary intentionally does not link libalpm. Fixtures declare
-    // exact operands/results, including the two independent Version guard
-    // comparisons. Undeclared operands still abort; no ordering is inferred.
-    const char* oracle_names[][3] = {
-        {"MOGUET_TEST_ALPM_VERCMP_EXPECTED_LHS", "MOGUET_TEST_ALPM_VERCMP_EXPECTED_RHS", "MOGUET_TEST_ALPM_VERCMP_RESULT"},
-        {"MOGUET_TEST_ALPM_VERCMP_EXPECTED_LHS_2", "MOGUET_TEST_ALPM_VERCMP_EXPECTED_RHS_2", "MOGUET_TEST_ALPM_VERCMP_RESULT_2"},
-    };
-    for(const auto& names : oracle_names) {
-        const char* expected_lhs = std::getenv(names[0]);
-        const char* expected_rhs = std::getenv(names[1]);
-        const char* expected_result = std::getenv(names[2]);
-        if(lhs != nullptr && rhs != nullptr && expected_lhs != nullptr &&
-           expected_rhs != nullptr && expected_result != nullptr &&
-           std::strcmp(lhs, expected_lhs) == 0 &&
-           std::strcmp(rhs, expected_rhs) == 0) {
-            if(std::strcmp(expected_result, "-1") == 0) return -1;
-            if(std::strcmp(expected_result, "0") == 0) return 0;
-            if(std::strcmp(expected_result, "1") == 0) return 1;
-            std::fputs("Package metadata stub received an invalid version comparison result\n", stderr);
-            std::abort();
-        }
+    // This test binary intentionally does not link libalpm. Constraint cases
+    // must declare the one expected comparison and its libalpm-style result;
+    // the stub never implements an Arch version ordering algorithm.
+    const char* expected_lhs =
+        std::getenv("MOGUET_TEST_ALPM_VERCMP_EXPECTED_LHS");
+    const char* expected_rhs =
+        std::getenv("MOGUET_TEST_ALPM_VERCMP_EXPECTED_RHS");
+    const char* expected_result =
+        std::getenv("MOGUET_TEST_ALPM_VERCMP_RESULT");
+    if(lhs != nullptr && rhs != nullptr && expected_lhs != nullptr &&
+       expected_rhs != nullptr && expected_result != nullptr &&
+       std::strcmp(lhs, expected_lhs) == 0 &&
+       std::strcmp(rhs, expected_rhs) == 0) {
+        if(std::strcmp(expected_result, "-1") == 0) return -1;
+        if(std::strcmp(expected_result, "0") == 0) return 0;
+        if(std::strcmp(expected_result, "1") == 0) return 1;
     }
     std::fputs(
         "Package metadata stub received an unexpected version comparison\n",

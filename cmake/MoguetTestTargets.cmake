@@ -339,12 +339,10 @@ moguet_add_cpp_test(
         "MOGUET_TEST_LEGACY_INSTALL_ADAPTER_PATH=\"${CMAKE_CURRENT_SOURCE_DIR}/tests/legacy-install-test-adapter.py\""
         MOGUET_ENABLE_TEST_CONFIG_PATH
         MOGUET_ENABLE_APP_CONFIG_TEST_HOOKS
-        "MOGUET_LOCALE_DIRECTORY=\"${CMAKE_CURRENT_BINARY_DIR}/locale\""
     INCLUDE_DIRECTORIES
         "${_moguet_test_source_include_dir}"
         "${_moguet_test_alpm_stub_include_dir}"
 )
-add_dependencies(moguet-upgrade-baseline-metadata-test moguet_catalogs)
 
 moguet_add_cpp_test(
     application-identity-test
@@ -1269,7 +1267,6 @@ set(
     source/package_base_artifact_install_executor.cpp
     source/package_base_artifact_install_plan.cpp
     source/artifact_install_executor.cpp
-    source/dependency_constraint.cpp
     source/artifact_install_plan.cpp
     source/artifact_archive_metadata.cpp
     source/artifact_identity.cpp
@@ -1898,8 +1895,6 @@ moguet_add_cpp_test(
         tests/devel_source_artifact_install_fixture.cpp
         tests/devel_build_provenance_publication_fixture.cpp
     DEFINITIONS
-        MOGUET_ENABLE_CLI_INSTALL_TEST_ADAPTER
-        "MOGUET_TEST_LEGACY_INSTALL_ADAPTER_PATH=\"${CMAKE_CURRENT_SOURCE_DIR}/tests/legacy-install-test-adapter.py\""
         MOGUET_TEST_DEVEL_BOOTSTRAP_INTEGRATION
         MOGUET_ENABLE_PINNED_SUBMODULE_CLOSURE_TEST_HOOKS
         MOGUET_ENABLE_PINNED_CLOSURE_REVIEW_TEST_HOOKS
@@ -2267,7 +2262,6 @@ moguet_add_cpp_test(
     SOURCES
         tests/artifact_install_executor_test.cpp
         source/artifact_install_executor.cpp
-        source/dependency_constraint.cpp
         source/artifact_install_plan.cpp
         source/artifact_identity.cpp
         source/artifact_identity_set.cpp
@@ -2298,7 +2292,6 @@ set(
     source/xdg_generation_store_sha256.cpp
     source/package_base_artifact_install_plan.cpp
     source/artifact_install_executor.cpp
-    source/dependency_constraint.cpp
     source/artifact_install_plan.cpp
     source/artifact_identity.cpp
     source/artifact_identity_set.cpp
@@ -2342,7 +2335,6 @@ moguet_add_cpp_test(
         tests/separated_source_build_test.cpp
         source/separated_source_build.cpp
         source/artifact_install_executor.cpp
-        source/dependency_constraint.cpp
         source/artifact_install_plan.cpp
         source/artifact_identity.cpp
         source/artifact_identity_set.cpp
@@ -2376,7 +2368,6 @@ set(
     source/xdg_generation_store_sha256.cpp
     source/package_base_artifact_install_plan.cpp
     source/artifact_install_executor.cpp
-    source/dependency_constraint.cpp
     source/artifact_install_plan.cpp
     source/artifact_identity.cpp
     source/artifact_identity_set.cpp
@@ -3740,7 +3731,7 @@ set(
     moguet-app-config-test=191dc37a6633f66e3f9d0ea61e176f8378acd0cba00616b3a258d30c6fc76e96
     moguet-aur-rpc-validation-test=0959b286c1e98e7da9fdf07141f3d768ef66ae1ce8eb973ce3511b9a71b68271
     moguet-source-install-characterization-test=51612a350c84dacc070d9a98d3ff6b77248a4acb28ac41e794f44b7244d40ee2
-    moguet-upgrade-baseline-metadata-test=042f179189b1e2d1962769db888ca96997fe84b43aea7269cf8aaab4da974130
+    moguet-upgrade-baseline-metadata-test=b008df46c00ae1adaa5a99df84b2bf392613b02fd2272d95f87b1ebe5bee7074
     root-package-candidate-test=214bcb8551ae5a87e118629a01afc292d42caa2575df7957030a8e4a0b7c26a6
     root-package-search-test=816f97c26f67c5ee8247394f8bf8e6eed8d55f0c2861d472e4f0170489d1a20d
     root-package-selection-test=8bb3cf3e5b4c42e4b30b6cbc686d71f214241d053e473ffa8d5c83ea11c26cca
@@ -3755,8 +3746,8 @@ set(
     makepkg-assignment-precedence-test=beb7013072f19dd9906fdc425f939803a250a616d447c2ffb779e591b77b4813
     multiple-artifact-identity-test=c6e5b2a52248e7c437dd3a440706b73e854b2851075c1c21c9c1fc875033a1e4
     package-base-artifact-install-plan-test=c7091cfdc3cbe9a853b03b2f58aceb3b64854e8ba69ea4e0dd020ebe1017b2e8
-    package-base-artifact-install-executor-test=88ec97a808d59e360d65d6425482deea8ac2b82a49360cb3d30171d2c120e686
-    separated-package-base-source-build-test=1d67d4f3958d318ad5a1609cebf222dac70f8607fb1163c0179b5527a56e00d2
+    package-base-artifact-install-executor-test=bd1aaf18fbc54d91857f88da05ae29cf67fb0e674b8db2a3b4be45e3f24daa9d
+    separated-package-base-source-build-test=71689ded635a3afbf1a8ede8e73fb09c90a1ae2599302a1c8a55be1ac28b7f36
     upgrade-all-plan-test=eaf9fa099707e997762547a2aec172d637389ec0a7e3a0f4748ea1673205caae
     system-source-upgrade-test=1d63a53b75e40b9b1fe8dac4476cf31e34636b78c82f662d18adf1abb17cfc5e
     aur-update-execution-preflight-test=167eca6cef76a54712dd3281a015d38e406ae9fde1a264919d69b115a743cfd3

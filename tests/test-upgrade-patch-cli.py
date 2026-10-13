@@ -553,7 +553,7 @@ with tempfile.TemporaryDirectory(prefix='moguet-upgrade-patch-cli-') as temporar
         # discovery/selection/failure handling and the public route are real.
         c=UpgradeCase(root/'forced-devel',rpc,('patch-forced-git',))
         c.save('patch-forced-git'); c.env['MOGUET_TEST_INSPECTION_SCENARIO']='foreign-authoritative-different'
-        text=c.run_upgrade(ok=False, options=('--devel',))
+        text=c.run_upgrade(ok=False)
         require('not supported by authoritative devel execution' in text and not c.git_log.read_text() and not c.eval_log.read_text(),'forced devel entered candidate acquisition')
         c=UpgradeCase(root/'registered-current',rpc); c.save('patch-upgrade'); c.install_record('patch-upgrade','2-1')
         c.run_upgrade('upgrade')
@@ -649,7 +649,7 @@ with tempfile.TemporaryDirectory(prefix='moguet-upgrade-patch-cli-') as temporar
             c.run_upgrade('upgrade',ok=ok)
             require(not c.build_log.read_text() and not c.command_log.read_text(),'pre-system update decision was reused after DB change')
         c=UpgradeCase(root/'query-blocker',rpc,('patch-upgrade','patch-blocked-git'));c.save('patch-upgrade')
-        c.run_upgrade(choices=(),ok=False, options=('--devel',))
+        c.run_upgrade(choices=(),ok=False)
         require(not c.git_log.read_text() and not c.eval_log.read_text(),'query-level blocker entered dependency patch discovery')
         for route in ('upgrade','upgrade-aur','upgrade-all'):
             for response in ('q','EOF'):

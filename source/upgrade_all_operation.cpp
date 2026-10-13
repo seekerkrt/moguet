@@ -1275,7 +1275,7 @@ void PreparedUpgradeAllAurPreflight::prepare_foreign_inventory_stage() {
         std::get<ForeignPackageInventory>(std::move(inventory_result));
 }
 
-void PreparedUpgradeAllAurPreflight::prepare_aur_query_stage(const AppConfig& config) {
+void PreparedUpgradeAllAurPreflight::prepare_aur_query_stage() {
     if(stopped_phase_ != UpgradeAllOperationPhase::None ||
        foreign_inventory_.status !=
            UpgradeAllForeignInventoryPhaseStatus::Completed) {
@@ -1286,7 +1286,7 @@ void PreparedUpgradeAllAurPreflight::prepare_aur_query_stage(const AppConfig& co
         // consumes its own owned copy.
         aur_query_result_.emplace(
             query_aur_updates_for_foreign_inventory(
-                foreign_inventory_.inventory, aur_update_query_policy(config.user_config)));
+                foreign_inventory_.inventory));
     } catch(const std::exception& error) {
         issues_.push_back(make_issue(
             UpgradeAllOperationIssueKind::AurQueryFailed,
@@ -1372,7 +1372,7 @@ PreparedUpgradeAllAurPreflight prepare_upgrade_all_aur_preflight(
     const AppConfig& config) {
     PreparedUpgradeAllAurPreflight preflight;
     preflight.prepare_foreign_inventory_stage();
-    preflight.prepare_aur_query_stage(config);
+    preflight.prepare_aur_query_stage();
     preflight.prepare_filtered_operation_stage(
         prepared, config, std::nullopt);
     return preflight;
@@ -1690,7 +1690,7 @@ UpgradeAllOperationResult execute_prepared_upgrade_all_operation(
             result, UpgradeAllOperationPhase::AurQuery, error.what());
         return result;
     }
-    aur_preflight.prepare_aur_query_stage(config);
+    aur_preflight.prepare_aur_query_stage();
     if(stop_for_aur_preflight_failure(result, aur_preflight)) {
         return result;
     }

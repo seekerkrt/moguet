@@ -433,16 +433,12 @@ void test_rich_cli_option_and_ownership_contract() {
         const OptionContract& rich = option_contract(option_id(legacy.id));
         expect(
             static_cast<std::size_t>(legacy.id) == index &&
-                (legacy.id == GlobalOptionId::Details || legacy.id == GlobalOptionId::Devel || legacy.id == GlobalOptionId::NoDevel ||
+                (legacy.id == GlobalOptionId::Details ||
                  static_cast<std::size_t>(rich.id) == index) &&
                 rich.canonical_token == legacy.token,
             "Existing global option ID/token order drifted");
     }
 
-    expect(static_cast<std::size_t>(OptionId::SaveSourcePreference) == 23 &&
-               static_cast<std::size_t>(OptionId::Devel) == 24 && static_cast<std::size_t>(OptionId::NoDevel) == 25 &&
-               option_id(GlobalOptionId::Devel) == OptionId::Devel && option_id(GlobalOptionId::NoDevel) == OptionId::NoDevel,
-           "Devel options renumbered the existing exported IDs");
     const GlobalOptionSpec* global = find_moguet_global_option("--details");
     const OptionContract& details = option_contract(OptionId::Details);
     expect(

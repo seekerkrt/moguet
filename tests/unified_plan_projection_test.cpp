@@ -1182,31 +1182,6 @@ void test_root_repository_order_known_and_unknown() {
 }
 
 void test_root_and_update_correlation_fail_closed() {
-    AurUpdateQueryResult disabled_query = update_query();
-    disabled_query.plan.entries.front().devel_assessment_origin = AurDevelAssessmentOrigin::DisabledByPolicy;
-    auto disabled_preflight = executable_update_preflight(build_plan_fixture());
-    disabled_preflight.targets.front().update = disabled_query.plan.entries.front();
-    const auto disabled_projection = project_aur_update_unified_plan({std::cref(disabled_query), std::cref(disabled_preflight), false});
-    const auto& disabled = require_observation(*disabled_projection, "VersionOnly Version candidate");
-    expect(disabled.status() == UnifiedPlanObservationStatus::Ready && disabled.blockers().empty(),
-           "Disabled origin removed normal Version candidate intent");
-    const auto& retained = std::get<UnifiedPlanBorrowedAuthorityReference<AurUpdatePlanEntry>>(disabled.root_metadata().front()).get();
-    expect(retained.devel_assessment_origin == AurDevelAssessmentOrigin::DisabledByPolicy &&
-               retained.devel_classification == disabled_query.plan.entries.front().devel_classification &&
-               retained.devel_assessment == disabled_query.plan.entries.front().devel_assessment,
-           "VersionOnly projection discarded the original observation");
-    for(const bool drift_origin : {true, false}) {
-        auto drifted = disabled_preflight;
-        if(drift_origin)
-            drifted.targets.front().update.devel_assessment_origin = AurDevelAssessmentOrigin::Conservative;
-        else
-            drifted.targets.front().update.devel_assessment = DevelUpdateAssessment::unknown(DevelUnknownReason::RemoteObservationFailed);
-        expect_invalid_argument([&] {
-            (void)project_aur_update_unified_plan({std::cref(disabled_query), std::cref(drifted), false});
-        },
-                                "VersionOnly query/preflight observation drift");
-    }
-
     PreparedRootPackageInstall missing_plan =
         make_root_prepared(false, true, std::nullopt);
     missing_plan.aur_build_plan.reset();

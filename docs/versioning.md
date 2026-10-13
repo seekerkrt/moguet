@@ -63,25 +63,6 @@ generation reset等の互換性上の理由が生じた時点で再判断する�
 AUR build plan execution のように、build / install の実行範囲や対応 workflow を広げる変更は、後方互換で
 あっても `MINOR` 相当として扱う。
 
-### v2.12.0の限定的classification判断（Issue #673）
-
-[Issue #673の確定判断](https://github.com/seekerkrt/moguet/issues/673#issuecomment-6116005660)に基づき、
-VCS/devel Git revision trackingの既定OFFへの変更と自動Version-basis更新のinstall前guardを
-v2.12.0（milestone #33）へ収録する。v2.11.0までの通常trackingから既定がVersionOnlyへ変わるため、
-default behavior changeを含み、完全な後方互換性は主張しない。
-
-今回の理由は、通常AUR更新のpackage Version authorityを既定として明確にし、追加のGit観測を
-利用者のopt-inへ分離しながら、従来相当のtracking policyを`[updates] devel = true`または
-`--devel`で明示的に選べることにある。`--no-devel`は当回の解除として使える。
-Version guardはactual artifactがfresh installedより新しくobserved RPC以上であることを確認し、
-不足/比較不能の証拠でinstallへ進まない。source/build/install authorityやprovenance schemaを
-再設計せず、state/historyの自動削除・修復・migrationも行わない。
-
-これはv2.12.0限りの明示的なclassification判断であり、breaking changeを通常MINORへ含める
-precedentではない。上記の一般MAJOR/MINOR/PATCH方針を変更しない。release preparationでは
-default変更、opt-in手順、古いbinaryの未知`[updates]`拒否可能性とdowngrade時の手動config確認を
-release/migration案内へ明示する。version番号や正式release notesの更新は別のrelease作業で行う。
-
 ## PATCH
 
 `PATCH` は、bug fix、docs、build / packaging fix、表示改善、エラー文改善、既存機能の小さな補正で上げる。

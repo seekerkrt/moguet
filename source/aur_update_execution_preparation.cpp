@@ -1039,16 +1039,8 @@ bool collect_work_item_drafts(
                 package_target->package_name,
                 *desired_reason};
             for(const auto& binding : bindings) {
-                const auto& update = binding.target->update;
-                if(update.installed_name != package_target->package_name ||
-                   std::find(child_update_plan_indices.begin(), child_update_plan_indices.end(), binding.target->update_plan_index) == child_update_plan_indices.end()) continue;
-                required_target.expected_full_version = update.coordinated_replacement_version;
-                if(!update.coordinated_replacement_version && !has_aur_update_bootstrap_intent(update) &&
-                   aur_update_basis(update) == AurUpdateBasis::Version && update.aur_package) {
-                    required_target.automatic_version_update = AutomaticAurVersionUpdateIntent{
-                        update.aur_package->package_base, update.aur_package->aur_name,
-                        update.aur_package->version, update.installed_version, update.install_reason};
-                }
+                if(binding.target->update.installed_name == package_target->package_name)
+                    required_target.expected_full_version = binding.target->update.coordinated_replacement_version;
             }
             draft.work_item.required_targets.push_back(required_target);
             draft.required_target_attributions.push_back(
@@ -1498,7 +1490,6 @@ bool has_exact_required_target_attributions(
            lhs[index].required_target.desired_reason !=
                rhs[index].required_target.desired_reason ||
            lhs[index].required_target.expected_full_version != rhs[index].required_target.expected_full_version ||
-           lhs[index].required_target.automatic_version_update != rhs[index].required_target.automatic_version_update ||
            lhs[index].affected_update_plan_indices !=
                rhs[index].affected_update_plan_indices ||
            lhs[index].affected_roots != rhs[index].affected_roots ||
@@ -1710,8 +1701,7 @@ bool has_exact_prepared_correlation(
                work_item_target.package_name != projected_target.package_name ||
                work_item_target.desired_reason !=
                    projected_target.desired_reason ||
-               work_item_target.expected_full_version != projected_target.expected_full_version ||
-               work_item_target.automatic_version_update != projected_target.automatic_version_update) {
+               work_item_target.expected_full_version != projected_target.expected_full_version) {
                 return false;
             }
         }
