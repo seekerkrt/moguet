@@ -47,11 +47,11 @@ upstream code as safe. See the [validation policy](https://github.com/seekerkrt/
 <!-- parity:status -->
 ## Project status
 
-The current released stable version is **[v2.11.0](https://github.com/seekerkrt/moguet/releases/tag/v2.11.0)**.
+As of 2026-10-13, the current released stable version is **[v2.12.0](https://github.com/seekerkrt/moguet/releases/tag/v2.12.0)**.
+For the latest published stable, see the [latest GitHub Release](https://github.com/seekerkrt/moguet/releases/latest).
 Ongoing development is integrated on `develop`; `main` is the default branch and
-stable release line. This tree prepares **v2.12.0**; its scope is defined by the
-[v2.12.0 milestone](https://github.com/seekerkrt/moguet/milestone/33).
-Preparation and validation do not mean that the release has been published.
+stable release line. The source tree's `VERSION`
+identifies its build version and may differ from the latest published release.
 See [release notes](RELEASE_NOTES.md#moguet-v2120) for the tracking default change
 and migration guidance. The capabilities below describe the current implementation.
 
@@ -1296,7 +1296,8 @@ See
 [docs/development.md](https://github.com/seekerkrt/moguet/blob/develop/docs/development.md),
 and
 [docs/versioning.md](https://github.com/seekerkrt/moguet/blob/develop/docs/versioning.md).
-The [v2.12.0 milestone](https://github.com/seekerkrt/moguet/milestone/33) defines the current release-preparation scope.
+Release planning is tracked in [GitHub milestones](https://github.com/seekerkrt/moguet/milestones);
+planned scope does not establish publication status.
 Current capability is described by the `develop` implementation, public help/man,
 and [current contracts](https://github.com/seekerkrt/moguet/blob/develop/docs/contracts/README.md).
 The closed [customization/release roadmap #344](https://github.com/seekerkrt/moguet/issues/344)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 from dataclasses import dataclass
+from datetime import date
 import json
 from pathlib import Path
 import re
@@ -1292,6 +1293,90 @@ def check_system_aur_update_documentation(
         assert_document_contract(path, required, forbidden)
 
 
+def current_status_section(path: Path, heading: str) -> str:
+    lines = read_text(path).splitlines()
+    if lines.count(heading) != 1:
+        fail(f"{shown_path(path)} must contain exactly one {heading!r}")
+    start = lines.index(heading) + 1
+    end = next(
+        (index for index in range(start, len(lines)) if lines[index].startswith("## ")),
+        len(lines),
+    )
+    return "\n".join(lines[start:end])
+
+
+def check_public_release_status(
+    repository_root: Path = REPOSITORY_ROOT,
+) -> None:
+    # VERSION owns the source build, not GitHub publication. This check is
+    # offline and deliberately does not read VERSION or historical release docs.
+    release_base = "https://github.com/seekerkrt/moguet/releases/"
+    snapshot_pattern = re.compile(
+        r"(?:As of ([0-9-]+), the current released stable version is|"
+        r"([0-9-]+)時点の公開stableは)\s*"
+        r"\*\*\[v([0-9]+\.[0-9]+\.[0-9]+)\]\(([^\s)]+)\)\*\*"
+    )
+    forbidden = SemanticTextContract(
+        required_patterns=(),
+        forbidden_patterns=(
+            r"\bthis tree (?:prepares|is preparing)\b",
+            r"\bcurrent release[- ]preparation scope\b",
+            r"preparation and validation do not mean that the release has been published",
+            r"このtreeは[^。]*準備中",
+            r"準備中のreleaseは",
+            r"現在のrelease preparation scope",
+            r"準備や検証の完了はrelease公開済みを意味しません",
+        ),
+    )
+    status_regions = (
+        (repository_root / "README.md", "## Project status"),
+        (repository_root / "README.ja.md", "## Project status"),
+        (repository_root / "docs/project-stance.md", "## Current capabilityとcustomizationの姿勢"),
+    )
+    snapshots: list[tuple[str, str] | None] = []
+    for path, heading in status_regions:
+        label = f"{shown_path(path)} {heading}"
+        text = current_status_section(path, heading)
+        assert_semantic_text_contract(label, text, forbidden)
+        if re.search(rf"\[[^\]]+\]\({re.escape(release_base)}latest\)", text) is None:
+            fail(f"{label} must link to the latest GitHub Release")
+        normalized = " ".join(text.split())
+        matches = list(snapshot_pattern.finditer(normalized))
+        if len(matches) > 1:
+            fail(f"{label} must contain at most one dated stable snapshot")
+        remainder = snapshot_pattern.sub("", normalized)
+        if re.search(r"current released stable|現在の公開stableは|releases/tag/", remainder, re.IGNORECASE):
+            fail(f"{label} must use a dated stable snapshot or version-neutral publication guidance")
+        if not matches:
+            snapshots.append(None)
+            continue
+        observed_en, observed_ja, version, url = matches[0].groups()
+        observed = observed_en or observed_ja
+        try:
+            date.fromisoformat(observed)
+        except ValueError:
+            fail(f"{label} has an invalid stable snapshot date: {observed!r}")
+        if re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", observed) is None:
+            fail(f"{label} stable snapshot date must use YYYY-MM-DD")
+        if url != f"{release_base}tag/v{version}":
+            fail(f"{label} stable snapshot version and official Release URL differ")
+        snapshots.append((observed, version))
+    if any(snapshot != snapshots[0] for snapshot in snapshots[1:]):
+        fail("README EN/JA and project stance dated stable snapshots differ")
+
+    for relative, heading in (
+        ("README.md", "## Development"),
+        ("README.ja.md", "## 開発"),
+        ("docs/project-stance.md", "## 概要"),
+    ):
+        path = repository_root / relative
+        assert_semantic_text_contract(
+            f"{shown_path(path)} {heading}",
+            current_status_section(path, heading),
+            forbidden,
+        )
+
+
 def release_notes_section(text: str, heading: str) -> str:
     lines = text.splitlines()
     if lines.count(heading) != 1:
@@ -1480,6 +1565,7 @@ def main() -> int:
     check_package_relation_documentation()
     check_reviewed_source_documentation()
     check_system_aur_update_documentation()
+    check_public_release_status()
     check_release_notes_documentation()
     check_generated_completions(schema)
     print("public-documentation-check: all checks passed")

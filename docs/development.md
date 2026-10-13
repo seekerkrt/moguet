@@ -484,6 +484,56 @@ static `test-live-contract`として確認するが、networkやcontainer runtim
 
 ### Release flow
 
+#### Publication statusとtag内の案内
+
+root `VERSION`はそのsource treeのbuild versionの正本であり、公開済みreleaseの台帳ではない。
+release preparationで次versionへ進んだRCと、最新の公開stableが異なることは正常である。
+公開状態のauthorityはGitHub Releaseのtag、`draft=false`、`prerelease=false`、公開日時であり、
+`main`へのmerge、tag作成、RCのVALID、milestoneの完了だけでは正式公開を証明しない。
+`main`はstable line、`develop`はintegrationという役割を維持し、公開までの遷移を区別する。
+
+README英日とcurrent project stanceの公開案内には、原則としてversion-neutralな
+[最新のGitHub Release](https://github.com/seekerkrt/moguet/releases/latest)への導線を置く。
+特定stableを併記する場合は「As of YYYY-MM-DD, the current released stable version is …」／
+「YYYY-MM-DD時点の公開stableは …」という観測日付きのsnapshotと正式Release URLを使い、英日・stanceで揃える。
+snapshotはその日までに実際に公開されたreleaseだけを指す。次releaseを準備するときも候補を先に公開済みへ昇格しない。
+予定scopeはmilestone、機能の導入versionと移行はrelease notes / contractへ分離する。
+
+tagへ入るcurrent-status文書には「このtreeはvX.Y.Zの準備中」「未公開」など、公開操作だけで
+真偽が反転する無期限の断定を残さない。準備中の状態はrelease PR / Issueの時点付きevidenceへ記録する。
+pre-tag reviewではRCとして正しいかに加え、同じbytesが公開直後や次release後も矛盾しないかを確認する。
+version-neutralな導線と日付付きの既公開snapshotは、このimmutable tagでの読み方を保つための方針である。
+
+#### 状態遷移とreview責任
+
+release operatorは各遷移の実施責任を持ち、maintainerは次のreview結果とevidenceを確認して進行を判断する。
+operatorとmaintainerが同一の場合も、実行とreviewの記録を分ける。
+
+| 状態 | 完了条件 / 次の遷移 |
+| --- | --- |
+| Preparation / RC | release branchのexact candidateを固定し、RC validationとpre-tag reviewを完了してrelease PRをmainへmergeする。 |
+| Tagged / publication pending | reviewed release merge commitへのannotated tagを確認する。tagだけで公開済みとは扱わず、review済みpayloadでGitHub Releaseを公開する。 |
+| Published | 正式Releaseのtag・公開日時・draft / prereleaseとtag内文書をpost-publication reviewで照合する。mirror結果を確認し、main → develop回収PRへ進む。 |
+| Recovered | 回収PRのmergeとmirrorを確認し、developのcurrent public docsを公開実態へ同期する。次の予定releaseと公開stableを分ける。 |
+| Closed out | post-publication review、current docsの同期、回収・mirror・cleanupのevidenceが揃ってからcloseout完了を記録する。 |
+
+pre-tag reviewはoperatorが対象SHA / candidate treeと文書を提示し、maintainerがtag作成前に確認する。
+
+- README EN/JAのProject statusとDevelopment、project stanceの概要とcurrent capabilityを確認する。
+- 最新の正式Releaseをread-onlyで確認し、stableのversion / URL / 観測日、milestoneの予定と履歴を区別する。
+  RCの`VERSION`とpublished releaseの一致は要求しない。
+- current-status内の準備中 / 未公開断定、古いstableの無期限断定、次releaseの先行公開表記を検出する。
+  historical release preparation記録は当時の事実として保持する。
+- `make test-public-documentation`、`make test-markdown-links`、`git diff --check`のevidenceと、
+  英日本文の意味・migration・tracking default / opt-in案内を確認する。
+  full RC approvalの必要laneは`validation.md`に従う別責務である。
+
+未取得の公開状態、文書不整合、checker failure、公開後に誤りになる文言があれば、tag作成・公開へ進まない。
+修正後はcandidateを再固定し、`validation.md`のinvalidation ruleに従って必要なevidenceを更新する。
+tag作成後・公開前に不整合を発見した場合も公開を止め、tagを暗黙に移動・再作成せずmaintainer判断へ戻す。
+
+#### Preparationとcandidate validation
+
     git switch develop
     git pull --ff-only origin develop
     git switch -c release/vX.Y.Z
@@ -501,16 +551,106 @@ summaryとexit statusを確認し、必要なlog pathをcandidate / 時刻 / exa
 INVALIDや取得失敗では停止原因を解消してcandidateを再固定し、新candidateへ古いPASSを転用しない。
 個別targetはdebug / focused確認に利用できるが、それだけで最終RCの完了とはしない。
 
-VALID後もactual release-preparation diffとstatusを確認し、下記のstage / commit、release PR、
+VALID後もactual release-preparation diffとstatusを確認し、stage / commit、release PR、
 main merge後のtag、release notes抽出・目視確認、GitHub Release、mirror確認、develop回収とcleanupを
 operatorが行う。automated VALIDはこれらの実行許可や完了を意味しない。
+stage対象はそのreleaseのexact path setを実行直前にactual diffと照合して選び、historical listを流用しない。
+pre-tag review済みcandidateをcommitし、release branchからmain向けPRのreview / mergeを完了してから次のtag段階へ進む。
 
 ccache / mold parityは必要なreleaseでの追加validationであり、上記default gateの代替にしない。
 それぞれのexact compile / link scopeとclean / incremental条件を`validation.md`に従って記録する。
 
+#### TagとGitHub Release公開
+
+pre-tag reviewを完了したrelease PRのmerge後:
+
+    git switch main
+    git pull --ff-only origin main
+
+    git tag -a vX.Y.Z -m "vX.Y.Z"
+    git push origin vX.Y.Z
+
+    if ! release_notes_payload=$(mktemp); then
+        printf '%s\n' 'release notes payload: unable to create temporary file; release was not created' >&2
+        exit 1
+    fi
+    trap 'rm -f "$release_notes_payload"' EXIT HUP INT TERM
+
+    if ! sh scripts/extract-release-notes.sh >"$release_notes_payload"; then
+        printf '%s\n' 'release notes extraction failed; release was not created' >&2
+        exit 1
+    fi
+
+    printf '%s\n' 'Inspect the release notes payload before creating the release:'
+    if ! cat "$release_notes_payload"; then
+        printf '%s\n' 'release notes payload inspection failed; release was not created' >&2
+        exit 1
+    fi
+
+    if [ ! -s "$release_notes_payload" ]; then
+        printf '%s\n' 'release notes payload is empty; release was not created' >&2
+        exit 1
+    fi
+
+    if ! version=$(tr -d '[:space:]' < VERSION); then
+        printf '%s\n' 'VERSION could not be read; release was not created' >&2
+        exit 1
+    fi
+    if ! grep -Fqx "# Moguet v$version" "$release_notes_payload"; then
+        printf '%s\n' 'release notes payload verification failed; release was not created' >&2
+        exit 1
+    fi
+
+    gh release create vX.Y.Z --title "vX.Y.Z" --notes-file "$release_notes_payload"
+
+tag mirrorとGitLab Release mirrorの完了を確認する。uploaded assetがないreleaseではGitLab asset linkが0件でも正常とする。
+
+`RELEASE_NOTES.md`は過去releaseの履歴も保持するため、そのまま`--notes-file`へ渡さない。
+`sh scripts/extract-release-notes.sh`は`VERSION`と一致するcurrent top-level sectionだけを出力し、
+current headingが0件または複数なら失敗する。GitHub Release作成前にこの出力を確認し、実際に
+渡すpayloadがcurrent release sectionだけであることを確認する。
+
+#### Post-publication reviewとdevelop回収
+
+operatorは公開直後に正式Release URL、tag / peeled commit、公開日時、draft / prereleaseをread-onlyで確認し、
+maintainerは公開済みtagのREADME EN/JAとproject stanceを再読する。公開前のworking treeだけで代用しない。
+version-neutralな導線、日付付きsnapshotの事実、移行案内、historical / planned scopeの区別をpre-tagと同じ観点で照合する。
+mirror完了や回収PRのmergeだけで文書の整合を確認済みとは扱わない。
+
+公開後の不一致や取得失敗はcloseoutを停止する。published tagの移動・再作成やReleaseの削除・unpublishで修復しない。
+文書のforward fixをdevelop向け通常PRへ分離し、公開済みartifactに残る制限と修正予定を記録する。
+mainへの反映は次のrelease PRで行う。必要な回収は続けられるが、未解消findingをcloseout完了へ丸めない。
+
+`main`から`develop`への回収PRを作成する。protected branchをlocal mergeやdirect pushで更新しない。
+
+    gh pr create --base develop --head main
+
+回収PRのmergeとmirror完了後、local branchを更新する。
+
+    git switch develop
+    git pull --ff-only origin develop
+
+#### Current docs同期とcloseout review
+
+回収後、operatorはdevelopのREADME EN/JAとproject stanceを正式Releaseへ照合し、
+日付付きstable snapshotを最新の公開結果へ更新する。次の予定releaseはmilestoneへ接続し、
+source `VERSION`の値だけで公開済みと断定しない。修正があれば通常のdevelop向けPRとfocused docs validationを通す。
+maintainerはexact diff、英日parity、Release URL、現在のproduct説明を確認し、tag内の案内との違いも記録する。
+
+`scripts/check_public_documentation.py`はcurrent-statusの限定領域で、version-neutralな公開導線、
+日付付きstable snapshotのversion / URL / 観測日の文書間整合、既知の無期限な準備中表現をdeterministicに検査する。
+GitHub API、公開日時の実在、snapshotが最新か、milestoneのopen / closed、任意の自然文の意味は自動判定しない。
+これらはpre-tag / post-publication / closeout reviewの手動checkであり、checker PASSを公開状態の証明にしない。
+
+closeout evidenceへreview担当、観測日時、正式Release URL、tag object / peeled commit、main / develop SHA、
+文書のexact diffとvalidation結果、mirror / 回収 / cleanup結果、残存findingを記録する。
+不整合・未取得・必要な修正PRの未完了があればcloseout完了やmilestone完了を記録しない。
+cleanupはそのreleaseで承認された対象だけに行い、下記historical path setやv2.1.0 closure例をそのまま実行しない。
+
+#### Historical release preparation examples
+
 以下のstage例とその説明は**v2.8.0 release preparationのhistorical example**であり、当時のpath名を含む。
-current releaseのscope / stage対象のauthorityではない。v2.12.0のscopeは
-[v2.12.0 milestone](https://github.com/seekerkrt/moguet/milestone/33)を正とし、release preparationでは
+current releaseのscope / stage対象のauthorityではない。各releaseのscopeは対象milestoneを正とし、release preparationでは
 actual diffから新たなexact path setを定める。下記listをそのまま実行しない。
 
     git status --short
@@ -597,6 +737,8 @@ v2.1.0固有の履歴は下記の`v2.1.0 post-release closure`として別に扱
 
 ### v2.11.0 release preparation exact path set
 
+この節はv2.11.0準備当時のhistorical recordであり、current releaseのstage対象や公開状態のauthorityではない。
+
 v2.11.0では、feature / contract / completion / localization等の実装変更はdevelop上で完了済みであり、
 release preparation自体のtracked変更は次の15 pathsへ限定する。
 
@@ -649,6 +791,9 @@ fixture-localな`XDG_CONFIG_HOME`も所有させ、CTest間のambient config sta
 
 ### v2.12.0 release preparation exact path set
 
+この節はv2.12.0準備当時のhistorical recordであり、current releaseのstage対象や公開状態のauthorityではない。
+当時の公開stable / RC表現を保持する。後続releaseには上記のPublication status方針を適用する。
+
 Issue #673、#674、#677はdevelopへ統合済みであり、release preparationでは再実装しない。
 root `VERSION`、current release案内、英日release notesとcanonical generatorの出力を更新する。
 今回のrelease metadata差分は次の10 pathsであり、v2.11.0のhistorical listを流用しない。
@@ -673,63 +818,6 @@ version変更に依存しないため変更しない。production code、tests�
 READMEとproject stanceは公開stable v2.11.0と準備中のv2.12.0を区別する。
 候補固定後のfresh `release-validate`、current release notes payloadと独立監査の確認をもって
 RCを判定し、正式公開やcommit / pushの完了とは扱わない。stage対象は実行直前にactual diffと再照合する。
-
-merge 後:
-
-    git switch main
-    git pull --ff-only origin main
-
-    git tag -a vX.Y.Z -m "vX.Y.Z"
-    git push origin vX.Y.Z
-
-    if ! release_notes_payload=$(mktemp); then
-        printf '%s\n' 'release notes payload: unable to create temporary file; release was not created' >&2
-        exit 1
-    fi
-    trap 'rm -f "$release_notes_payload"' EXIT HUP INT TERM
-
-    if ! sh scripts/extract-release-notes.sh >"$release_notes_payload"; then
-        printf '%s\n' 'release notes extraction failed; release was not created' >&2
-        exit 1
-    fi
-
-    printf '%s\n' 'Inspect the release notes payload before creating the release:'
-    if ! cat "$release_notes_payload"; then
-        printf '%s\n' 'release notes payload inspection failed; release was not created' >&2
-        exit 1
-    fi
-
-    if [ ! -s "$release_notes_payload" ]; then
-        printf '%s\n' 'release notes payload is empty; release was not created' >&2
-        exit 1
-    fi
-
-    if ! version=$(tr -d '[:space:]' < VERSION); then
-        printf '%s\n' 'VERSION could not be read; release was not created' >&2
-        exit 1
-    fi
-    if ! grep -Fqx "# Moguet v$version" "$release_notes_payload"; then
-        printf '%s\n' 'release notes payload verification failed; release was not created' >&2
-        exit 1
-    fi
-
-    gh release create vX.Y.Z --title "vX.Y.Z" --notes-file "$release_notes_payload"
-
-tag mirrorとGitLab Release mirrorの完了を確認する。uploaded assetがないreleaseではGitLab asset linkが0件でも正常とする。
-
-`RELEASE_NOTES.md`は過去releaseの履歴も保持するため、そのまま`--notes-file`へ渡さない。
-`sh scripts/extract-release-notes.sh`は`VERSION`と一致するcurrent top-level sectionだけを出力し、
-current headingが0件または複数なら失敗する。GitHub Release作成前にこの出力を確認し、実際に
-渡すpayloadがcurrent release sectionだけであることを確認する。
-
-その後、`main`から`develop`への回収PRを作成する。protected branchをlocal mergeやdirect pushで更新しない。
-
-    gh pr create --base develop --head main
-
-回収PRのmergeとmirror完了後、local branchを更新する。
-
-    git switch develop
-    git pull --ff-only origin develop
 
 ### v2.1.0 post-release closure
 
