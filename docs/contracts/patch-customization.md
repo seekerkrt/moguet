@@ -6,7 +6,7 @@
 [Issue #363 current body](https://github.com/seekerkrt/moguet/issues/363)をrequirements SSOTとする。
 以下は実装済みlocal contractとDesign Gateの比較根拠である。#649 Slice 2でAUR associationを追加した。
 ordinary AURのupgrade-family適用は#649 Slice 3、review編集からの明示保存は#650 Slice 3で実装済み。
-#665で既存root PKGBUILDと既存top-level `*.install`のcontent editをchanged-file-per-patchのordered seriesとして
+\#665で既存root PKGBUILDと既存top-level `*.install`のcontent editをchanged-file-per-patchのordered seriesとして
 保存・再適用する範囲へ拡張した。詳細は末尾の#665追加契約を正とし、旧PKGBUILD-only record互換とlocal scopeを維持する。
 それ以外のtext / source payload integrationは未実装の拡張候補であり、収録releaseは約束しない。
 [#627 requirements reset](https://github.com/seekerkrt/moguet/issues/627)に従い、過去の
@@ -158,7 +158,7 @@ exact一致を要求する。URL alias、任意Git hosting、repository source�
 child、provider、display/search labelをPackageBaseへ補完せず、derived `aur:<base>` keyの逆parseもしない。
 split siblingsは解決済みPackageBaseを共有する。release / revisionはdurable keyに含めない。
 
-#355のgeneric root / provider / update projectionが返すUnknown locationはそのままInvalidIdentityで停止する。
+\#355のgeneric root / provider / update projectionが返すUnknown locationはそのままInvalidIdentityで停止する。
 Slice 3のconsumerはcurrent exact source resolutionを通してKnown identityを得てから
 `read_patch_association(const PackageBaseIdentity&)`へ渡す必要がある。generic Unknownへ既定URLを注入する
 bridgeは認めない。Known URLとPackageBaseの不整合はAssociationMismatchであり、未登録へ丸めない。
@@ -405,7 +405,6 @@ initial local journeyではremote、selected recipe-associated text、source pay
 remote AURと既存top-level `*.install`は後述#649 / #650 / #665で実装済みである。
 残るsource payload integrationは別の具体的需要とauthority確認を要し、適用は前述のmakepkg lifecycleが所有する。
 
-
 ## Issue #649 Slice 3: ordinary AUR upgrade consumer
 
 ### Routeとauthority
@@ -511,7 +510,7 @@ apply失敗とbaseline/result bytes不一致は別reasonとし、private recipe�
 Git終了失敗へ分類せず、causeを持つ`InternalFailure`としてcleanup後に返す。
 
 Slice 3は以下の明示saveからだけこのseamを呼び、編集検出だけで自動生成しない。
-#649 production route、metadata replan、authoritative devel customizationは変更しない。
+\#649 production route、metadata replan、authoritative devel customizationは変更しない。
 
 ## Issue #650 Slice 3: explicit save / publication / registration
 
@@ -565,7 +564,7 @@ registration failure/uncertain、commit後drift、scope exclusions、generated m
 
 ## Issue #665: existing top-level `.install` content edit
 
-#650のPKGBUILD-only記述に対する現行の追加契約。normal reviewed ordinary AURの最初のeditor直前に
+\#650のPKGBUILD-only記述に対する現行の追加契約。normal reviewed ordinary AURの最初のeditor直前に
 PKGBUILD先頭、既存top-level `*.install`をbytewise lexical順でdescriptor-firstにsnapshotし、
 Proceed受理後に同じcheckout lineageからaccepted snapshotをfreezeする。path set、内容、owner、
 type、modeを比較し、inodeはeditorのatomic saveを許すためpre/post同一性を要求しない。

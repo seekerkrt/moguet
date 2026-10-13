@@ -352,7 +352,6 @@ execution authorityにしない。B全体を検証しT=selected child 1件だけ
 未選択siblingはinstall / S6 publication対象外であり、selected childのS6は正規S5成功・eligible proof後だけ。
 Version guard、partial outcome、first-failure / NotAttempted suffix、cleanup / lifetimeの既存契約を維持する。
 
-
 <a id="automatic-version-install-guard"></a>
 
 ## Automatic Version-basis install guard（Issue #673 Slice 4）
