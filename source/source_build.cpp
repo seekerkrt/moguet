@@ -2303,6 +2303,25 @@ SourceBuildExecutionResult execute_source_build_typed(
             SourceBuildExecutionResult out;
             out.devel_update_query = devel_query;
             out.status = effective == AurUpdateEffectiveState::UpToDate ? SourceBuildExecutionStatus::UpToDate : SourceBuildExecutionStatus::AuthoritativeIncomplete;
+            // OFF skips Git observation, not the ordinary AUR query. Keep its
+            // failure reason distinct without authorizing source-baseline fallback.
+            if(entry.devel_assessment_origin == AurDevelAssessmentOrigin::DisabledByPolicy) {
+                switch(effective) {
+                    case AurUpdateEffectiveState::VersionComparisonUnavailable:
+                        // TRANSLATORS: The placeholders are the AUR project identity and exact child package name.
+                        out.diagnostic = localization::format_translated_message("{} version comparison is unavailable for {}; no automatic build.", "AUR", request.package_name);
+                        return out;
+                    case AurUpdateEffectiveState::NonAurForeign:
+                        // TRANSLATORS: The placeholders are the AUR project identity and exact child package name.
+                        out.diagnostic = localization::format_translated_message("Exact {} child {} was not found; no automatic build.", "AUR", request.package_name);
+                        return out;
+                    case AurUpdateEffectiveState::MetadataUnavailable:
+                        // TRANSLATORS: The placeholders are the AUR project identity and exact child package name.
+                        out.diagnostic = localization::format_translated_message("{} update metadata is unavailable for {}; no automatic build.", "AUR", request.package_name);
+                        return out;
+                    default: break;
+                }
+            }
             out.diagnostic = effective == AurUpdateEffectiveState::UpToDate ? "Git revision matches the validated installed baseline." : effective == AurUpdateEffectiveState::Unknown     ? "Devel Git observation failed; no automatic build."
                                                                                                                                      : effective == AurUpdateEffectiveState::RequiresCheck ? "Devel package requires check; no automatic build."
                                                                                                                                                                                            : "Devel automatic update is unsupported.";
