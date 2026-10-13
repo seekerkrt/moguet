@@ -1,3 +1,121 @@
+# Moguet v2.12.1
+
+This tracked file is the source of truth for release bodies. The English and
+Japanese sections for each release describe the same scope.
+
+## English
+
+Moguet v2.12.1 is a backward-compatible PATCH maintenance release relative to
+v2.12.0. It corrects public release-status documentation and release review
+procedures, resolves existing Markdown lint diagnostics, and records a bounded
+libfakeroot warning investigation. Moguet production behavior is unchanged;
+only documentation, documentation checks, and release metadata are updated.
+
+### Public release status and review procedures
+
+* Correct the stale v2.12.0 publication status in the English and Japanese
+  README and project stance through a forward update. The published v2.12.0
+  tag, Release, and historical release notes remain unchanged.
+* Use the latest GitHub Release link and a dated published-stable snapshot.
+  The source tree's `VERSION` identifies its build version, not publication
+  status. The same public-document bytes remain accurate before and after
+  publication; planned milestone scope does not prove that a release is public.
+* Add pre-tag review of the candidate's public documents, post-publication
+  review of the actual tagged documents and official Release, and closeout
+  review after recovery to `develop`. Offline documentation checks guard
+  consistency but do not establish GitHub publication or replace these reviews.
+
+### Markdown maintenance
+
+* Resolve all 17 existing Markdown lint diagnostics with minimal formatting
+  changes and an exact-file allowance for existing stable `<a>` anchors.
+  Preserve document meaning, links, anchors, historical release procedures,
+  and command examples; no global lint rule is disabled for this correction.
+
+### Bounded libfakeroot warning investigation
+
+* [Issue #684](https://github.com/seekerkrt/moguet/issues/684#issuecomment-6140663705)
+  classifies `libfakeroot internal error: payload not recognized!` as an upstream
+  libfakeroot SysV IPC receive diagnostic. In the fixed v2.12.0 RC image,
+  standalone makepkg reproduced the warning without Moguet. Fault injection
+  demonstrated an `EINTR` receive/retry path that emits the same diagnostic.
+* The exact errno and signal for the original RC warning and its natural
+  reproduction remain undetermined. The diagnostic's payload is an IPC message;
+  `gdb-add-index: No debugging symbols` is a separate diagnostic. The demonstrated
+  `EINTR` path is not asserted to be the exact trigger of either natural event.
+* Artifact and isolated install checks found no adverse effect in the tested
+  fixture. No Moguet production defect was confirmed, and no production,
+  fixture, or stderr-filter fix was made. The bounded result is non-blocking
+  under those tested conditions, not a guarantee for arbitrary packages or
+  other IPC failures. Debug-package installation and debugger behavior were
+  not tested.
+* Keep the warning visible. A fresh v2.12.1 RC must re-evaluate it if the image,
+  toolchain, makepkg configuration, recipe/source, phase/frequency, exit status,
+  subsequent IPC errors, artifact integrity, or install inventory/reasons change.
+  This investigation does not replace fresh RC validation or authorize release
+  publication.
+
+### Compatibility
+
+* No new command, option, workflow, CLI semantics, config format, storage layout,
+  or package installation behavior is introduced. Release version metadata
+  advances to 2.12.1.
+* VCS/devel Git revision tracking remains OFF by default. The v2.12.0 opt-in and
+  migration guidance remains applicable, including `--devel`, `devel = true`
+  under `[updates]`, `--no-devel`, and manual config checks before downgrading. See the
+  [v2.12.0 release notes](https://github.com/seekerkrt/moguet/releases/tag/v2.12.0).
+
+## 日本語
+
+Moguet v2.12.1は、v2.12.0に対して後方互換なPATCH maintenance releaseです。
+公開release statusの文書とrelease review手順を修正し、既存Markdown lint診断を解消して、
+libfakeroot警告の限定調査結果を記録します。Moguet production behaviorは変更せず、
+文書、文書checker、release metadataだけを更新します。
+
+### 公開release statusとreview手順
+
+* 英日READMEとproject stanceに残っていたv2.12.0の公開status不整合をforward修正します。
+  公開済みv2.12.0のtag、Release、過去release notesは変更しません。
+* 最新のGitHub Releaseへの導線と、観測日付きの公開stable snapshotを使います。
+  source treeの`VERSION`はbuild versionを表し、公開状態を表しません。
+  公開前後で同じ公開文書bytesが正しいままになる案内とし、予定milestone scopeを
+  公開済みの証明には使いません。
+* candidateの公開文書を確認するpre-tag review、実際のtag内文書と正式Releaseを照合する
+  post-publication review、`develop`回収後のcloseout reviewを追加します。
+  offline文書checkerは整合性を検査しますが、GitHub公開の証明やこれらのreviewの代替にはなりません。
+
+### Markdown maintenance
+
+* 既存Markdown lint診断17件を、最小限の整形と既存stable `<a>` anchorに対する
+  exact-file許可で解消します。文書の意味、link、anchor、歴史的release手順、command例を保ち、
+  この修正のためのglobal lint rule無効化は行いません。
+
+### libfakeroot警告の限定調査
+
+* [Issue #684](https://github.com/seekerkrt/moguet/issues/684#issuecomment-6140663705)では、
+  `libfakeroot internal error: payload not recognized!`をupstream libfakerootのSysV IPC受信診断へ
+  分類しました。固定したv2.12.0 RC imageでMoguetなしの通常makepkgでも自然再現し、
+  fault injectionでは同文言を出す`EINTR`受信／再試行経路を実証しました。
+* 元RCと自然再現時のexact errnoとsignalは未確定です。診断中のpayloadはIPC messageであり、
+  `gdb-add-index: No debugging symbols`は別の診断です。実証した`EINTR`経路を、
+  いずれの自然発生時のexact triggerとも断定しません。
+* 検証したfixtureではartifactと隔離installに実害を確認しませんでした。
+  Moguet productionの不具合は確認されず、production、fixture、stderr filterの修正は行っていません。
+  この限定結果は検証条件内でnon-blockingですが、任意packageや他のIPC failureの無害性を保証しません。
+  debug packageのinstallとdebugger動作は未検証です。
+* 警告は表示したまま維持します。freshなv2.12.1 RCでは、image、toolchain、makepkg config、
+  recipe/source、発生phase／頻度、終了status、後続IPC error、artifact整合性、
+  install inventory／reasonが変わった場合に再評価します。この調査はfresh RC validationや
+  release公開許可の代替にはなりません。
+
+### 互換性
+
+* 新しいcommand、option、workflow、CLI semantics、config形式、storage layout、
+  package install挙動は追加・変更しません。release version metadataは2.12.1へ進めます。
+* VCS/develのGit revision trackingは既定OFFを維持します。`--devel`、`[updates] devel = true`、
+  `--no-devel`、downgrade前の手動config確認を含むv2.12.0のopt-inと移行案内を引き続き適用します。
+  [v2.12.0 release notes](https://github.com/seekerkrt/moguet/releases/tag/v2.12.0)を参照してください。
+
 # Moguet v2.12.0
 
 This tracked file is the source of truth for release bodies. The English and

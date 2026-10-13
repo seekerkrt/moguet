@@ -16,6 +16,7 @@ sys.path.insert(0, str(REPOSITORY_ROOT / "scripts"))
 from check_public_documentation import (  # noqa: E402
     SemanticTextContract,
     assert_semantic_text_contract,
+    check_public_release_status,
     check_release_notes_documentation,
     check_reviewed_source_documentation,
     check_system_aur_update_documentation,
@@ -326,6 +327,150 @@ v2.6.0より前はrepository-only、v2.6.0以降はnormal installed AURも更新
     return len(cases)
 
 
+def check_public_release_status_regressions() -> int:
+    # Independent publication snapshot. The candidate VERSION may advance
+    # without a GitHub Release; no network or current-version ledger is used.
+    release_base = "https://github.com/seekerkrt/moguet/releases/"
+    stable_link = f"**[v3.4.0]({release_base}tag/v3.4.0)**"
+    latest_link = f"[GitHub Release]({release_base}latest)"
+    english_snapshot = f"As of 2030-01-15, the current released stable version is {stable_link}."
+    japanese_snapshot = f"2030-01-15時点の公開stableは {stable_link} です。"
+    fixture = {
+        "README.md": (
+            f"# Moguet\n\n## Project status\n{english_snapshot}\n"
+            f"Latest published stable: {latest_link}. Source VERSION is a build version.\n"
+            "\n## Development\nmain is stable; develop integrates planned work.\n"
+        ),
+        "README.ja.md": (
+            f"# Moguet\n\n## Project status\n{japanese_snapshot}\n"
+            f"最新の公開stableは{latest_link}。VERSIONはbuild version。\n"
+            "\n## 開発\nmainはstable、developはintegration。\n"
+        ),
+        "docs/project-stance.md": (
+            "# Stance\n\n## 概要\nMilestones track planned scope.\n"
+            f"\n## Current capabilityとcustomizationの姿勢\n{japanese_snapshot}\n"
+            f"最新の公開stableは{latest_link}。次releaseの予定は公開保証ではない。\n"
+        ),
+        "docs/development.md": (
+            "# Historical release preparation\n"
+            "v2.8.0 release preparation historical example.\n"
+            "v2.11.0 release preparation exact path set.\n"
+            "v2.12.0 release preparation: current released stableはv2.11.0、"
+            "準備中のreleaseはv2.12.0。\n"
+        ),
+        "RELEASE_NOTES.md": "# Moguet v3.4.1\nRC scope; not a publication assertion.\n",
+        "VERSION": "3.4.1\n",
+    }
+    neutral = {
+        path: text.replace(english_snapshot, "").replace(japanese_snapshot, "")
+        for path, text in fixture.items()
+    }
+    cases = [
+        ("unpublished RC VERSION may differ from published snapshot", {}, None),
+        ("version-neutral guidance remains valid in immutable tags", neutral, None),
+        ("source VERSION advances independently", {"VERSION": "3.5.0\n"}, None),
+        (
+            "historical preparation outside current sections is ignored",
+            {"README.md": fixture["README.md"] + "\n## History\nThis tree prepares v2.8.0 (historical).\n"},
+            None,
+        ),
+        (
+            "Japanese stable drift",
+            {"README.ja.md": fixture["README.ja.md"].replace("v3.4.0", "v3.3.0")},
+            "dated stable snapshots differ",
+        ),
+        (
+            "stance stable drift",
+            {"docs/project-stance.md": fixture["docs/project-stance.md"].replace("v3.4.0", "v3.3.0")},
+            "dated stable snapshots differ",
+        ),
+        (
+            "snapshot observation date drift",
+            {"README.ja.md": fixture["README.ja.md"].replace("2030-01-15", "2030-01-16")},
+            "dated stable snapshots differ",
+        ),
+        (
+            "invalid snapshot date",
+            {"README.md": fixture["README.md"].replace("2030-01-15", "2030-02-30")},
+            "invalid stable snapshot date",
+        ),
+        (
+            "stable label and Release URL drift",
+            {"README.md": fixture["README.md"].replace("tag/v3.4.0", "tag/v3.3.0")},
+            "stable snapshot version and official Release URL differ",
+        ),
+        (
+            "stable URL must identify official repository",
+            {"README.md": fixture["README.md"].replace(release_base + "tag/", "https://example.org/releases/tag/")},
+            "stable snapshot version and official Release URL differ",
+        ),
+        (
+            "undated old stable assertion",
+            {"README.md": fixture["README.md"].replace("As of 2030-01-15, the current", "The current")},
+            "must use a dated stable snapshot",
+        ),
+        (
+            "duplicate stable snapshot",
+            {"README.md": fixture["README.md"].replace(english_snapshot, english_snapshot + "\n" + english_snapshot)},
+            "at most one dated stable snapshot",
+        ),
+        (
+            "missing current-status heading",
+            {"README.md": fixture["README.md"].replace("## Project status", "## Old status")},
+            "must contain exactly one '## Project status'",
+        ),
+        (
+            "mixed neutral and snapshot guidance loses parity",
+            {"README.md": neutral["README.md"]},
+            "dated stable snapshots differ",
+        ),
+    ]
+    for path in ("README.md", "README.ja.md", "docs/project-stance.md"):
+        cases.append((
+            f"missing version-neutral publication link in {path}",
+            {path: fixture[path].replace(latest_link, "GitHub Release")},
+            "must link to the latest GitHub Release",
+        ))
+    for path, anchor, stale in (
+        ("README.md", english_snapshot, "This tree prepares **v3.4.1**."),
+        ("README.ja.md", japanese_snapshot, "このtreeは **v3.4.1** の準備中です。"),
+        ("docs/project-stance.md", japanese_snapshot, "準備中のreleaseはv3.4.1である。"),
+        ("README.md", "## Development", "The current release-preparation scope is v3.4.1."),
+        ("README.ja.md", "## 開発", "現在のrelease preparation scopeはv3.4.1。"),
+        ("docs/project-stance.md", "## 概要", "準備中のreleaseはv3.4.1。"),
+        ("README.md", english_snapshot, "Preparation and validation do not mean that the release has been published."),
+        ("README.ja.md", japanese_snapshot, "準備や検証の完了はrelease公開済みを意味しません。"),
+    ):
+        cases.append((
+            f"mutable preparation assertion in {path}: {stale}",
+            {path: fixture[path].replace(anchor, anchor + "\n" + stale)},
+            "retains obsolete semantics",
+        ))
+    for label, replacements, expected_diagnostic in cases:
+        with tempfile.TemporaryDirectory(prefix="moguet-public-status-checker-") as directory:
+            fixture_root = Path(directory)
+            for relative, text in (fixture | replacements).items():
+                path = fixture_root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(text, encoding="utf-8")
+            diagnostic = io.StringIO()
+            try:
+                with redirect_stderr(diagnostic):
+                    check_public_release_status(fixture_root)
+            except SystemExit as error:
+                if (
+                    error.code != 1
+                    or expected_diagnostic is None
+                    or expected_diagnostic not in diagnostic.getvalue()
+                ):
+                    fail(f"{label}: unexpected failure: {diagnostic.getvalue()}")
+            else:
+                if expected_diagnostic is not None:
+                    fail(f"{label} unexpectedly passed")
+            print(f"  ok: {label}")
+    return len(cases)
+
+
 def expect_runtime_help_rejected(
     label: str,
     locale: str,
@@ -577,6 +722,7 @@ def main() -> int:
         + len(runtime_help_mutations)
         + len(system_aur_mutations)
         + check_release_notes_regressions()
+        + check_public_release_status_regressions()
         + check_rmdeps_migration_regressions()
         + 3
     )

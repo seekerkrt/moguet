@@ -29,7 +29,6 @@ root directory、root `PKGBUILD`、optional `.SRCINFO`はeffective user所有で
 strict series取得・prepatch評価・ordered apply・postpatch評価を行い、postpatch metadataだけからplanを作る。
 patch storeは選択時だけ読み、通常local buildのdefaultやsaved preference authorityを変更しない。
 
-
 既存の安全な`.SRCINFO`をread-only metadataの第一候補とする。少なくともPackageBase、ordered children、version、architecture、architecture-qualified fields、depends / makedepends / checkdepends / optdepends、provides、conflicts、replaces、各version constraintとchild scopeを保持する。qualified fieldをunqualifiedへflattenせず、local metadataをAUR RPC用identityへ変換しない。
 
 `.SRCINFO` stateは次を区別する。

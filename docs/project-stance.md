@@ -8,9 +8,10 @@
 [README](../README.md)は利用者向けの入口、[設計ポリシー](decisions.md)は具体的な設計判断に
 適用する原則と根拠、[個別contract](contracts/README.md)はbehaviorごとの保証を所有する。
 route別の対応範囲は[compatibility](compatibility.md)、証拠の扱いは
-[validation policy](validation.md)を正とする。current release scopeは
-[v2.12.0 milestone](https://github.com/seekerkrt/moguet/milestone/33)、current capabilityはdevelopの実装、
-public help/man、現行contractで確認する。closedの[roadmap #344](https://github.com/seekerkrt/moguet/issues/344)は
+[validation policy](validation.md)を正とする。release planningは
+[GitHub milestones](https://github.com/seekerkrt/moguet/milestones)、current capabilityはdevelopの実装、
+public help/man、現行contractで確認する。完了済みの[v2.12.0 milestone #33](https://github.com/seekerkrt/moguet/milestone/33)は
+公開済みv2.12.0のscopeを扱った履歴である。closedの[roadmap #344](https://github.com/seekerkrt/moguet/issues/344)は
 historical customization / release planningの記録であり、current status authorityではない。
 
 ## 日常的なAUR利用を扱う
@@ -172,8 +173,12 @@ AI等で実装可能でも、rare edge caseのためにgeneric frameworkを先�
 
 ## Current capabilityとcustomizationの姿勢
 
-current released stableはv2.11.0、準備中のreleaseはv2.12.0である。以下はdevelopの現在地であり、
-公開stableの収録内容とは区別する。
+2026-10-13時点の公開stableは **[v2.12.0](https://github.com/seekerkrt/moguet/releases/tag/v2.12.0)** である。
+最新の公開stableは[最新のGitHub Release](https://github.com/seekerkrt/moguet/releases/latest)で確認する。
+source treeの`VERSION`はbuild versionを表し、公開状態の証明ではない。
+同日時点の次の予定releaseは[v2.12.1 milestone #34](https://github.com/seekerkrt/moguet/milestone/34)で扱い、
+予定scopeを公開済みとは扱わない。以下の実装済み機能はv2.12.0にも収録済みであり、
+develop上の後続変更や将来の拡張候補は公開stableの収録保証と区別する。
 
 - **Implemented current:** ordinary AUR-helperの主要workflow、provider選択、source-aware routing、
   package単位のone-off environmentとpersistent preference、Bash / Zsh / Fishのcontext-aware completion。
