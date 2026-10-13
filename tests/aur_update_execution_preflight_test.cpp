@@ -4073,10 +4073,37 @@ void test_authoritative_devel_route_policy_matrix() {
     expect(retained, "required dependency reason was rewritten to suffix-only");
 }
 
+void test_version_only_preflight_preserves_version_candidates() {
+    for(const auto policy : {DevelRequiresCheckPolicy::BlockOperation, DevelRequiresCheckPolicy::SkipIndependentTarget}) {
+        reset_preflight_stub();
+        auto newer = classified_update_entry("newer-git");
+        auto same = requires_check_entry("same-git");
+        auto older = requires_check_entry("older-git");
+        older.aur_package->version_relation = AurVersionRelation::OlderThanInstalled;
+        for(auto* entry : {&newer, &same, &older})
+            entry->devel_assessment_origin = AurDevelAssessmentOrigin::DisabledByPolicy;
+        return_build_plan(build_plan_for({{"newer-git", "newer-git", "newer-git"}}));
+        const auto preflight = ::resolve_aur_update_execution_preflight(AurUpdatePlan{{newer, same, older}}, policy);
+        expect(can_execute(preflight) && !has_blocking_targets(preflight) && has_valid_aur_update_execution_policy_snapshot(preflight),
+               "Disabled suffix evidence blocked Version candidate or invalidated snapshot");
+        expect(resolver_calls() == std::vector<std::vector<std::string>>{{"newer-git"}}, "VersionOnly changed build roots");
+        expect(preflight.targets[0].status == AurUpdateExecutionTargetStatus::Executable, "Version candidate lost");
+        for(std::size_t index : {1u, 2u}) {
+            expect(preflight.targets[index].skip_kind == AurUpdateExecutionSkipKind::UpToDate &&
+                       preflight.targets[index].update.devel_assessment_origin == AurDevelAssessmentOrigin::DisabledByPolicy,
+                   "VersionOnly skip fabricated a Git observation");
+        }
+        auto invalid = preflight;
+        invalid.targets[1].update.devel_assessment = DevelUpdateAssessment::unknown(DevelUnknownReason::RemoteObservationFailed);
+        expect(!has_valid_aur_update_execution_policy_snapshot(invalid), "Disabled snapshot masked an observed failure");
+    }
+}
+
 } // namespace
 
 int main() {
     try {
+        test_version_only_preflight_preserves_version_candidates();
         test_authoritative_devel_route_policy_matrix();
         run_case(
             "classification order and combined resolution",

@@ -134,6 +134,7 @@ void promote_successful_result(
 
 std::string preparation_failure_diagnostic(
     const PackageBaseArtifactInstallPreparationFailure& failure) {
+    if(const auto* guard = failure.version_guard_failure()) return automatic_aur_version_guard_diagnostic(*guard);
     if(failure.selection_failure() != nullptr) {
         return localization::format_translated_message(
             // TRANSLATORS: The placeholder is the literal Arch field name
@@ -296,6 +297,10 @@ SeparatedPackageBaseSourceBuildPreparationError::failure() const noexcept {
     return failure_;
 }
 
+const AutomaticAurVersionGuardFailure* SeparatedPackageBaseSourceBuildPreparationError::version_guard_failure() const noexcept {
+    return this->failure_.version_guard_failure();
+}
+
 const PackageBaseArtifactIdentitySelectionFailure*
 SeparatedPackageBaseSourceBuildPreparationError::selection_failure()
     const noexcept {
@@ -385,6 +390,8 @@ SeparatedPackageBaseSourceBuildExecutionOwner::execute(
     require_supported_separated_install_options(options.rm_deps);
     require_unclaimed_artifact_pkgdest(request.source_environment);
     require_valid_set_request(request);
+    if(request.require_single_output && request.required_targets.size() != 1)
+        throw std::logic_error("Registered singular source update requires exactly one selected child.");
 
     ProductionSourceBuildStagedOutcome production_outcome{
         .source_provenance = request.source_tree.provenance()};
@@ -437,6 +444,13 @@ SeparatedPackageBaseSourceBuildExecutionOwner::execute(
                 std::nullopt, std::nullopt, production_outcome);
         }
     }();
+
+    if(request.require_single_output && (request.required_targets.size() != 1 || expected.size() != 1)) {
+        workspace.retain_for_diagnostics();
+        throw SeparatedPackageBaseSourceBuildPhaseError(SeparatedPackageBaseSourceBuildFailurePhase::ArtifactValidation,
+                                                        "Registered singular source update requires exactly one declared package artifact.",
+                                                        std::nullopt, std::nullopt, production_outcome);
+    }
 
     const ArtifactMakepkgBuildOptions makepkg_options{
         .no_confirm = options.no_confirm,
@@ -567,8 +581,9 @@ SeparatedPackageBaseSourceBuildExecutionOwner::execute(
             *preparation.failure();
         const std::string diagnostic =
             preparation_failure_diagnostic(failure);
-        production_outcome.install_outcome =
-            ProductionSourceInstallOutcome::Failed;
+        production_outcome.install_outcome = failure.version_guard_failure()
+                                                 ? ProductionSourceInstallOutcome::NotAttempted
+                                                 : ProductionSourceInstallOutcome::Failed;
         throw SeparatedPackageBaseSourceBuildPreparationError(
             std::move(failure), diagnostic, production_outcome);
     }

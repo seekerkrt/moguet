@@ -588,6 +588,7 @@ void recipe_head_observation_matrix() {
         route_rpc::version = "1-1";
         auto query = query_aur_updates_for_foreign_inventory({InstalledPackageMetadata{f.child.package_name(), "1-1", InstalledPackageReason::Explicit}});
         AppConfig config;
+        config.user_config.updates.devel = true;
         config.user_config.review.diff = ReviewPolicy::Prompt;
         observe_aur_devel_bootstrap_candidates(query, config);
         require(query.plan.entries.size() == 1 && query.devel_observations.size() == 1, "recipe collector lost attribution");
@@ -774,61 +775,74 @@ void bootstrap_trial_observation_matrix() {
 }
 
 void normal_route_matrix() {
-    for(const std::string mode : {"same", "different", "sha256", "format", "timeout", "missing", "recipe", "generation", "split", "unknown-base", "ordinary-same", "ordinary-newer", "newer-same", "newer-timeout", "older-different", "registered-different", "registered-same", "db-context"}) {
-        Fixture f(mode == "sha256" ? 64 : 40);
-        struct Reset {
-            ~Reset() {
-                set_aur_devel_update_database_paths_for_test(std::nullopt);
+    for(const auto policy : {AurUpdateQueryPolicy::VersionOnly, AurUpdateQueryPolicy::TrackingEnabled}) {
+        for(const std::string mode : {"same", "different", "sha256", "format", "timeout", "missing", "recipe", "generation", "split", "unknown-base", "ordinary-same", "ordinary-newer", "newer-same", "newer-timeout", "older-different", "registered-different", "registered-same", "db-context", "invalid", "malformed", "ref", "older-same"}) {
+            Fixture f(mode == "sha256" ? 64 : 40);
+            struct Reset {
+                ~Reset() {
+                    set_aur_devel_update_database_paths_for_test(std::nullopt);
+                }
+            } reset;
+            set_aur_devel_update_database_paths_for_test(PacmanDatabasePaths{"/", f.db});
+            if(mode == "db-context") set_aur_devel_update_database_paths_for_test(PacmanDatabasePaths{"/", f.root / "different-db"});
+            route_rpc::version = mode.starts_with("newer") || mode == "ordinary-newer" ? "2-1" : mode.starts_with("older") ? "0-1"
+                                                                                                                           : "1-1";
+            route_rpc::calls = 0;
+            std::string name = f.child.package_name();
+            if(mode.starts_with("ordinary") || mode == "missing") fs::rename(f.p_file().parent_path(), f.root / "detached-p");
+            if(mode.starts_with("ordinary")) {
+                name = "ordinary";
+                replace(f.record / "desc", "assessment-git", "ordinary");
+                fs::rename(f.record, f.db / "local/ordinary-1-1");
             }
-        } reset;
-        set_aur_devel_update_database_paths_for_test(PacmanDatabasePaths{"/", f.db});
-        if(mode == "db-context") set_aur_devel_update_database_paths_for_test(PacmanDatabasePaths{"/", f.root / "different-db"});
-        route_rpc::version = mode.starts_with("newer") || mode == "ordinary-newer" ? "2-1" : mode == "older-different" ? "0-1"
-                                                                                                                       : "1-1";
-        route_rpc::calls = 0;
-        std::string name = f.child.package_name();
-        if(mode.starts_with("ordinary") || mode == "missing") fs::rename(f.p_file().parent_path(), f.root / "detached-p");
-        if(mode.starts_with("ordinary")) {
-            name = "ordinary";
-            replace(f.record / "desc", "assessment-git", "ordinary");
-            fs::rename(f.record, f.db / "local/ordinary-1-1");
+            if(mode == "invalid") write(f.p_file(), "schema_version = 1\n");
+            if(mode == "recipe") f.publish_reviewed(std::string(40, 'c'));
+            if(mode == "generation") f.generation = 1;
+            if(mode == "split" || mode == "unknown-base") {
+                const auto sibling = f.db / "local/sibling-1-1";
+                fs::create_directory(sibling);
+                write(sibling / "desc", "%NAME%\nsibling\n\n%VERSION%\n1-1\n\n%ARCH%\nany\n\n%REASON%\n0\n\n" + (mode == "split" ? std::string("%BASE%\nassessment\n\n") : std::string()));
+                write(sibling / "files", "%FILES%\n\n");
+                write(sibling / "mtree", "sibling");
+            }
+            f.remote_mode = mode == "timeout" || mode == "newer-timeout" ? "timeout" : mode == "format"                                                                                     ? "format"
+                                                                                   : mode == "different" || mode == "sha256" || mode == "older-different" || mode == "registered-different" ? "different"
+                                                                                                                                                                                            : "same";
+            if(mode == "malformed" || mode == "ref") f.remote_mode = mode;
+            ForeignPackageInventory supplied_inventory;
+            supplied_inventory.push_back(InstalledPackageMetadata{name, "1-1", InstalledPackageReason::Explicit});
+            AurUpdateQueryResult q = mode.starts_with("registered") ? query_registered_aur_devel_update(f.base, name, policy) : query_aur_updates_for_foreign_inventory(std::move(supplied_inventory), policy);
+            require(q.plan.entries.size() == 1, "normal route lost target");
+            const auto& entry = q.plan.entries.front();
+            const auto actual = project_aur_update_effective_state(entry);
+            const bool version = route_rpc::version == "2-1";
+            const bool tracking = policy == AurUpdateQueryPolicy::TrackingEnabled;
+            const bool git = tracking && (mode == "different" || mode == "sha256" || mode == "older-different" || mode == "registered-different");
+            const bool local = mode == "missing" || mode == "recipe" || mode == "generation" || mode == "unknown-base" || mode == "db-context" || mode == "invalid";
+            const auto expected = version || git ? AurUpdateEffectiveState::UpdateAvailable : !tracking                                               ? AurUpdateEffectiveState::UpToDate
+                                                                                          : mode == "timeout" || mode == "malformed" || mode == "ref" ? AurUpdateEffectiveState::Unknown
+                                                                                          : local || mode == "format"                                 ? AurUpdateEffectiveState::RequiresCheck
+                                                                                                                                                      : AurUpdateEffectiveState::UpToDate;
+            require(actual == expected, "normal state/precedence mismatch");
+            require(aur_update_basis(entry) == (version ? std::optional{AurUpdateBasis::Version} : git ? std::optional{AurUpdateBasis::GitRevision}
+                                                                                                       : std::nullopt),
+                    "normal update basis flattened");
+            const unsigned remote = !tracking || version || local || mode == "ordinary-same" ? 0 : 1;
+            require(f.remote_calls == remote, "normal remote query/retry count");
+            require(route_rpc::calls == 1, "normal RPC repeated");
+            if(!tracking) {
+                require(entry.devel_assessment_origin == AurDevelAssessmentOrigin::DisabledByPolicy, "VersionOnly lost explicit disposition");
+                require(q.devel_observations.empty() && f.stages.empty() && f.sessions == 0, "VersionOnly performed tracking I/O");
+                require(!has_aur_update_bootstrap_intent(entry), "VersionOnly invented bootstrap intent");
+            } else if(version)
+                require(q.devel_observations.empty() && f.stages.empty(), "RPC-newer entered coordinator");
+            else {
+                require(entry.devel_assessment_origin == AurDevelAssessmentOrigin::CurrentObservation, "TrackingEnabled fell back to VersionOnly");
+                if(mode == "invalid") require(entry.devel_assessment.requires_check_reason() && *entry.devel_assessment.requires_check_reason() == Check::ProvenanceInvalid, "Invalid reason flattened");
+                require(q.devel_observations.size() == 1 && q.devel_observations.front().evidence->assessment == entry.devel_assessment, "normal diagnostic evidence lost");
+            }
+            std::cout << "S7D query " << mode << " tracking=" << tracking << " state=" << static_cast<int>(actual) << " remote=" << f.remote_calls << " PASS\n";
         }
-        if(mode == "recipe") f.publish_reviewed(std::string(40, 'c'));
-        if(mode == "generation") f.generation = 1;
-        if(mode == "split" || mode == "unknown-base") {
-            const auto sibling = f.db / "local/sibling-1-1";
-            fs::create_directory(sibling);
-            write(sibling / "desc", "%NAME%\nsibling\n\n%VERSION%\n1-1\n\n%ARCH%\nany\n\n%REASON%\n0\n\n" + (mode == "split" ? std::string("%BASE%\nassessment\n\n") : std::string()));
-            write(sibling / "files", "%FILES%\n\n");
-            write(sibling / "mtree", "sibling");
-        }
-        f.remote_mode = mode == "timeout" || mode == "newer-timeout" ? "timeout" : mode == "format"                                                                                     ? "format"
-                                                                               : mode == "different" || mode == "sha256" || mode == "older-different" || mode == "registered-different" ? "different"
-                                                                                                                                                                                        : "same";
-        ForeignPackageInventory supplied_inventory;
-        supplied_inventory.push_back(InstalledPackageMetadata{name, "1-1", InstalledPackageReason::Explicit});
-        AurUpdateQueryResult q = mode.starts_with("registered") ? query_registered_aur_devel_update(f.base, name) : query_aur_updates_for_foreign_inventory(std::move(supplied_inventory));
-        require(q.plan.entries.size() == 1, "normal route lost target");
-        const auto& entry = q.plan.entries.front();
-        const auto actual = project_aur_update_effective_state(entry);
-        const bool version = route_rpc::version == "2-1";
-        const bool git = mode == "different" || mode == "sha256" || mode == "older-different" || mode == "registered-different";
-        const bool local = mode == "missing" || mode == "recipe" || mode == "generation" || mode == "unknown-base" || mode == "db-context";
-        const auto expected = version || git ? AurUpdateEffectiveState::UpdateAvailable : mode == "timeout"       ? AurUpdateEffectiveState::Unknown
-                                                                                      : local || mode == "format" ? AurUpdateEffectiveState::RequiresCheck
-                                                                                                                  : AurUpdateEffectiveState::UpToDate;
-        require(actual == expected, "normal state/precedence mismatch");
-        require(aur_update_basis(entry) == (version ? std::optional{AurUpdateBasis::Version} : git ? std::optional{AurUpdateBasis::GitRevision}
-                                                                                                   : std::nullopt),
-                "normal update basis flattened");
-        const unsigned remote = version || local || mode == "ordinary-same" ? 0 : 1;
-        require(f.remote_calls == remote, "normal remote query/retry count");
-        require(route_rpc::calls == 1, "normal RPC repeated");
-        if(version)
-            require(q.devel_observations.empty() && f.stages.empty(), "RPC-newer entered coordinator");
-        else
-            require(q.devel_observations.size() == 1 && q.devel_observations.front().evidence->assessment == entry.devel_assessment, "normal diagnostic evidence lost");
-        std::cout << "S7D query " << mode << " state=" << static_cast<int>(actual) << " remote=" << f.remote_calls << " PASS\n";
     }
 }
 void registered_observation_parity() {
@@ -870,6 +884,9 @@ void registered_observation_parity() {
         work.artifact_lifecycle_intent = ArtifactLifecycleIntent::SingularCompatibility;
         const std::vector<SystemSourceUpgradeIssue> issues;
         const auto view = UnifiedPlanProjectionTestAccess::source_view(snapshot, work, issues);
+        const auto disabled = observe_registered_aur_devel_updates(view, AurUpdateQueryPolicy::VersionOnly);
+        require(disabled.empty() && route_rpc::calls == 0 && f.remote_calls == 0 && f.sessions == 0 && f.stages.empty(),
+                "registered VersionOnly dry-run performed tracking observation");
         if(mode == "repo-only" || mode == "absent") {
             const auto result = observe_registered_aur_devel_updates(view);
             require(result.empty() && f.remote_calls == 0 && route_rpc::calls == 0, "unrelated/absent registered source queried Git");

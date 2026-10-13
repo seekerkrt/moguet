@@ -17,6 +17,13 @@ shell別のoption/value catalogue、upstream prose由来のarity/effect推測を
 | finite build mode | applicable formのattached `--build-mode=`、alias/final-value agreementを維持 | static allowed_values、0回 |
 | upstream option spelling | exact `-Q`のinitial/known transparent tail | pinned token projection、0回 |
 | current Moguet/static options | existing operation/form/conflict/occurrence authority | static、0回 |
+| `--devel` / `--no-devel` | exact target-less Auto `-Syu` / `-Su`、`upgrade` / `upgrade-aur` / `upgrade-all`、exact `-Qua`のsemantic prefix | static、0回 |
+
+tracking optionは既存form relationとexported `QUERY_POLICY_SCOPE`から生成する。
+`--repo` / `--aur`、target、未知tail、delegated spelling、値待ち、`--`後では提示しない。
+`-Qua`ではpacman tailと`--dry-run`も対象外。既存のMoguet global optionはruntimeの対象範囲で受け付け、
+同値反復は可、反対値のoptionはconflict projectionで除外する。operation未選択時の候補はdiscoveryであり、
+対象外routeでの使用許可ではない。configは読み込まず、built-in OFFやpersistent opt-inはruntimeが解決する。
 
 `-Ss`はfree Query、`-S --select`もQueryであり、`--aur`へlocal sync候補を混ぜない。
 alternate DB/root、pending value、marker、unknown modifier/tail、prior operand等ではpackage providerを呼ばない。

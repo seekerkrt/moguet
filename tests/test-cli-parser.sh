@@ -1192,4 +1192,62 @@ setup_case output-directory-name-as-opaque-operand
 run_ok -U -- --output-dir=./exports
 assert_only_command "sudo pacman -U -- --output-dir=./exports"
 
+for invalid in --devel=true --devel=false --no-devel=true --no-devel=false; do
+    setup_case "devel-attached-${invalid#--}"
+    run_fail -Qua "$invalid"
+    assert_contains 'does not accept a value' "$output_file"
+    assert_pre_log_exit
+done
+
+# Issue #673: explicit update policy has a strict operation scope, including OFF.
+for option in --devel --no-devel; do
+    for operation in --help --version -Q -Qau -S -Sy clean; do
+        setup_case "devel-scope-${option#--}-${operation#-}"
+        run_fail "$operation" "$option"
+        assert_contains "Option $option is not supported for operation" "$output_file"
+        assert_pre_log_exit
+    done
+    for operation in build plan deps fetch; do
+        setup_case "devel-scope-${option#--}-$operation"
+        run_fail "$operation" clean-root "$option"
+        assert_contains "Option $option is not supported for operation" "$output_file"
+        assert_pre_log_exit
+    done
+    setup_case "devel-repo-${option#--}"
+    run_fail -Syu --repo "$option"
+    assert_pre_log_exit
+    setup_case "devel-target-${option#--}"
+    run_fail -Syu clean-root "$option"
+    assert_pre_log_exit
+    run_exact "devel-pending-${option#--}" "pacman -Q --root $option filesystem" -Q --root "$option" filesystem
+    run_exact "devel-opaque-${option#--}" "sudo pacman -U -- $option" -U -- "$option"
+    setup_case "devel-help-pending-${option#--}"
+    run_ok --help --root "$option"
+    assert_pre_log_exit
+    setup_case "devel-version-opaque-${option#--}"
+    run_ok --version -- "$option"
+    assert_pre_log_exit
+    setup_case "devel-repeat-${option#--}"
+    run_ok -Qua "$option" "$option"
+    assert_no_mutation_commands
+done
+for first in --devel --no-devel; do
+    second=--devel
+    [ "$first" != --devel ] || second=--no-devel
+    setup_case "devel-conflict-${first#--}"
+    run_fail -Qua "$first" "$second"
+    assert_contains "Conflicting CLI overrides for updates.devel" "$output_file"
+    assert_pre_log_exit
+done
+for option in --devel --no-devel; do
+    setup_case "devel-invalid-config-${option#--}"
+    mkdir -p "$XDG_CONFIG_HOME/moguet"
+    printf 'schema_version = 1\n[updates]\ndevel = "true"\n' > "$XDG_CONFIG_HOME/moguet/config.toml"
+    run_fail -Qua "$option"
+    assert_contains "updates.devel" "$output_file"
+    assert_contains "expected boolean" "$output_file"
+    assert_command_log_empty
+    assert_not_contains "Started Moguet v" "$output_file"
+done
+
 echo "CLI parser integration tests: all checks passed"

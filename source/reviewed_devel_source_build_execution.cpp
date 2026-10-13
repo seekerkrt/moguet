@@ -28,6 +28,8 @@ struct ReviewedDevelSourceBuildExecutionState {
     std::optional<InstalledDatabaseWorldResult> world;
     std::vector<std::pair<std::string, InstalledPackageQueryResult>> policy_queries;
     std::optional<InstallReasonDirective> directive;
+    std::optional<AutomaticAurVersionGuardFailure> version_guard_failure;
+    std::optional<InvocationOwnedSourceBuildContextCleanupResult> build_cleanup;
     std::optional<EvaluatedDevelSourceArtifactTransport> transport;
     std::optional<DevelBuildProvenancePublicationResult> publication;
 
@@ -152,6 +154,14 @@ const InstalledPackageQueryResult* ReviewedDevelSourceBuildExecutionResult::inst
 }
 std::optional<InstallReasonDirective> ReviewedDevelSourceBuildExecutionResult::install_reason_directive() const {
     return require_state().directive;
+}
+const AutomaticAurVersionGuardFailure* ReviewedDevelSourceBuildExecutionResult::version_guard_failure() const {
+    const auto& value = this->require_state().version_guard_failure;
+    return value ? &*value : nullptr;
+}
+const InvocationOwnedSourceBuildContextCleanupResult* ReviewedDevelSourceBuildExecutionResult::build_cleanup() const {
+    const auto& value = this->require_state().build_cleanup;
+    return value ? &*value : nullptr;
 }
 const DevelBuildProvenancePublicationResult* ReviewedDevelSourceBuildExecutionResult::publication() const {
     const auto& value = require_state().publication;
@@ -309,6 +319,18 @@ std::optional<ReviewedDevelSourceBuildExecutionResult> ReviewedDevelSourceBuildE
         for(const auto& selected : selection.success()->selected_artifacts) {
             const auto query = std::find_if(state.policy_queries.begin(), state.policy_queries.end(),
                                             [&](const auto& value) { return value.first == selected.identity.package_name; });
+            const auto target = std::find_if(state.intent.required_targets.begin(), state.intent.required_targets.end(),
+                                             [&](const auto& value) { return value.package_name == selected.identity.package_name; });
+            if(target != state.intent.required_targets.end() && query != state.policy_queries.end()) {
+                if(auto refused = validate_automatic_aur_version_install(*target, selected.identity, query->second)) {
+                    state.version_guard_failure.emplace(std::move(*refused));
+                    state.issue = Issue::VersionGuardFailure;
+                    // Retain the S4 proof owner and both primary and cleanup
+                    // facts. Neither S5 nor S6 is created on this path.
+                    state.build_cleanup.emplace(state.built->cleanup());
+                    return result;
+                }
+            }
             if(query == state.policy_queries.end() || std::holds_alternative<PackageMetadataFailure>(query->second)) {
                 state.issue = Issue::InstallPolicyFailure;
                 return result;
@@ -360,6 +382,20 @@ std::optional<ReviewedDevelSourceBuildExecutionResult> ReviewedDevelSourceBuildE
         state.issue = Issue::InstallPolicyFailure;
         try {
             state.policy_queries.emplace_back(std::string{}, error.failure());
+            if(state.built && state.built->valid()) {
+                const auto identities = query_artifact_package_identities(*state.built);
+                const auto selected = correlate_package_base_artifact_identities(state.built->package_base().package_base(), state.intent.required_targets, identities);
+                if(selected.is_success()) {
+                    for(std::size_t index = 0; index < state.intent.required_targets.size(); ++index) {
+                        if(auto refused = validate_automatic_aur_version_install(state.intent.required_targets[index], selected.success()->selected_artifacts[index].identity, error.failure())) {
+                            state.version_guard_failure.emplace(std::move(*refused));
+                            state.issue = Issue::VersionGuardFailure;
+                            state.build_cleanup.emplace(state.built->cleanup());
+                            break;
+                        }
+                    }
+                }
+            }
         } catch(...) {
             state.issue = Issue::ResourceFailure;
         }

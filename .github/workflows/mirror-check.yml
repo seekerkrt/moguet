@@ -1,0 +1,110 @@
+name: GitLab mirror parity
+
+# This check observes existing mirrored refs. The push/delete/schedule mirror
+# workflow remains the sole writer of the GitLab branch mirror.
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+      - edited
+
+permissions:
+  contents: read
+
+jobs:
+  mirror-parity:
+    name: mirror-parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    steps:
+      - name: Verify GitLab branch refs
+        shell: bash
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "$BASE_REF" || -z "$BASE_SHA" ||
+                -z "$HEAD_REF" || -z "$HEAD_SHA" || -z "$HEAD_REPO" ]]; then
+            echo "::error::Missing pull request ref identity."
+            exit 1
+          fi
+
+          if [[ "$HEAD_REPO" != "$GITHUB_REPOSITORY" ]]; then
+            echo "::error::Fork PRs are not mirrored by the current GitLab mirror workflow."
+            exit 1
+          fi
+
+          if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ||
+                ! "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Invalid GitHub commit identity."
+            exit 1
+          fi
+
+          project='seekerkrt%2Fmoguet'
+          response_file="$(mktemp)"
+          trap 'rm -f "$response_file"' EXIT
+
+          check_ref() {
+            local role="$1"
+            local branch="$2"
+            local expected="$3"
+            local encoded_ref url status observed attempt
+            encoded_ref="$(jq -rn --arg value "$branch" '$value | @uri')"
+            url="https://gitlab.com/api/v4/projects/${project}/repository/branches/${encoded_ref}"
+            observed='missing'
+
+            for ((attempt = 1; attempt <= 24; attempt++)); do
+              if ! status="$(curl --silent --show-error --location \
+                  --connect-timeout 10 --max-time 20 \
+                  --output "$response_file" --write-out '%{http_code}' "$url")"; then
+                echo "::error::GitLab API transport failure checking $role ref: $branch"
+                return 1
+              fi
+
+              case "$status" in
+                200)
+                  if ! observed="$(jq -er '.commit.id | select(type == "string" and test("^[0-9a-f]{40}$"))' "$response_file")"; then
+                    echo "::error::Invalid GitLab branch API response for $role ref: $branch"
+                    return 1
+                  fi
+                  if [[ "$observed" == "$expected" ]]; then
+                    echo "PASS: $role $branch -> $expected"
+                    return 0
+                  fi
+                  ;;
+                404)
+                  observed='missing'
+                  ;;
+                *)
+                  echo "::error::Unexpected GitLab API HTTP $status for $role ref: $branch"
+                  return 1
+                  ;;
+              esac
+
+              echo "Mirror pending: $role $branch (attempt $attempt/24, GitLab: $observed)"
+              if ((attempt < 24)); then
+                sleep 5
+              fi
+            done
+
+            echo "::error::GitLab mirror parity failed for $role ref: $branch"
+            echo "GitHub SHA: $expected"
+            echo "GitLab SHA: $observed"
+            return 1
+          }
+
+          # These are pre-merge branch identities, not the future merge commit.
+          check_ref base "$BASE_REF" "$BASE_SHA"
+          check_ref head "$HEAD_REF" "$HEAD_SHA"

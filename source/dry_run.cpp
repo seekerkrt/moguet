@@ -249,7 +249,7 @@ int run_upgrade_dry_run(const AppConfig& config) {
     SystemSourceUpgradePreparation preparation =
         prepare_system_source_upgrade(config);
     return std::visit(
-        [](const auto& authority) -> int {
+        [&config](const auto& authority) -> int {
             using Authority = std::decay_t<decltype(authority)>;
             if constexpr(std::is_same_v<
                              Authority,
@@ -261,7 +261,7 @@ int run_upgrade_dry_run(const AppConfig& config) {
                         localization::translate_message(
                             "System/source upgrade preflight has no projection authority."));
                 }
-                const auto registered = observe_registered_aur_devel_updates(*view);
+                const auto registered = observe_registered_aur_devel_updates(*view, aur_update_query_policy(config.user_config));
                 return render_dry_run_projection(
                     project_system_source_upgrade_unified_plan(
                         SystemSourceUpgradeUnifiedPlanProjectionInput{
@@ -278,7 +278,7 @@ int run_upgrade_dry_run(const AppConfig& config) {
 
 int run_upgrade_aur_dry_run(const AppConfig& config) {
     require_supported_production_source_build_options(config);
-    AurUpdateQueryResult query_result = query_installed_aur_updates();
+    AurUpdateQueryResult query_result = query_installed_aur_updates(aur_update_query_policy(config.user_config));
     PreparedFilteredAurUpdateOperation preparation =
         prepare_filtered_aur_update_operation(
             std::move(query_result), NoExplicitSourceSatisfaction{},
@@ -324,7 +324,7 @@ int run_upgrade_all_dry_run(
     }
     PreparedUpgradeAllAurPreflight aur_preflight =
         prepare_upgrade_all_aur_preflight(*snapshot, config);
-    const auto registered = observe_registered_aur_devel_updates(authority->system_source());
+    const auto registered = observe_registered_aur_devel_updates(authority->system_source(), aur_update_query_policy(config.user_config));
     return render_dry_run_projection(project_upgrade_all_unified_plan(
                                          *authority, aur_preflight, &registered),
                                      config.presentation_detail);

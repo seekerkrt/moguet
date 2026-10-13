@@ -15,7 +15,30 @@ bool selects_reviewed_devel_recipe(const std::string& contents,
     if(overlay || intent->request.needed || intent->rm_deps || intent->required_targets.size() != 1) return false;
     const auto parsed = parse_srcinfo_source_metadata(contents);
     const auto package = parse_local_package_metadata(contents);
-    if(!parsed.is_success() || !package.is_success() || package.metadata()->children.size() != 1) return false;
+    if(!parsed.is_success() || !package.is_success()) return false;
+    if(package.metadata()->children.size() != 1) {
+        // Only a normal automatic Version update may select this split shape.
+        // The flag is routing intent: correlate its selected child and AUR
+        // attribution before S4 obtains the independent evaluated proof.
+        const auto& request = intent->request;
+        const auto& target = intent->required_targets.front();
+        if(package.metadata()->children.size() < 2 || !request.ordinary_devel_package_base ||
+           request.only_if_updated || request.upgrade_patch || !request.aur_review_identity ||
+           !target.automatic_version_update || target.expected_full_version) return false;
+        const auto& base = *request.aur_review_identity;
+        const auto& source = base.source();
+        const auto& location = source.location();
+        const auto& version = *target.automatic_version_update;
+        if(source.kind() != PackageSourceKind::Aur || location.kind() != SourceLocationKind::GitRemote ||
+           location.state() != SourceLocationState::Known || !location.value() ||
+           *location.value() != "https://aur.archlinux.org/" + base.package_base() + ".git" ||
+           request.git_url != *location.value() || request.checkout_name != base.package_base() ||
+           parsed.metadata()->package_base != base.package_base() || package.metadata()->package_base != base.package_base() || target.package_base != base.package_base() ||
+           version.package_base != target.package_base || version.package_name != target.package_name ||
+           request.package_name != target.package_name ||
+           std::count_if(package.metadata()->children.begin(), package.metadata()->children.end(),
+                         [&](const auto& child) { return child.name == target.package_name; }) != 1) return false;
+    }
     unsigned git_count = 0;
     for(const auto& entry : parsed.metadata()->source_entries) {
         if(entry.architecture_qualifier) return false;
@@ -87,6 +110,12 @@ ReviewedDevelExecutionSnapshot execute_normal_reviewed_devel(PreparedReviewedDev
     out.owner = std::shared_ptr<const ReviewedDevelSourceBuildExecutionResult>(storage, &storage->value());
     const auto& result = *out.owner;
     out.build_completed = result.build_completed();
+    if(const auto* failure = result.build_failure()) {
+        out.build_cleanup_failed = failure->cleanup_consequence.has_value() ||
+                                   (failure->pinned_workspace_failure && !failure->pinned_workspace_failure->cleanup.succeeded());
+    }
+    if(const auto* cleanup = result.build_cleanup())
+        out.build_cleanup_failed = !std::holds_alternative<InvocationOwnedSourceBuildContextCleaned>(*cleanup);
     out.complete = reviewed_devel_execution_succeeded(result);
     if(const auto* publication = result.publication()) {
         const auto& installed = publication->installation();
@@ -98,6 +127,10 @@ ReviewedDevelExecutionSnapshot execute_normal_reviewed_devel(PreparedReviewedDev
         out.cleanup = installed.privileged_cleanup().state;
     }
     try {
+        if(const auto* failure = result.version_guard_failure()) {
+            out.version_guard_failure = *failure;
+            out.version_guard_diagnostic = automatic_aur_version_guard_diagnostic(*failure);
+        }
         if(const auto* failure = result.recipe_acquisition_failure()) out.recipe_acquisition_failure = *failure;
         if(const auto* failure = result.closure_failure()) out.closure_failure = *failure;
         if(const auto* failure = result.closure_review_failure()) {

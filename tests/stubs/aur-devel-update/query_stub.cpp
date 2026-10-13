@@ -1,6 +1,13 @@
 #include "aur_devel_update.hpp"
 #include <cstdlib>
+#include <fstream>
+namespace {
+void record_tracking_observation() {
+    if(const char* path = std::getenv("MOGUET_TEST_COMMAND_LOG")) std::ofstream(path, std::ios::app) << "tracking observation\n";
+}
+} // namespace
 namespace aur_devel_update_test_stub {
+unsigned refinement_calls = 0;
 unsigned registered_calls = 0;
 void reset_registered_calls() {
     registered_calls = 0;
@@ -10,6 +17,8 @@ unsigned registered_call_count() {
 }
 } // namespace aur_devel_update_test_stub
 std::vector<AurDevelUpdateObservation> refine_aur_devel_updates(AurUpdatePlan& plan) {
+    ++aur_devel_update_test_stub::refinement_calls;
+    record_tracking_observation();
     const char* value = std::getenv("MOGUET_TEST_INSPECTION_SCENARIO");
     const std::string scenario = value ? value : "";
     if(!scenario.starts_with("foreign-authoritative-")) return {};
@@ -23,21 +32,40 @@ std::vector<AurDevelUpdateObservation> refine_aur_devel_updates(AurUpdatePlan& p
     }
     return {};
 }
-AurUpdateQueryResult query_registered_aur_devel_update(const PackageBaseIdentity& base, const std::string& child) {
+AurUpdateQueryResult query_registered_aur_devel_update(const PackageBaseIdentity& base, const std::string& child, AurUpdateQueryPolicy policy) {
     ++aur_devel_update_test_stub::registered_calls;
     AurUpdateQueryResult result{make_aur_update_plan({AurUpdatePlanInput{child, "0-1", InstalledPackageReason::Explicit, AurUpdateRemotePackage{child, base.package_base(), "0-1", AurVersionRelation::SameAsInstalled}}}), {}, {}};
+    if(policy == AurUpdateQueryPolicy::VersionOnly) {
+        if(const char* value = std::getenv("MOGUET_TEST_REGISTERED_DEVEL_STATE")) {
+            const std::string state = value;
+            AurUpdateMetadataResult metadata = AurUpdateRemotePackage{child, base.package_base(), "0-1", AurVersionRelation::SameAsInstalled};
+            if(state == "version-comparison-unavailable")
+                metadata = AurUpdateRemotePackage{child, base.package_base(), "0-1", AurVersionRelation::Unavailable};
+            else if(state == "non-aur-foreign")
+                metadata = AurUpdateMetadataNotFound{};
+            else if(state == "metadata-unavailable") {
+                metadata = AurUpdateMetadataUnavailable{};
+                result.recoverable_failures.push_back({{child}, "registered fixture RPC transport failed"});
+            }
+            result.plan = make_aur_update_plan({AurUpdatePlanInput{child, "0-1", InstalledPackageReason::Explicit, std::move(metadata)}});
+        }
+        result.plan.entries.front().devel_assessment_origin = AurDevelAssessmentOrigin::DisabledByPolicy;
+        return result;
+    }
+    record_tracking_observation();
     if(const char* value = std::getenv("MOGUET_TEST_REGISTERED_DEVEL_STATE")) {
         const std::string state = value;
         auto& entry = result.plan.entries.front();
         entry.devel_assessment_origin = AurDevelAssessmentOrigin::CurrentObservation;
-        entry.devel_assessment = state == "different" ? DevelUpdateAssessment::update_available() : state == "unknown" ? DevelUpdateAssessment::unknown(DevelUnknownReason::RemoteObservationFailed)
-                                                                                                : state == "check"     ? DevelUpdateAssessment::requires_check(DevelRequiresCheckReason::ProvenanceMissing)
-                                                                                                                       : DevelUpdateAssessment::up_to_date();
+        entry.devel_assessment = state == "different" ? DevelUpdateAssessment::update_available() : state == "unknown"   ? DevelUpdateAssessment::unknown(DevelUnknownReason::RemoteObservationFailed)
+                                                                                                : state == "check"       ? DevelUpdateAssessment::requires_check(DevelRequiresCheckReason::ProvenanceMissing)
+                                                                                                : state == "unsupported" ? DevelUpdateAssessment::unsupported(DevelUnsupportedReason::UnsupportedVcs)
+                                                                                                                         : DevelUpdateAssessment::up_to_date();
     }
     return result;
 }
 
-std::vector<RegisteredAurDevelObservation> observe_registered_aur_devel_updates(const SystemSourceUpgradeProjectionAuthority&) {
+std::vector<RegisteredAurDevelObservation> observe_registered_aur_devel_updates(const SystemSourceUpgradeProjectionAuthority&, AurUpdateQueryPolicy) {
     return {};
 }
 

@@ -5,6 +5,7 @@
 #include <string>
 #include <variant>
 #include <vector>
+#include "installed_package.hpp"
 
 enum class DesiredInstallReason;
 
@@ -24,6 +25,18 @@ struct ProducedPackageArtifact {
     std::string package_name;
 };
 
+// Query evidence for one selected automatic Version update child. This is
+// neither a replacement pin nor build/install authority.
+struct AutomaticAurVersionUpdateIntent {
+    std::string package_base;
+    std::string package_name;
+    std::string observed_rpc_version;
+    std::string observed_installed_version;
+    InstalledPackageReason observed_installed_reason = InstalledPackageReason::Unknown;
+
+    bool operator==(const AutomaticAurVersionUpdateIntent&) const = default;
+};
+
 struct RequiredPackageArtifactTarget {
     std::string package_base;
     std::string package_name;
@@ -34,6 +47,7 @@ struct RequiredPackageArtifactTarget {
     // A confirmed coordinated replacement pins the full archive version.
     // Ordinary source/devel updates leave this unset.
     std::optional<std::string> expected_full_version = std::nullopt;
+    std::optional<AutomaticAurVersionUpdateIntent> automatic_version_update = std::nullopt;
 };
 
 struct PackageBaseArtifactSelectionRequest {

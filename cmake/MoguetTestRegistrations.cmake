@@ -937,6 +937,16 @@ moguet_add_ctest(
 )
 set_tests_properties(cpp.devel_tracking_bootstrap PROPERTIES TIMEOUT 480)
 
+# Keep the ordinary Version split regressions independently bounded; the
+# focused bootstrap frontend requires this shard alongside the existing lane.
+moguet_add_ctest(
+    NAME cpp.ordinary_version_split_devel_execution
+    TARGETS devel-tracking-bootstrap-test
+    COMMAND python3 "${PROJECT_SOURCE_DIR}/tests/test-devel-tracking-bootstrap.py" "$<TARGET_FILE:devel-tracking-bootstrap-test>" --ordinary-version-split
+    WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+)
+set_tests_properties(cpp.ordinary_version_split_devel_execution PROPERTIES TIMEOUT 300)
+
 foreach(_moguet_closure_shard IN ITEMS declarations objects failures tags)
     moguet_add_ctest(
         NAME "cpp.pinned_submodule_closure.${_moguet_closure_shard}"

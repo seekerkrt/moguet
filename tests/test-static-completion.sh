@@ -45,7 +45,7 @@ root_candidates=(
     -G -Gp -S -Syu -Su -Ss -Si -Qua
     -h --help -V --version
     --edit --noedit --diff --nodiff --noconfirm --dry-run --build-mode=
-    --rebuild --cleanbuild --rmdeps --select --aur --repo --details
+    --rebuild --cleanbuild --rmdeps --select --aur --repo --details --devel --no-devel
 )
 
 registration=$(complete -p moguet)
@@ -65,7 +65,7 @@ run_completion moguet upgrade-all --noedit ""
 assert_reply \
     "upgrade-allのoption scopeとconflict" \
     --noedit --diff --nodiff --noconfirm --dry-run --build-mode= \
-    --rebuild --cleanbuild --details
+    --rebuild --cleanbuild --details --devel --no-devel
 
 run_completion moguet upgrade-all unexpected-target ""
 assert_reply "targetless operationの不正operand後は候補を提示しない"
@@ -98,7 +98,7 @@ run_completion moguet --b
 assert_reply "attached-value option token" --build-mode=
 
 run_completion moguet --d
-assert_reply "diagnostic and dry-run option prefix" --diff --dry-run --details
+assert_reply "diagnostic, dry-run and tracking option prefix" --diff --dry-run --details --devel
 
 # enum / package候補のdynamic completionは#253へ残す。
 # Finite attached values are covered by the shared authority scenarios in
@@ -239,7 +239,7 @@ for sync_operation in -Syu -Su; do
     assert_reply \
         "$sync_operation Autoはnormal AUR対応optionとRepoOnly escape hatchを提示" \
         --edit --noedit --diff --nodiff --noconfirm --dry-run --details --build-mode= \
-        --rebuild --cleanbuild --needed --repo
+        --rebuild --cleanbuild --devel --no-devel --needed --repo
 
     run_completion moguet $sync_operation --repo ""
     assert_reply \

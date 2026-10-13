@@ -56,6 +56,9 @@ struct LocalPackageMetadata {
 };
 
 void reset_alpm_stub();
+// Ordered operand/result oracle, never a test implementation of Arch ordering.
+void enqueue_version_comparison(std::string lhs, std::string rhs, int result);
+void require_version_comparisons_consumed();
 
 void set_initialize_failure(alpm_errno_t error);
 void set_local_database_unavailable(alpm_errno_t error = ALPM_ERR_DB_NULL);
@@ -74,7 +77,8 @@ void enqueue_local_package_query_present(
     std::string expected_package_name,
     std::string returned_name,
     std::string version,
-    alpm_pkgreason_t reason);
+    alpm_pkgreason_t reason,
+    std::optional<std::string> package_base = std::nullopt);
 void enqueue_local_package_query_present_metadata(
     std::string expected_package_name,
     LocalPackageMetadata returned_package);

@@ -68,7 +68,8 @@ enum class AurUpdateEffectiveState {
 };
 
 enum class AurDevelAssessmentOrigin { Conservative,
-                                      CurrentObservation };
+                                      CurrentObservation,
+                                      DisabledByPolicy };
 enum class AurUpdateBasis { Version,
                             GitRevision };
 
@@ -143,6 +144,28 @@ DevelUpdateAssessment project_conservative_devel_update_assessment(
 // can expose a current devel assessment.
 AurUpdateEffectiveState project_aur_update_effective_state(
     const AurUpdatePlanEntry& entry) noexcept;
+
+// Shared by effective projection and the header-only preflight snapshot
+// firewall. Disabled carries only conservative suffix evidence, never a
+// current assessment. UpToDate here describes package versions only.
+inline bool has_consistent_version_only_devel_snapshot(const AurUpdatePlanEntry& entry) noexcept {
+    if(entry.devel_assessment_origin != AurDevelAssessmentOrigin::DisabledByPolicy ||
+       entry.classification != AurUpdateClassification::UpToDate || !entry.aur_package ||
+       entry.installed_name != entry.aur_package->aur_name || !entry.devel_classification ||
+       (entry.aur_package->version_relation != AurVersionRelation::SameAsInstalled &&
+        entry.aur_package->version_relation != AurVersionRelation::OlderThanInstalled)) return false;
+    const auto& classification = *entry.devel_classification;
+    const auto& suffix = classification.suffix_evidence();
+    if(suffix.package_base() != entry.aur_package->package_base || suffix.installed_children().size() != 1 ||
+       suffix.installed_children().front().package_name() != entry.installed_name) return false;
+    if(classification.evidence_level() == DevelEvidenceLevel::Normal)
+        return !suffix.has_candidate() && classification.source_form_disposition() == DevelSourceFormDisposition::NotApplicable &&
+               entry.devel_assessment == DevelUpdateAssessment::not_applicable();
+    return classification.evidence_level() == DevelEvidenceLevel::SuffixCandidate && suffix.has_candidate() &&
+           classification.source_form_disposition() == DevelSourceFormDisposition::RequiresCheck &&
+           classification.trusted_metadata().empty() && classification.successful_build_confirmations().empty() &&
+           entry.devel_assessment == DevelUpdateAssessment::requires_check(DevelRequiresCheckReason::SuffixCandidateOnly);
+}
 
 inline std::optional<AurUpdateBasis> aur_update_basis(const AurUpdatePlanEntry& entry) noexcept {
     if(entry.classification == AurUpdateClassification::UpdateAvailable) return AurUpdateBasis::Version;

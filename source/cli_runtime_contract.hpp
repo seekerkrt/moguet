@@ -27,6 +27,7 @@ enum class CliInvocationIssueKind {
     UnsupportedPresentationDetail,
     InvalidPatchSelection,
     InvalidPatchLifecycle,
+    UnsupportedDevelUpdateOption,
 };
 
 struct CliInvocationIssue {
@@ -72,6 +73,8 @@ ResolvedCliRuntimeContract resolve_cli_runtime_contract(
 // delegated pacman自身のopen grammarはそのまま返す。productionとdry-runの共通authority。
 CliInvocationValidation validate_cli_invocation_contract(
     const ParsedCliArguments& parsed);
+
+bool supports_devel_update_query(const ParsedCliArguments& parsed);
 
 // Typed issueを既存のlocalized CLI messageへ投影する。classificationはmessage
 // から推測せず、validate_cli_invocation_contractが明示した値を保持する。

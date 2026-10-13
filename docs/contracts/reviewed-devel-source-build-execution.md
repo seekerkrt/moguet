@@ -128,6 +128,13 @@ recipe revisionが同じなら既存Rを維持し、成功時だけS4/S5を根�
 non-devel、upgrade-aur/all、dry-run、explicit target、registered sourceには、このordinary activationを広げない。
 provenance v1 / 27 keysは不変。ordinary split groupのselected child / install reason契約も維持する。
 
+Issue #673 R2の通常Version splitは、このordinary activationをselected child 1件の対応one-Git subsetへ接続する。
+ordinary flagだけでdependencyを拡張せず、selected automatic Version intent、exact AUR / PackageBase / child
+相関を併せて要求する。recipe未承認のcompatibility armをLegacyへ消去せず対象subsetを拒否し、
+typed pin取得後のclosure review、SourceReady、common S4、selected-only S5/S6は既存ownerを再利用する。
+query OFF/ON、dry-run projectionやVersion evidenceから新しいreview / build / install authorityを作らない。
+scopeと対象外は[normal routes](devel-normal-routes.md#ordinary-version-split)を正とする。
+
 ## Lossless result / lifetime
 
 `ReviewedDevelSourceBuildExecutionResult`はmove-onlyでprivate construction。
