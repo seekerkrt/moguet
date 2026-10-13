@@ -742,23 +742,21 @@ v2.1.0固有の履歴は下記の`v2.1.0 post-release closure`として別に扱
 v2.11.0では、feature / contract / completion / localization等の実装変更はdevelop上で完了済みであり、
 release preparation自体のtracked変更は次の15 pathsへ限定する。
 
-```text
-VERSION
-CMakeLists.txt
-Makefile
-README.md
-README.ja.md
-RELEASE_NOTES.md
-docs/development.md
-man/moguet.1
-man/ja/moguet.1
-po/moguet.pot
-po/ja.po
-tests/evaluated_devel_source_build_test.cpp
-tests/fixtures/current-package/install-payload.txt
-tests/test-build-authority-closure.sh
-tests/test-install-layout.sh
-```
+    VERSION
+    CMakeLists.txt
+    Makefile
+    README.md
+    README.ja.md
+    RELEASE_NOTES.md
+    docs/development.md
+    man/moguet.1
+    man/ja/moguet.1
+    po/moguet.pot
+    po/ja.po
+    tests/evaluated_devel_source_build_test.cpp
+    tests/fixtures/current-package/install-payload.txt
+    tests/test-build-authority-closure.sh
+    tests/test-install-layout.sh
 
 `PKGBUILD`はroot `VERSION`を動的に読むため変更しない。
 `man/moguet.1.in` / `man/ja/moguet.1.in`は`@VERSION@`を保持するversion-independent templateなので
@@ -798,18 +796,16 @@ Issue #673、#674、#677はdevelopへ統合済みであり、release preparation
 root `VERSION`、current release案内、英日release notesとcanonical generatorの出力を更新する。
 今回のrelease metadata差分は次の10 pathsであり、v2.11.0のhistorical listを流用しない。
 
-```text
-VERSION
-README.md
-README.ja.md
-RELEASE_NOTES.md
-docs/development.md
-docs/project-stance.md
-man/moguet.1
-man/ja/moguet.1
-po/moguet.pot
-po/ja.po
-```
+    VERSION
+    README.md
+    README.ja.md
+    RELEASE_NOTES.md
+    docs/development.md
+    docs/project-stance.md
+    man/moguet.1
+    man/ja/moguet.1
+    po/moguet.pot
+    po/ja.po
 
 manは既存templateからMakeの各man targetで生成し、gettextは`make update-po`でPOT生成とJA同期を行う。
 msgmergeが保持するJA catalogの`Project-Id-Version`はrelease metadataとして2.12.0へ更新する。

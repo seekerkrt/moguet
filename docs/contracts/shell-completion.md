@@ -12,7 +12,7 @@ operation/form/operand、occurrence/conflict、allowed_values、fixed alias値�
 shell別のoption/value catalogue、upstream prose由来のarity/effect推測を作らない。
 
 | candidate | supported context | provider |
-|---|---|---|
+| --- | --- | --- |
 | local sync package名 | plain `-S`の最初のbare prefix、追加option/operandなし | private prefix helper、1回/event |
 | finite build mode | applicable formのattached `--build-mode=`、alias/final-value agreementを維持 | static allowed_values、0回 |
 | upstream option spelling | exact `-Q`のinitial/known transparent tail | pinned token projection、0回 |
