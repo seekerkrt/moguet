@@ -47,7 +47,7 @@ upstream code as safe. See the [validation policy](https://github.com/seekerkrt/
 <!-- parity:status -->
 ## Project status
 
-As of 2026-10-13, the current released stable version is **[v2.12.0](https://github.com/seekerkrt/moguet/releases/tag/v2.12.0)**.
+As of 2026-10-14, the current released stable version is **[v2.12.1](https://github.com/seekerkrt/moguet/releases/tag/v2.12.1)**.
 For the latest published stable, see the [latest GitHub Release](https://github.com/seekerkrt/moguet/releases/latest).
 Ongoing development is integrated on `develop`; `main` is the default branch and
 stable release line. The source tree's `VERSION`

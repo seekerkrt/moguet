@@ -173,11 +173,11 @@ AI等で実装可能でも、rare edge caseのためにgeneric frameworkを先�
 
 ## Current capabilityとcustomizationの姿勢
 
-2026-10-13時点の公開stableは **[v2.12.0](https://github.com/seekerkrt/moguet/releases/tag/v2.12.0)** である。
+2026-10-14時点の公開stableは **[v2.12.1](https://github.com/seekerkrt/moguet/releases/tag/v2.12.1)** である。
 最新の公開stableは[最新のGitHub Release](https://github.com/seekerkrt/moguet/releases/latest)で確認する。
 source treeの`VERSION`はbuild versionを表し、公開状態の証明ではない。
-同日時点の次の予定releaseは[v2.12.1 milestone #34](https://github.com/seekerkrt/moguet/milestone/34)で扱い、
-予定scopeを公開済みとは扱わない。以下の実装済み機能はv2.12.0にも収録済みであり、
+[v2.12.1 milestone #34](https://github.com/seekerkrt/moguet/milestone/34)は、
+公開済みv2.12.1のscopeを扱った履歴である。以下の実装済み機能はv2.12.0にも収録済みであり、
 develop上の後続変更や将来の拡張候補は公開stableの収録保証と区別する。
 
 - **Implemented current:** ordinary AUR-helperの主要workflow、provider選択、source-aware routing、

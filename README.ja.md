@@ -42,7 +42,7 @@ v2では日常利用できることを目指し、correctnessとregression preve
 <!-- parity:status -->
 ## Project status
 
-2026-10-13時点の公開stableは **[v2.12.0](https://github.com/seekerkrt/moguet/releases/tag/v2.12.0)** です。
+2026-10-14時点の公開stableは **[v2.12.1](https://github.com/seekerkrt/moguet/releases/tag/v2.12.1)** です。
 最新の公開stableは[最新のGitHub Release](https://github.com/seekerkrt/moguet/releases/latest)で確認してください。
 継続開発は`develop`へ統合し、`main`はdefault branch / stable release lineとして維持します。
 source treeの`VERSION`はbuild versionを表し、
