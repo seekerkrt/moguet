@@ -815,6 +815,49 @@ READMEとproject stanceは公開stable v2.11.0と準備中のv2.12.0を区別す
 候補固定後のfresh `release-validate`、current release notes payloadと独立監査の確認をもって
 RCを判定し、正式公開やcommit / pushの完了とは扱わない。stage対象は実行直前にactual diffと再照合する。
 
+### v2.12.1 release preparation exact path set
+
+この節は2026-10-14のv2.12.1 release preparation記録であり、公開状態のauthorityではない。
+scopeは[v2.12.1 milestone #34](https://github.com/seekerkrt/moguet/milestone/34)と、
+main `a22990039a7b0b903f3ab2ea435b646485b6fb4d`から
+develop `5c2ca012a55adaef7473f1581117beabafd3f2fd`へのactual tree diffで確定した。
+Issue #683の公開status / review手順 / offline checkerと、#686のMarkdown lint 17件の最小修正は
+developへ統合済みであり、再実装しない。#684は限定調査でMoguet production bugを確認せず、
+repository修正なしという完了結果をrelease notesへ反映する。
+
+v2.12.0に対して後方互換なPATCH maintenance releaseとする。
+production C++、CLI semantics、config / storage、package install behaviorは変更しない。
+release preparation自体のtracked差分は次の7 pathsへ限定し、過去releaseのpath setを流用しない。
+
+    VERSION
+    RELEASE_NOTES.md
+    docs/development.md
+    man/moguet.1
+    man/ja/moguet.1
+    po/moguet.pot
+    po/ja.po
+
+man EN/JAはMakeの各man targetで既存templateから生成し、POT / POは`make update-po`で同期する。
+msgmergeが保持するJA catalogの`Project-Id-Version`だけはrelease metadataとして2.12.1へ更新する。
+翻訳本文、man template、completion、`po/POTFILES.in`は変更しない。
+`PKGBUILD`はroot `VERSION`を動的に読むためcontent changeを必要としない。
+`RELEASE_NOTES.md`はv2.12.1の英日sectionを先頭へ追加し、v2.12.0以前のbytesを保持する。
+
+公開文書のpre-tag reviewでは、README EN/JAとproject stanceの2026-10-13時点の
+公開stable v2.12.0 snapshot、`releases/latest`、product status、milestoneの予定と履歴、
+tracking default OFFと移行案内を正式GitHub Releaseへ照合する。
+source `VERSION=2.12.1`を公開済みと読み替えず、同じ文書bytesがv2.12.1公開後も正しいことを確認する。
+既存文書はこの条件を満たすため、release preparationでは追加変更しない。
+
+この準備段階はgeneration、current payload抽出、focused validation、独立監査までを対象とし、
+fresh final RC、commit / push / PR、tag / Release公開、post-publication / closeout完了は別工程とする。
+focused evidenceをRC approvalへ昇格せず、final candidateでは`validation.md`のfresh RC epochを開始する。
+Issue #684の自然警告のexact errno / signalは未確定で、任意packageの無害性も保証しない。
+次のRC operatorは[#684 closeout](https://github.com/seekerkrt/moguet/issues/684#issuecomment-6140663705)の
+限定non-blocking判断と環境・artifact・install境界の再評価条件を適用し、警告を抑制しない。
+準備candidate、exact diff、各command / status、pre-tag reviewと監査結果はrepository外の
+`~/handoffs/moguet/release-v2.12.1/`に保存する。後続のstage対象は実行直前のactual diffから再確定する。
+
 ### v2.1.0 post-release closure
 
 mainからdevelopへの回収PRとGitLab mirror完了後、次の順にreleaseを閉じる。GitHubを
