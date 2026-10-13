@@ -509,9 +509,9 @@ ccache / mold parityは必要なreleaseでの追加validationであり、上記d
 それぞれのexact compile / link scopeとclean / incremental条件を`validation.md`に従って記録する。
 
 以下のstage例とその説明は**v2.8.0 release preparationのhistorical example**であり、当時のpath名を含む。
-current releaseのscope / stage対象のauthorityではない。v2.12.0のscopeは
-[v2.12.0 milestone](https://github.com/seekerkrt/moguet/milestone/33)を正とし、release preparationでは
-actual diffから新たなexact path setを定める。下記listをそのまま実行しない。
+current releaseのscope / stage対象のauthorityではない。v2.11.0のscopeは
+[v2.11.0 milestone](https://github.com/seekerkrt/moguet/milestone/32)を正とし、release preparationでは
+actual diffから新たなexact path setを定めた。下記listをそのまま実行しない。
 
     git status --short
 
@@ -646,33 +646,6 @@ fixture-localな`XDG_CONFIG_HOME`も所有させ、CTest間のambient config sta
 `make test-container`全体の再検証はいずれもPASSした。
 
 このpath setはv2.11.0だけのrelease-preparation authorityであり、後続releaseへ流用しない。
-
-### v2.12.0 release preparation exact path set
-
-Issue #673、#674、#677はdevelopへ統合済みであり、release preparationでは再実装しない。
-root `VERSION`、current release案内、英日release notesとcanonical generatorの出力を更新する。
-今回のrelease metadata差分は次の10 pathsであり、v2.11.0のhistorical listを流用しない。
-
-```text
-VERSION
-README.md
-README.ja.md
-RELEASE_NOTES.md
-docs/development.md
-docs/project-stance.md
-man/moguet.1
-man/ja/moguet.1
-po/moguet.pot
-po/ja.po
-```
-
-manは既存templateからMakeの各man targetで生成し、gettextは`make update-po`でPOT生成とJA同期を行う。
-msgmergeが保持するJA catalogの`Project-Id-Version`はrelease metadataとして2.12.0へ更新する。
-`PKGBUILD`はroot `VERSION`を動的に読み、man template、completion、`po/POTFILES.in`は今回の
-version変更に依存しないため変更しない。production code、tests、build設定の変更も含めない。
-READMEとproject stanceは公開stable v2.11.0と準備中のv2.12.0を区別する。
-候補固定後のfresh `release-validate`、current release notes payloadと独立監査の確認をもって
-RCを判定し、正式公開やcommit / pushの完了とは扱わない。stage対象は実行直前にactual diffと再照合する。
 
 merge 後:
 
