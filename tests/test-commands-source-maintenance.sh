@@ -2602,6 +2602,86 @@ for policy in built-in explicit-off; do
     done
 done
 
+# Normal AUR query failures stay distinct in OFF mode and never enter the
+# .SRCINFO/system-baseline fallback or any build/install/publication owner.
+# Match the other CLI localization fixtures: use the current build's catalog
+# and a controlled non-C LC_MESSAGES locale, never an installed host catalog.
+mkdir -p "$tmp_dir/locales"
+localedef --no-archive -i en_US -f UTF-8 "$tmp_dir/locales/en_US.UTF-8"
+for language in en ja; do
+    for query_failure in version-comparison-unavailable non-aur-foreign metadata-unavailable; do
+        case $language:$query_failure in
+            en:version-comparison-unavailable)
+                query_diagnostic='AUR version comparison is unavailable for clean-root; no automatic build.'
+                ;;
+            en:non-aur-foreign)
+                query_diagnostic='Exact AUR child clean-root was not found; no automatic build.'
+                ;;
+            en:metadata-unavailable)
+                query_diagnostic='AUR update metadata is unavailable for clean-root; no automatic build.'
+                ;;
+            ja:version-comparison-unavailable)
+                query_diagnostic='AUR のバージョン比較を利用できません (clean-root)。自動ビルドは行いません。'
+                ;;
+            ja:non-aur-foreign)
+                query_diagnostic='AUR に完全一致する子パッケージ clean-root が見つかりません。自動ビルドは行いません。'
+                ;;
+            ja:metadata-unavailable)
+                query_diagnostic='AUR の更新メタデータを取得できません (clean-root)。自動ビルドは行いません。'
+                ;;
+        esac
+        for route in upgrade-normal upgrade-all-normal upgrade-all-detailed; do
+            setup_upgrade_transition_case "registered-version-query-$language-$query_failure-$route" \
+                1.0-1 1.0-1 enabled https://aur.archlinux.org/clean-root.git
+            if [ "$language" = ja ]; then
+                export LOCPATH=$tmp_dir/locales LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 LANGUAGE=ja
+            else
+                export LANG=C LC_ALL=C
+                unset LANGUAGE LOCPATH
+            fi
+            export MOGUET_TEST_REGISTERED_DEVEL_STATE=$query_failure
+            if [ "$route" = upgrade-normal ]; then
+                set -- --noedit --nodiff --noconfirm upgrade
+            else
+                set -- --noedit --nodiff --noconfirm upgrade-all
+                [ "$route" != upgrade-all-detailed ] || set -- --details "$@"
+            fi
+            run_upgrade_fail "$@"
+            assert_contains "$query_diagnostic" "$output_file"
+            assert_not_contains 'Devel automatic update is unsupported.' "$output_file"
+            assert_not_contains 'Git revision matches' "$output_file"
+            assert_not_contains 'is up to date' "$output_file"
+            assert_command_content_absent 'tracking observation'
+            assert_command_content_absent 'git '
+            # upgrade-all may query ordinary AUR versions in its read-only
+            # preflight. It must not enter registered source-baseline fallback.
+            if [ "$route" = upgrade-normal ]; then
+                assert_command_content_absent 'vercmp '
+            fi
+            assert_command_content_absent 'makepkg'
+            assert_command_content_absent 'pacman -U'
+            assert_file_equals "$installed_version_before" "$installed_version_state"
+            assert_file_equals "$initial_srcinfo" "$checkout_dir/.SRCINFO"
+            if [ -e "$case_dir/xdg-state/moguet/devel-build-provenance" ] ||
+               [ -e "$case_dir/home/.local/state/moguet/devel-build-provenance" ]; then
+                echo 'query failure published devel provenance' >&2
+                exit 1
+            fi
+            printf 'I677 registered query %s/%s/%s: exit1; tracking/build/install/publication0\n' \
+                "$language" "$query_failure" "$route"
+            grep -F "$query_diagnostic" "$output_file"
+        done
+    done
+done
+export LANG=C LC_ALL=C
+unset LANGUAGE LOCPATH
+
+# upgrade does not support --details; diagnostics must not widen CLI grammar.
+setup_case registered-upgrade-details-unsupported
+run_upgrade_fail --details upgrade
+assert_contains 'Option --details is not supported for operation upgrade.' "$output_file"
+assert_total_command_count 0
+
 # RequiresCheck remains a successful legacy skip with final identity/reason.
 for check_answer in explicit-no noninteractive noconfirm; do
     setup_upgrade_transition_case "upgrade-requires-check-$check_answer" \

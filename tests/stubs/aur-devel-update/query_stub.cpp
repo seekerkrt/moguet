@@ -36,6 +36,19 @@ AurUpdateQueryResult query_registered_aur_devel_update(const PackageBaseIdentity
     ++aur_devel_update_test_stub::registered_calls;
     AurUpdateQueryResult result{make_aur_update_plan({AurUpdatePlanInput{child, "0-1", InstalledPackageReason::Explicit, AurUpdateRemotePackage{child, base.package_base(), "0-1", AurVersionRelation::SameAsInstalled}}}), {}, {}};
     if(policy == AurUpdateQueryPolicy::VersionOnly) {
+        if(const char* value = std::getenv("MOGUET_TEST_REGISTERED_DEVEL_STATE")) {
+            const std::string state = value;
+            AurUpdateMetadataResult metadata = AurUpdateRemotePackage{child, base.package_base(), "0-1", AurVersionRelation::SameAsInstalled};
+            if(state == "version-comparison-unavailable")
+                metadata = AurUpdateRemotePackage{child, base.package_base(), "0-1", AurVersionRelation::Unavailable};
+            else if(state == "non-aur-foreign")
+                metadata = AurUpdateMetadataNotFound{};
+            else if(state == "metadata-unavailable") {
+                metadata = AurUpdateMetadataUnavailable{};
+                result.recoverable_failures.push_back({{child}, "registered fixture RPC transport failed"});
+            }
+            result.plan = make_aur_update_plan({AurUpdatePlanInput{child, "0-1", InstalledPackageReason::Explicit, std::move(metadata)}});
+        }
         result.plan.entries.front().devel_assessment_origin = AurDevelAssessmentOrigin::DisabledByPolicy;
         return result;
     }

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.11.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-12 18:01+0900\n"
+"POT-Creation-Date: 2026-10-13 10:33+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -8226,6 +8226,21 @@ msgid "Devel update requires check. Continue with an explicit reviewed rebuild?"
 msgstr ""
 
 msgid "Devel package requires check; explicit rebuild was not accepted."
+msgstr ""
+
+#. TRANSLATORS: The placeholders are the AUR project identity and exact child package name.
+#, c++-format
+msgid "{} version comparison is unavailable for {}; no automatic build."
+msgstr ""
+
+#. TRANSLATORS: The placeholders are the AUR project identity and exact child package name.
+#, c++-format
+msgid "Exact {} child {} was not found; no automatic build."
+msgstr ""
+
+#. TRANSLATORS: The placeholders are the AUR project identity and exact child package name.
+#, c++-format
+msgid "{} update metadata is unavailable for {}; no automatic build."
 msgstr ""
 
 #, c++-format

@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Moguet 2.11.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-12 18:01+0900\n"
+"POT-Creation-Date: 2026-10-13 10:33+0900\n"
 "PO-Revision-Date: 2026-10-12 18:00+0900\n"
 "Last-Translator: Moguet contributors\n"
 "Language-Team: Japanese\n"
@@ -8222,6 +8222,21 @@ msgstr "devel更新は確認が必要です。ソース確認を伴う明示的�
 
 msgid "Devel package requires check; explicit rebuild was not accepted."
 msgstr "develパッケージは確認が必要です。明示的な再ビルドは承認されませんでした。"
+
+#. TRANSLATORS: The placeholders are the AUR project identity and exact child package name.
+#, c++-format
+msgid "{} version comparison is unavailable for {}; no automatic build."
+msgstr "{} のバージョン比較を利用できません ({})。自動ビルドは行いません。"
+
+#. TRANSLATORS: The placeholders are the AUR project identity and exact child package name.
+#, c++-format
+msgid "Exact {} child {} was not found; no automatic build."
+msgstr "{} に完全一致する子パッケージ {} が見つかりません。自動ビルドは行いません。"
+
+#. TRANSLATORS: The placeholders are the AUR project identity and exact child package name.
+#, c++-format
+msgid "{} update metadata is unavailable for {}; no automatic build."
+msgstr "{} の更新メタデータを取得できません ({})。自動ビルドは行いません。"
 
 #, c++-format
 msgid "{} private artifact workspace preparation failed."

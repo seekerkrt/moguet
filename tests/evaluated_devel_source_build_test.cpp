@@ -3198,6 +3198,9 @@ void test_reviewed_devel_execution_bridge(bool normal = false, const std::string
                                              "outer-singular-publication-failure", "outer-singular-publication-unknown", "outer-singular-cleanup-failure", "outer-singular-no-allocation",
                                              "outer-set-publication-failure", "outer-set-publication-unknown", "outer-set-cleanup-failure", "outer-set-no-allocation"};
     if(normal && !bootstrap) bridge_cases.emplace_back("exact-version-intent");
+    if(normal && !bootstrap)
+        for(const auto* mode : {"registered-version-comparison-unavailable", "registered-non-aur-foreign", "registered-metadata-unavailable"})
+            bridge_cases.emplace_back(mode);
     if(!bootstrap)
         for(const auto* mode : {"version-guard-success", "version-guard-equal-rpc", "version-guard-epoch", "version-guard-same", "version-guard-older", "version-guard-rpc-unmet", "version-guard-drift", "version-guard-disappeared", "version-guard-observer", "version-guard-cleanup"})
             bridge_cases.emplace_back(mode);
@@ -5481,6 +5484,42 @@ done
             require(aur_devel_update_test_stub::registered_call_count() == 1 && build_entries == 0 && prepare_calls == 0 && execute_calls == 0, "registered negative repeated query or built");
             fixture.require_no_provenance_publication();
             std::cout << "S7D normal registered " << mode << " / query1 / build0 / publication0 PASS\n";
+            continue;
+        }
+        if(normal && (mode == "registered-version-comparison-unavailable" || mode == "registered-non-aur-foreign" || mode == "registered-metadata-unavailable")) {
+            const auto result = fixture.normal_execution(intent, true, false, PresentationDetail::Normal, false);
+            require(result.status == SourceBuildExecutionStatus::AuthoritativeIncomplete && result.devel_update_query && !result.devel_execution &&
+                        !result.production_outcome && !result.devel_rebuild_confirmation,
+                    "VersionOnly query failure entered build/install or became a successful skip");
+            const auto& query = *result.devel_update_query;
+            require(query.plan.entries.size() == 1 && query.devel_observations.empty(), "VersionOnly failure lost its exact child or observed Git");
+            const auto& entry = query.plan.entries.front();
+            const auto expected_classification = mode == "registered-version-comparison-unavailable" ? AurUpdateClassification::VersionComparisonUnavailable : mode == "registered-non-aur-foreign" ? AurUpdateClassification::NonAurForeign
+                                                                                                                                                                                                    : AurUpdateClassification::MetadataUnavailable;
+            const auto expected_effective = mode == "registered-version-comparison-unavailable" ? AurUpdateEffectiveState::VersionComparisonUnavailable : mode == "registered-non-aur-foreign" ? AurUpdateEffectiveState::NonAurForeign
+                                                                                                                                                                                               : AurUpdateEffectiveState::MetadataUnavailable;
+            require(entry.classification == expected_classification && project_aur_update_effective_state(entry) == expected_effective &&
+                        entry.installed_name == fixture.package_name() && entry.installed_version == "0-1" && entry.install_reason == InstalledPackageReason::Explicit &&
+                        entry.devel_assessment_origin == AurDevelAssessmentOrigin::DisabledByPolicy,
+                    "VersionOnly failure lost its original typed query reason or installed binding");
+            if(mode == "registered-version-comparison-unavailable")
+                require(entry.aur_package && entry.aur_package->aur_name == fixture.package_name() && entry.aur_package->package_base == fixture.package_base() &&
+                            entry.aur_package->version == "0-1" && entry.aur_package->version_relation == AurVersionRelation::Unavailable && query.recoverable_failures.empty(),
+                        "Unavailable comparison lost successful RPC evidence");
+            else
+                require(!entry.aur_package, "Missing/unavailable child acquired fabricated RPC metadata");
+            if(mode == "registered-metadata-unavailable")
+                require(query.recoverable_failures == std::vector<AurUpdateQueryFailure>{{{fixture.package_name()}, "registered fixture RPC transport failed"}},
+                        "Metadata failure lost its original recoverable query reason");
+            else
+                require(query.recoverable_failures.empty(), "Confirmed child absence acquired a fabricated RPC failure");
+            const std::string expected_diagnostic = mode == "registered-version-comparison-unavailable" ? "AUR version comparison is unavailable for " + fixture.package_name() + "; no automatic build." : mode == "registered-non-aur-foreign" ? "Exact AUR child " + fixture.package_name() + " was not found; no automatic build."
+                                                                                                                                                                                                                                                 : "AUR update metadata is unavailable for " + fixture.package_name() + "; no automatic build.";
+            require(result.diagnostic == expected_diagnostic, "Normal AUR Version query failure was misclassified as devel unsupported");
+            require(aur_devel_update_test_stub::registered_call_count() == 1 && build_entries == 0 && prepare_calls == 0 && execute_calls == 0 && g_bridge_publication_entries == 0,
+                    "VersionOnly query failure repeated the query or started build/install/publication");
+            fixture.require_no_provenance_publication();
+            std::cout << "I677 registered " << mode << " / typed-reason / query1 / Git0 / build0 / install0 / publication0 PASS\n";
             continue;
         }
         if(normal && (mode == "new-dependency" || mode == "promotion" || mode == "needed" || mode == "split" || mode == "rmdeps" || mode == "only-if-updated" || mode == "legacy" || mode == "overlay" || mode == "overlay-legacy")) {
